@@ -1,0 +1,95 @@
+// Nutricare CRM — Prisma Schema
+// Database: PostgreSQL (Neon)
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ─── Enums ───────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  ADMIN
+  SALES_REP
+  DELIVERY_AGENT
+  DATA_ANALYST
+  ACCOUNTANT
+  INVENTORY_MANAGER
+  WAREHOUSE_MANAGER
+  LOGISTICS_MANAGER
+}
+
+enum OrderStatus {
+  CREATED
+  CONFIRMED
+  ASSIGNED
+  DELIVERED
+  COMPLETED
+}
+
+enum TransactionType {
+  CREDIT
+  DEBIT
+  REFUND
+}
+
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+// ─── Models ──────────────────────────────────────────────────────────────────
+
+model User {
+  id            String         @id @default(cuid())
+  name          String
+  email         String         @unique
+  password      String
+  role          UserRole       @default(SALES_REP)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  deliveryAgent DeliveryAgent?
+
+  @@map("users")
+}
+
+model Order {
+  id           String      @id @default(cuid())
+  status       OrderStatus @default(CREATED)
+  totalAmount  Decimal     @db.Decimal(10, 2)
+  customerName String
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@map("orders")
+}
+
+model DeliveryAgent {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  isAvailable Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("delivery_agents")
+}
+
+model Transaction {
+  id        String            @id @default(cuid())
+  type      TransactionType
+  amount    Decimal           @db.Decimal(10, 2)
+  status    TransactionStatus @default(PENDING)
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+
+  @@map("transactions")
+}
