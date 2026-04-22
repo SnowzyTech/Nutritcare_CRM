@@ -49,14 +49,16 @@ enum TransactionStatus {
 // ─── Models ──────────────────────────────────────────────────────────────────
 
 model User {
-  id            String         @id @default(cuid())
-  name          String
-  email         String         @unique
-  password      String
-  role          UserRole       @default(SALES_REP)
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-  deliveryAgent DeliveryAgent?
+  id              String         @id @default(cuid())
+  name            String
+  email           String         @unique
+  password        String
+  role            UserRole       @default(SALES_REP)
+  phone           String?
+  whatsappNumber  String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  deliveryAgent   DeliveryAgent?
 
   @@map("users")
 }

@@ -15,6 +15,8 @@ export async function createUser(data: {
   email: string;
   password: string;
   role?: UserRole;
+  phone?: string;
+  whatsapp?: string;
 }) {
   const existing = await prisma.user.findUnique({ where: { email: data.email } });
   if (existing) {
@@ -29,12 +31,16 @@ export async function createUser(data: {
       email: data.email,
       password: hashedPassword,
       role: data.role ?? "SALES_REP",
+      phone: data.phone ?? null,
+      whatsappNumber: data.whatsapp ?? null,
     },
     select: {
       id: true,
       name: true,
       email: true,
       role: true,
+      phone: true,
+      whatsappNumber: true,
       createdAt: true,
     },
   });

@@ -1,8 +1,8 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import { signupAction, type SignupActionState } from "@/modules/auth/actions/signup.action";
-import { Loader2, Lock, Mail, User, ChevronDown, Leaf } from "lucide-react";
+import { Loader2, ArrowRight } from "lucide-react";
 import Link from "next/link";
 
 const initialState: SignupActionState = {};
@@ -17,163 +17,432 @@ const roleOptions = [
   { value: "LOGISTICS_MANAGER", label: "Logistics Manager" },
 ];
 
-const inputClass =
-  "w-full rounded-lg border border-white/10 bg-white/5 py-2.5 pl-10 pr-4 text-sm text-white placeholder:text-slate-500 focus:border-emerald-500/50 focus:outline-none focus:ring-1 focus:ring-emerald-500/50 transition";
+// ── Inline styles helpers ────────────────────────────────────────────────
+const inputStyle: React.CSSProperties = {
+  width: "100%",
+  padding: "0.75rem 1rem",
+  borderRadius: "0.375rem",
+  border: "1.5px solid #e5e7eb",
+  background: "#fff",
+  color: "#111",
+  fontSize: "0.9rem",
+  outline: "none",
+  transition: "border-color 0.2s",
+};
 
+const labelStyle: React.CSSProperties = {
+  display: "block",
+  fontSize: "0.85rem",
+  fontWeight: 500,
+  color: "#374151",
+  marginBottom: "0.4rem",
+};
+
+const fieldStyle: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+};
+
+// ── Step indicator ───────────────────────────────────────────────────────
+function StepIndicator({ current, total }: { current: number; total: number }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 0, marginBottom: "2.5rem" }}>
+      {Array.from({ length: total }).map((_, i) => {
+        const stepNum = i + 1;
+        const isActive = stepNum === current;
+        const isDone = stepNum < current;
+        return (
+          <div key={i} style={{ display: "flex", alignItems: "center" }}>
+            {/* Circle */}
+            <div
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: "50%",
+                border: isActive || isDone ? "2px solid #8B2FE8" : "2px solid #d1d5db",
+                background: isDone ? "#8B2FE8" : isActive ? "#fff" : "#fff",
+                color: isDone ? "#fff" : isActive ? "#8B2FE8" : "#9ca3af",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: "0.78rem",
+                fontWeight: 600,
+                flexShrink: 0,
+                zIndex: 1,
+                transition: "all 0.3s",
+              }}
+            >
+              {stepNum}
+            </div>
+            {/* Connector */}
+            {i < total - 1 && (
+              <div
+                style={{
+                  height: 2,
+                  width: 120,
+                  background: stepNum < current ? "#8B2FE8" : "#e5e7eb",
+                  transition: "background 0.3s",
+                }}
+              />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Main component ───────────────────────────────────────────────────────
 export default function SignupPage() {
   const [state, action, isPending] = useActionState(signupAction, initialState);
+  const [step, setStep] = useState(1);
+
+  // Step 1 local state (collected before submission)
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [whatsapp, setWhatsapp] = useState("");
+  const [workEmail, setWorkEmail] = useState("");
+  const [role, setRole] = useState(state.fields?.role ?? "");
+
+  // Step 2 local state
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+
+  // Validation for step 1 advance
+  const canAdvance = firstName && lastName && phone && workEmail && role;
 
   return (
-    <div className="w-full max-w-md px-6">
-      <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl shadow-2xl p-8">
-        {/* Brand */}
-        <div className="flex flex-col items-center mb-8">
-          <div className="flex items-center justify-center w-14 h-14 rounded-2xl bg-emerald-500/20 border border-emerald-500/30 mb-4">
-            <Leaf className="w-7 h-7 text-emerald-400" />
-          </div>
-          <h1 className="text-2xl font-bold text-white tracking-tight">
-            Nutricare CRM
-          </h1>
-          <p className="text-sm text-slate-400 mt-1">Create your account</p>
-        </div>
+    <div
+      style={{
+        minHeight: "100vh",
+        background: "#f3f4f6",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "2rem 1rem",
+        fontFamily: "'Inter', system-ui, sans-serif",
+      }}
+    >
+      {/* ── Step indicator (outside card) ── */}
+      <div style={{ width: "100%", maxWidth: 640, marginBottom: 0 }}>
+        <StepIndicator current={step} total={3} />
+      </div>
 
-        {/* Error */}
+      {/* ── Card ── */}
+      <div
+        style={{
+          width: "100%",
+          maxWidth: 640,
+          background: "#fff",
+          borderRadius: "1rem",
+          boxShadow: "0 4px 32px rgba(0,0,0,0.08)",
+          padding: "2.5rem 2.5rem 2rem",
+        }}
+      >
+        {/* Error banner */}
         {state?.error && (
-          <div className="mb-5 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+          <div
+            style={{
+              marginBottom: "1.25rem",
+              padding: "0.75rem 1rem",
+              borderRadius: "0.5rem",
+              background: "#fef2f2",
+              border: "1px solid #fecaca",
+              color: "#dc2626",
+              fontSize: "0.875rem",
+            }}
+          >
             {state.error}
           </div>
         )}
 
-        <form action={action} className="space-y-5">
-          {/* Full name */}
-          <div className="space-y-1.5">
-            <label htmlFor="name" className="block text-sm font-medium text-slate-300">
-              Full name
-            </label>
-            <div className="relative">
-              <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-              <input
-                id="name"
-                name="name"
-                type="text"
-                autoComplete="name"
-                required
-                placeholder="Jane Smith"
-                defaultValue={state.fields?.name ?? ""}
-                key={`name-${state.fields?.name}`}
-                className={inputClass}
-              />
-            </div>
-          </div>
+        {/* ── Step 1: Personal Info ── */}
+        {step === 1 && (
+          <>
+            <h1 style={{ fontSize: "1.75rem", fontWeight: 700, color: "#111827", marginBottom: "0.35rem" }}>
+              Personal Info
+            </h1>
+            <p style={{ color: "#6b7280", fontSize: "0.875rem", marginBottom: "2rem" }}>
+              Provide all necessary informations
+            </p>
 
-          {/* Email */}
-          <div className="space-y-1.5">
-            <label htmlFor="email" className="block text-sm font-medium text-slate-300">
-              Email address
-            </label>
-            <div className="relative">
-              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-              <input
-                id="email"
-                name="email"
-                type="email"
-                autoComplete="email"
-                required
-                placeholder="you@example.com"
-                defaultValue={state.fields?.email ?? ""}
-                key={`email-${state.fields?.email}`}
-                className={inputClass}
-              />
-            </div>
-          </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.25rem 1.5rem" }}>
+              {/* First Name */}
+              <div style={fieldStyle}>
+                <label style={labelStyle}>First Name</label>
+                <input
+                  id="firstName"
+                  type="text"
+                  placeholder="Enter First Name"
+                  value={firstName}
+                  onChange={e => setFirstName(e.target.value)}
+                  style={inputStyle}
+                  onFocus={e => (e.currentTarget.style.borderColor = "#8B2FE8")}
+                  onBlur={e => (e.currentTarget.style.borderColor = "#e5e7eb")}
+                />
+              </div>
 
-          {/* Role */}
-          <div className="space-y-1.5">
-            <label htmlFor="role" className="block text-sm font-medium text-slate-300">
-              Role
-            </label>
-            <div className="relative">
-              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" />
-              <select
-                id="role"
-                name="role"
-                required
-                defaultValue={state.fields?.role ?? ""}
-                key={`role-${state.fields?.role}`}
-                className="w-full appearance-none rounded-lg border border-white/10 bg-white/5 py-2.5 pl-4 pr-10 text-sm text-white focus:border-emerald-500/50 focus:outline-none focus:ring-1 focus:ring-emerald-500/50 transition"
+              {/* Last Name */}
+              <div style={fieldStyle}>
+                <label style={labelStyle}>Last Name</label>
+                <input
+                  id="lastName"
+                  type="text"
+                  placeholder="Enter Last Name"
+                  value={lastName}
+                  onChange={e => setLastName(e.target.value)}
+                  style={inputStyle}
+                  onFocus={e => (e.currentTarget.style.borderColor = "#8B2FE8")}
+                  onBlur={e => (e.currentTarget.style.borderColor = "#e5e7eb")}
+                />
+              </div>
+
+              {/* Phone Number */}
+              <div style={fieldStyle}>
+                <label style={labelStyle}>Phone Number</label>
+                <input
+                  id="phone"
+                  type="tel"
+                  placeholder="Enter Phone Number"
+                  value={phone}
+                  onChange={e => setPhone(e.target.value)}
+                  style={inputStyle}
+                  onFocus={e => (e.currentTarget.style.borderColor = "#8B2FE8")}
+                  onBlur={e => (e.currentTarget.style.borderColor = "#e5e7eb")}
+                />
+              </div>
+
+              {/* WhatsApp Number */}
+              <div style={fieldStyle}>
+                <label style={labelStyle}>WhatsApp Number</label>
+                <input
+                  id="whatsapp"
+                  type="tel"
+                  placeholder="Enter WhatsApp Number"
+                  value={whatsapp}
+                  onChange={e => setWhatsapp(e.target.value)}
+                  style={inputStyle}
+                  onFocus={e => (e.currentTarget.style.borderColor = "#8B2FE8")}
+                  onBlur={e => (e.currentTarget.style.borderColor = "#e5e7eb")}
+                />
+              </div>
+
+              {/* Work Email */}
+              <div style={fieldStyle}>
+                <label style={labelStyle}>Work Email</label>
+                <input
+                  id="workEmail"
+                  type="email"
+                  placeholder="Enter Your Work Email"
+                  value={workEmail}
+                  onChange={e => setWorkEmail(e.target.value)}
+                  style={inputStyle}
+                  onFocus={e => (e.currentTarget.style.borderColor = "#8B2FE8")}
+                  onBlur={e => (e.currentTarget.style.borderColor = "#e5e7eb")}
+                />
+              </div>
+
+              {/* Role */}
+              <div style={fieldStyle}>
+                <label style={labelStyle}>Role</label>
+                <div style={{ position: "relative" }}>
+                  <select
+                    id="roleSelect"
+                    value={role}
+                    onChange={e => setRole(e.target.value)}
+                    style={{
+                      ...inputStyle,
+                      appearance: "none",
+                      paddingRight: "2.5rem",
+                      cursor: "pointer",
+                      color: role ? "#111" : "#9ca3af",
+                    }}
+                    onFocus={e => (e.currentTarget.style.borderColor = "#8B2FE8")}
+                    onBlur={e => (e.currentTarget.style.borderColor = "#e5e7eb")}
+                  >
+                    <option value="" disabled>Sales Rep</option>
+                    {roleOptions.map(opt => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                  <svg
+                    style={{ position: "absolute", right: "0.75rem", top: "50%", transform: "translateY(-50%)", pointerEvents: "none", color: "#9ca3af" }}
+                    width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+                  >
+                    <path d="M6 9l6 6 6-6" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </div>
+              </div>
+            </div>
+
+            {/* Continue button */}
+            <button
+              id="step1-continue"
+              type="button"
+              disabled={!canAdvance}
+              onClick={() => canAdvance && setStep(2)}
+              style={{
+                width: "100%",
+                marginTop: "2rem",
+                padding: "0.9rem",
+                borderRadius: "0.5rem",
+                border: "none",
+                background: canAdvance ? "#8B2FE8" : "#d1d5db",
+                color: "#fff",
+                fontSize: "1rem",
+                fontWeight: 600,
+                cursor: canAdvance ? "pointer" : "not-allowed",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "0.5rem",
+                transition: "background 0.2s",
+              }}
+            >
+              Continue <ArrowRight size={18} />
+            </button>
+
+            <p style={{ marginTop: "1.25rem", textAlign: "center", fontSize: "0.8rem", color: "#9ca3af" }}>
+              Already have an account?{" "}
+              <Link href="/login" style={{ color: "#8B2FE8", fontWeight: 600, textDecoration: "none" }}>
+                Sign in
+              </Link>
+            </p>
+          </>
+        )}
+
+        {/* ── Step 2: Account Security ── */}
+        {step === 2 && (
+          <form action={action}>
+            {/* Hidden fields carry step 1 data through the server action */}
+            <input type="hidden" name="name" value={`${firstName} ${lastName}`} />
+            <input type="hidden" name="email" value={workEmail} />
+            <input type="hidden" name="role" value={role} />
+            <input type="hidden" name="phone" value={phone} />
+            <input type="hidden" name="whatsapp" value={whatsapp} />
+
+            <h1 style={{ fontSize: "1.75rem", fontWeight: 700, color: "#111827", marginBottom: "0.35rem" }}>
+              Account Security
+            </h1>
+            <p style={{ color: "#6b7280", fontSize: "0.875rem", marginBottom: "2rem" }}>
+              Set a strong password for your account
+            </p>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+              {/* Password */}
+              <div style={fieldStyle}>
+                <label style={labelStyle}>Password</label>
+                <input
+                  id="password"
+                  name="password"
+                  type="password"
+                  autoComplete="new-password"
+                  required
+                  placeholder="Min. 8 chars with a letter & number"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  style={inputStyle}
+                  onFocus={e => (e.currentTarget.style.borderColor = "#8B2FE8")}
+                  onBlur={e => (e.currentTarget.style.borderColor = "#e5e7eb")}
+                />
+              </div>
+
+              {/* Confirm Password */}
+              <div style={fieldStyle}>
+                <label style={labelStyle}>Confirm Password</label>
+                <input
+                  id="confirmPassword"
+                  name="confirmPassword"
+                  type="password"
+                  autoComplete="new-password"
+                  required
+                  placeholder="Re-enter your password"
+                  value={confirmPassword}
+                  onChange={e => setConfirmPassword(e.target.value)}
+                  style={inputStyle}
+                  onFocus={e => (e.currentTarget.style.borderColor = "#8B2FE8")}
+                  onBlur={e => (e.currentTarget.style.borderColor = "#e5e7eb")}
+                />
+              </div>
+            </div>
+
+            {/* Buttons row */}
+            <div style={{ display: "flex", gap: "1rem", marginTop: "2rem" }}>
+              <button
+                type="button"
+                onClick={() => setStep(1)}
+                style={{
+                  flex: 1,
+                  padding: "0.9rem",
+                  borderRadius: "0.5rem",
+                  border: "1.5px solid #e5e7eb",
+                  background: "#fff",
+                  color: "#374151",
+                  fontSize: "1rem",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  transition: "border-color 0.2s",
+                }}
               >
-                <option value="" disabled className="bg-slate-900 text-slate-400">
-                  Select your role…
-                </option>
-                {roleOptions.map((opt) => (
-                  <option key={opt.value} value={opt.value} className="bg-slate-900 text-white">
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
+                Back
+              </button>
+
+              <button
+                id="signup-submit"
+                type="submit"
+                disabled={isPending}
+                style={{
+                  flex: 2,
+                  padding: "0.9rem",
+                  borderRadius: "0.5rem",
+                  border: "none",
+                  background: isPending ? "#d1d5db" : "#8B2FE8",
+                  color: "#fff",
+                  fontSize: "1rem",
+                  fontWeight: 600,
+                  cursor: isPending ? "not-allowed" : "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: "0.5rem",
+                  transition: "background 0.2s",
+                }}
+              >
+                {isPending ? (
+                  <>
+                    <Loader2 style={{ width: 18, height: 18, animation: "spin 1s linear infinite" }} />
+                    Creating account…
+                  </>
+                ) : (
+                  <>Create Account <ArrowRight size={18} /></>
+                )}
+              </button>
             </div>
-          </div>
+          </form>
+        )}
 
-          {/* Password */}
-          <div className="space-y-1.5">
-            <label htmlFor="password" className="block text-sm font-medium text-slate-300">
-              Password
-            </label>
-            <div className="relative">
-              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-              <input
-                id="password"
-                name="password"
-                type="password"
-                autoComplete="new-password"
-                required
-                placeholder="Min. 8 chars with a letter &amp; number"
-                className={inputClass}
-              />
+        {/* ── Step 3: Success (placeholder) ── */}
+        {step === 3 && (
+          <div style={{ textAlign: "center", padding: "2rem 0" }}>
+            <div style={{
+              width: 64, height: 64, borderRadius: "50%",
+              background: "#f3e8ff", display: "flex", alignItems: "center", justifyContent: "center",
+              margin: "0 auto 1.5rem",
+            }}>
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#8B2FE8" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M20 6L9 17l-5-5" />
+              </svg>
             </div>
+            <h2 style={{ fontSize: "1.5rem", fontWeight: 700, color: "#111827", marginBottom: "0.5rem" }}>
+              Account Created!
+            </h2>
+            <p style={{ color: "#6b7280", fontSize: "0.9rem" }}>
+              You are being redirected to your dashboard…
+            </p>
           </div>
-
-          {/* Confirm password */}
-          <div className="space-y-1.5">
-            <label htmlFor="confirmPassword" className="block text-sm font-medium text-slate-300">
-              Confirm password
-            </label>
-            <div className="relative">
-              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-              <input
-                id="confirmPassword"
-                name="confirmPassword"
-                type="password"
-                autoComplete="new-password"
-                required
-                placeholder="••••••••"
-                className={inputClass}
-              />
-            </div>
-          </div>
-
-          <button
-            type="submit"
-            disabled={isPending}
-            className="mt-2 w-full flex items-center justify-center gap-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 disabled:bg-emerald-500/50 disabled:cursor-not-allowed px-4 py-2.5 text-sm font-semibold text-white transition-colors duration-200"
-          >
-            {isPending ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Creating account…
-              </>
-            ) : (
-              "Create account"
-            )}
-          </button>
-        </form>
-
-        <p className="mt-6 text-center text-xs text-slate-500">
-          Already have an account?{" "}
-          <Link href="/login" className="text-emerald-400 hover:text-emerald-300 transition">
-            Sign in
-          </Link>
-        </p>
+        )}
       </div>
     </div>
   );
