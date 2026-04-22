@@ -14,6 +14,8 @@ export type SignupActionState = {
     name?: string;
     email?: string;
     role?: string;
+    phone?: string;
+    whatsapp?: string;
   };
 };
 
@@ -27,10 +29,12 @@ export async function signupAction(
     password: formData.get("password") as string,
     confirmPassword: formData.get("confirmPassword") as string,
     role: formData.get("role") as string,
+    phone: (formData.get("phone") as string) || undefined,
+    whatsapp: (formData.get("whatsapp") as string) || undefined,
   };
 
   // Fields to echo back so the form doesn't wipe on error
-  const fields = { name: raw.name, email: raw.email, role: raw.role };
+  const fields = { name: raw.name, email: raw.email, role: raw.role, phone: raw.phone, whatsapp: raw.whatsapp };
 
   const parsed = registerSchema.safeParse(raw);
   if (!parsed.success) {
@@ -44,6 +48,8 @@ export async function signupAction(
       email: parsed.data.email,
       password: parsed.data.password,
       role: parsed.data.role as UserRole,
+      phone: parsed.data.phone,
+      whatsapp: parsed.data.whatsapp,
     });
   } catch (err) {
     if (err instanceof Error && err.message === "EMAIL_TAKEN") {
@@ -66,5 +72,5 @@ export async function signupAction(
     throw err;
   }
 
-  redirect("/dashboard");
+  redirect("/admin");
 }

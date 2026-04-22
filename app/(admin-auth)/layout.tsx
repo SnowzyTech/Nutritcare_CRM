@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Sign In",
-  description: "Sign in to your Nutricare CRM account.",
+  title: "Admin Sign In",
+  description: "Nutricare CRM administrator portal.",
 };
 
-export default function AuthLayout({
+export default function AdminAuthLayout({
   children,
 }: {
   children: React.ReactNode;

@@ -1,34 +1,45 @@
 "use server";
 
-import { signIn, signOut } from "@/lib/auth/auth";
+import { signIn } from "@/lib/auth/auth";
 import { loginSchema } from "@/lib/validations/auth";
+import { getUserByEmail } from "@/modules/auth/services/auth.service";
 import { AuthError } from "next-auth";
 import { redirect } from "next/navigation";
 
-export type LoginActionState = {
+export type AdminLoginActionState = {
   error?: string;
 };
 
 /**
- * Server action for handling user login.
- * Called from the login page form.
+ * Server action for admin-only sign-in.
+ * Verifies credentials then enforces ADMIN role before creating a session.
  */
-export async function loginAction(
-  _prevState: LoginActionState,
+export async function adminLoginAction(
+  _prevState: AdminLoginActionState,
   formData: FormData
-): Promise<LoginActionState> {
+): Promise<AdminLoginActionState> {
   const raw = {
     email: formData.get("email"),
     password: formData.get("password"),
   };
 
-  // Validate before hitting the DB
+  // Validate shape
   const parsed = loginSchema.safeParse(raw);
   if (!parsed.success) {
     const firstError = parsed.error.issues[0]?.message;
     return { error: firstError ?? "Invalid input." };
   }
 
+  // Check the user exists and is an ADMIN before we even attempt signIn
+  const user = await getUserByEmail(parsed.data.email);
+  if (!user) {
+    return { error: "Invalid email or password." };
+  }
+  if (user.role !== "ADMIN") {
+    return { error: "Access denied. This portal is for administrators only." };
+  }
+
+  // Attempt credential sign-in
   try {
     await signIn("credentials", {
       email: parsed.data.email,
@@ -48,11 +59,4 @@ export async function loginAction(
   }
 
   redirect("/admin");
-}
-
-/**
- * Server action for logging out.
- */
-export async function logoutAction() {
-  await signOut({ redirectTo: "/login" });
 }

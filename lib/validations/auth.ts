@@ -32,6 +32,8 @@ export const registerSchema = z
       ],
       { message: "Please select a valid role." }
     ),
+    phone: z.string().optional(),
+    whatsapp: z.string().optional(),
   })
   .refine((data) => data.password === data.confirmPassword, {
     message: "Passwords do not match.",
