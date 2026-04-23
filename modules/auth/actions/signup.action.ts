@@ -1,6 +1,7 @@
 "use server";
 
 import { signIn } from "@/lib/auth/auth";
+import { getRoleHome } from "@/lib/auth/role-routes";
 import { registerSchema } from "@/lib/validations/auth";
 import { createUser } from "@/modules/auth/services/auth.service";
 import { AuthError } from "next-auth";
@@ -72,5 +73,5 @@ export async function signupAction(
     throw err;
   }
 
-  redirect("/admin");
+  redirect(getRoleHome(parsed.data.role));
 }
