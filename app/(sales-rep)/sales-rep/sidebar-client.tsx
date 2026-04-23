@@ -72,6 +72,8 @@ export function SalesRepSidebarClient({ user }: SidebarProps) {
             fill
             className="object-contain object-left"
             priority
+            sizes="100px"
+
           />
         </div>
       </div>
@@ -81,7 +83,8 @@ export function SalesRepSidebarClient({ user }: SidebarProps) {
         <div className="flex items-center gap-3 p-2">
           <div className="relative w-12 h-12 rounded-full overflow-hidden border-2 border-gray-100 shadow-sm">
              {user?.image ? (
-               <Image src={user.image} alt={user.name || "User"} fill className="object-cover" />
+               <Image src={user.image} alt={user.name || "User"} fill className="object-cover" sizes="48px" />
+
              ) : (
                <div className="w-full h-full bg-gray-100 flex items-center justify-center text-gray-400">
                  <img src="https://ui-avatars.com/api/?name=Adebimpe+Tolani&background=f3f4f6&color=6b7280" alt="Avatar" className="w-full h-full object-cover" />

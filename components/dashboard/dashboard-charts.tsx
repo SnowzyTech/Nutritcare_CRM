@@ -1,5 +1,6 @@
 "use client";
 
+import React, { useEffect, useState } from "react";
 import {
   LineChart,
   Line,
@@ -41,9 +42,19 @@ const barData = [
 ];
 
 export function DashboardLineChart({ color = "#8B2FE8" }: { color?: string }) {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!mounted) {
+    return <div style={{ width: "100%", height: 180 }} />;
+  }
+
   return (
-    <div style={{ width: "100%", height: 180 }}>
-      <ResponsiveContainer width="100%" height="100%">
+    <div style={{ width: "100%", position: "relative" }}>
+      <ResponsiveContainer width="100%" aspect={2.5} minWidth={0}>
         <AreaChart data={lineData}>
           <defs>
             <linearGradient id={`colorValue-${color.replace("#", "")}`} x1="0" y1="0" x2="0" y2="1">
@@ -80,9 +91,19 @@ export function DashboardLineChart({ color = "#8B2FE8" }: { color?: string }) {
 }
 
 export function DashboardBarChart() {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!mounted) {
+    return <div style={{ width: "100%", height: 150 }} />;
+  }
+
   return (
-    <div style={{ width: "100%", height: 150 }}>
-      <ResponsiveContainer width="100%" height="100%">
+    <div style={{ width: "100%", position: "relative" }}>
+      <ResponsiveContainer width="100%" aspect={2} minWidth={0}>
         <BarChart data={barData} margin={{ top: 20, right: 0, left: 0, bottom: 0 }}>
           <XAxis
             dataKey="name"

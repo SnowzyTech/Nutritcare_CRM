@@ -2,9 +2,18 @@
 
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { X } from 'lucide-react';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
 
 interface OrderDetailPageProps {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }
 
 function StepIndicator({ number, label, isActive, isCompleted }: { number: number; label: string; isActive: boolean; isCompleted: boolean }) {
@@ -25,9 +34,38 @@ function StepIndicator({ number, label, isActive, isCompleted }: { number: numbe
 
 export default function OrderDetailPage({ params }: OrderDetailPageProps) {
   const router = useRouter();
+  const { id: orderId } = React.use(params);
   const [deliveryDate, setDeliveryDate] = useState('');
+  const [isAddProductOpen, setIsAddProductOpen] = useState(false);
+  const [productRows, setProductRows] = useState([{ id: Date.now(), product: 'prosxact', qty: '1' }]);
 
-  const orderId = params.id;
+  const addRow = () => {
+    setProductRows([...productRows, { id: Date.now(), product: 'prosxact', qty: '1' }]);
+  };
+
+  const removeRow = (id: number) => {
+    if (productRows.length > 1) {
+      setProductRows(productRows.filter(row => row.id !== id));
+    }
+  };
+
+  const updateRow = (id: number, field: 'product' | 'qty', value: string) => {
+    setProductRows(productRows.map(row => row.id === id ? { ...row, [field]: value } : row));
+  };
+
+  const adjustQty = (id: number, delta: number) => {
+    setProductRows(productRows.map(row => {
+      if (row.id === id) {
+        const newQty = Math.max(1, parseInt(row.qty) + delta);
+        return { ...row, qty: String(newQty) };
+      }
+      return row;
+    }));
+  };
+
+
+
+
   const orderStatusMap: Record<string, string> = {
     '1': 'pending', '2': 'pending', '3': 'pending',
     '4': 'confirmed', '5': 'confirmed',
@@ -164,8 +202,11 @@ export default function OrderDetailPage({ params }: OrderDetailPageProps) {
           </div>
 
           {orderStatus === 'pending' && (
-            <button className="w-full mt-4 bg-purple-100 border border-purple-200 px-4 py-3 rounded-lg text-purple-600 font-semibold text-sm hover:bg-purple-50 transition">
-              💜 Add Product
+            <button 
+              onClick={() => setIsAddProductOpen(true)}
+              className="w-full mt-4 bg-purple-100 border border-purple-200 px-4 py-3 rounded-lg text-purple-600 font-semibold text-sm hover:bg-purple-50 transition flex items-center justify-center gap-2"
+            >
+              <span className="text-lg">💜</span> Add Product
             </button>
           )}
 
@@ -283,6 +324,98 @@ export default function OrderDetailPage({ params }: OrderDetailPageProps) {
           )}
         </div>
       </div>
+      {/* ── Add Product Modal ── */}
+      {isAddProductOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+           {/* Overlay */}
+           <div 
+             className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" 
+             onClick={() => setIsAddProductOpen(false)}
+           />
+
+           {/* Modal Body */}
+           <div className="relative bg-white rounded-[40px] shadow-2xl w-full max-w-[650px] p-12 animate-in fade-in zoom-in duration-300">
+              {/* Header */}
+              <div className="flex items-center justify-between mb-10">
+                 <h2 className="text-2xl font-black text-slate-400">Add Product</h2>
+                 <button 
+                  onClick={() => setIsAddProductOpen(false)}
+                  className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-200 transition-colors"
+                 >
+                    <X size={20} />
+                 </button>
+              </div>
+
+              {/* Product Rows Container */}
+              <div className="space-y-4 mb-8 max-h-[350px] overflow-y-auto pr-2 custom-scrollbar">
+                {productRows.map((row) => (
+                  <div key={row.id} className="flex gap-3 items-center group">
+                    <div className="flex-1 bg-slate-50 rounded-2xl p-6 flex gap-4 items-center border border-slate-100">
+                      <div className="flex-1">
+                        <Select 
+                          value={row.product} 
+                          onValueChange={(val) => updateRow(row.id, 'product', val)}
+                        >
+                          <SelectTrigger className="w-full h-[48px] border-none bg-white/50 rounded-xl text-[1.1rem] font-black shadow-sm px-4">
+                            <SelectValue placeholder="Select Product" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="prosxact">Prosxact</SelectItem>
+                            <SelectItem value="shred-belly">Shred Belly</SelectItem>
+                            <SelectItem value="fonio-mill">Fonio-Mill</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="w-[140px] flex items-center justify-between bg-white/50 rounded-xl h-[48px] px-2 shadow-sm border border-slate-100">
+                        <button 
+                          onClick={() => adjustQty(row.id, -1)}
+                          className="w-8 h-8 rounded-lg bg-white border border-slate-100 flex items-center justify-center text-slate-500 hover:text-purple-600 transition-colors font-bold"
+                        >
+                          -
+                        </button>
+                        <span className="text-[1.1rem] font-black text-slate-800">{row.qty}</span>
+                        <button 
+                          onClick={() => adjustQty(row.id, 1)}
+                          className="w-8 h-8 rounded-lg bg-white border border-slate-100 flex items-center justify-center text-slate-500 hover:text-purple-600 transition-colors font-bold"
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
+                    
+                    {productRows.length > 1 && (
+                      <button 
+                        onClick={() => removeRow(row.id)}
+                        className="w-10 h-10 rounded-full bg-rose-50 text-rose-500 hover:bg-rose-100 transition-colors flex items-center justify-center shrink-0 border border-rose-100"
+                        title="Remove product"
+                      >
+                        <X size={18} />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* Action Buttons */}
+              <div className="space-y-4">
+                 <button 
+                  onClick={addRow}
+                  className="w-full border-2 border-purple-600 text-purple-600 py-4 rounded-2xl text-[1rem] font-black hover:bg-purple-50 transition-all flex items-center justify-center gap-2"
+                 >
+                    Add Another Product <span className="text-xl">→</span>
+                 </button>
+                 
+                 <button 
+                  onClick={() => setIsAddProductOpen(false)}
+                  className="w-full bg-purple-600 text-white py-4 rounded-2xl text-[1rem] font-black hover:bg-purple-700 transition-all shadow-lg shadow-purple-100 flex items-center justify-center gap-2"
+                 >
+                    Continue <span className="text-xl">→</span>
+                 </button>
+              </div>
+           </div>
+        </div>
+      )}
     </div>
   );
 }
+
