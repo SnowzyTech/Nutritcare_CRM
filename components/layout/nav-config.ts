@@ -20,15 +20,16 @@ export const allNavItems: NavItem[] = [
     icon: "order",
     children: [
       { label: "All Orders", href: "/admin/orders" },
-      { label: "Create Order", href: "/admin/orders/create" },
+      { label: "Order Assignment", href: "/admin/orders/order-assignment" },
     ],
   },
   {
     label: "Staff Management",
     icon: "staff",
     children: [
-      { label: "All Staff", href: "/admin/staff" },
-      { label: "Add Staff", href: "/admin/staff/add" },
+      { label: "Sales Rep", href: "/admin/staff/sales-rep" },
+      { label: "Delivery Agent", href: "/admin/staff/delivery-agent" },
+      { label: "Manage Account", href: "/admin/staff/manage-account" },
     ],
   },
   { label: "Forms", href: "/admin/forms", icon: "forms" },
