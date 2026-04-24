@@ -78,7 +78,7 @@ async function main() {
   console.log("🌱  Inserting fresh seed data...\n");
 
   // ── Users ──────────────────────────────────────────────────────────────────
-  const [salesRep, adminUser] = await Promise.all([
+  const [salesRep, adminUser, chiamaka, blessingE, emeka] = await Promise.all([
     prisma.user.create({
       data: {
         name: "Adebimpe Tolani",
@@ -86,6 +86,7 @@ async function main() {
         password: await bcrypt.hash("SalesRep@123", 10),
         role: "SALES_REP",
         phone: "+2348023784913",
+        whatsappNumber: "+2348023784913",
         isActive: true,
         accountActivationStatus: "APPROVED",
       },
@@ -97,6 +98,42 @@ async function main() {
         password: await bcrypt.hash("Admin@123", 10),
         role: "ADMIN",
         phone: "+2340000000000",
+        isActive: true,
+        accountActivationStatus: "APPROVED",
+      },
+    }),
+    prisma.user.create({
+      data: {
+        name: "Chiamaka Okorie",
+        email: "chiamaka@seed.nutritcare",
+        password: await bcrypt.hash("SalesRep@123", 10),
+        role: "SALES_REP",
+        phone: "+2347063814402",
+        whatsappNumber: "+2347063814402",
+        isActive: true,
+        accountActivationStatus: "APPROVED",
+      },
+    }),
+    prisma.user.create({
+      data: {
+        name: "Blessing Ehijie",
+        email: "blessing.ehijie@seed.nutritcare",
+        password: await bcrypt.hash("SalesRep@123", 10),
+        role: "SALES_REP",
+        phone: "+2348035472198",
+        whatsappNumber: "+2348035472198",
+        isActive: true,
+        accountActivationStatus: "APPROVED",
+      },
+    }),
+    prisma.user.create({
+      data: {
+        name: "Emeka Nwankwo",
+        email: "emeka@seed.nutritcare",
+        password: await bcrypt.hash("SalesRep@123", 10),
+        role: "SALES_REP",
+        phone: "+2348136087749",
+        whatsappNumber: "+2348136087749",
         isActive: true,
         accountActivationStatus: "APPROVED",
       },
@@ -500,17 +537,184 @@ async function main() {
     await prisma.delivery.create({ data: { orderId: order.id, agentId: agentOla.id, status: "DELIVERED", scheduledTime: d("2026-04-20T10:00:00Z"), deliveredTime: d("2026-04-20T15:00:00Z") } });
   }
 
+  // ═══════════════════════════════════════════════════════════════════
+  // CHIAMAKA OKORIE — March 2026 (5 DELIVERED, 1 FAILED, 1 CANCELLED)
+  // ═══════════════════════════════════════════════════════════════════
+
+  // #28 — Adewale: 2× Prosxact — DELIVERED
+  { const total = PRICES.prosxact.sell * 2;
+    const order = await prisma.order.create({ data: { orderNumber: num(), customerId: adewale.id, salesRepId: chiamaka.id, agentId: agentQudus.id, status: "DELIVERED", totalAmount: total, netAmount: total, deliveryFee: 1000, createdAt: d("2026-03-06T09:00:00Z"), items: { create: { productId: prosxact.id, quantity: 2, unitPrice: PRICES.prosxact.sell, lineTotal: total } } } });
+    await prisma.delivery.create({ data: { orderId: order.id, agentId: agentQudus.id, status: "DELIVERED", scheduledTime: d("2026-03-08T10:00:00Z"), deliveredTime: d("2026-03-08T15:00:00Z") } }); }
+
+  // #29 — Funke: 3× Shred Belly — DELIVERED
+  { const total = PRICES.shredBelly.sell * 3;
+    const order = await prisma.order.create({ data: { orderNumber: num(), customerId: funke.id, salesRepId: chiamaka.id, agentId: agentOla.id, status: "DELIVERED", totalAmount: total, netAmount: total, deliveryFee: 1000, createdAt: d("2026-03-08T10:00:00Z"), items: { create: { productId: shredBelly.id, quantity: 3, unitPrice: PRICES.shredBelly.sell, lineTotal: total } } } });
+    await prisma.delivery.create({ data: { orderId: order.id, agentId: agentOla.id, status: "DELIVERED", scheduledTime: d("2026-03-10T09:00:00Z"), deliveredTime: d("2026-03-10T14:00:00Z") } }); }
+
+  // #30 — Chinedu: 4× Trim and Tone + 1× Linix — DELIVERED (upsell)
+  { const p1 = PRICES.trimTone.sell * 4; const p2 = PRICES.linix.sell; const total = p1 + p2;
+    const order = await prisma.order.create({ data: { orderNumber: num(), customerId: chinedu.id, salesRepId: chiamaka.id, agentId: agentFlymack.id, status: "DELIVERED", totalAmount: total, netAmount: total, deliveryFee: 1500, createdAt: d("2026-03-12T11:00:00Z"), items: { create: [{ productId: trimTone.id, quantity: 4, unitPrice: PRICES.trimTone.sell, lineTotal: p1 }, { productId: linix.id, quantity: 1, unitPrice: PRICES.linix.sell, lineTotal: p2 }] } } });
+    await prisma.delivery.create({ data: { orderId: order.id, agentId: agentFlymack.id, status: "DELIVERED", scheduledTime: d("2026-03-14T10:00:00Z"), deliveredTime: d("2026-03-14T15:00:00Z") } }); }
+
+  // #31 — Halima: 2× After-Natal — DELIVERED
+  { const total = PRICES.afterNatal.sell * 2;
+    const order = await prisma.order.create({ data: { orderNumber: num(), customerId: halima.id, salesRepId: chiamaka.id, agentId: agentSunmi.id, status: "DELIVERED", totalAmount: total, netAmount: total, deliveryFee: 1200, createdAt: d("2026-03-16T09:00:00Z"), items: { create: { productId: afterNatal.id, quantity: 2, unitPrice: PRICES.afterNatal.sell, lineTotal: total } } } });
+    await prisma.delivery.create({ data: { orderId: order.id, agentId: agentSunmi.id, status: "DELIVERED", scheduledTime: d("2026-03-18T09:00:00Z"), deliveredTime: d("2026-03-18T14:00:00Z") } }); }
+
+  // #32 — Victor: 3× Neuro-Vive Balm — DELIVERED
+  { const total = PRICES.neuroBalm.sell * 3;
+    const order = await prisma.order.create({ data: { orderNumber: num(), customerId: victor.id, salesRepId: chiamaka.id, agentId: agentOla.id, status: "DELIVERED", totalAmount: total, netAmount: total, deliveryFee: 1000, createdAt: d("2026-03-20T10:00:00Z"), items: { create: { productId: neuroBalm.id, quantity: 3, unitPrice: PRICES.neuroBalm.sell, lineTotal: total } } } });
+    await prisma.delivery.create({ data: { orderId: order.id, agentId: agentOla.id, status: "DELIVERED", scheduledTime: d("2026-03-22T09:00:00Z"), deliveredTime: d("2026-03-22T13:00:00Z") } }); }
+
+  // #33 — Sola: 2× Fonio-Mill — FAILED
+  { const total = PRICES.fonioMill.sell * 2;
+    const order = await prisma.order.create({ data: { orderNumber: num(), customerId: sola.id, salesRepId: chiamaka.id, agentId: agentQudus.id, status: "FAILED", totalAmount: total, netAmount: total, deliveryFee: 1000, createdAt: d("2026-03-23T09:00:00Z"), items: { create: { productId: fonioMill.id, quantity: 2, unitPrice: PRICES.fonioMill.sell, lineTotal: total } } } });
+    await prisma.delivery.create({ data: { orderId: order.id, agentId: agentQudus.id, status: "FAILED", failureReason: "Customer not available", scheduledTime: d("2026-03-25T10:00:00Z") } }); }
+
+  // #34 — Samuel: 3× Prosxact — CANCELLED
+  { const total = PRICES.prosxact.sell * 3;
+    await prisma.order.create({ data: { orderNumber: num(), customerId: samuel.id, salesRepId: chiamaka.id, status: "CANCELLED", totalAmount: total, netAmount: total, deliveryFee: 0, createdAt: d("2026-03-27T09:00:00Z"), items: { create: { productId: prosxact.id, quantity: 3, unitPrice: PRICES.prosxact.sell, lineTotal: total } } } }); }
+
+  // CHIAMAKA — April 2026 (2 DELIVERED, 2 CONFIRMED, 1 PENDING)
+
+  // #35 — Adewale: 1× Prosxact + 2× Fonio-Mill — DELIVERED (upsell)
+  { const p1 = PRICES.prosxact.sell; const p2 = PRICES.fonioMill.sell * 2; const total = p1 + p2;
+    const order = await prisma.order.create({ data: { orderNumber: num(), customerId: adewale.id, salesRepId: chiamaka.id, agentId: agentQudus.id, status: "DELIVERED", totalAmount: total, netAmount: total, deliveryFee: 1200, createdAt: d("2026-04-05T09:00:00Z"), items: { create: [{ productId: prosxact.id, quantity: 1, unitPrice: PRICES.prosxact.sell, lineTotal: p1 }, { productId: fonioMill.id, quantity: 2, unitPrice: PRICES.fonioMill.sell, lineTotal: p2 }] } } });
+    await prisma.delivery.create({ data: { orderId: order.id, agentId: agentQudus.id, status: "DELIVERED", scheduledTime: d("2026-04-07T10:00:00Z"), deliveredTime: d("2026-04-07T15:00:00Z") } }); }
+
+  // #36 — Blessing: 4× Shred Belly — DELIVERED
+  { const total = PRICES.shredBelly.sell * 4;
+    const order = await prisma.order.create({ data: { orderNumber: num(), customerId: blessing.id, salesRepId: chiamaka.id, agentId: agentSunmi.id, status: "DELIVERED", totalAmount: total, netAmount: total, deliveryFee: 1200, createdAt: d("2026-04-09T09:00:00Z"), items: { create: { productId: shredBelly.id, quantity: 4, unitPrice: PRICES.shredBelly.sell, lineTotal: total } } } });
+    await prisma.delivery.create({ data: { orderId: order.id, agentId: agentSunmi.id, status: "DELIVERED", scheduledTime: d("2026-04-11T09:00:00Z"), deliveredTime: d("2026-04-11T14:00:00Z") } }); }
+
+  // #37 — Victor: 3× Trim and Tone — CONFIRMED
+  { const total = PRICES.trimTone.sell * 3;
+    await prisma.order.create({ data: { orderNumber: num(), customerId: victor.id, salesRepId: chiamaka.id, agentId: agentOla.id, status: "CONFIRMED", totalAmount: total, netAmount: total, deliveryFee: 1500, createdAt: d("2026-04-15T10:00:00Z"), items: { create: { productId: trimTone.id, quantity: 3, unitPrice: PRICES.trimTone.sell, lineTotal: total } } } }); }
+
+  // #38 — Chinedu: 2× After-Natal — CONFIRMED
+  { const total = PRICES.afterNatal.sell * 2;
+    await prisma.order.create({ data: { orderNumber: num(), customerId: chinedu.id, salesRepId: chiamaka.id, agentId: agentFlymack.id, status: "CONFIRMED", totalAmount: total, netAmount: total, deliveryFee: 1000, createdAt: d("2026-04-18T10:00:00Z"), items: { create: { productId: afterNatal.id, quantity: 2, unitPrice: PRICES.afterNatal.sell, lineTotal: total } } } }); }
+
+  // #39 — Ibrahim: 5× Linix — PENDING
+  { const total = PRICES.linix.sell * 5;
+    await prisma.order.create({ data: { orderNumber: num(), customerId: ibrahim.id, salesRepId: chiamaka.id, status: "PENDING", totalAmount: total, netAmount: total, deliveryFee: 0, createdAt: d("2026-04-21T09:00:00Z"), items: { create: { productId: linix.id, quantity: 5, unitPrice: PRICES.linix.sell, lineTotal: total } } } }); }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // BLESSING EHIJIE — March 2026 (4 DELIVERED, 1 FAILED, 1 CANCELLED)
+  // ═══════════════════════════════════════════════════════════════════
+
+  // #40 — Halima: 3× Prosxact — DELIVERED
+  { const total = PRICES.prosxact.sell * 3;
+    const order = await prisma.order.create({ data: { orderNumber: num(), customerId: halima.id, salesRepId: blessingE.id, agentId: agentSunmi.id, status: "DELIVERED", totalAmount: total, netAmount: total, deliveryFee: 1200, createdAt: d("2026-03-07T09:00:00Z"), items: { create: { productId: prosxact.id, quantity: 3, unitPrice: PRICES.prosxact.sell, lineTotal: total } } } });
+    await prisma.delivery.create({ data: { orderId: order.id, agentId: agentSunmi.id, status: "DELIVERED", scheduledTime: d("2026-03-09T09:00:00Z"), deliveredTime: d("2026-03-09T15:00:00Z") } }); }
+
+  // #41 — Samuel: 2× After-Natal + 1× Neuro-Vive Balm — DELIVERED (upsell)
+  { const p1 = PRICES.afterNatal.sell * 2; const p2 = PRICES.neuroBalm.sell; const total = p1 + p2;
+    const order = await prisma.order.create({ data: { orderNumber: num(), customerId: samuel.id, salesRepId: blessingE.id, agentId: agentFlymack.id, status: "DELIVERED", totalAmount: total, netAmount: total, deliveryFee: 1500, createdAt: d("2026-03-11T10:00:00Z"), items: { create: [{ productId: afterNatal.id, quantity: 2, unitPrice: PRICES.afterNatal.sell, lineTotal: p1 }, { productId: neuroBalm.id, quantity: 1, unitPrice: PRICES.neuroBalm.sell, lineTotal: p2 }] } } });
+    await prisma.delivery.create({ data: { orderId: order.id, agentId: agentFlymack.id, status: "DELIVERED", scheduledTime: d("2026-03-13T10:00:00Z"), deliveredTime: d("2026-03-13T14:00:00Z") } }); }
+
+  // #42 — Adewale: 4× Shred Belly — DELIVERED
+  { const total = PRICES.shredBelly.sell * 4;
+    const order = await prisma.order.create({ data: { orderNumber: num(), customerId: adewale.id, salesRepId: blessingE.id, agentId: agentOla.id, status: "DELIVERED", totalAmount: total, netAmount: total, deliveryFee: 1000, createdAt: d("2026-03-14T09:00:00Z"), items: { create: { productId: shredBelly.id, quantity: 4, unitPrice: PRICES.shredBelly.sell, lineTotal: total } } } });
+    await prisma.delivery.create({ data: { orderId: order.id, agentId: agentOla.id, status: "DELIVERED", scheduledTime: d("2026-03-16T10:00:00Z"), deliveredTime: d("2026-03-16T14:00:00Z") } }); }
+
+  // #43 — Funke: 2× Trim and Tone — DELIVERED
+  { const total = PRICES.trimTone.sell * 2;
+    const order = await prisma.order.create({ data: { orderNumber: num(), customerId: funke.id, salesRepId: blessingE.id, agentId: agentQudus.id, status: "DELIVERED", totalAmount: total, netAmount: total, deliveryFee: 1000, createdAt: d("2026-03-18T10:00:00Z"), items: { create: { productId: trimTone.id, quantity: 2, unitPrice: PRICES.trimTone.sell, lineTotal: total } } } });
+    await prisma.delivery.create({ data: { orderId: order.id, agentId: agentQudus.id, status: "DELIVERED", scheduledTime: d("2026-03-20T10:00:00Z"), deliveredTime: d("2026-03-20T15:00:00Z") } }); }
+
+  // #44 — Ibrahim: 3× Linix — FAILED
+  { const total = PRICES.linix.sell * 3;
+    const order = await prisma.order.create({ data: { orderNumber: num(), customerId: ibrahim.id, salesRepId: blessingE.id, agentId: agentFlymack.id, status: "FAILED", totalAmount: total, netAmount: total, deliveryFee: 1500, createdAt: d("2026-03-22T09:00:00Z"), items: { create: { productId: linix.id, quantity: 3, unitPrice: PRICES.linix.sell, lineTotal: total } } } });
+    await prisma.delivery.create({ data: { orderId: order.id, agentId: agentFlymack.id, status: "FAILED", failureReason: "Wrong address", scheduledTime: d("2026-03-24T10:00:00Z") } }); }
+
+  // #45 — Chinedu: 2× Fonio-Mill — CANCELLED
+  { const total = PRICES.fonioMill.sell * 2;
+    await prisma.order.create({ data: { orderNumber: num(), customerId: chinedu.id, salesRepId: blessingE.id, status: "CANCELLED", totalAmount: total, netAmount: total, deliveryFee: 0, createdAt: d("2026-03-25T09:00:00Z"), items: { create: { productId: fonioMill.id, quantity: 2, unitPrice: PRICES.fonioMill.sell, lineTotal: total } } } }); }
+
+  // BLESSING EHIJIE — April 2026 (1 DELIVERED, 2 CONFIRMED, 2 PENDING)
+
+  // #46 — Sola: 2× Prosxact + 1× After-Natal — DELIVERED (upsell)
+  { const p1 = PRICES.prosxact.sell * 2; const p2 = PRICES.afterNatal.sell; const total = p1 + p2;
+    const order = await prisma.order.create({ data: { orderNumber: num(), customerId: sola.id, salesRepId: blessingE.id, agentId: agentQudus.id, status: "DELIVERED", totalAmount: total, netAmount: total, deliveryFee: 1000, createdAt: d("2026-04-06T09:00:00Z"), items: { create: [{ productId: prosxact.id, quantity: 2, unitPrice: PRICES.prosxact.sell, lineTotal: p1 }, { productId: afterNatal.id, quantity: 1, unitPrice: PRICES.afterNatal.sell, lineTotal: p2 }] } } });
+    await prisma.delivery.create({ data: { orderId: order.id, agentId: agentQudus.id, status: "DELIVERED", scheduledTime: d("2026-04-08T09:00:00Z"), deliveredTime: d("2026-04-08T14:00:00Z") } }); }
+
+  // #47 — Victor: 3× Neuro-Vive Balm — CONFIRMED
+  { const total = PRICES.neuroBalm.sell * 3;
+    await prisma.order.create({ data: { orderNumber: num(), customerId: victor.id, salesRepId: blessingE.id, agentId: agentOla.id, status: "CONFIRMED", totalAmount: total, netAmount: total, deliveryFee: 1000, createdAt: d("2026-04-14T10:00:00Z"), items: { create: { productId: neuroBalm.id, quantity: 3, unitPrice: PRICES.neuroBalm.sell, lineTotal: total } } } }); }
+
+  // #48 — Halima: 4× Shred Belly — CONFIRMED
+  { const total = PRICES.shredBelly.sell * 4;
+    await prisma.order.create({ data: { orderNumber: num(), customerId: halima.id, salesRepId: blessingE.id, agentId: agentSunmi.id, status: "CONFIRMED", totalAmount: total, netAmount: total, deliveryFee: 1200, createdAt: d("2026-04-17T10:00:00Z"), items: { create: { productId: shredBelly.id, quantity: 4, unitPrice: PRICES.shredBelly.sell, lineTotal: total } } } }); }
+
+  // #49 — Funke: 2× Linix — PENDING
+  { const total = PRICES.linix.sell * 2;
+    await prisma.order.create({ data: { orderNumber: num(), customerId: funke.id, salesRepId: blessingE.id, status: "PENDING", totalAmount: total, netAmount: total, deliveryFee: 0, createdAt: d("2026-04-20T09:00:00Z"), items: { create: { productId: linix.id, quantity: 2, unitPrice: PRICES.linix.sell, lineTotal: total } } } }); }
+
+  // #50 — Samuel: 3× Trim and Tone — PENDING
+  { const total = PRICES.trimTone.sell * 3;
+    await prisma.order.create({ data: { orderNumber: num(), customerId: samuel.id, salesRepId: blessingE.id, status: "PENDING", totalAmount: total, netAmount: total, deliveryFee: 0, createdAt: d("2026-04-22T10:00:00Z"), items: { create: { productId: trimTone.id, quantity: 3, unitPrice: PRICES.trimTone.sell, lineTotal: total } } } }); }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // EMEKA NWANKWO — March 2026 (2 DELIVERED, 2 FAILED, 1 CANCELLED)
+  // ═══════════════════════════════════════════════════════════════════
+
+  // #51 — Blessing: 2× Prosxact — DELIVERED
+  { const total = PRICES.prosxact.sell * 2;
+    const order = await prisma.order.create({ data: { orderNumber: num(), customerId: blessing.id, salesRepId: emeka.id, agentId: agentOla.id, status: "DELIVERED", totalAmount: total, netAmount: total, deliveryFee: 1000, createdAt: d("2026-03-10T09:00:00Z"), items: { create: { productId: prosxact.id, quantity: 2, unitPrice: PRICES.prosxact.sell, lineTotal: total } } } });
+    await prisma.delivery.create({ data: { orderId: order.id, agentId: agentOla.id, status: "DELIVERED", scheduledTime: d("2026-03-12T10:00:00Z"), deliveredTime: d("2026-03-12T15:00:00Z") } }); }
+
+  // #52 — Sola: 3× Shred Belly + 1× Fonio-Mill — DELIVERED (upsell)
+  { const p1 = PRICES.shredBelly.sell * 3; const p2 = PRICES.fonioMill.sell; const total = p1 + p2;
+    const order = await prisma.order.create({ data: { orderNumber: num(), customerId: sola.id, salesRepId: emeka.id, agentId: agentQudus.id, status: "DELIVERED", totalAmount: total, netAmount: total, deliveryFee: 1000, createdAt: d("2026-03-15T10:00:00Z"), items: { create: [{ productId: shredBelly.id, quantity: 3, unitPrice: PRICES.shredBelly.sell, lineTotal: p1 }, { productId: fonioMill.id, quantity: 1, unitPrice: PRICES.fonioMill.sell, lineTotal: p2 }] } } });
+    await prisma.delivery.create({ data: { orderId: order.id, agentId: agentQudus.id, status: "DELIVERED", scheduledTime: d("2026-03-17T09:00:00Z"), deliveredTime: d("2026-03-17T13:00:00Z") } }); }
+
+  // #53 — Chinedu: 4× After-Natal — FAILED
+  { const total = PRICES.afterNatal.sell * 4;
+    const order = await prisma.order.create({ data: { orderNumber: num(), customerId: chinedu.id, salesRepId: emeka.id, agentId: agentFlymack.id, status: "FAILED", totalAmount: total, netAmount: total, deliveryFee: 2000, createdAt: d("2026-03-18T10:00:00Z"), items: { create: { productId: afterNatal.id, quantity: 4, unitPrice: PRICES.afterNatal.sell, lineTotal: total } } } });
+    await prisma.delivery.create({ data: { orderId: order.id, agentId: agentFlymack.id, status: "FAILED", failureReason: "Customer rejected at door", scheduledTime: d("2026-03-20T10:00:00Z") } }); }
+
+  // #54 — Ibrahim: 2× Trim and Tone — FAILED
+  { const total = PRICES.trimTone.sell * 2;
+    const order = await prisma.order.create({ data: { orderNumber: num(), customerId: ibrahim.id, salesRepId: emeka.id, agentId: agentSunmi.id, status: "FAILED", totalAmount: total, netAmount: total, deliveryFee: 1200, createdAt: d("2026-03-23T09:00:00Z"), items: { create: { productId: trimTone.id, quantity: 2, unitPrice: PRICES.trimTone.sell, lineTotal: total } } } });
+    await prisma.delivery.create({ data: { orderId: order.id, agentId: agentSunmi.id, status: "FAILED", failureReason: "Unreachable customer", scheduledTime: d("2026-03-25T09:00:00Z") } }); }
+
+  // #55 — Halima: 3× Linix — CANCELLED
+  { const total = PRICES.linix.sell * 3;
+    await prisma.order.create({ data: { orderNumber: num(), customerId: halima.id, salesRepId: emeka.id, status: "CANCELLED", totalAmount: total, netAmount: total, deliveryFee: 0, createdAt: d("2026-03-27T10:00:00Z"), items: { create: { productId: linix.id, quantity: 3, unitPrice: PRICES.linix.sell, lineTotal: total } } } }); }
+
+  // EMEKA NWANKWO — April 2026 (1 DELIVERED, 1 FAILED, 1 PENDING)
+
+  // #56 — Funke: 3× Prosxact — DELIVERED
+  { const total = PRICES.prosxact.sell * 3;
+    const order = await prisma.order.create({ data: { orderNumber: num(), customerId: funke.id, salesRepId: emeka.id, agentId: agentOla.id, status: "DELIVERED", totalAmount: total, netAmount: total, deliveryFee: 1000, createdAt: d("2026-04-08T09:00:00Z"), items: { create: { productId: prosxact.id, quantity: 3, unitPrice: PRICES.prosxact.sell, lineTotal: total } } } });
+    await prisma.delivery.create({ data: { orderId: order.id, agentId: agentOla.id, status: "DELIVERED", scheduledTime: d("2026-04-10T10:00:00Z"), deliveredTime: d("2026-04-10T15:00:00Z") } }); }
+
+  // #57 — Victor: 2× Shred Belly — FAILED
+  { const total = PRICES.shredBelly.sell * 2;
+    const order = await prisma.order.create({ data: { orderNumber: num(), customerId: victor.id, salesRepId: emeka.id, agentId: agentQudus.id, status: "FAILED", totalAmount: total, netAmount: total, deliveryFee: 800, createdAt: d("2026-04-13T10:00:00Z"), items: { create: { productId: shredBelly.id, quantity: 2, unitPrice: PRICES.shredBelly.sell, lineTotal: total } } } });
+    await prisma.delivery.create({ data: { orderId: order.id, agentId: agentQudus.id, status: "FAILED", failureReason: "Address not found", scheduledTime: d("2026-04-15T10:00:00Z") } }); }
+
+  // #58 — Samuel: 4× Neuro-Vive Balm — PENDING
+  { const total = PRICES.neuroBalm.sell * 4;
+    await prisma.order.create({ data: { orderNumber: num(), customerId: samuel.id, salesRepId: emeka.id, status: "PENDING", totalAmount: total, netAmount: total, deliveryFee: 0, createdAt: d("2026-04-20T09:00:00Z"), items: { create: { productId: neuroBalm.id, quantity: 4, unitPrice: PRICES.neuroBalm.sell, lineTotal: total } } } }); }
+
   // ── Summary ─────────────────────────────────────────────────────────────────
   console.log("✅  Done!\n");
   console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
   console.log("🔑  LOGIN CREDENTIALS");
   console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-  console.log("  Sales Rep  │  tolani@seed.nutritcare  │  SalesRep@123");
-  console.log("  Admin      │  admin@seed.nutritcare   │  Admin@123");
+  console.log("  Sales Rep  │  tolani@seed.nutritcare       │  SalesRep@123");
+  console.log("  Sales Rep  │  chiamaka@seed.nutritcare     │  SalesRep@123");
+  console.log("  Sales Rep  │  blessing.ehijie@seed.…       │  SalesRep@123");
+  console.log("  Sales Rep  │  emeka@seed.nutritcare        │  SalesRep@123");
+  console.log("  Admin      │  admin@seed.nutritcare        │  Admin@123");
   console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-  console.log("📦  ORDERS: 12 March 2026 + 15 April 2026 = 27 total");
-  console.log("  March : 7 DELIVERED, 3 FAILED, 2 CANCELLED");
-  console.log("  April : 4 PENDING, 2 CONFIRMED, 5 DELIVERED, 2 CANCELLED, 2 FAILED");
+  console.log("📦  ORDERS: 58 total across 4 sales reps");
+  console.log("  Tolani (27): March 7D+3F+2C | April 4P+2Conf+5D+2C+2F");
+  console.log("  Chiamaka(12): March 5D+1F+1C | April 2D+2Conf+1P");
+  console.log("  Blessing(11): March 4D+1F+1C | April 1D+2Conf+2P");
+  console.log("  Emeka   (8): March 2D+2F+1C | April 1D+1F+1P");
   console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 }
 

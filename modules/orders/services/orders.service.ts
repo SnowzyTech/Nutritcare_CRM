@@ -33,6 +33,23 @@ export async function getSalesRepOrders(salesRepId: string) {
   });
 }
 
+// Fetch orders eligible for reassignment (PENDING or CONFIRMED only).
+export async function getAssignableOrders() {
+  return prisma.order.findMany({
+    where: {
+      deletedAt: null,
+      status: { in: ["PENDING", "CONFIRMED"] },
+    },
+    orderBy: { createdAt: "desc" },
+    include: {
+      customer: { select: { name: true, email: true, state: true } },
+      agent: { select: { companyName: true, state: true } },
+      items: { include: { product: { select: { name: true } } } },
+      salesRep: { select: { id: true, name: true } },
+    },
+  });
+}
+
 // Fetch all orders for admin (no salesRepId filter).
 export async function getAdminOrders() {
   return prisma.order.findMany({

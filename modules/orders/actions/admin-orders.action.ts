@@ -54,6 +54,28 @@ export async function adminDeliverOrderAction(orderId: string) {
   revalidate(orderId);
 }
 
+// Distribute orderIds equally (round-robin) among salesRepIds and update salesRepId.
+export async function adminReassignOrdersAction(
+  orderIds: string[],
+  salesRepIds: string[]
+) {
+  await checkAdmin();
+  if (!orderIds.length) throw new Error("No orders selected");
+  if (!salesRepIds.length) throw new Error("No sales reps selected");
+
+  const updates = orderIds.map((orderId, i) =>
+    prisma.order.update({
+      where: { id: orderId, status: { in: ["PENDING", "CONFIRMED"] }, deletedAt: null },
+      data: { salesRepId: salesRepIds[i % salesRepIds.length] },
+    })
+  );
+
+  await prisma.$transaction(updates);
+  revalidatePath("/admin/orders");
+  revalidatePath("/admin/orders/order-assignment");
+  revalidatePath("/sales-rep/orders");
+}
+
 export async function adminAddOrderItemsAction(
   orderId: string,
   items: Array<{ productId: string; quantity: number }>
