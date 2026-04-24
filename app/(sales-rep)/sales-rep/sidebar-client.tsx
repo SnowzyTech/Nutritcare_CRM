@@ -3,12 +3,13 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import Image from 'next/image';
-import { 
-  LayoutDashboard, 
-  BarChart3, 
-  Clock, 
-  Bell, 
-  Settings, 
+import { signOut } from 'next-auth/react';
+import {
+  LayoutDashboard,
+  BarChart3,
+  Clock,
+  Bell,
+  Settings,
   LogOut,
   ShoppingBag
 } from 'lucide-react';
@@ -139,7 +140,10 @@ export function SalesRepSidebarClient({ user }: SidebarProps) {
           label="Settings"
           isActive={pathname === '/sales-rep/settings'}
         />
-        <button className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-gray-400 hover:text-red-500 hover:bg-red-50 transition-all duration-200 group mt-2">
+        <button
+          onClick={() => signOut({ callbackUrl: '/login' })}
+          className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-gray-400 hover:text-red-500 hover:bg-red-50 transition-all duration-200 group mt-2"
+        >
           <LogOut size={20} className="group-hover:text-red-500 transition-colors" />
           <span className="text-sm font-medium">Log Out</span>
         </button>

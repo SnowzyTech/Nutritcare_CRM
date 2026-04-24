@@ -1,23 +1,23 @@
-'use client';
+"use client";
 
-import React, { useState, useTransition } from 'react';
-import { useRouter } from 'next/navigation';
-import { X } from 'lucide-react';
+import React, { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { X } from "lucide-react";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select';
-import type { OrderStatus } from '@prisma/client';
+} from "@/components/ui/select";
+import type { OrderStatus } from "@prisma/client";
 import {
   confirmOrderAction,
   cancelOrderAction,
   failOrderAction,
   deliverOrderAction,
   addOrderItemsAction,
-} from '@/modules/orders/actions/orders.action';
+} from "@/modules/orders/actions/orders.action";
 
 // Serialized types (Decimals as strings, Dates as ISO strings)
 export type SerializedOrder = {
@@ -79,60 +79,138 @@ function StepIndicator({
   isActive: boolean;
   isCompleted: boolean;
 }) {
-  const bg = isActive ? 'bg-yellow-400' : isCompleted ? 'bg-green-500' : 'bg-gray-200';
-  const text = isActive || isCompleted ? 'text-white' : 'text-gray-400';
+  const bg = isActive
+    ? "bg-yellow-400"
+    : isCompleted
+      ? "bg-green-500"
+      : "bg-gray-200";
+  const text = isActive || isCompleted ? "text-white" : "text-gray-400";
   return (
     <div className="flex flex-col items-center gap-2">
-      <div className={`w-12 h-12 rounded-full ${bg} ${text} flex items-center justify-center font-bold text-lg`}>
-        {isCompleted ? '✓' : number}
+      <div
+        className={`w-12 h-12 rounded-full ${bg} ${text} flex items-center justify-center font-bold text-lg`}
+      >
+        {isCompleted ? "✓" : number}
       </div>
-      <span className="text-xs text-gray-500 font-medium text-center max-w-24">{label}</span>
+      <span className="text-xs text-gray-500 font-medium text-center max-w-24">
+        {label}
+      </span>
     </div>
   );
 }
 
 function getSteps(status: OrderStatus) {
   switch (status) {
-    case 'PENDING':
+    case "PENDING":
       return [
-        { number: 1, label: 'Order is Pending', isActive: true, isCompleted: false },
-        { number: 2, label: 'Order is yet to be Confirmed', isActive: false, isCompleted: false },
-        { number: 3, label: 'Order is yet to be Delivered', isActive: false, isCompleted: false },
+        {
+          number: 1,
+          label: "Order is Pending",
+          isActive: true,
+          isCompleted: false,
+        },
+        {
+          number: 2,
+          label: "Order is yet to be Confirmed",
+          isActive: false,
+          isCompleted: false,
+        },
+        {
+          number: 3,
+          label: "Order is yet to be Delivered",
+          isActive: false,
+          isCompleted: false,
+        },
       ];
-    case 'CONFIRMED':
+    case "CONFIRMED":
       return [
-        { number: 1, label: 'Order Processed', isActive: false, isCompleted: true },
-        { number: 2, label: 'Order has been Confirmed', isActive: true, isCompleted: false },
-        { number: 3, label: 'Order is yet to be Delivered', isActive: false, isCompleted: false },
+        {
+          number: 1,
+          label: "Order Processed",
+          isActive: false,
+          isCompleted: true,
+        },
+        {
+          number: 2,
+          label: "Order has been Confirmed",
+          isActive: true,
+          isCompleted: false,
+        },
+        {
+          number: 3,
+          label: "Order is yet to be Delivered",
+          isActive: false,
+          isCompleted: false,
+        },
       ];
-    case 'DELIVERED':
+    case "DELIVERED":
       return [
-        { number: 1, label: 'Order Processed', isActive: false, isCompleted: true },
-        { number: 2, label: 'Order Confirmed', isActive: false, isCompleted: true },
-        { number: 3, label: 'Order Delivered', isActive: false, isCompleted: true },
+        {
+          number: 1,
+          label: "Order Processed",
+          isActive: false,
+          isCompleted: true,
+        },
+        {
+          number: 2,
+          label: "Order Confirmed",
+          isActive: false,
+          isCompleted: true,
+        },
+        {
+          number: 3,
+          label: "Order Delivered",
+          isActive: false,
+          isCompleted: true,
+        },
       ];
-    case 'CANCELLED':
+    case "CANCELLED":
       return [
-        { number: 1, label: 'Order Processed', isActive: false, isCompleted: true },
-        { number: 2, label: 'Order Cancelled', isActive: true, isCompleted: false },
-        { number: 3, label: 'N/A', isActive: false, isCompleted: false },
+        {
+          number: 1,
+          label: "Order Processed",
+          isActive: false,
+          isCompleted: true,
+        },
+        {
+          number: 2,
+          label: "Order Cancelled",
+          isActive: true,
+          isCompleted: false,
+        },
+        { number: 3, label: "N/A", isActive: false, isCompleted: false },
       ];
-    case 'FAILED':
+    case "FAILED":
       return [
-        { number: 1, label: 'Order Processed', isActive: false, isCompleted: true },
-        { number: 2, label: 'Order Failed', isActive: true, isCompleted: false },
-        { number: 3, label: 'N/A', isActive: false, isCompleted: false },
+        {
+          number: 1,
+          label: "Order Processed",
+          isActive: false,
+          isCompleted: true,
+        },
+        {
+          number: 2,
+          label: "Order Failed",
+          isActive: true,
+          isCompleted: false,
+        },
+        { number: 3, label: "N/A", isActive: false, isCompleted: false },
       ];
   }
 }
 
 function getStatusBadge(status: OrderStatus) {
   switch (status) {
-    case 'PENDING':   return { bg: 'bg-yellow-400', label: 'Pending Order' };
-    case 'CONFIRMED': return { bg: 'bg-green-500',  label: 'Confirmed Order' };
-    case 'DELIVERED': return { bg: 'bg-green-500',  label: 'Delivered Order' };
-    case 'CANCELLED': return { bg: 'bg-red-500',    label: 'Cancelled Order' };
-    case 'FAILED':    return { bg: 'bg-red-600',    label: 'Failed Order' };
+    case "PENDING":
+      return { bg: "bg-yellow-400", label: "Pending Order" };
+    case "CONFIRMED":
+      return { bg: "bg-green-500", label: "Confirmed Order" };
+    case "DELIVERED":
+      return { bg: "bg-green-500", label: "Delivered Order" };
+    case "CANCELLED":
+      return { bg: "bg-red-500", label: "Cancelled Order" };
+    case "FAILED":
+      return { bg: "bg-red-600", label: "Failed Order" };
   }
 }
 
@@ -151,39 +229,53 @@ export function OrderDetailClient({ order, products }: OrderDetailClientProps) {
   const [isPending, startTransition] = useTransition();
   const [isAddProductOpen, setIsAddProductOpen] = useState(false);
   const [productRows, setProductRows] = useState([
-    { id: Date.now(), productId: products[0]?.id ?? '', qty: '1' },
+    { id: Date.now(), productId: products[0]?.id ?? "", qty: "1" },
   ]);
 
   const steps = getSteps(order.status);
   const badge = getStatusBadge(order.status);
 
   const delivery = order.deliveries[0] ?? null;
-  const formattedDeliveryFee = Number(order.deliveryFee) > 0
-    ? `₦${Number(order.deliveryFee).toLocaleString('en-NG')}`
-    : null;
-  const formattedTotal = `₦${Number(order.totalAmount).toLocaleString('en-NG')}`;
+  const formattedDeliveryFee =
+    Number(order.deliveryFee) > 0
+      ? `₦${Number(order.deliveryFee).toLocaleString("en-NG")}`
+      : null;
+  const formattedTotal = `₦${Number(order.totalAmount).toLocaleString("en-NG")}`;
   const deliveredDate = delivery?.deliveredTime
-    ? new Date(delivery.deliveredTime).toLocaleDateString('en-NG', { day: '2-digit', month: '2-digit', year: 'numeric' })
+    ? new Date(delivery.deliveredTime).toLocaleDateString("en-NG", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+      })
     : null;
 
   function addRow() {
-    setProductRows([...productRows, { id: Date.now(), productId: products[0]?.id ?? '', qty: '1' }]);
+    setProductRows([
+      ...productRows,
+      { id: Date.now(), productId: products[0]?.id ?? "", qty: "1" },
+    ]);
   }
 
   function removeRow(id: number) {
-    if (productRows.length > 1) setProductRows(productRows.filter((r) => r.id !== id));
+    if (productRows.length > 1)
+      setProductRows(productRows.filter((r) => r.id !== id));
   }
 
-  function updateRow(id: number, field: 'productId' | 'qty', value: string) {
-    setProductRows(productRows.map((r) => (r.id === id ? { ...r, [field]: value } : r)));
+  function updateRow(id: number, field: "productId" | "qty", value: string) {
+    setProductRows(
+      productRows.map((r) => (r.id === id ? { ...r, [field]: value } : r)),
+    );
   }
 
   function adjustQty(id: number, delta: number) {
     setProductRows(
       productRows.map((r) => {
         if (r.id !== id) return r;
-        return { ...r, qty: String(Math.max(1, parseInt(r.qty || '1') + delta)) };
-      })
+        return {
+          ...r,
+          qty: String(Math.max(1, parseInt(r.qty || "1") + delta)),
+        };
+      }),
     );
   }
 
@@ -192,7 +284,7 @@ export function OrderDetailClient({ order, products }: OrderDetailClientProps) {
       try {
         await action();
       } catch (err) {
-        alert(err instanceof Error ? err.message : 'Action failed');
+        alert(err instanceof Error ? err.message : "Action failed");
       }
     });
   }
@@ -201,7 +293,10 @@ export function OrderDetailClient({ order, products }: OrderDetailClientProps) {
     handleAction(async () => {
       const items = productRows
         .filter((r) => r.productId)
-        .map((r) => ({ productId: r.productId, quantity: parseInt(r.qty) || 1 }));
+        .map((r) => ({
+          productId: r.productId,
+          quantity: parseInt(r.qty) || 1,
+        }));
       await addOrderItemsAction(order.id, items);
       setIsAddProductOpen(false);
     });
@@ -219,8 +314,12 @@ export function OrderDetailClient({ order, products }: OrderDetailClientProps) {
 
       {/* Header */}
       <div className="flex justify-between items-center bg-white p-5 rounded-xl">
-        <h2 className="text-lg font-bold text-gray-900">Order ID: {order.orderNumber}</h2>
-        <span className={`${badge.bg} text-white px-5 py-2 rounded-full text-sm font-semibold`}>
+        <h2 className="text-lg font-bold text-gray-900">
+          Order ID: {order.orderNumber}
+        </h2>
+        <span
+          className={`${badge.bg} text-white px-5 py-2 rounded-full text-sm font-semibold`}
+        >
           {badge.label}
         </span>
       </div>
@@ -231,7 +330,9 @@ export function OrderDetailClient({ order, products }: OrderDetailClientProps) {
           <React.Fragment key={step.number}>
             <StepIndicator {...step} />
             {idx < steps.length - 1 && (
-              <div className={`flex-1 h-0.5 mt-6 ${step.isCompleted ? 'bg-green-500' : 'bg-gray-200'}`} />
+              <div
+                className={`flex-1 h-0.5 mt-6 ${step.isCompleted ? "bg-green-500" : "bg-gray-200"}`}
+              />
             )}
           </React.Fragment>
         ))}
@@ -247,27 +348,38 @@ export function OrderDetailClient({ order, products }: OrderDetailClientProps) {
           <div className="grid grid-cols-2 gap-x-4">
             <FieldRow label="Full Name" value={order.customer.name} />
             <FieldRow label="Phone Number" value={order.customer.phone} />
-            <FieldRow label="WhatsApp number" value={order.customer.whatsappNumber ?? order.customer.phone} />
-            <FieldRow label="Email" value={order.customer.email ?? '—'} />
+            <FieldRow
+              label="WhatsApp number"
+              value={order.customer.whatsappNumber ?? order.customer.phone}
+            />
+            <FieldRow label="Email" value={order.customer.email ?? "—"} />
             <div className="col-span-2">
-              <FieldRow label="Full delivery address" value={order.customer.deliveryAddress} />
+              <FieldRow
+                label="Full delivery address"
+                value={order.customer.deliveryAddress}
+              />
             </div>
             <FieldRow label="State" value={order.customer.state} />
             <FieldRow label="LGA" value={order.customer.lga} />
             <div className="col-span-2">
-              <FieldRow label="Landmark" value={order.customer.landmark ?? '—'} />
+              <FieldRow
+                label="Landmark"
+                value={order.customer.landmark ?? "—"}
+              />
             </div>
             <FieldRow
               label="Product(s)"
-              value={order.items.map((i) => i.product.name).join(', ') || '—'}
+              value={order.items.map((i) => i.product.name).join(", ") || "—"}
             />
             <FieldRow
               label="Quantity"
-              value={String(order.items.reduce((sum, i) => sum + i.quantity, 0))}
+              value={String(
+                order.items.reduce((sum, i) => sum + i.quantity, 0),
+              )}
             />
           </div>
 
-          {order.status === 'PENDING' && (
+          {order.status === "PENDING" && (
             <button
               onClick={() => setIsAddProductOpen(true)}
               className="w-full mt-4 bg-purple-100 border border-purple-200 px-4 py-3 rounded-lg text-purple-600 font-semibold text-sm hover:bg-purple-50 transition flex items-center justify-center gap-2"
@@ -278,23 +390,31 @@ export function OrderDetailClient({ order, products }: OrderDetailClientProps) {
 
           {/* Order History */}
           <div className="mt-6 pt-6 border-t border-gray-200">
-            <h4 className="text-xs font-semibold text-gray-500 mb-4 uppercase">Order History</h4>
+            <h4 className="text-xs font-semibold text-gray-500 mb-4 uppercase">
+              Order History
+            </h4>
             <div className="flex flex-col gap-3 text-xs">
               <div className="flex justify-between text-gray-500">
                 <span>Order Created</span>
-                <div className="text-right">{new Date(order.createdAt).toLocaleString('en-NG')}</div>
+                <div className="text-right">
+                  {new Date(order.createdAt).toLocaleString("en-NG")}
+                </div>
               </div>
               <div className="flex justify-between text-gray-500">
                 <span>Sales Rep Assigned</span>
                 <div className="text-right">
-                  <div>{new Date(order.createdAt).toLocaleString('en-NG')}</div>
-                  <div className="text-gray-900 font-medium">{order.salesRep.name}</div>
+                  <div>{new Date(order.createdAt).toLocaleString("en-NG")}</div>
+                  <div className="text-gray-900 font-medium">
+                    {order.salesRep.name}
+                  </div>
                 </div>
               </div>
-              {order.status !== 'PENDING' && (
+              {order.status !== "PENDING" && (
                 <div className="flex justify-between text-gray-500">
                   <span>Order Confirmed</span>
-                  <div className="text-right">{new Date(order.createdAt).toLocaleString('en-NG')}</div>
+                  <div className="text-right">
+                    {new Date(order.createdAt).toLocaleString("en-NG")}
+                  </div>
                 </div>
               )}
             </div>
@@ -305,33 +425,44 @@ export function OrderDetailClient({ order, products }: OrderDetailClientProps) {
         <div className="col-span-2 flex flex-col gap-6">
           {/* Product placeholder */}
           <div className="bg-gray-100 rounded-xl min-h-45 flex items-center justify-center text-gray-400 text-sm border border-gray-200">
-            📦 {order.items.map((i) => i.product.name).join(', ') || 'No products'} — {order.items.reduce((s, i) => s + i.quantity, 0)} units
+            📦{" "}
+            {order.items.map((i) => i.product.name).join(", ") || "No products"}{" "}
+            — {order.items.reduce((s, i) => s + i.quantity, 0)} units
           </div>
 
           {/* Price / Actions */}
           <div className="bg-white rounded-xl p-6 border border-gray-200 flex flex-col gap-3">
             <div className="flex justify-between">
               <span className="text-sm text-gray-500">
-                Source: <strong className="text-gray-900">{order.customer.source ?? 'WhatsApp'}</strong>
+                Source:{" "}
+                <strong className="text-gray-900">
+                  {order.customer.source ?? "WhatsApp"}
+                </strong>
               </span>
             </div>
             <div className="flex justify-between">
               <span className="text-sm text-gray-500">Total Price</span>
-              <span className="text-base font-bold text-gray-900">{formattedTotal}</span>
+              <span className="text-base font-bold text-gray-900">
+                {formattedTotal}
+              </span>
             </div>
 
-            {order.status === 'PENDING' && (
+            {order.status === "PENDING" && (
               <div className="grid grid-cols-2 gap-3 mt-1">
                 <button
                   disabled={isPending}
-                  onClick={() => handleAction(() => cancelOrderAction(order.id))}
+                  onClick={() =>
+                    handleAction(() => cancelOrderAction(order.id))
+                  }
                   className="bg-purple-100 border border-purple-200 px-4 py-2 rounded-lg text-purple-600 font-semibold text-sm hover:bg-purple-50 transition disabled:opacity-50"
                 >
                   Cancel
                 </button>
                 <button
                   disabled={isPending}
-                  onClick={() => handleAction(() => confirmOrderAction(order.id))}
+                  onClick={() =>
+                    handleAction(() => confirmOrderAction(order.id))
+                  }
                   className="bg-purple-600 text-white px-4 py-2 rounded-lg font-semibold text-sm hover:bg-purple-700 transition disabled:opacity-50"
                 >
                   Confirm →
@@ -339,62 +470,92 @@ export function OrderDetailClient({ order, products }: OrderDetailClientProps) {
               </div>
             )}
 
-            {(order.status === 'CONFIRMED' || order.status === 'DELIVERED') && formattedDeliveryFee && (
-              <>
-                <div className="flex justify-between">
-                  <span className="text-sm text-gray-500">Estimated Delivery</span>
-                  <span className="font-semibold text-gray-900">
-                    {delivery?.scheduledTime
-                      ? new Date(delivery.scheduledTime).toLocaleDateString('en-NG')
-                      : '24 hours'}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-gray-500">Delivery Fee</span>
-                  <span className="font-semibold text-gray-900">{formattedDeliveryFee}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-gray-500">Agent Assigned</span>
-                  <div className="text-right">
-                    <div className="font-semibold text-gray-900">{order.agent?.companyName ?? '—'}</div>
-                    <div className="text-xs text-gray-400">{order.agent?.state ?? ''}</div>
+            {(order.status === "CONFIRMED" || order.status === "DELIVERED") &&
+              formattedDeliveryFee && (
+                <>
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-500">
+                      Estimated Delivery
+                    </span>
+                    <span className="font-semibold text-gray-900">
+                      {delivery?.scheduledTime
+                        ? new Date(delivery.scheduledTime).toLocaleDateString(
+                            "en-NG",
+                          )
+                        : "24 hours"}
+                    </span>
                   </div>
-                </div>
-                <button className="w-full bg-white border border-gray-200 px-4 py-2 rounded-lg text-gray-500 font-semibold text-sm hover:bg-gray-50 transition">
-                  View Agent Info
-                </button>
-                <button className="w-full bg-purple-100 border border-purple-200 px-4 py-2 rounded-lg text-purple-600 font-semibold text-sm hover:bg-purple-50 transition">
-                  Reassign Agent
-                </button>
-              </>
-            )}
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-500">Delivery Fee</span>
+                    <span className="font-semibold text-gray-900">
+                      {formattedDeliveryFee}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-500">
+                      Agent Assigned
+                    </span>
+                    <div className="text-right">
+                      <div className="font-semibold text-gray-900">
+                        {order.agent?.companyName ?? "—"}
+                      </div>
+                      <div className="text-xs text-gray-400">
+                        {order.agent?.state ?? ""}
+                      </div>
+                    </div>
+                  </div>
+                  <button className="w-full bg-white border border-gray-200 px-4 py-2 rounded-lg text-gray-500 font-semibold text-sm hover:bg-gray-50 transition">
+                    View Agent Info
+                  </button>
+                  <button className="w-full bg-purple-100 border border-purple-200 px-4 py-2 rounded-lg text-purple-600 font-semibold text-sm hover:bg-purple-50 transition">
+                    Reassign Agent
+                  </button>
+                </>
+              )}
 
-            {order.status === 'DELIVERED' && deliveredDate && (
+            {order.status === "DELIVERED" && deliveredDate && (
               <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                <p className="text-sm text-green-700">✓ Order delivered on {deliveredDate}</p>
+                <p className="text-sm text-green-700">
+                  ✓ Order delivered on {deliveredDate}
+                </p>
               </div>
             )}
           </div>
 
           {/* Contact method */}
           <div className="bg-white rounded-xl p-6 border border-gray-200">
-            <p className="text-xs text-gray-500 mb-4">Customer has been reached out to on</p>
+            <p className="text-xs text-gray-500 mb-4">
+              Customer has been reached out to on
+            </p>
             <div className="flex gap-6">
               <label className="flex items-center gap-2 cursor-pointer">
-                <input type="radio" name={`contact-${order.id}`} value="phone" className="accent-purple-600" />
+                <input
+                  type="radio"
+                  name={`contact-${order.id}`}
+                  value="phone"
+                  className="accent-purple-600"
+                />
                 <span className="text-sm text-gray-900">Phone Call</span>
               </label>
               <label className="flex items-center gap-2 cursor-pointer">
-                <input type="radio" name={`contact-${order.id}`} value="whatsapp" defaultChecked className="accent-purple-600" />
+                <input
+                  type="radio"
+                  name={`contact-${order.id}`}
+                  value="whatsapp"
+                  defaultChecked
+                  className="accent-purple-600"
+                />
                 <span className="text-sm text-gray-900">WhatsApp</span>
               </label>
             </div>
           </div>
 
           {/* Prescription */}
-          {order.status !== 'PENDING' && (
+          {order.status !== "PENDING" && (
             <div className="bg-white rounded-xl p-6 border border-gray-200">
-              <h4 className="text-sm font-semibold text-gray-900 mb-4">Set Prescription</h4>
+              <h4 className="text-sm font-semibold text-gray-900 mb-4">
+                Set Prescription
+              </h4>
               <textarea
                 placeholder="Cap. Amoxicillin 500mg Take 1 capsule every 8 hours for 5 days."
                 className="w-full min-h-24 border border-gray-200 rounded-lg px-3 py-2 text-xs text-gray-500 resize-none outline-none focus:border-purple-600"
@@ -403,7 +564,7 @@ export function OrderDetailClient({ order, products }: OrderDetailClientProps) {
           )}
 
           {/* Confirm/Fail buttons for confirmed orders */}
-          {order.status === 'CONFIRMED' && (
+          {order.status === "CONFIRMED" && (
             <div className="grid grid-cols-2 gap-4">
               <button
                 disabled={isPending}
@@ -433,7 +594,9 @@ export function OrderDetailClient({ order, products }: OrderDetailClientProps) {
           />
           <div className="relative bg-white rounded-[40px] shadow-2xl w-full max-w-[650px] p-12 animate-in fade-in zoom-in duration-300">
             <div className="flex items-center justify-between mb-10">
-              <h2 className="text-2xl font-black text-slate-400">Add Product</h2>
+              <h2 className="text-2xl font-black text-slate-400">
+                Add Product
+              </h2>
               <button
                 onClick={() => setIsAddProductOpen(false)}
                 className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-200 transition-colors"
@@ -449,7 +612,9 @@ export function OrderDetailClient({ order, products }: OrderDetailClientProps) {
                     <div className="flex-1">
                       <Select
                         value={row.productId}
-                        onValueChange={(val) => val && updateRow(row.id, 'productId', val)}
+                        onValueChange={(val) =>
+                          val && updateRow(row.id, "productId", val)
+                        }
                       >
                         <SelectTrigger className="w-full h-[48px] border-none bg-white/50 rounded-xl text-[1.1rem] font-black shadow-sm px-4">
                           <SelectValue placeholder="Select Product" />
@@ -470,7 +635,9 @@ export function OrderDetailClient({ order, products }: OrderDetailClientProps) {
                       >
                         -
                       </button>
-                      <span className="text-[1.1rem] font-black text-slate-800">{row.qty}</span>
+                      <span className="text-[1.1rem] font-black text-slate-800">
+                        {row.qty}
+                      </span>
                       <button
                         onClick={() => adjustQty(row.id, 1)}
                         className="w-8 h-8 rounded-lg bg-white border border-slate-100 flex items-center justify-center text-slate-500 hover:text-purple-600 transition-colors font-bold"

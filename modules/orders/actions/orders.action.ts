@@ -74,7 +74,7 @@ export async function addOrderItemsAction(
 
   const products = await prisma.product.findMany({
     where: { id: { in: items.map((i) => i.productId) } },
-    select: { id: true, sellingPrice: true },
+    select: { id: true, name: true, sellingPrice: true },
   });
 
   const productMap = new Map(products.map((p) => [p.id, p]));
