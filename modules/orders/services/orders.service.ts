@@ -1,13 +1,6 @@
 import { prisma } from "@/lib/db/prisma";
 import type { OrderStatus } from "@prisma/client";
 
-/**
- * Orders service — business logic for order lifecycle management.
- *
- * Order lifecycle:
- * CREATED → CONFIRMED → ASSIGNED → DELIVERED → COMPLETED
- */
-
 export async function getAllOrders() {
   return prisma.order.findMany({ orderBy: { createdAt: "desc" } });
 }
@@ -16,19 +9,49 @@ export async function getOrderById(id: string) {
   return prisma.order.findUnique({ where: { id } });
 }
 
-export async function createOrder(data: {
-  customerName: string;
-  totalAmount: number;
-}) {
-  return prisma.order.create({
-    data: {
-      customerName: data.customerName,
-      totalAmount: data.totalAmount,
-      status: "CREATED",
+export async function updateOrderStatus(id: string, status: OrderStatus) {
+  return prisma.order.update({ where: { id }, data: { status } });
+}
+
+// Fetch all orders for a sales rep with related data needed for the list view.
+// Called once on the orders page; tab filtering happens client-side from this result.
+export async function getSalesRepOrders(salesRepId: string) {
+  return prisma.order.findMany({
+    where: { salesRepId, deletedAt: null },
+    orderBy: { createdAt: "desc" },
+    include: {
+      customer: {
+        select: { name: true, email: true },
+      },
+      agent: {
+        select: { companyName: true, state: true },
+      },
+      items: {
+        include: { product: { select: { name: true } } },
+      },
     },
   });
 }
 
-export async function updateOrderStatus(id: string, status: OrderStatus) {
-  return prisma.order.update({ where: { id }, data: { status } });
+// Full order details for the detail page.
+export async function getOrderWithDetails(id: string) {
+  return prisma.order.findUnique({
+    where: { id },
+    include: {
+      customer: true,
+      agent: {
+        select: { id: true, companyName: true, state: true },
+      },
+      items: {
+        include: { product: { select: { id: true, name: true } } },
+      },
+      salesRep: {
+        select: { id: true, name: true },
+      },
+      deliveries: {
+        orderBy: { createdAt: "desc" },
+        take: 1,
+      },
+    },
+  });
 }
