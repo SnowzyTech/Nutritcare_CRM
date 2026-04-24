@@ -1,8 +1,42 @@
-import { MOCK_REP_DETAILS } from "@/lib/mock-data/sales-rep-manager";
 import { notFound } from "next/navigation";
+import { getSalesRepById, getSalesRepAnalytics } from "@/modules/users/services/users.service";
+import { getTeamOrders } from "@/modules/orders/services/orders.service";
 import { AnalyticsDashboardClient, AnalyticsData } from "../../analytics/analytics-dashboard-client";
 
 export const dynamic = "force-dynamic";
+
+function computeProductTables(orders: Array<{
+  status: string;
+  items: Array<{ productId: string; quantity: number; product: { name: string } }>;
+}>) {
+  const deliveredOrders = orders.filter(o => o.status === "DELIVERED");
+  const productSales: Record<string, { name: string; qty: number }> = {};
+  deliveredOrders.forEach(o => {
+    o.items.forEach(item => {
+      if (!productSales[item.productId]) productSales[item.productId] = { name: item.product.name, qty: 0 };
+      productSales[item.productId].qty += item.quantity;
+    });
+  });
+  const bestSellingTable = Object.values(productSales)
+    .sort((a, b) => b.qty - a.qty)
+    .slice(0, 10)
+    .map(p => ({ product: p.name, amountSold: p.qty }));
+
+  const upsellCounts: Record<string, { name: string; count: number }> = {};
+  orders.forEach(o => {
+    if (o.items.length <= 1) return;
+    o.items.forEach(item => {
+      if (!upsellCounts[item.productId]) upsellCounts[item.productId] = { name: item.product.name, count: 0 };
+      upsellCounts[item.productId].count++;
+    });
+  });
+  const upsellingTable = Object.values(upsellCounts)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 10)
+    .map(p => ({ product: p.name, noOfUpsell: p.count }));
+
+  return { bestSellingTable, upsellingTable };
+}
 
 export default async function RepAnalyticsPage({
   params,
@@ -10,42 +44,55 @@ export default async function RepAnalyticsPage({
   params: Promise<{ repId: string }>;
 }) {
   const { repId } = await params;
-  const rep = MOCK_REP_DETAILS[repId] || MOCK_REP_DETAILS["2"];
+  const rep = await getSalesRepById(repId);
 
-  if (!rep) {
-    notFound();
-  }
+  if (!rep) notFound();
 
-  // Exact mock data matching Image 1
-  const mockData: AnalyticsData = {
-    totalProductsSold: { value: "180", trend: "+21%" },
-    totalOrderCustomer: { value: "64", trend: "+12%" },
-    bestSellingProduct: { name: "Prosxact", subtitle: "Neuro-Vive Balm\nlast month" },
-    generalPerformance: { value: "80%", trend: "+12%" },
-    upsellingRate: { value: "30%", trend: "+12%" },
-    confirmationRate: { value: "60%", trend: "+12%" },
-    deliveryRate: { value: "78%", trend: "+12%" },
-    cancellationRate: { value: "8%", trend: "+12%" },
-    recoveryRate: { value: "27%", trend: "+12%" },
-    kpi: { value: "21%", trend: "+12%", target: "XXXXXXX" },
-    bestSellingTable: [
-      { product: "Prosxact", amountSold: 41 },
-      { product: "Neuro-Vive Balm", amountSold: 33 },
-      { product: "Trim and Tone", amountSold: 29 },
-      { product: "After-Natal", amountSold: 25 },
-      { product: "Shred Belly", amountSold: 22 },
-      { product: "Linix", amountSold: 18 },
-      { product: "Fonio Mill", amountSold: 12 },
-    ],
-    upsellingTable: [
-      { product: "Neuro-Vive Balm", noOfUpsell: 10 },
-      { product: "Prosxact", noOfUpsell: 5 },
-      { product: "After-Natal", noOfUpsell: 5 },
-      { product: "Trim and Tone", noOfUpsell: 4 },
-      { product: "Fonio Mill", noOfUpsell: 0 },
-      { product: "Shred Belly", noOfUpsell: 0 },
-      { product: "Linix", noOfUpsell: 0 },
-    ],
+  const [analytics, dbOrders] = await Promise.all([
+    getSalesRepAnalytics(repId),
+    getTeamOrders([repId]),
+  ]);
+
+  const { current, trends } = analytics;
+  const tables = computeProductTables(dbOrders);
+
+  const data: AnalyticsData = {
+    totalProductsSold: {
+      value: String(current.totalProductsSold),
+      trend: trends.totalProductsSold,
+    },
+    totalOrderCustomer: {
+      value: String(current.distinctCustomers),
+      trend: trends.distinctCustomers,
+    },
+    bestSellingProduct: {
+      name: current.bestProduct?.name ?? "—",
+      subtitle: "this month",
+    },
+    generalPerformance: {
+      value: `${current.generalPerformance}%`,
+      trend: trends.generalPerformance,
+    },
+    upsellingRate: {
+      value: `${current.upsellRate}%`,
+      trend: trends.upsellRate,
+    },
+    confirmationRate: {
+      value: `${current.confirmationRate}%`,
+      trend: trends.confirmationRate,
+    },
+    deliveryRate: {
+      value: `${current.deliveryRate}%`,
+      trend: trends.deliveryRate,
+    },
+    cancellationRate: {
+      value: `${current.cancellationRate}%`,
+      trend: trends.cancellationRate,
+    },
+    recoveryRate: { value: "—", trend: "—" },
+    kpi: { value: "—", trend: "—", target: "—" },
+    bestSellingTable: tables.bestSellingTable,
+    upsellingTable: tables.upsellingTable,
   };
 
   return (
@@ -53,9 +100,9 @@ export default async function RepAnalyticsPage({
       header={{
         type: "rep",
         repName: rep.name,
-        repTeam: rep.team,
+        repTeam: rep.team?.name ?? "No Team",
       }}
-      data={mockData}
+      data={data}
       showReports={false}
     />
   );

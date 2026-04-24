@@ -5,6 +5,30 @@ import { prisma } from "@/lib/db/prisma";
 import { revalidatePath } from "next/cache";
 import type { OrderStatus } from "@prisma/client";
 
+export async function reassignOrdersAction(
+  orderIds: string[],
+  repIds: string[]
+): Promise<{ error?: string }> {
+  const session = await auth();
+  if (!session?.user?.id) return { error: "Unauthorized" };
+  if (orderIds.length === 0 || repIds.length === 0) return { error: "No orders or reps selected" };
+
+  await prisma.$transaction(
+    orderIds.map((orderId, idx) => {
+      const repId = repIds[idx % repIds.length];
+      return prisma.order.update({
+        where: { id: orderId, deletedAt: null },
+        data: { salesRepId: repId },
+      });
+    })
+  );
+
+  revalidatePath("/sales-rep-manager");
+  revalidatePath("/sales-rep-manager/orders");
+  revalidatePath("/sales-rep-manager/order-assignment");
+  return {};
+}
+
 async function getOwnedOrder(orderId: string, salesRepId: string) {
   return prisma.order.findUnique({
     where: { id: orderId, salesRepId, deletedAt: null },

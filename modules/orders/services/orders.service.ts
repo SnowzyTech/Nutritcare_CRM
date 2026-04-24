@@ -72,6 +72,21 @@ export async function getAdminOrders() {
   });
 }
 
+// Fetch all orders belonging to a set of sales reps (a team).
+export async function getTeamOrders(memberIds: string[]) {
+  if (memberIds.length === 0) return [];
+  return prisma.order.findMany({
+    where: { salesRepId: { in: memberIds }, deletedAt: null },
+    orderBy: { createdAt: "desc" },
+    include: {
+      customer: { select: { name: true, email: true } },
+      agent: { select: { companyName: true, state: true } },
+      items: { include: { product: { select: { name: true } } } },
+      salesRep: { select: { name: true } },
+    },
+  });
+}
+
 // Full order details for the detail page.
 export async function getOrderWithDetails(id: string) {
   return prisma.order.findUnique({
