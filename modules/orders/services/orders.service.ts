@@ -33,6 +33,28 @@ export async function getSalesRepOrders(salesRepId: string) {
   });
 }
 
+// Fetch all orders for admin (no salesRepId filter).
+export async function getAdminOrders() {
+  return prisma.order.findMany({
+    where: { deletedAt: null },
+    orderBy: { createdAt: "desc" },
+    include: {
+      customer: {
+        select: { name: true, email: true, state: true },
+      },
+      agent: {
+        select: { companyName: true, state: true },
+      },
+      items: {
+        include: { product: { select: { name: true } } },
+      },
+      salesRep: {
+        select: { name: true },
+      },
+    },
+  });
+}
+
 // Full order details for the detail page.
 export async function getOrderWithDetails(id: string) {
   return prisma.order.findUnique({
