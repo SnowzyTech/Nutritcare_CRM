@@ -1,25 +1,20 @@
 import { prisma } from "@/lib/db/prisma";
-
-/**
- * Delivery service — business logic for delivery agent management.
- */
+import type { AgentStatus } from "@prisma/client";
 
 export async function getAvailableAgents() {
-  return prisma.deliveryAgent.findMany({
-    where: { isAvailable: true },
-    include: { user: { select: { id: true, name: true, email: true } } },
+  return prisma.agent.findMany({
+    where: { status: "ACTIVE", deletedAt: null },
+    select: { id: true, companyName: true, state: true, phone1: true },
   });
 }
 
 export async function getAllAgents() {
-  return prisma.deliveryAgent.findMany({
-    include: { user: { select: { id: true, name: true, email: true } } },
+  return prisma.agent.findMany({
+    where: { deletedAt: null },
+    select: { id: true, companyName: true, state: true, status: true, phone1: true },
   });
 }
 
-export async function setAgentAvailability(agentId: string, available: boolean) {
-  return prisma.deliveryAgent.update({
-    where: { id: agentId },
-    data: { isAvailable: available },
-  });
+export async function setAgentStatus(agentId: string, status: AgentStatus) {
+  return prisma.agent.update({ where: { id: agentId }, data: { status } });
 }

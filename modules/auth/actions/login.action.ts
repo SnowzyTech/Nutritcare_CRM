@@ -1,6 +1,7 @@
 "use server";
 
-import { signIn, signOut } from "@/lib/auth/auth";
+import { auth, signIn, signOut } from "@/lib/auth/auth";
+import { getRoleHome } from "@/lib/auth/role-routes";
 import { loginSchema } from "@/lib/validations/auth";
 import { AuthError } from "next-auth";
 import { redirect } from "next/navigation";
@@ -47,7 +48,8 @@ export async function loginAction(
     throw err;
   }
 
-  redirect("/admin");
+  const session = await auth();
+  redirect(getRoleHome(session?.user?.role));
 }
 
 /**
