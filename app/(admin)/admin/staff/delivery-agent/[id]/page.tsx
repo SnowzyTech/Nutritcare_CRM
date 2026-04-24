@@ -206,7 +206,11 @@ export default async function DeliveryAgentDetailPage({ params }: Props) {
       </section>
 
       {/* Advanced Section — client component for modals */}
-      <DeliveryAgentDetailClient agentName={agent.companyName} />
+      <DeliveryAgentDetailClient
+        agentName={agent.companyName}
+        agentId={id}
+        agentStatus={agent.status}
+      />
     </div>
   );
 }

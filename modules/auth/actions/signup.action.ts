@@ -1,16 +1,12 @@
 "use server";
 
-import { signIn } from "@/lib/auth/auth";
-import { getRoleHome } from "@/lib/auth/role-routes";
 import { registerSchema } from "@/lib/validations/auth";
 import { createUser } from "@/modules/auth/services/auth.service";
-import { AuthError } from "next-auth";
-import { redirect } from "next/navigation";
 import type { UserRole } from "@prisma/client";
 
 export type SignupActionState = {
   error?: string;
-  // Returned so the form can repopulate fields on error
+  pendingApproval?: boolean;
   fields?: {
     name?: string;
     email?: string;
@@ -60,18 +56,5 @@ export async function signupAction(
     return { error: "Something went wrong. Please try again.", fields };
   }
 
-  try {
-    await signIn("credentials", {
-      email: parsed.data.email,
-      password: parsed.data.password,
-      redirect: false,
-    });
-  } catch (err) {
-    if (err instanceof AuthError) {
-      return { error: "Account created but sign-in failed. Please log in manually.", fields };
-    }
-    throw err;
-  }
-
-  redirect(getRoleHome(parsed.data.role));
+  return { pendingApproval: true };
 }

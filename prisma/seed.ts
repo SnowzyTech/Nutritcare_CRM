@@ -69,6 +69,7 @@ async function cleanSeedData() {
   await prisma.product.deleteMany({ where: { sku: { startsWith: "SEED-" } } });
   await prisma.productCategory.deleteMany({ where: { categoryName: "Nutricare [SEED]" } });
   await prisma.user.deleteMany({ where: { email: { endsWith: "@seed.nutritcare" } } });
+  await prisma.team.deleteMany({ where: { name: { startsWith: "[SEED]" } } });
 }
 
 // ── Main ────────────────────────────────────────────────────────────────────────
@@ -139,6 +140,40 @@ async function main() {
       },
     }),
   ]);
+
+  // ── Teams ──────────────────────────────────────────────────────────────────
+  const [teamSales1, teamSales2, teamSales3, teamSales4, teamInvLog1, teamInvLog2, teamAcct1, teamData1] = await Promise.all([
+    prisma.team.create({ data: { name: "[SEED] Sales Team 1",           department: "SALES" } }),
+    prisma.team.create({ data: { name: "[SEED] Sales Team 2",           department: "SALES" } }),
+    prisma.team.create({ data: { name: "[SEED] Sales Team 3",           department: "SALES" } }),
+    prisma.team.create({ data: { name: "[SEED] Sales Team 4",           department: "SALES" } }),
+    prisma.team.create({ data: { name: "[SEED] Inventory Team 1",       department: "INVENTORY_LOGISTICS" } }),
+    prisma.team.create({ data: { name: "[SEED] Logistics Team 2",       department: "INVENTORY_LOGISTICS" } }),
+    prisma.team.create({ data: { name: "[SEED] Accounting Team 1",      department: "ACCOUNTING" } }),
+    prisma.team.create({ data: { name: "[SEED] Data Team 1",            department: "DATA" } }),
+  ]);
+
+  // ── Team Leads (APPROVED) ──────────────────────────────────────────────────
+  await Promise.all([
+    prisma.user.create({ data: { name: "Victoria Ademuyiwa", email: "victoria@seed.nutritcare", password: await bcrypt.hash("TeamLead@123", 10), role: "SALES_REP",           isActive: true, isTeamLead: true, accountActivationStatus: "APPROVED", teamId: teamSales1.id } }),
+    prisma.user.create({ data: { name: "Chinedu Okafor",     email: "chinedu@seed.nutritcare",  password: await bcrypt.hash("TeamLead@123", 10), role: "SALES_REP",           isActive: true, isTeamLead: true, accountActivationStatus: "APPROVED", teamId: teamSales2.id } }),
+    prisma.user.create({ data: { name: "Tunde Adeyemi",      email: "tunde@seed.nutritcare",    password: await bcrypt.hash("TeamLead@123", 10), role: "SALES_REP",           isActive: true, isTeamLead: true, accountActivationStatus: "APPROVED", teamId: teamSales3.id } }),
+    prisma.user.create({ data: { name: "Zainab Musa",        email: "zainab@seed.nutritcare",   password: await bcrypt.hash("TeamLead@123", 10), role: "SALES_REP",           isActive: true, isTeamLead: true, accountActivationStatus: "APPROVED", teamId: teamSales4.id } }),
+    prisma.user.create({ data: { name: "Emeka Nwankwo",      email: "emeka.tl@seed.nutritcare", password: await bcrypt.hash("TeamLead@123", 10), role: "INVENTORY_MANAGER",   isActive: true, isTeamLead: true, accountActivationStatus: "APPROVED", teamId: teamInvLog1.id } }),
+    prisma.user.create({ data: { name: "Tolulope Adebayo",   email: "tolulope@seed.nutritcare", password: await bcrypt.hash("TeamLead@123", 10), role: "LOGISTICS_MANAGER",   isActive: true, isTeamLead: true, accountActivationStatus: "APPROVED", teamId: teamInvLog2.id } }),
+    prisma.user.create({ data: { name: "Ngozi Eze",          email: "ngozi@seed.nutritcare",    password: await bcrypt.hash("TeamLead@123", 10), role: "ACCOUNTANT",          isActive: true, isTeamLead: true, accountActivationStatus: "APPROVED", teamId: teamAcct1.id } }),
+    prisma.user.create({ data: { name: "Samuel Olatunji",    email: "samuel@seed.nutritcare",   password: await bcrypt.hash("TeamLead@123", 10), role: "DATA_ANALYST",        isActive: true, isTeamLead: true, accountActivationStatus: "APPROVED", teamId: teamData1.id } }),
+  ]);
+
+  // ── Pending Activation Requests ───────────────────────────────────────────
+  await Promise.all([
+    prisma.user.create({ data: { name: "Oyindamola Joseph",  email: "oyinda@seed.nutritcare",   password: await bcrypt.hash("Pending@123", 10), role: "SALES_REP",         isActive: false, accountActivationStatus: "PENDING" } }),
+    prisma.user.create({ data: { name: "Makinde Wale",       email: "makinde@seed.nutritcare",  password: await bcrypt.hash("Pending@123", 10), role: "INVENTORY_MANAGER", isActive: false, accountActivationStatus: "PENDING" } }),
+    prisma.user.create({ data: { name: "Chinyere Ifekwuku",  email: "chinyere@seed.nutritcare", password: await bcrypt.hash("Pending@123", 10), role: "ACCOUNTANT",        isActive: false, accountActivationStatus: "PENDING" } }),
+    prisma.user.create({ data: { name: "Marvelous David",    email: "marvelous@seed.nutritcare",password: await bcrypt.hash("Pending@123", 10), role: "DATA_ANALYST",      isActive: false, accountActivationStatus: "PENDING" } }),
+    prisma.user.create({ data: { name: "Inioluwa Grace",     email: "inioluwa@seed.nutritcare", password: await bcrypt.hash("Pending@123", 10), role: "SALES_REP",         isActive: false, accountActivationStatus: "PENDING" } }),
+  ]);
+  console.log("  ✓ Teams, team leads, and pending activation requests created");
 
   // ── Product Category ────────────────────────────────────────────────────────
   const category = await prisma.productCategory.create({

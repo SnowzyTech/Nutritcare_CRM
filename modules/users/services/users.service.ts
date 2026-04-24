@@ -209,6 +209,10 @@ export async function getSalesRepAnalytics(salesRepId: string) {
 }
 
 export async function deleteUser(id: string) {
+  const orderCount = await prisma.order.count({ where: { salesRepId: id, deletedAt: null } });
+  if (orderCount > 0) {
+    throw new Error(`Cannot delete: this user has ${orderCount} order(s). Suspend the account instead.`);
+  }
   return prisma.user.delete({ where: { id } });
 }
 
@@ -217,5 +221,67 @@ export async function updateUserRole(id: string, role: UserRole) {
     where: { id },
     data: { role },
     select: { id: true, name: true, email: true, role: true },
+  });
+}
+
+export async function suspendUser(id: string) {
+  return prisma.user.update({ where: { id }, data: { isActive: false } });
+}
+
+export async function activateUser(id: string) {
+  return prisma.user.update({ where: { id }, data: { isActive: true } });
+}
+
+export async function updateUserPassword(id: string, hashedPassword: string) {
+  return prisma.user.update({ where: { id }, data: { password: hashedPassword } });
+}
+
+export async function toggleTeamLead(id: string, isTeamLead: boolean) {
+  return prisma.user.update({ where: { id }, data: { isTeamLead } });
+}
+
+export async function changeUserTeam(id: string, teamId: string | null) {
+  return prisma.user.update({ where: { id }, data: { teamId } });
+}
+
+export async function getAllTeams() {
+  return prisma.team.findMany({
+    select: { id: true, name: true, department: true },
+    orderBy: { name: "asc" },
+  });
+}
+
+export async function getPendingActivationRequests() {
+  return prisma.user.findMany({
+    where: { accountActivationStatus: "PENDING" },
+    select: { id: true, name: true, role: true, createdAt: true },
+    orderBy: { createdAt: "desc" },
+  });
+}
+
+export async function getTeamLeads() {
+  return prisma.user.findMany({
+    where: { isTeamLead: true, accountActivationStatus: "APPROVED", isActive: true },
+    select: {
+      id: true,
+      name: true,
+      role: true,
+      team: { select: { id: true, name: true, department: true } },
+    },
+    orderBy: { name: "asc" },
+  });
+}
+
+export async function approveAccount(id: string) {
+  return prisma.user.update({
+    where: { id },
+    data: { accountActivationStatus: "APPROVED", isActive: true },
+  });
+}
+
+export async function rejectAccount(id: string) {
+  return prisma.user.update({
+    where: { id },
+    data: { accountActivationStatus: "REJECTED", isActive: false },
   });
 }

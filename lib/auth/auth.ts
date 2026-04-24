@@ -34,7 +34,10 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         const isValid = await bcrypt.compare(password, user.password);
         if (!isValid) return null;
 
-        // 4. Return user object — this gets persisted into the JWT
+        // 4. Block unapproved accounts
+        if (user.accountActivationStatus !== "APPROVED") return null;
+
+        // 5. Return user object — this gets persisted into the JWT
         return {
           id: user.id,
           name: user.name,

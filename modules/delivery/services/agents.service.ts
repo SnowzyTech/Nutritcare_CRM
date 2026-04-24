@@ -97,6 +97,14 @@ export async function getDeliveryAgentOrderSummary(agentId: string) {
   };
 }
 
+export async function updateAgentStatus(id: string, status: "ACTIVE" | "INACTIVE") {
+  return prisma.agent.update({ where: { id }, data: { status } });
+}
+
+export async function softDeleteAgent(id: string) {
+  return prisma.agent.update({ where: { id }, data: { deletedAt: new Date() } });
+}
+
 export async function getDeliveryAgentAnalytics(agentId: string) {
   const now = new Date();
   const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
