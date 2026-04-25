@@ -58,9 +58,19 @@ export function OrdersClient({ orders, counts, userName }: OrdersClientProps) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<OrderStatus | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [filterDate, setFilterDate] = useState('');
 
   const filteredOrders = useMemo(() => {
     let result = activeTab ? orders.filter((o) => o.status === activeTab) : orders;
+    
+    if (filterDate) {
+      result = result.filter((o) => {
+        const orderDate = new Date(o.createdAt);
+        const formattedDate = orderDate.toISOString().split('T')[0];
+        return formattedDate === filterDate;
+      });
+    }
+
     const q = searchQuery.trim().toLowerCase();
     if (q) {
       result = result.filter(
@@ -71,7 +81,7 @@ export function OrdersClient({ orders, counts, userName }: OrdersClientProps) {
       );
     }
     return result;
-  }, [orders, activeTab, searchQuery]);
+  }, [orders, activeTab, searchQuery, filterDate]);
 
   return (
     <div className="max-w-[1200px] mx-auto">
@@ -130,10 +140,14 @@ export function OrdersClient({ orders, counts, userName }: OrdersClientProps) {
           <SlidersHorizontal size={18} />
           <span className="text-sm font-medium">Filter</span>
         </button>
-        <button className="flex items-center gap-2 px-3 py-2 bg-white rounded-lg text-gray-400 hover:text-gray-600 transition-colors">
-          <span className="text-sm font-medium">Date</span>
-          <ChevronLeft className="-rotate-90" size={16} />
-        </button>
+        <div className="relative">
+          <input
+            type="date"
+            value={filterDate}
+            onChange={(e) => setFilterDate(e.target.value)}
+            className="flex items-center gap-2 px-3 py-1.5 bg-white rounded-lg text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors border border-transparent outline-none cursor-pointer [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-50 hover:[&::-webkit-calendar-picker-indicator]:opacity-100"
+          />
+        </div>
         <button className="p-2 bg-white rounded-lg text-gray-400">
           <ArrowUpDown size={18} />
         </button>
