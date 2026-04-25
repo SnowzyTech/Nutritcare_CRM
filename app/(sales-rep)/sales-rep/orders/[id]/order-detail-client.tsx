@@ -3,13 +3,6 @@
 import React, { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { X } from "lucide-react";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import type { OrderStatus } from "@prisma/client";
 import {
   confirmOrderAction,
@@ -17,6 +10,8 @@ import {
   failOrderAction,
   deliverOrderAction,
   addOrderItemsAction,
+  updateOrderNotesAction,
+  updateOrderTotalAction,
 } from "@/modules/orders/actions/orders.action";
 
 // Serialized types (Decimals as strings, Dates as ISO strings)
@@ -228,6 +223,8 @@ export function OrderDetailClient({ order, products }: OrderDetailClientProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [isAddProductOpen, setIsAddProductOpen] = useState(false);
+  const [prescription, setPrescription] = useState(order.notes ?? "");
+  const [totalInput, setTotalInput] = useState(order.totalAmount);
   const [productRows, setProductRows] = useState([
     { id: Date.now(), productId: products[0]?.id ?? "", qty: "1" },
   ]);
@@ -298,6 +295,14 @@ export function OrderDetailClient({ order, products }: OrderDetailClientProps) {
           quantity: parseInt(r.qty) || 1,
         }));
       await addOrderItemsAction(order.id, items);
+      // Recalculate total from added items so the editable input reflects the new sum
+      const added = productRows
+        .filter((r) => r.productId)
+        .reduce((sum, r) => {
+          const price = Number(products.find((p) => p.id === r.productId)?.sellingPrice ?? 0);
+          return sum + price * (parseInt(r.qty) || 1);
+        }, 0);
+      setTotalInput(String(Number(totalInput) + added));
       setIsAddProductOpen(false);
     });
   }
@@ -440,11 +445,29 @@ export function OrderDetailClient({ order, products }: OrderDetailClientProps) {
                 </strong>
               </span>
             </div>
-            <div className="flex justify-between">
+            <div className="flex justify-between items-center">
               <span className="text-sm text-gray-500">Total Price</span>
-              <span className="text-base font-bold text-gray-900">
-                {formattedTotal}
-              </span>
+              {order.status === "PENDING" ? (
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-gray-400">₦</span>
+                  <input
+                    type="number"
+                    min="0"
+                    value={totalInput}
+                    onChange={(e) => setTotalInput(e.target.value)}
+                    onBlur={() =>
+                      handleAction(() =>
+                        updateOrderTotalAction(order.id, parseFloat(totalInput) || 0)
+                      )
+                    }
+                    className="w-32 text-right text-base font-bold text-gray-900 border border-gray-200 rounded-lg px-2 py-1 outline-none focus:border-purple-400"
+                  />
+                </div>
+              ) : (
+                <span className="text-base font-bold text-gray-900">
+                  {formattedTotal}
+                </span>
+              )}
             </div>
 
             {order.status === "PENDING" && (
@@ -461,7 +484,7 @@ export function OrderDetailClient({ order, products }: OrderDetailClientProps) {
                 <button
                   disabled={isPending}
                   onClick={() =>
-                    handleAction(() => confirmOrderAction(order.id))
+                    handleAction(() => confirmOrderAction(order.id, prescription))
                   }
                   className="bg-purple-600 text-white px-4 py-2 rounded-lg font-semibold text-sm hover:bg-purple-700 transition disabled:opacity-50"
                 >
@@ -551,17 +574,40 @@ export function OrderDetailClient({ order, products }: OrderDetailClientProps) {
           </div>
 
           {/* Prescription */}
-          {order.status !== "PENDING" && (
-            <div className="bg-white rounded-xl p-6 border border-gray-200">
-              <h4 className="text-sm font-semibold text-gray-900 mb-4">
-                Set Prescription
-              </h4>
-              <textarea
-                placeholder="Cap. Amoxicillin 500mg Take 1 capsule every 8 hours for 5 days."
-                className="w-full min-h-24 border border-gray-200 rounded-lg px-3 py-2 text-xs text-gray-500 resize-none outline-none focus:border-purple-600"
-              />
-            </div>
-          )}
+          <div className="bg-white rounded-xl p-6 border border-gray-200">
+            <h4 className="text-sm font-semibold text-gray-900 mb-4">
+              {order.status === "PENDING" || order.status === "CONFIRMED"
+                ? "Set Prescription"
+                : "Prescription"}
+            </h4>
+            {(order.status === "PENDING" || order.status === "CONFIRMED") ? (
+              <>
+                <textarea
+                  value={prescription}
+                  onChange={(e) => setPrescription(e.target.value)}
+                  placeholder="Cap. Amoxicillin 500mg Take 1 capsule every 8 hours for 5 days."
+                  className="w-full min-h-24 border border-gray-200 rounded-lg px-3 py-2 text-xs text-gray-500 resize-none outline-none focus:border-purple-600"
+                />
+                {order.status === "CONFIRMED" && (
+                  <button
+                    disabled={isPending}
+                    onClick={() =>
+                      handleAction(() => updateOrderNotesAction(order.id, prescription))
+                    }
+                    className="mt-3 w-full bg-purple-600 text-white px-4 py-2 rounded-lg font-semibold text-sm hover:bg-purple-700 transition disabled:opacity-50"
+                  >
+                    Save Prescription
+                  </button>
+                )}
+              </>
+            ) : (
+              order.notes ? (
+                <p className="text-xs text-gray-600 leading-relaxed">{order.notes}</p>
+              ) : (
+                <p className="text-xs text-gray-400 italic">No prescription set.</p>
+              )
+            )}
+          </div>
 
           {/* Confirm/Fail buttons for confirmed orders */}
           {order.status === "CONFIRMED" && (
@@ -606,56 +652,65 @@ export function OrderDetailClient({ order, products }: OrderDetailClientProps) {
             </div>
 
             <div className="space-y-4 mb-8 max-h-[350px] overflow-y-auto pr-2">
-              {productRows.map((row) => (
-                <div key={row.id} className="flex gap-3 items-center group">
-                  <div className="flex-1 bg-slate-50 rounded-2xl p-6 flex gap-4 items-center border border-slate-100">
-                    <div className="flex-1">
-                      <Select
+              {productRows.map((row) => {
+                const selectedProduct = products.find((p) => p.id === row.productId);
+                return (
+                  <div key={row.id} className="flex gap-3 items-center group">
+                    <div className="flex-1 bg-slate-50 rounded-2xl p-4 flex flex-col gap-3 border border-slate-100">
+                      {/* Product selector */}
+                      <select
                         value={row.productId}
-                        onValueChange={(val) =>
-                          val && updateRow(row.id, "productId", val)
-                        }
+                        onChange={(e) => updateRow(row.id, "productId", e.target.value)}
+                        className="w-full h-[48px] bg-white border border-slate-200 rounded-xl px-4 text-sm font-semibold text-slate-800 outline-none focus:border-purple-400 cursor-pointer"
                       >
-                        <SelectTrigger className="w-full h-[48px] border-none bg-white/50 rounded-xl text-[1.1rem] font-black shadow-sm px-4">
-                          <SelectValue placeholder="Select Product" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {products.map((p) => (
-                            <SelectItem key={p.id} value={p.id}>
-                              {p.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                        <option value="" disabled>Select Product</option>
+                        {products.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name} — ₦{Number(p.sellingPrice).toLocaleString("en-NG")}
+                          </option>
+                        ))}
+                      </select>
+
+                      {/* Name + price + qty row */}
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="flex flex-col min-w-0">
+                          <span className="text-sm font-bold text-slate-800 truncate">
+                            {selectedProduct?.name ?? "—"}
+                          </span>
+                          <span className="text-xs text-purple-600 font-semibold">
+                            ₦{selectedProduct ? Number(selectedProduct.sellingPrice).toLocaleString("en-NG") : "0"}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between bg-white rounded-xl h-[44px] px-2 shadow-sm border border-slate-100 shrink-0 w-[130px]">
+                          <button
+                            onClick={() => adjustQty(row.id, -1)}
+                            className="w-8 h-8 rounded-lg bg-white border border-slate-100 flex items-center justify-center text-slate-500 hover:text-purple-600 transition-colors font-bold"
+                          >
+                            -
+                          </button>
+                          <span className="text-[1.1rem] font-black text-slate-800">
+                            {row.qty}
+                          </span>
+                          <button
+                            onClick={() => adjustQty(row.id, 1)}
+                            className="w-8 h-8 rounded-lg bg-white border border-slate-100 flex items-center justify-center text-slate-500 hover:text-purple-600 transition-colors font-bold"
+                          >
+                            +
+                          </button>
+                        </div>
+                      </div>
                     </div>
-                    <div className="w-[140px] flex items-center justify-between bg-white/50 rounded-xl h-[48px] px-2 shadow-sm border border-slate-100">
+                    {productRows.length > 1 && (
                       <button
-                        onClick={() => adjustQty(row.id, -1)}
-                        className="w-8 h-8 rounded-lg bg-white border border-slate-100 flex items-center justify-center text-slate-500 hover:text-purple-600 transition-colors font-bold"
+                        onClick={() => removeRow(row.id)}
+                        className="w-10 h-10 rounded-full bg-rose-50 text-rose-500 hover:bg-rose-100 transition-colors flex items-center justify-center shrink-0 border border-rose-100"
                       >
-                        -
+                        <X size={18} />
                       </button>
-                      <span className="text-[1.1rem] font-black text-slate-800">
-                        {row.qty}
-                      </span>
-                      <button
-                        onClick={() => adjustQty(row.id, 1)}
-                        className="w-8 h-8 rounded-lg bg-white border border-slate-100 flex items-center justify-center text-slate-500 hover:text-purple-600 transition-colors font-bold"
-                      >
-                        +
-                      </button>
-                    </div>
+                    )}
                   </div>
-                  {productRows.length > 1 && (
-                    <button
-                      onClick={() => removeRow(row.id)}
-                      className="w-10 h-10 rounded-full bg-rose-50 text-rose-500 hover:bg-rose-100 transition-colors flex items-center justify-center shrink-0 border border-rose-100"
-                    >
-                      <X size={18} />
-                    </button>
-                  )}
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             <div className="space-y-4">
