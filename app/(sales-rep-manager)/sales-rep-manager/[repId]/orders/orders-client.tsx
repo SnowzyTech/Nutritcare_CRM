@@ -3,7 +3,7 @@
 import React, { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { Search, SlidersHorizontal, ArrowUpDown, ChevronLeft } from "lucide-react";
-import Link from "next/link";
+import { formatDate } from "@/lib/utils";
 
 type OrderStatus = "PENDING" | "CONFIRMED" | "DELIVERED" | "CANCELLED" | "FAILED";
 
@@ -15,7 +15,7 @@ export type OrderListItem = {
   agent: { name: string; state: string } | null;
   product: string;
   qty: number;
-  date: string;
+  date: string; // ISO date: YYYY-MM-DD
 };
 
 export type OrderCounts = {
@@ -51,24 +51,47 @@ const TABS: Array<{ label: string; key: OrderStatus | null; countKey: keyof Orde
   { label: "Failed", key: "FAILED", countKey: "failed" },
 ];
 
+const NIGERIAN_STATES = [
+  "Abia","Adamawa","Akwa Ibom","Anambra","Bauchi","Bayelsa","Benue","Borno",
+  "Cross River","Delta","Ebonyi","Edo","Ekiti","Enugu","FCT","Gombe","Imo",
+  "Jigawa","Kaduna","Kano","Katsina","Kebbi","Kogi","Kwara","Lagos","Nasarawa",
+  "Niger","Ogun","Ondo","Osun","Oyo","Plateau","Rivers","Sokoto","Taraba",
+  "Yobe","Zamfara",
+];
+
 export function OrdersClient({ repId, repName, orders, counts }: OrdersClientProps) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<OrderStatus | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [dateFilter, setDateFilter] = useState("");
+  const [productFilter, setProductFilter] = useState("");
+  const [stateFilter, setStateFilter] = useState("");
+
+  const uniqueProducts = useMemo(
+    () => Array.from(new Set(orders.map(o => o.product).filter(Boolean))).sort(),
+    [orders]
+  );
 
   const filteredOrders = useMemo(() => {
-    let result = activeTab ? orders.filter((o) => o.status === activeTab) : orders;
+    let result = activeTab ? orders.filter(o => o.status === activeTab) : orders;
+
+    if (dateFilter) result = result.filter(o => o.date === dateFilter);
+    if (productFilter) result = result.filter(o => o.product === productFilter);
+    if (stateFilter) result = result.filter(o => o.agent?.state === stateFilter);
+
     const q = searchQuery.trim().toLowerCase();
     if (q) {
       result = result.filter(
-        (o) =>
+        o =>
           o.name.toLowerCase().includes(q) ||
           o.email.toLowerCase().includes(q) ||
-          o.product.toLowerCase().includes(q),
+          o.product.toLowerCase().includes(q)
       );
     }
     return result;
-  }, [orders, activeTab, searchQuery]);
+  }, [orders, activeTab, dateFilter, productFilter, stateFilter, searchQuery]);
+
+  const hasActiveFilters = dateFilter || productFilter || stateFilter;
 
   return (
     <div className="max-w-6xl mx-auto flex flex-col gap-6">
@@ -77,12 +100,12 @@ export function OrdersClient({ repId, repName, orders, counts }: OrdersClientPro
         <div className="w-12 h-12 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center font-bold text-lg border border-purple-200">
           {repName.charAt(0)}
         </div>
-        <h1 className="text-2xl font-bold text-gray-900">{repName}'s Dashboard</h1>
+        <h1 className="text-2xl font-bold text-gray-900">{repName}&apos;s Orders</h1>
       </div>
 
       {/* Tabs */}
       <div className="flex items-center gap-2 border-b border-gray-100 pb-4 overflow-x-auto no-scrollbar">
-        {TABS.map((tab) => {
+        {TABS.map(tab => {
           const isActive = activeTab === tab.key;
           const count = counts[tab.countKey];
           return (
@@ -90,12 +113,11 @@ export function OrdersClient({ repId, repName, orders, counts }: OrdersClientPro
               key={tab.key ?? "all"}
               onClick={() => setActiveTab(tab.key)}
               className={`px-6 py-2 rounded-full text-sm font-bold transition-all ${
-                isActive
-                  ? "bg-purple-600 text-white"
-                  : "text-gray-500 hover:bg-gray-100"
+                isActive ? "bg-purple-600 text-white" : "text-gray-500 hover:bg-gray-100"
               }`}
             >
-              {tab.label}{!isActive && count > 0 && `(${count})`}
+              {tab.label}
+              {!isActive && count > 0 && `(${count})`}
             </button>
           );
         })}
@@ -103,27 +125,66 @@ export function OrdersClient({ repId, repName, orders, counts }: OrdersClientPro
 
       {/* Filter Bar */}
       <div className="flex flex-wrap items-center gap-4 bg-white p-3 rounded-2xl shadow-sm border border-gray-100">
-        <button className="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg text-gray-500 hover:bg-gray-100 transition-colors">
+        <div className="flex items-center gap-2 text-gray-500 pr-2 border-r border-gray-200">
           <SlidersHorizontal size={18} />
           <span className="text-sm font-medium">Filter</span>
-        </button>
-        <button className="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg text-gray-500 hover:bg-gray-100 transition-colors">
-          <span className="text-sm font-medium">Date</span>
-          <ChevronLeft className="-rotate-90" size={14} />
-        </button>
-        <button className="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg text-gray-500 hover:bg-gray-100 transition-colors">
-          <span className="text-sm font-medium">Product</span>
-          <ChevronLeft className="-rotate-90" size={14} />
-        </button>
-        <button className="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg text-gray-500 hover:bg-gray-100 transition-colors">
-          <span className="text-sm font-medium">State</span>
-          <ChevronLeft className="-rotate-90" size={14} />
-        </button>
+        </div>
+
+        {/* Date */}
+        <div className="relative">
+          <input
+            type="date"
+            value={dateFilter}
+            onChange={e => setDateFilter(e.target.value)}
+            className="appearance-none bg-gray-50 border border-gray-200 rounded-lg pl-3 pr-3 py-2 text-sm text-gray-700 font-medium outline-none hover:bg-gray-100 transition-colors cursor-pointer"
+          />
+        </div>
+
+        {/* Product */}
+        <div className="relative">
+          <select
+            value={productFilter}
+            onChange={e => setProductFilter(e.target.value)}
+            className="appearance-none bg-gray-50 border border-gray-200 rounded-lg pl-3 pr-8 py-2 text-sm text-gray-700 font-medium outline-none hover:bg-gray-100 transition-colors cursor-pointer"
+          >
+            <option value="">Product</option>
+            {uniqueProducts.map(p => (
+              <option key={p} value={p}>{p}</option>
+            ))}
+          </select>
+          <ChevronLeft className="-rotate-90 absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={14} />
+        </div>
+
+        {/* State */}
+        <div className="relative">
+          <select
+            value={stateFilter}
+            onChange={e => setStateFilter(e.target.value)}
+            className="appearance-none bg-gray-50 border border-gray-200 rounded-lg pl-3 pr-8 py-2 text-sm text-gray-700 font-medium outline-none hover:bg-gray-100 transition-colors cursor-pointer"
+          >
+            <option value="">State</option>
+            {NIGERIAN_STATES.map(s => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+          <ChevronLeft className="-rotate-90 absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={14} />
+        </div>
+
+        {hasActiveFilters && (
+          <button
+            onClick={() => { setDateFilter(""); setProductFilter(""); setStateFilter(""); }}
+            className="text-xs text-purple-600 font-semibold hover:underline"
+          >
+            Clear
+          </button>
+        )}
+
         <button className="p-2 bg-gray-50 rounded-lg text-gray-500 hover:bg-gray-100 transition-colors">
           <ArrowUpDown size={18} />
         </button>
+
         <div className="flex items-center gap-2 flex-wrap">
-          {(["PENDING", "CONFIRMED", "DELIVERED", "CANCELLED", "FAILED"] as OrderStatus[]).map((s) => {
+          {(["PENDING", "CONFIRMED", "DELIVERED", "CANCELLED", "FAILED"] as OrderStatus[]).map(s => {
             const style = STATUS_STYLES[s];
             return (
               <span
@@ -135,12 +196,13 @@ export function OrdersClient({ repId, repName, orders, counts }: OrdersClientPro
             );
           })}
         </div>
+
         <div className="ml-auto relative">
           <input
             type="text"
             placeholder="search"
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={e => setSearchQuery(e.target.value)}
             className="pl-10 pr-4 py-2 bg-gray-50 border border-gray-100 rounded-lg text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-100 w-48 transition-all"
           />
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -187,7 +249,9 @@ export function OrdersClient({ repId, repName, orders, counts }: OrdersClientPro
                       {order.agent ? (
                         <div>
                           <p className="font-bold text-gray-900">{order.agent.name}</p>
-                          <p className="text-[10px] text-gray-400 uppercase font-bold tracking-wider">{order.agent.state}</p>
+                          <p className="text-[10px] text-gray-400 uppercase font-bold tracking-wider">
+                            {order.agent.state}
+                          </p>
                         </div>
                       ) : (
                         <span className="text-gray-300">—</span>
@@ -195,7 +259,9 @@ export function OrdersClient({ repId, repName, orders, counts }: OrdersClientPro
                     </td>
                     <td className="px-6 py-4 font-bold text-gray-700">{order.product}</td>
                     <td className="px-6 py-4 text-center font-bold text-gray-600">{order.qty}</td>
-                    <td className="px-6 py-4 text-right font-medium text-gray-500">{order.date}</td>
+                    <td className="px-6 py-4 text-right font-medium text-gray-500">
+                      {formatDate(order.date)}
+                    </td>
                   </tr>
                 );
               })}

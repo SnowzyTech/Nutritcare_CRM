@@ -209,6 +209,10 @@ export async function getSalesRepAnalytics(salesRepId: string) {
 }
 
 export async function deleteUser(id: string) {
+  const orderCount = await prisma.order.count({ where: { salesRepId: id, deletedAt: null } });
+  if (orderCount > 0) {
+    throw new Error(`Cannot delete: this user has ${orderCount} order(s). Suspend the account instead.`);
+  }
   return prisma.user.delete({ where: { id } });
 }
 
@@ -217,5 +221,209 @@ export async function updateUserRole(id: string, role: UserRole) {
     where: { id },
     data: { role },
     select: { id: true, name: true, email: true, role: true },
+  });
+}
+
+export async function suspendUser(id: string) {
+  return prisma.user.update({ where: { id }, data: { isActive: false } });
+}
+
+export async function activateUser(id: string) {
+  return prisma.user.update({ where: { id }, data: { isActive: true } });
+}
+
+export async function updateUserPassword(id: string, hashedPassword: string) {
+  return prisma.user.update({ where: { id }, data: { password: hashedPassword } });
+}
+
+export async function toggleTeamLead(id: string, isTeamLead: boolean) {
+  return prisma.user.update({ where: { id }, data: { isTeamLead } });
+}
+
+export async function changeUserTeam(id: string, teamId: string | null) {
+  return prisma.user.update({ where: { id }, data: { teamId } });
+}
+
+export async function getAllTeams() {
+  return prisma.team.findMany({
+    select: { id: true, name: true, department: true },
+    orderBy: { name: "asc" },
+  });
+}
+
+export async function getPendingActivationRequests() {
+  return prisma.user.findMany({
+    where: { accountActivationStatus: "PENDING" },
+    select: { id: true, name: true, role: true, createdAt: true },
+    orderBy: { createdAt: "desc" },
+  });
+}
+
+export async function getTeamLeads() {
+  return prisma.user.findMany({
+    where: { isTeamLead: true, accountActivationStatus: "APPROVED", isActive: true },
+    select: {
+      id: true,
+      name: true,
+      role: true,
+      team: { select: { id: true, name: true, department: true } },
+    },
+    orderBy: { name: "asc" },
+  });
+}
+
+// ── Sales Rep Manager service functions ──────────────────────────────────────
+
+function computeProductTables(orders: Array<{
+  status: string;
+  items: Array<{ productId: string; quantity: number; product: { name: string } }>;
+}>) {
+  const deliveredOrders = orders.filter(o => o.status === "DELIVERED");
+  const productSales: Record<string, { name: string; qty: number }> = {};
+  deliveredOrders.forEach(o => {
+    o.items.forEach(item => {
+      if (!productSales[item.productId]) productSales[item.productId] = { name: item.product.name, qty: 0 };
+      productSales[item.productId].qty += item.quantity;
+    });
+  });
+  const bestSellingTable = Object.values(productSales)
+    .sort((a, b) => b.qty - a.qty)
+    .slice(0, 10)
+    .map(p => ({ product: p.name, amountSold: p.qty }));
+
+  const upsellCounts: Record<string, { name: string; count: number }> = {};
+  orders.forEach(o => {
+    if (o.items.length <= 1) return;
+    o.items.forEach(item => {
+      if (!upsellCounts[item.productId]) upsellCounts[item.productId] = { name: item.product.name, count: 0 };
+      upsellCounts[item.productId].count++;
+    });
+  });
+  const upsellingTable = Object.values(upsellCounts)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 10)
+    .map(p => ({ product: p.name, noOfUpsell: p.count }));
+
+  return { bestSellingTable, upsellingTable };
+}
+
+export async function getManagerWithTeam(managerId: string) {
+  return prisma.user.findUnique({
+    where: { id: managerId },
+    select: { id: true, name: true, teamId: true, team: { select: { id: true, name: true } } },
+  });
+}
+
+export async function getTeamMembersWithStats(teamId: string) {
+  const members = await prisma.user.findMany({
+    where: { teamId, role: "SALES_REP", isActive: true },
+    select: { id: true, name: true, phone: true, avatarUrl: true },
+    orderBy: { name: "asc" },
+  });
+
+  if (members.length === 0) return [];
+
+  const memberIds = members.map(m => m.id);
+  const stats = await prisma.order.groupBy({
+    by: ["salesRepId", "status"],
+    where: { salesRepId: { in: memberIds }, deletedAt: null },
+    _count: { id: true },
+  });
+
+  const statsMap: Record<string, Record<string, number>> = {};
+  for (const s of stats) {
+    if (!s.salesRepId) continue;
+    statsMap[s.salesRepId] ??= {};
+    statsMap[s.salesRepId][s.status] = s._count.id;
+  }
+
+  return members.map(member => {
+    const s = statsMap[member.id] ?? {};
+    const delivered = s.DELIVERED ?? 0;
+    const failed = s.FAILED ?? 0;
+    const confirmed = s.CONFIRMED ?? 0;
+    const pending = s.PENDING ?? 0;
+    const cancelled = s.CANCELLED ?? 0;
+    const pendingOrders = pending + confirmed;
+    const total = delivered + failed + confirmed + pending + cancelled;
+    const dispatched = delivered + failed;
+    const deliveryRate = dispatched > 0 ? delivered / dispatched : 0;
+    const confirmationRate = total > 0 ? (confirmed + delivered) / total : 0;
+    const performance = Math.min(100, Math.round((deliveryRate * 0.6 + confirmationRate * 0.4) * 100));
+    return { ...member, pendingOrders, performance };
+  });
+}
+
+export async function getTeamAnalytics(teamId: string) {
+  const members = await prisma.user.findMany({
+    where: { teamId, role: "SALES_REP" },
+    select: { id: true },
+  });
+
+  if (members.length === 0) {
+    const empty = computeRepMetrics([]);
+    const emptyTrend = "—";
+    return {
+      current: empty,
+      trends: {
+        totalProductsSold: emptyTrend,
+        distinctCustomers: emptyTrend,
+        generalPerformance: emptyTrend,
+        upsellRate: emptyTrend,
+        confirmationRate: emptyTrend,
+        deliveryRate: emptyTrend,
+        cancellationRate: emptyTrend,
+      },
+      tables: { bestSellingTable: [], upsellingTable: [] },
+    };
+  }
+
+  const memberIds = members.map(m => m.id);
+  const now = new Date();
+  const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
+
+  const allOrders = await prisma.order.findMany({
+    where: { salesRepId: { in: memberIds }, deletedAt: null },
+    select: {
+      status: true, customerId: true, createdAt: true,
+      items: { select: { productId: true, quantity: true, product: { select: { name: true } } } },
+    },
+  });
+
+  const thisMonthOrders = allOrders.filter(o => o.createdAt >= thisMonthStart);
+  const lastMonthOrders = allOrders.filter(o => o.createdAt >= lastMonthStart && o.createdAt <= lastMonthEnd);
+
+  const current = computeRepMetrics(thisMonthOrders);
+  const previous = computeRepMetrics(lastMonthOrders);
+  const tables = computeProductTables(thisMonthOrders);
+
+  return {
+    current,
+    trends: {
+      totalProductsSold: trendLabel(current.totalProductsSold, previous.totalProductsSold),
+      distinctCustomers: trendLabel(current.distinctCustomers, previous.distinctCustomers),
+      generalPerformance: trendLabel(current.generalPerformance, previous.generalPerformance),
+      upsellRate: trendLabel(current.upsellRate, previous.upsellRate),
+      confirmationRate: trendLabel(current.confirmationRate, previous.confirmationRate),
+      deliveryRate: trendLabel(current.deliveryRate, previous.deliveryRate),
+      cancellationRate: trendLabel(current.cancellationRate, previous.cancellationRate),
+    },
+    tables,
+  };
+}
+
+export async function approveAccount(id: string) {
+  return prisma.user.update({
+    where: { id },
+    data: { accountActivationStatus: "APPROVED", isActive: true },
+  });
+}
+
+export async function rejectAccount(id: string) {
+  return prisma.user.update({
+    where: { id },
+    data: { accountActivationStatus: "REJECTED", isActive: false },
   });
 }

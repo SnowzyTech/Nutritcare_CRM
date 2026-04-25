@@ -1,46 +1,73 @@
+import { auth } from "@/lib/auth/auth";
+import { getManagerWithTeam, getTeamAnalytics } from "@/modules/users/services/users.service";
 import { AnalyticsDashboardClient, AnalyticsData } from "./analytics-dashboard-client";
 
 export const dynamic = "force-dynamic";
 
-export default function TeamAnalyticsPage() {
-  // Exact mock data matching Image 2
-  const mockData: AnalyticsData = {
-    totalProductsSold: { value: "1200", trend: "+21%" },
-    totalOrderCustomer: { value: "800", trend: "+12%" },
-    bestSellingProduct: { name: "Prosxact", subtitle: "Neuro-Vive Balm\nlast month" },
-    generalPerformance: { value: "80%", trend: "+12%" },
-    upsellingRate: { value: "30%", trend: "+12%" },
-    confirmationRate: { value: "60%", trend: "+12%" },
-    deliveryRate: { value: "78%", trend: "+12%" },
-    cancellationRate: { value: "8%", trend: "+12%" },
-    recoveryRate: { value: "27%", trend: "+12%" },
-    kpi: { value: "21%", trend: "+12%", target: "XXXXXXX" },
-    bestSellingTable: [
-      { product: "Prosxact", amountSold: 41 },
-      { product: "Neuro-Vive Balm", amountSold: 33 },
-      { product: "Trim and Tone", amountSold: 29 },
-      { product: "After-Natal", amountSold: 25 },
-      { product: "Shred Belly", amountSold: 22 },
-      { product: "Linix", amountSold: 18 },
-      { product: "Fonio Mill", amountSold: 12 },
-    ],
-    upsellingTable: [
-      { product: "Neuro-Vive Balm", noOfUpsell: 10 },
-      { product: "Prosxact", noOfUpsell: 5 },
-      { product: "After-Natal", noOfUpsell: 5 },
-      { product: "Trim and Tone", noOfUpsell: 4 },
-      { product: "Fonio Mill", noOfUpsell: 0 },
-      { product: "Shred Belly", noOfUpsell: 0 },
-      { product: "Linix", noOfUpsell: 0 },
-    ],
+export default async function TeamAnalyticsPage() {
+  const session = await auth();
+  const managerId = session?.user?.id;
+
+  const manager = managerId ? await getManagerWithTeam(managerId) : null;
+  const teamId = manager?.teamId;
+
+  const analytics = teamId ? await getTeamAnalytics(teamId) : null;
+  const { current, trends, tables } = analytics ?? {
+    current: {
+      totalProductsSold: 0, distinctCustomers: 0, generalPerformance: 0,
+      upsellRate: 0, confirmationRate: 0, deliveryRate: 0, cancellationRate: 0,
+      bestProduct: null,
+    },
+    trends: {
+      totalProductsSold: "—", distinctCustomers: "—", generalPerformance: "—",
+      upsellRate: "—", confirmationRate: "—", deliveryRate: "—", cancellationRate: "—",
+    },
+    tables: { bestSellingTable: [], upsellingTable: [] },
+  };
+
+  const data: AnalyticsData = {
+    totalProductsSold: {
+      value: String(current.totalProductsSold),
+      trend: trends.totalProductsSold,
+    },
+    totalOrderCustomer: {
+      value: String(current.distinctCustomers),
+      trend: trends.distinctCustomers,
+    },
+    bestSellingProduct: {
+      name: current.bestProduct?.name ?? "—",
+      subtitle: "this month",
+    },
+    generalPerformance: {
+      value: `${current.generalPerformance}%`,
+      trend: trends.generalPerformance,
+    },
+    upsellingRate: {
+      value: `${current.upsellRate}%`,
+      trend: trends.upsellRate,
+    },
+    confirmationRate: {
+      value: `${current.confirmationRate}%`,
+      trend: trends.confirmationRate,
+    },
+    deliveryRate: {
+      value: `${current.deliveryRate}%`,
+      trend: trends.deliveryRate,
+    },
+    cancellationRate: {
+      value: `${current.cancellationRate}%`,
+      trend: trends.cancellationRate,
+    },
+    recoveryRate: { value: "—", trend: "—" },
+    kpi: { value: "—", trend: "—", target: "—" },
+    bestSellingTable: tables.bestSellingTable,
+    upsellingTable: tables.upsellingTable,
   };
 
   return (
     <AnalyticsDashboardClient
-      header={{
-        type: "team",
-      }}
-      data={mockData}
+      header={{ type: "team" }}
+      data={data}
       showReports={true}
     />
   );

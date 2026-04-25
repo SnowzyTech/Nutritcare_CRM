@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ChevronDown, ChevronRight, UserCircle, LayoutDashboard } from "lucide-react";
-import { getSalesRepById, getSalesRepOrderSummary } from "@/modules/users/services/users.service";
+import { getSalesRepById, getSalesRepOrderSummary, getAllTeams } from "@/modules/users/services/users.service";
 import SalesRepDetailClient from "./sales-rep-detail-client";
 
 type Props = { params: Promise<{ id: string }> };
@@ -15,9 +15,10 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 export default async function SalesRepDetailPage({ params }: Props) {
   const { id } = await params;
-  const [rep, orderSummary] = await Promise.all([
+  const [rep, orderSummary, teams] = await Promise.all([
     getSalesRepById(id),
     getSalesRepOrderSummary(id),
+    getAllTeams(),
   ]);
 
   if (!rep) notFound();
@@ -235,7 +236,14 @@ export default async function SalesRepDetailPage({ params }: Props) {
       </section>
 
       {/* Advanced Section — interactive, uses client component */}
-      <SalesRepDetailClient staffName={rep.name} staffId={id} />
+      <SalesRepDetailClient
+        staffName={rep.name}
+        staffId={id}
+        isActive={rep.isActive}
+        isTeamLead={rep.isTeamLead}
+        currentTeamId={rep.team?.id ?? null}
+        teams={teams}
+      />
     </div>
   );
 }

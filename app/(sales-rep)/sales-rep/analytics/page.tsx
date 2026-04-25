@@ -2,6 +2,7 @@ import { auth } from "@/lib/auth/auth";
 import { redirect } from "next/navigation";
 import { getSalesRepAnalytics } from "@/modules/orders/services/analytics.service";
 import type { MonthMetrics } from "@/modules/orders/services/analytics.service";
+import { MonthSelect } from "./month-select";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = { title: "Analytics" };
@@ -29,9 +30,7 @@ function KPICard({
     <div className="bg-white rounded-lg p-4 border border-gray-100">
       <div className="flex justify-between items-center mb-2">
         <span className="text-xs font-medium text-gray-500">{label}</span>
-        <span className="text-xs bg-gray-100 border border-gray-200 rounded px-2 py-0.5 text-gray-500 inline-flex items-center gap-1 whitespace-nowrap">
-          {period}
-        </span>
+        <MonthSelect />
       </div>
       <p className="text-2xl font-bold text-gray-900 m-0">{value}</p>
       <p className="text-xs mt-1">
@@ -44,11 +43,14 @@ function KPICard({
   );
 }
 
-export default async function AnalyticsPage() {
+export default async function AnalyticsPage(props: { searchParams: Promise<{ month?: string }> }) {
+  const searchParams = await props.searchParams;
   const session = await auth();
   if (!session?.user?.id) redirect("/login");
 
-  const { current: cur, last } = await getSalesRepAnalytics(session.user.id);
+  const targetMonth = searchParams.month ? new Date(`${searchParams.month}-01T00:00:00`) : undefined;
+
+  const { current: cur, last } = await getSalesRepAnalytics(session.user.id, targetMonth);
 
   const l = last as MonthMetrics | null;
 
@@ -143,9 +145,7 @@ export default async function AnalyticsPage() {
             <h3 className="text-xs font-semibold text-gray-500 uppercase">
               Best Selling Products
             </h3>
-            <span className="text-xs bg-gray-100 border border-gray-200 rounded px-2 py-0.5 text-gray-500">
-              This Month
-            </span>
+            <MonthSelect />
           </div>
           {cur.topProducts.length === 0 ? (
             <p className="text-sm text-gray-400 py-4 text-center">No delivered orders yet this month</p>
@@ -174,9 +174,7 @@ export default async function AnalyticsPage() {
             <h3 className="text-xs font-semibold text-gray-500 uppercase">
               Upselling — Multi-Item Orders
             </h3>
-            <span className="text-xs bg-gray-100 border border-gray-200 rounded px-2 py-0.5 text-gray-500">
-              This Month
-            </span>
+            <MonthSelect />
           </div>
           {cur.upsoldProducts.length === 0 ? (
             <p className="text-sm text-gray-400 py-4 text-center">No multi-item orders this month</p>

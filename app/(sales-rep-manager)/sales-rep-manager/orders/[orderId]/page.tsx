@@ -1,6 +1,8 @@
-import { MOCK_ORDER_DETAILS, MOCK_TEAM_ORDERS } from "@/lib/mock-data/sales-rep-manager";
 import { notFound } from "next/navigation";
+import { getOrderWithDetails } from "@/modules/orders/services/orders.service";
+import { formatCurrency } from "@/lib/utils";
 import { OrderDetailClient } from "../../[repId]/orders/[orderId]/order-detail-client";
+import type { OrderDetail } from "@/lib/mock-data/sales-rep-manager";
 
 export const dynamic = "force-dynamic";
 
@@ -10,34 +12,41 @@ export default async function TeamOrderDetailPage({
   params: Promise<{ orderId: string }>;
 }) {
   const { orderId } = await params;
-  
-  // Find the order in team orders to get the assigned rep name
-  const teamOrder = MOCK_TEAM_ORDERS.find(o => o.id === orderId);
-  const repName = teamOrder?.salesRep || "Sales Rep";
-  const repId = "unknown"; // Not heavily used by the UI except for back links which aren't in OrderDetailClient
+  const dbOrder = await getOrderWithDetails(orderId);
 
-  // Use mock order if it exists, otherwise provide a fallback order
-  const order = MOCK_ORDER_DETAILS[orderId] || {
-    orderId,
-    status: teamOrder?.status as any || "PENDING",
+  if (!dbOrder) notFound();
+
+  const repName = dbOrder.salesRep?.name ?? "Sales Rep";
+  const repId = dbOrder.salesRepId ?? "unknown";
+
+  const firstItem = dbOrder.items[0];
+  const secondItem = dbOrder.items[1];
+
+  const order: OrderDetail = {
+    orderId: dbOrder.id,
+    status: dbOrder.status as OrderDetail["status"],
     customer: {
-      fullName: teamOrder?.name || "Adewale Johnson",
-      phone: "0906 713 6429",
-      whatsapp: "0906 713 6429",
-      email: teamOrder?.email || "adewale@gmail.com",
-      address: "15 Adeyemi Crescent, Bodija Estate, Ibadan, Oyo State, Nigeria",
-      state: "Oyo State",
-      lga: "Ibadan North Local Government Area",
-      landmark: "Bodija Market",
+      fullName: dbOrder.customer.name,
+      phone: dbOrder.customer.phone,
+      whatsapp: dbOrder.customer.whatsappNumber ?? dbOrder.customer.phone,
+      email: dbOrder.customer.email ?? "",
+      address: dbOrder.customer.deliveryAddress,
+      state: dbOrder.customer.state,
+      lga: dbOrder.customer.lga,
+      landmark: dbOrder.customer.landmark ?? "",
     },
-    product: teamOrder?.product || "Prosxact",
-    quantity: teamOrder?.qty || 4,
-    upsell: null,
-    totalPrice: "₦84,000",
-    source: "WhatsApp",
-    contactedVia: "none" as const,
-    prescription: "Cap. Amoxicillin 500mg Take 1 capsule every 8 hours for 5 days.",
-    history: ["Order Created", `Sales Rep Assigned: ${repName}`],
+    product: firstItem?.product.name ?? "—",
+    quantity: dbOrder.items.reduce((sum, i) => sum + i.quantity, 0),
+    upsell: secondItem ? { product: secondItem.product.name, quantity: secondItem.quantity } : null,
+    totalPrice: formatCurrency(Number(dbOrder.totalAmount)),
+    source: dbOrder.customer.source ?? "—",
+    contactedVia: "none",
+    prescription: dbOrder.notes ?? "",
+    history: [
+      "Order Created",
+      `Sales Rep Assigned: ${repName}`,
+      ...(dbOrder.deliveries.length > 0 ? [`Delivery Agent Assigned: ${dbOrder.agent?.companyName ?? "—"}`] : []),
+    ],
   };
 
   return <OrderDetailClient repId={repId} repName={repName} order={order} />;

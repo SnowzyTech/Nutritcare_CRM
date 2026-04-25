@@ -15,6 +15,7 @@ import {
   ChevronDown,
   ChevronRight,
 } from "lucide-react";
+import { logoutAction } from "@/modules/auth/actions/logout.action";
 
 function SidebarNavLink({
   href,
@@ -27,7 +28,7 @@ function SidebarNavLink({
   badge,
 }: {
   href?: string;
-  icon: any;
+  icon: React.ElementType;
   label: string;
   isActive: boolean;
   hasSubItems?: boolean;
@@ -53,10 +54,11 @@ function SidebarNavLink({
     </>
   );
 
-  const className = `flex items-center justify-between px-4 py-3 rounded-xl mb-1 transition-all duration-200 group w-full ${isActive
+  const className = `flex items-center justify-between px-4 py-3 rounded-xl mb-1 transition-all duration-200 group w-full ${
+    isActive
       ? "bg-[#8B2FE8] text-white shadow-lg"
       : "text-purple-100 hover:bg-[#4A0080] hover:text-white"
-    }`;
+  }`;
 
   if (href) {
     return (
@@ -77,10 +79,11 @@ function SubItem({ href, label, isActive }: { href: string; label: string; isAct
   return (
     <Link
       href={href}
-      className={`flex items-center gap-3 px-4 py-2 pl-12 rounded-xl mb-1 transition-all duration-200 group ${isActive
+      className={`flex items-center gap-3 px-4 py-2 pl-12 rounded-xl mb-1 transition-all duration-200 group ${
+        isActive
           ? "text-[#A020F0] font-semibold"
           : "text-purple-200 hover:text-white hover:bg-[#4A0080]"
-        }`}
+      }`}
     >
       <span className="text-[8px] opacity-50">{isActive ? "●" : "○"}</span>
       <span className="text-sm">{label}</span>
@@ -88,22 +91,38 @@ function SubItem({ href, label, isActive }: { href: string; label: string; isAct
   );
 }
 
-export function SalesRepManagerSidebarClient() {
+interface SidebarProps {
+  userName: string;
+  userRole: string;
+  userAvatar?: string;
+}
+
+export function SalesRepManagerSidebarClient({ userName, userRole, userAvatar }: SidebarProps) {
   const pathname = usePathname();
 
-  const isOrdersActive = pathname.startsWith("/sales-rep-manager/orders") || pathname.startsWith("/sales-rep-manager/order-assignment");
   const isOrderAssignmentActive = pathname.startsWith("/sales-rep-manager/order-assignment");
+  const isOrdersActive =
+    pathname.startsWith("/sales-rep-manager/orders") || isOrderAssignmentActive;
   const isAnalyticsActive = pathname === "/sales-rep-manager/analytics";
   const isHistoryActive = pathname === "/sales-rep-manager/history";
-
-  const isRepsActive = pathname === "/sales-rep-manager" || (pathname.startsWith("/sales-rep-manager/") && !isOrdersActive && !isAnalyticsActive && !isHistoryActive && !isOrderAssignmentActive);
+  const isRepsActive =
+    pathname === "/sales-rep-manager" ||
+    (pathname.startsWith("/sales-rep-manager/") &&
+      !isOrdersActive &&
+      !isAnalyticsActive &&
+      !isHistoryActive &&
+      !isOrderAssignmentActive);
 
   const [repsExpanded, setRepsExpanded] = useState(isRepsActive);
   const [ordersExpanded, setOrdersExpanded] = useState(isOrdersActive);
 
+  const avatarSrc =
+    userAvatar ??
+    `https://ui-avatars.com/api/?name=${encodeURIComponent(userName || "User")}&background=f3f4f6&color=6b7280`;
+
   return (
     <aside className="w-[248px] h-screen bg-[#3B0069] border-r border-[#4A0080] flex flex-col shrink-0 z-20 overflow-y-auto no-scrollbar">
-      {/* Logo Section */}
+      {/* Logo */}
       <div className="px-8 py-8">
         <div className="relative h-10 w-24">
           <Image
@@ -117,19 +136,17 @@ export function SalesRepManagerSidebarClient() {
         </div>
       </div>
 
-      {/* User Profile Section */}
+      {/* User Profile */}
       <div className="px-6 mb-8">
         <div className="flex items-center gap-3 p-2 bg-[#4A0080] rounded-xl border border-[#5c0099]">
           <div className="relative w-10 h-10 rounded-full overflow-hidden border border-[#8B2FE8] shadow-sm shrink-0">
-            <img
-              src="https://ui-avatars.com/api/?name=Blessing+Ehijie&background=f3f4f6&color=6b7280"
-              alt="Blessing Ehijie"
-              className="w-full h-full object-cover"
-            />
+            <img src={avatarSrc} alt={userName} className="w-full h-full object-cover" />
           </div>
           <div className="flex flex-col min-w-0">
-            <span className="text-sm font-bold text-white truncate">Blessing Ehijie</span>
-            <span className="text-[10px] text-purple-200 font-medium uppercase tracking-wider">Sales Rep</span>
+            <span className="text-sm font-bold text-white truncate">{userName || "Manager"}</span>
+            <span className="text-[10px] text-purple-200 font-medium uppercase tracking-wider">
+              {userRole || "Sales Rep"}
+            </span>
           </div>
         </div>
       </div>
@@ -168,7 +185,7 @@ export function SalesRepManagerSidebarClient() {
             <SubItem
               href="/sales-rep-manager/orders"
               label="Order"
-              isActive={isOrdersActive}
+              isActive={pathname.startsWith("/sales-rep-manager/orders")}
             />
             <SubItem
               href="/sales-rep-manager/order-assignment"
@@ -182,7 +199,7 @@ export function SalesRepManagerSidebarClient() {
           href="/sales-rep-manager/analytics"
           icon={BarChart3}
           label="Analytics"
-          isActive={isAnalyticsActive && !repsExpanded} // Highlight if reps not expanded but we are here
+          isActive={isAnalyticsActive}
         />
 
         <SidebarNavLink
@@ -195,25 +212,19 @@ export function SalesRepManagerSidebarClient() {
 
       {/* Bottom Actions */}
       <div className="px-4 py-6 border-t border-[#4A0080]">
-        <SidebarNavLink
-          href="#"
-          icon={Bell}
-          label="Notification"
-          isActive={false}
-          badge={2}
-        />
-        <SidebarNavLink
-          href="#"
-          icon={Settings}
-          label="Settings"
-          isActive={false}
-        />
-        <SidebarNavLink
-          href="#"
-          icon={LogOut}
-          label="Log Out"
-          isActive={false}
-        />
+        <SidebarNavLink href="#" icon={Bell} label="Notification" isActive={false} badge={2} />
+        <SidebarNavLink href="#" icon={Settings} label="Settings" isActive={false} />
+        <form action={logoutAction}>
+          <button
+            type="submit"
+            className="flex items-center justify-between px-4 py-3 rounded-xl mb-1 transition-all duration-200 group w-full text-purple-100 hover:bg-[#4A0080] hover:text-white"
+          >
+            <div className="flex items-center gap-3">
+              <LogOut size={20} className="text-purple-200 group-hover:text-white" />
+              <span className="font-medium text-sm">Log Out</span>
+            </div>
+          </button>
+        </form>
       </div>
     </aside>
   );

@@ -125,13 +125,14 @@ function computeMetrics(orders: OrderRow[]): MonthMetrics {
   };
 }
 
-export async function getSalesRepAnalytics(salesRepId: string): Promise<AnalyticsData> {
-  const now = new Date();
+export async function getSalesRepAnalytics(salesRepId: string, targetMonth?: Date): Promise<AnalyticsData> {
+  const now = targetMonth || new Date();
   const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
   const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
 
   const [currentOrders, lastOrders] = await Promise.all([
-    fetchOrders(salesRepId, currentMonthStart),
+    fetchOrders(salesRepId, currentMonthStart, nextMonthStart),
     fetchOrders(salesRepId, lastMonthStart, currentMonthStart),
   ]);
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useState, useEffect } from "react";
 import { signupAction, type SignupActionState } from "@/modules/auth/actions/signup.action";
 import { Loader2, ArrowRight } from "lucide-react";
 import Link from "next/link";
@@ -108,6 +108,11 @@ export default function SignupPage() {
   // Step 2 local state
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+
+  // Advance to step 3 when the server signals pending approval
+  useEffect(() => {
+    if (state?.pendingApproval) setStep(3);
+  }, [state?.pendingApproval]);
 
   // Validation for step 1 advance
   const canAdvance = firstName && lastName && phone && workEmail && role;
@@ -423,24 +428,40 @@ export default function SignupPage() {
           </form>
         )}
 
-        {/* ── Step 3: Success (placeholder) ── */}
+        {/* ── Step 3: Pending Approval ── */}
         {step === 3 && (
           <div style={{ textAlign: "center", padding: "2rem 0" }}>
             <div style={{
-              width: 64, height: 64, borderRadius: "50%",
+              width: 72, height: 72, borderRadius: "50%",
               background: "#f3e8ff", display: "flex", alignItems: "center", justifyContent: "center",
               margin: "0 auto 1.5rem",
             }}>
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#8B2FE8" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M20 6L9 17l-5-5" />
+              <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#8B2FE8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <polyline points="12 6 12 12 16 14" />
               </svg>
             </div>
             <h2 style={{ fontSize: "1.5rem", fontWeight: 700, color: "#111827", marginBottom: "0.5rem" }}>
-              Account Created!
+              Request Submitted!
             </h2>
-            <p style={{ color: "#6b7280", fontSize: "0.9rem" }}>
-              You are being redirected to your dashboard…
+            <p style={{ color: "#6b7280", fontSize: "0.9rem", maxWidth: 360, margin: "0 auto 1.5rem" }}>
+              Your account is pending admin approval. You will be able to log in once an admin activates your account.
             </p>
+            <Link
+              href="/login"
+              style={{
+                display: "inline-block",
+                padding: "0.75rem 2rem",
+                borderRadius: "0.5rem",
+                background: "#8B2FE8",
+                color: "#fff",
+                fontWeight: 600,
+                fontSize: "0.9rem",
+                textDecoration: "none",
+              }}
+            >
+              Go to Login
+            </Link>
           </div>
         )}
       </div>

@@ -3,6 +3,7 @@
 import { auth, signIn, signOut } from "@/lib/auth/auth";
 import { getRoleHome } from "@/lib/auth/role-routes";
 import { loginSchema } from "@/lib/validations/auth";
+import { getUserByEmail } from "@/modules/auth/services/auth.service";
 import { AuthError } from "next-auth";
 import { redirect } from "next/navigation";
 
@@ -10,10 +11,6 @@ export type LoginActionState = {
   error?: string;
 };
 
-/**
- * Server action for handling user login.
- * Called from the login page form.
- */
 export async function loginAction(
   _prevState: LoginActionState,
   formData: FormData
@@ -23,11 +20,21 @@ export async function loginAction(
     password: formData.get("password"),
   };
 
-  // Validate before hitting the DB
   const parsed = loginSchema.safeParse(raw);
   if (!parsed.success) {
     const firstError = parsed.error.issues[0]?.message;
     return { error: firstError ?? "Invalid input." };
+  }
+
+  // Pre-check activation status for a clear error message
+  const existing = await getUserByEmail(parsed.data.email);
+  if (existing) {
+    if (existing.accountActivationStatus === "PENDING") {
+      return { error: "Your account is awaiting admin approval." };
+    }
+    if (existing.accountActivationStatus === "REJECTED") {
+      return { error: "Your account request was rejected. Contact your admin." };
+    }
   }
 
   try {
@@ -52,9 +59,6 @@ export async function loginAction(
   redirect(getRoleHome(session?.user?.role));
 }
 
-/**
- * Server action for logging out.
- */
 export async function logoutAction() {
   await signOut({ redirectTo: "/login" });
 }
