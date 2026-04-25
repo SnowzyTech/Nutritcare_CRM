@@ -1,14 +1,15 @@
 import { auth } from "@/lib/auth/auth";
 import type { Metadata } from "next";
+import { LogisticsSidebarClient } from "./logistics/sidebar-client";
 
 export const metadata: Metadata = {
   title: {
-    default: "",
+    default: "Logistics Dashboard",
     template: "%s | Nutricare CRM",
   },
 };
 
-export default async function SalesRepLayout({
+export default async function LogisticsLayout({
   children,
 }: {
   children: React.ReactNode;
@@ -17,6 +18,8 @@ export default async function SalesRepLayout({
 
   return (
     <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
+      <LogisticsSidebarClient />
+
       {/* Main area */}
       <div className="flex flex-col flex-1 overflow-hidden">
         {/* Page content */}
