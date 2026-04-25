@@ -40,14 +40,28 @@ function revalidateOrderPaths(orderId: string) {
   revalidatePath(`/sales-rep/orders/${orderId}`);
 }
 
-export async function confirmOrderAction(orderId: string) {
+export async function confirmOrderAction(orderId: string, notes?: string) {
   const session = await auth();
   if (!session?.user?.id) throw new Error("Unauthorized");
 
   const order = await getOwnedOrder(orderId, session.user.id);
   if (!order || order.status !== "PENDING") throw new Error("Cannot confirm this order");
 
-  await prisma.order.update({ where: { id: orderId }, data: { status: "CONFIRMED" } });
+  await prisma.order.update({
+    where: { id: orderId },
+    data: { status: "CONFIRMED", ...(notes !== undefined && { notes: notes || null }) },
+  });
+  revalidateOrderPaths(orderId);
+}
+
+export async function updateOrderNotesAction(orderId: string, notes: string) {
+  const session = await auth();
+  if (!session?.user?.id) throw new Error("Unauthorized");
+
+  const order = await getOwnedOrder(orderId, session.user.id);
+  if (!order || order.status !== "CONFIRMED") throw new Error("Cannot update notes for this order");
+
+  await prisma.order.update({ where: { id: orderId }, data: { notes: notes || null } });
   revalidateOrderPaths(orderId);
 }
 
@@ -83,6 +97,20 @@ export async function deliverOrderAction(orderId: string) {
   if (!order || order.status !== "CONFIRMED") throw new Error("Cannot mark order as delivered");
 
   await prisma.order.update({ where: { id: orderId }, data: { status: "DELIVERED" } });
+  revalidateOrderPaths(orderId);
+}
+
+export async function updateOrderTotalAction(orderId: string, totalAmount: number) {
+  const session = await auth();
+  if (!session?.user?.id) throw new Error("Unauthorized");
+
+  const order = await getOwnedOrder(orderId, session.user.id);
+  if (!order || order.status !== "PENDING") throw new Error("Cannot update total for this order");
+
+  await prisma.order.update({
+    where: { id: orderId },
+    data: { totalAmount, netAmount: totalAmount },
+  });
   revalidateOrderPaths(orderId);
 }
 

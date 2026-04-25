@@ -2,6 +2,9 @@ import { auth } from "@/lib/auth/auth";
 import { SalesRepManagerSidebarClient } from "./sales-rep-manager/sidebar-client";
 import { MessageSquare } from "lucide-react";
 import Link from "next/link";
+import { redirect } from "next/navigation";
+import { getSalesRepById } from "@/modules/users/services/users.service";
+import { getRoleHome } from "@/lib/auth/role-routes";
 
 export default async function SalesRepManagerLayout({
   children,
@@ -10,6 +13,11 @@ export default async function SalesRepManagerLayout({
 }) {
   const session = await auth();
   const user = session?.user;
+
+  const userRecord = user?.id ? await getSalesRepById(user.id) : null;
+  if (!userRecord?.isTeamLead) {
+    redirect(getRoleHome(user?.role));
+  }
 
   return (
     <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
