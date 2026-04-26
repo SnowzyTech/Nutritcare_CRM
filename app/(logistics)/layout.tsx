@@ -18,7 +18,7 @@ export default async function LogisticsLayout({
 
   return (
     <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
-      <LogisticsSidebarClient />
+      <LogisticsSidebarClient user={session?.user} />
 
       {/* Main area */}
       <div className="flex flex-col flex-1 overflow-hidden">

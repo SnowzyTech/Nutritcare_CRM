@@ -64,6 +64,11 @@ async function cleanSeedData() {
     await prisma.order.deleteMany({ where: { id: { in: ids } } }); // cascades OrderItems
   }
 
+  // Clear agentId on seed delivery-agent users before deleting agents (FK constraint)
+  await prisma.user.updateMany({
+    where: { email: { endsWith: "@seed.nutritcare" }, role: "DELIVERY_AGENT" },
+    data: { agentId: null },
+  });
   await prisma.agent.deleteMany({ where: { phone1: { startsWith: "+2340000" } } });
   await prisma.customer.deleteMany({ where: { email: { endsWith: "@seed.test" } } });
   await prisma.product.deleteMany({ where: { sku: { startsWith: "SEED-" } } });
@@ -203,6 +208,15 @@ async function main() {
     prisma.agent.create({ data: { companyName: "Mrs. Sunmi Express", state: "Oyo State",    phone1: "+2340000333333", status: "ACTIVE", addedById: adminUser.id } }),
     prisma.agent.create({ data: { companyName: "Flymack Couriers",   state: "Kaduna State", phone1: "+2340000444444", status: "ACTIVE", addedById: adminUser.id } }),
   ]);
+
+  // ── Delivery Agent User accounts (linked to Agents for login) ───────────────
+  await Promise.all([
+    prisma.user.create({ data: { name: "Mr. Ola Logistics",  email: "ola@seed.nutritcare",     password: await bcrypt.hash("Agent@123", 10), role: "DELIVERY_AGENT", phone: "+2340000111111", isActive: true, accountActivationStatus: "APPROVED", agentId: agentOla.id } }),
+    prisma.user.create({ data: { name: "Mr. Qudus Delivery", email: "qudus@seed.nutritcare",   password: await bcrypt.hash("Agent@123", 10), role: "DELIVERY_AGENT", phone: "+2340000222222", isActive: true, accountActivationStatus: "APPROVED", agentId: agentQudus.id } }),
+    prisma.user.create({ data: { name: "Mrs. Sunmi Express", email: "sunmi@seed.nutritcare",   password: await bcrypt.hash("Agent@123", 10), role: "DELIVERY_AGENT", phone: "+2340000333333", isActive: true, accountActivationStatus: "APPROVED", agentId: agentSunmi.id } }),
+    prisma.user.create({ data: { name: "Flymack Couriers",   email: "flymack@seed.nutritcare", password: await bcrypt.hash("Agent@123", 10), role: "DELIVERY_AGENT", phone: "+2340000444444", isActive: true, accountActivationStatus: "APPROVED", agentId: agentFlymack.id } }),
+  ]);
+  console.log("  ✓ Agents and their linked User accounts created");
 
   // ── Customers ───────────────────────────────────────────────────────────────
   const [
@@ -744,6 +758,10 @@ async function main() {
   console.log("  Sales Rep  │  blessing.ehijie@seed.…       │  SalesRep@123");
   console.log("  Sales Rep  │  emeka@seed.nutritcare        │  SalesRep@123");
   console.log("  Admin      │  admin@seed.nutritcare        │  Admin@123");
+  console.log("  Del. Agent │  ola@seed.nutritcare          │  Agent@123");
+  console.log("  Del. Agent │  qudus@seed.nutritcare        │  Agent@123");
+  console.log("  Del. Agent │  sunmi@seed.nutritcare        │  Agent@123");
+  console.log("  Del. Agent │  flymack@seed.nutritcare      │  Agent@123");
   console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
   console.log("📦  ORDERS: 58 total across 4 sales reps");
   console.log("  Tolani (27): March 7D+3F+2C | April 4P+2Conf+5D+2C+2F");

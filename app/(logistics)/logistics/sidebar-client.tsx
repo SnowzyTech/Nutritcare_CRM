@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { signOut } from "next-auth/react";
 import {
   LayoutDashboard,
   Truck,
@@ -15,8 +16,17 @@ import {
   Settings,
   LogOut,
 } from "lucide-react";
+import { getInitials } from "@/lib/utils";
 
-export function LogisticsSidebarClient() {
+interface SidebarProps {
+  user?: {
+    name?: string | null;
+    email?: string | null;
+    image?: string | null;
+  };
+}
+
+export function LogisticsSidebarClient({ user }: SidebarProps) {
   const pathname = usePathname();
 
   const navItems = [
@@ -34,13 +44,16 @@ export function LogisticsSidebarClient() {
     <aside className="w-64 bg-[#4a0b79] text-white flex flex-col min-h-screen">
       {/* Profile Section */}
       <div className="p-6 flex items-center gap-3">
-        <div className="w-10 h-10 rounded-full bg-gray-300 overflow-hidden flex-shrink-0">
-          {/* Default user placeholder, in a real app this would be an Image component */}
-          <div className="w-full h-full bg-indigo-200"></div>
+        <div className="w-10 h-10 rounded-full bg-[#631899] overflow-hidden flex-shrink-0 flex items-center justify-center text-sm font-semibold">
+          {user?.image ? (
+            <img src={user.image} alt={user.name ?? "User"} className="w-full h-full object-cover" />
+          ) : (
+            <span>{getInitials(user?.name ?? "")}</span>
+          )}
         </div>
         <div className="flex flex-col">
-          <span className="font-semibold text-sm">Felix Adeyemo</span>
-          <span className="text-xs text-[#d28bfa]">Logistic Manager</span>
+          <span className="font-semibold text-sm">{user?.name ?? "Logistics Manager"}</span>
+          <span className="text-xs text-[#d28bfa]">Logistics Manager</span>
         </div>
       </div>
 
@@ -86,13 +99,13 @@ export function LogisticsSidebarClient() {
           <Settings className="w-5 h-5" />
           <span className="text-sm font-medium">Settings</span>
         </Link>
-        <Link
-          href="/auth/logout"
-          className="flex items-center gap-3 px-4 py-3 rounded-xl text-gray-200 hover:bg-[#631899] hover:text-white transition-colors"
+        <button
+          onClick={() => signOut({ callbackUrl: "/login" })}
+          className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-gray-200 hover:bg-red-600/20 hover:text-red-300 transition-colors"
         >
           <LogOut className="w-5 h-5" />
           <span className="text-sm font-medium">Log Out</span>
-        </Link>
+        </button>
       </div>
     </aside>
   );

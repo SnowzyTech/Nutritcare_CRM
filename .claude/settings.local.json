@@ -4,7 +4,11 @@
       "Bash(npm run *)",
       "Bash(npx tsc *)",
       "Bash(npm install *)",
-      "Bash(npx eslint *)"
+      "Bash(npx eslint *)",
+      "Bash(npx prisma *)",
+      "Bash(node -e \"const { z } = require\\('zod'\\); console.log\\(typeof z.email\\)\")",
+      "Bash(tasklist)",
+      "Bash(findstr /i \"node\")"
     ]
   }
 }
