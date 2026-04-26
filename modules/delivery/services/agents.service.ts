@@ -9,7 +9,19 @@ function trendLabel(current: number, previous: number): string {
 export async function getDeliveryAgentsList() {
   const agents = await prisma.agent.findMany({
     where: { deletedAt: null },
-    select: { id: true, companyName: true, state: true, phone1: true, status: true },
+    select: {
+      id: true,
+      companyName: true,
+      state: true,
+      address: true,
+      phone1: true,
+      phone2: true,
+      phone3: true,
+      status: true,
+      createdAt: true,
+      addedBy: { select: { name: true } },
+      user: { select: { id: true } },
+    },
     orderBy: { companyName: "asc" },
   });
 

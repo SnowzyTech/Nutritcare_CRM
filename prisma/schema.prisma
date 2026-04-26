@@ -170,12 +170,14 @@ model User {
   teamId                  String?
   isTeamLead              Boolean                 @default(false)
   accountActivationStatus AccountActivationStatus @default(PENDING)
+  agentId                 String?                 @unique
   createdAt               DateTime                @default(now())
   updatedAt               DateTime                @updatedAt
 
   team                  Team?                  @relation(fields: [teamId], references: [id])
   orders                Order[]                @relation("SalesRepOrders")
   agentsAdded           Agent[]                @relation("AgentAddedBy")
+  agent                 Agent?                 @relation("UserAgent", fields: [agentId], references: [id])
   stockMovements        StockMovement[]        @relation("StockMovementCreatedBy")
   stockTransfers        StockTransfer[]        @relation("StockTransferCreatedBy")
   purchaseOrders        PurchaseOrder[]        @relation("PurchaseOrderCreatedBy")
@@ -374,6 +376,7 @@ model Agent {
   updatedAt            DateTime    @updatedAt
 
   addedBy               User                   @relation("AgentAddedBy", fields: [addedById], references: [id])
+  user                  User?                  @relation("UserAgent")
   orders                Order[]
   stockMovementsFrom    StockMovement[]        @relation("StockMovementAgent")
   stockMovementsTo      StockMovement[]        @relation("StockMovementToAgent")
