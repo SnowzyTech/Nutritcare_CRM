@@ -1,7 +1,5 @@
-import React from "react";
+import { SalesRepListClient } from "./_components/SalesRepListClient";
 
-const page = () => {
-  return <div>Data Pages Loading</div>;
-};
-
-export default page;
+export default function DataDashboard() {
+  return <SalesRepListClient />;
+}
