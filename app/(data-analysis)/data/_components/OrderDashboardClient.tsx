@@ -1,13 +1,13 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import { 
-  Search, 
-  SlidersHorizontal, 
-  ArrowUpDown, 
-  ChevronDown, 
-  ChevronLeft, 
-  ChevronRight, 
+import {
+  Search,
+  SlidersHorizontal,
+  ArrowUpDown,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   RotateCcw,
   MessageCircle
 } from 'lucide-react';
@@ -25,14 +25,33 @@ const STATUS_STYLES = {
 
 const TABS = ['All', 'Pending', 'Confirmed', 'Delivered', 'Cancelled', 'Failed'];
 
+const NIGERIAN_STATES = [
+  'Abia', 'Adamawa', 'Akwa Ibom', 'Anambra', 'Bauchi', 'Bayelsa', 'Benue', 'Borno',
+  'Cross River', 'Delta', 'Ebonyi', 'Edo', 'Ekiti', 'Enugu', 'FCT', 'Gombe',
+  'Imo', 'Jigawa', 'Kaduna', 'Kano', 'Katsina', 'Kebbi', 'Kogi', 'Kwara',
+  'Lagos', 'Nasarawa', 'Niger', 'Ogun', 'Ondo', 'Osun', 'Oyo', 'Plateau',
+  'Rivers', 'Sokoto', 'Taraba', 'Yobe', 'Zamfara'
+];
+
 export function OrderDashboardClient({ id }: { id: string }) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [dateFilter, setDateFilter] = useState('');
-  
+  const [selectedProduct, setSelectedProduct] = useState('All');
+  const [selectedState, setSelectedState] = useState('All');
+
   const rep = SALES_REPS.find(r => r.id === id) || SALES_REPS[0];
   const orders = MOCK_ORDERS[id] || MOCK_ORDERS['adebimpe-tolani'] || [];
+
+  const uniqueProducts = useMemo(() => {
+    const products = new Set(orders.map(o => o.product));
+    return ['All', ...Array.from(products)];
+  }, [orders]);
+
+  const uniqueStates = useMemo(() => {
+    return ['All', ...NIGERIAN_STATES];
+  }, []);
 
   const counts = useMemo(() => {
     return {
@@ -48,12 +67,18 @@ export function OrderDashboardClient({ id }: { id: string }) {
   const filteredOrders = useMemo(() => {
     return orders.filter(o => {
       const matchesTab = activeTab === 'All' || o.status === activeTab;
-      const matchesSearch = o.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                           o.gmail.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesSearch = o.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        o.gmail.toLowerCase().includes(searchQuery.toLowerCase());
       const matchesDate = !dateFilter || o.date.includes(dateFilter);
-      return matchesTab && matchesSearch && matchesDate;
+      const matchesProduct = selectedProduct === 'All' || o.product === selectedProduct;
+      const matchesState = selectedState === 'All' || 
+        (o.agent?.state?.toLowerCase().includes(selectedState.toLowerCase()));
+      return matchesTab && matchesSearch && matchesDate && matchesProduct && matchesState;
     });
-  }, [orders, activeTab, searchQuery, dateFilter]);
+  }, [orders, activeTab, searchQuery, dateFilter, selectedProduct, selectedState]);
+
+  const [isProductOpen, setIsProductOpen] = useState(false);
+  const [isStateOpen, setIsStateOpen] = useState(false);
 
   return (
     <div className="p-8 max-w-[1400px] mx-auto">
@@ -62,11 +87,11 @@ export function OrderDashboardClient({ id }: { id: string }) {
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
             <div className="relative w-12 h-12 rounded-full overflow-hidden border-2 border-white shadow-md">
-              <Image 
-                src={rep.avatar} 
-                alt={rep.name} 
-                fill 
-                className="object-cover" 
+              <Image
+                src={rep.avatar}
+                alt={rep.name}
+                fill
+                className="object-cover"
                 sizes="48px"
               />
             </div>
@@ -76,7 +101,7 @@ export function OrderDashboardClient({ id }: { id: string }) {
             </div>
           </div>
         </div>
-        
+
         <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center text-purple-600 cursor-pointer shadow-sm hover:bg-purple-200 transition-colors">
           <MessageCircle size={20} fill="currentColor" />
         </div>
@@ -91,9 +116,8 @@ export function OrderDashboardClient({ id }: { id: string }) {
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`relative px-6 py-2 rounded-xl transition-all duration-200 flex items-center gap-2 ${
-                isActive ? 'bg-purple-50 text-[#A020F0]' : 'text-gray-400 hover:bg-gray-50'
-              }`}
+              className={`relative px-6 py-2 rounded-xl transition-all duration-200 flex items-center gap-2 ${isActive ? 'bg-purple-50 text-[#A020F0]' : 'text-gray-400 hover:bg-gray-50'
+                }`}
             >
               <span className={`text-sm font-bold ${isActive ? 'text-[#A020F0]' : 'text-gray-400'}`}>
                 {tab}
@@ -110,15 +134,15 @@ export function OrderDashboardClient({ id }: { id: string }) {
       </div>
 
       {/* Filters Bar */}
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex flex-col items-start gap-6 justify-between mb-8">
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2 text-gray-400">
             <SlidersHorizontal size={18} />
             <span className="text-sm font-medium">Filter</span>
           </div>
-          
+
           <div className="relative group">
-            <input 
+            <input
               type="date"
               value={dateFilter}
               onChange={(e) => setDateFilter(e.target.value)}
@@ -126,20 +150,83 @@ export function OrderDashboardClient({ id }: { id: string }) {
             />
           </div>
 
-          <button className="flex items-center gap-2 px-3 py-1.5 bg-black text-white rounded-lg text-xs font-medium">
-            <span>Product</span>
-            <ChevronDown size={14} />
-          </button>
-          
-          <button className="flex items-center gap-2 px-3 py-1.5 bg-black text-white rounded-lg text-xs font-medium">
-            <span>State</span>
-            <ChevronDown size={14} />
-          </button>
+          <div className="relative">
+            <button 
+              onClick={() => {
+                setIsProductOpen(!isProductOpen);
+                setIsStateOpen(false);
+              }}
+              className="flex items-center gap-2 px-3 py-1.5 bg-black text-white rounded-lg text-xs font-medium"
+            >
+              <span>{selectedProduct === 'All' ? 'Product' : selectedProduct}</span>
+              <ChevronDown size={14} className={`transition-transform duration-200 ${isProductOpen ? 'rotate-180' : ''}`} />
+            </button>
+            {isProductOpen && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setIsProductOpen(false)} />
+                <div className="absolute left-0 top-full mt-1 bg-white border border-gray-100 rounded-lg shadow-xl z-50 py-1 min-w-[150px] max-h-[250px] overflow-y-auto">
+                  {uniqueProducts.map((product) => (
+                    <button
+                      key={product}
+                      onClick={() => {
+                        setSelectedProduct(product);
+                        setIsProductOpen(false);
+                      }}
+                      className={`w-full text-left px-4 py-2 text-xs font-medium hover:bg-purple-50 transition-colors ${
+                        selectedProduct === product ? 'text-[#A020F0] bg-purple-50' : 'text-gray-600'
+                      }`}
+                    >
+                      {product}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+
+          <div className="relative">
+            <button 
+              onClick={() => {
+                setIsStateOpen(!isStateOpen);
+                setIsProductOpen(false);
+              }}
+              className="flex items-center gap-2 px-3 py-1.5 bg-black text-white rounded-lg text-xs font-medium"
+            >
+              <span>{selectedState === 'All' ? 'State' : selectedState}</span>
+              <ChevronDown size={14} className={`transition-transform duration-200 ${isStateOpen ? 'rotate-180' : ''}`} />
+            </button>
+            {isStateOpen && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setIsStateOpen(false)} />
+                <div className="absolute left-0 top-full mt-1 bg-white border border-gray-100 rounded-lg shadow-xl z-50 py-1 min-w-[150px] max-h-[250px] overflow-y-auto">
+                  {uniqueStates.map((state) => (
+                    <button
+                      key={state}
+                      onClick={() => {
+                        setSelectedState(state);
+                        setIsStateOpen(false);
+                      }}
+                      className={`w-full text-left px-4 py-2 text-xs font-medium hover:bg-purple-50 transition-colors ${
+                        selectedState === state ? 'text-[#A020F0] bg-purple-50' : 'text-gray-600'
+                      }`}
+                    >
+                      {state}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
 
           <button className="p-2 text-gray-400">
             <ArrowUpDown size={18} />
           </button>
 
+
+        </div>
+
+
+        <div className=" flex items-end justify-around gap-4">
           <div className="flex items-center gap-2 ml-2">
             {Object.entries(STATUS_STYLES).map(([key, style]) => (
               <span key={key} className={`px-4 py-1 rounded-md text-[10px] font-bold shadow-sm ${style.bg} ${style.text}`}>
@@ -147,17 +234,18 @@ export function OrderDashboardClient({ id }: { id: string }) {
               </span>
             ))}
           </div>
-        </div>
-
-        <div className="relative">
-          <input
-            type="text"
-            placeholder="search"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-4 pr-10 py-2 bg-white border border-gray-100 rounded-lg text-sm text-gray-600 placeholder-gray-300 focus:outline-none focus:ring-1 focus:ring-purple-200 w-48 shadow-sm"
-          />
-          <Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-300" />
+          <div className='flex items-end justify-between w-full'>
+            <div className="relative w-48">
+              <input
+                type="text"
+                placeholder="search"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-4 pr-10 py-2 bg-white border border-gray-100 rounded-lg text-sm text-gray-600 placeholder-gray-300 focus:outline-none focus:ring-1 focus:ring-purple-200 w-full shadow-sm"
+              />
+              <Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-300" />
+            </div>
+          </div>
         </div>
       </div>
 
@@ -178,8 +266,8 @@ export function OrderDashboardClient({ id }: { id: string }) {
             {filteredOrders.map((order) => {
               const style = (STATUS_STYLES as any)[order.status] || STATUS_STYLES.Pending;
               return (
-                <tr 
-                  key={order.id} 
+                <tr
+                  key={order.id}
                   onClick={() => router.push(`/data/sales-reps/${id}/order/${order.id === '1' ? '012994248' : order.id === '2' ? '012994249' : order.id === '3' ? '012994251' : order.id === '4' ? '012994248' : order.id === '5' ? '012994250' : order.id === '6' ? '012994252' : order.id === '7' ? '012994250' : order.id === '9' ? '012994251' : order.id === '10' ? '012994252' : '012994248'}`)}
                   className="group hover:bg-gray-50 transition-colors border-b border-gray-50 last:border-0 cursor-pointer"
                 >

@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { 
   MessageCircle, 
   ChevronRight, 
@@ -8,14 +8,53 @@ import {
   User,
   Phone,
   Mail,
-  BarChart3
+  BarChart3,
+  ChevronDown
 } from 'lucide-react';
-import { SALES_REPS, MOCK_ORDERS } from '@/lib/mock-data/data-analysis';
+import { SALES_REPS, MOCK_ORDERS, MONTHS } from '@/lib/mock-data/data-analysis';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 
+function MonthDropdown({ value, onChange }: { value: string; onChange: (val: string) => void }) {
+  const [isOpen, setIsOpen] = useState(false);
+
+  return (
+    <div className="relative">
+      <div 
+        onClick={() => setIsOpen(!isOpen)}
+        className="flex items-center gap-1 px-2 py-0.5 bg-gray-50 rounded-lg border border-gray-100 cursor-pointer hover:bg-gray-100 transition-colors"
+      >
+        <span className="text-[10px] font-bold text-gray-500">{value}</span>
+        <ChevronDown size={10} className="text-gray-400" />
+      </div>
+      {isOpen && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
+          <div className="absolute right-0 top-full mt-1 bg-white border border-gray-100 rounded-lg shadow-lg z-50 py-1 min-w-[120px] max-h-[200px] overflow-y-auto">
+            {['This Month', ...MONTHS].map((month) => (
+              <button
+                key={month}
+                onClick={() => {
+                  onChange(month);
+                  setIsOpen(false);
+                }}
+                className={`w-full text-left px-3 py-1.5 text-[10px] font-bold hover:bg-purple-50 transition-colors ${
+                  value === month ? 'text-[#A020F0] bg-purple-50' : 'text-gray-600'
+                }`}
+              >
+                {month}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export function SalesRepSummaryClient({ id }: { id: string }) {
   const router = useRouter();
+  const [selectedMonth, setSelectedMonth] = useState('This Month');
   const rep = SALES_REPS.find(r => r.id === id) || SALES_REPS[0];
   const orders = MOCK_ORDERS[id] || MOCK_ORDERS['adebimpe-tolani'] || [];
 
@@ -159,10 +198,7 @@ export function SalesRepSummaryClient({ id }: { id: string }) {
           <div className="bg-white p-8 rounded-3xl border border-gray-50 shadow-sm space-y-8">
             <div className="flex items-center justify-between">
               <span className="text-sm font-bold text-gray-800">Geeral Performance</span>
-              <div className="flex items-center gap-1 px-2 py-0.5 bg-gray-50 rounded-lg border border-gray-100">
-                <span className="text-[10px] font-bold text-gray-500">This Month</span>
-                <ChevronRight size={10} className="rotate-90 text-gray-400" />
-              </div>
+              <MonthDropdown value={selectedMonth} onChange={setSelectedMonth} />
             </div>
             <div className="flex items-end justify-between">
               <span className="text-5xl font-black text-gray-900 tracking-tighter">80%</span>
@@ -178,10 +214,7 @@ export function SalesRepSummaryClient({ id }: { id: string }) {
           <div className="bg-white p-8 rounded-3xl border border-gray-50 shadow-sm space-y-8">
             <div className="flex items-center justify-between">
               <span className="text-sm font-bold text-gray-800">Delivery Rate</span>
-              <div className="flex items-center gap-1 px-2 py-0.5 bg-gray-50 rounded-lg border border-gray-100">
-                <span className="text-[10px] font-bold text-gray-500">This Month</span>
-                <ChevronRight size={10} className="rotate-90 text-gray-400" />
-              </div>
+              <MonthDropdown value={selectedMonth} onChange={setSelectedMonth} />
             </div>
             <div className="flex items-end justify-between">
               <span className="text-5xl font-black text-gray-900 tracking-tighter">78%</span>

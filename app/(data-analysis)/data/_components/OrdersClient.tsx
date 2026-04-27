@@ -21,6 +21,14 @@ const STATUS_STYLES: Record<string, { dot: string; bg: string; text: string; lab
 
 const TABS = ['All', 'Pending', 'Confirmed', 'Delivered', 'Cancelled', 'Failed'];
 
+const NIGERIAN_STATES = [
+  'Abia', 'Adamawa', 'Akwa Ibom', 'Anambra', 'Bauchi', 'Bayelsa', 'Benue', 'Borno',
+  'Cross River', 'Delta', 'Ebonyi', 'Edo', 'Ekiti', 'Enugu', 'FCT', 'Gombe',
+  'Imo', 'Jigawa', 'Kaduna', 'Kano', 'Katsina', 'Kebbi', 'Kogi', 'Kwara',
+  'Lagos', 'Nasarawa', 'Niger', 'Ogun', 'Ondo', 'Osun', 'Oyo', 'Plateau',
+  'Rivers', 'Sokoto', 'Taraba', 'Yobe', 'Zamfara'
+];
+
 export function OrdersClient() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState('All');
@@ -29,6 +37,10 @@ export function OrdersClient() {
   const [productFilter, setProductFilter] = useState('');
   const [stateFilter, setStateFilter] = useState('');
   const [teamFilter, setTeamFilter] = useState('');
+
+  const [isProductOpen, setIsProductOpen] = useState(false);
+  const [isStateOpen, setIsStateOpen] = useState(false);
+  const [isTeamOpen, setIsTeamOpen] = useState(false);
 
   const counts = useMemo(() => {
     return {
@@ -49,7 +61,7 @@ export function OrdersClient() {
                            o.salesRep.toLowerCase().includes(searchQuery.toLowerCase());
       const matchesDate = !dateFilter || o.date.includes(dateFilter);
       const matchesProduct = !productFilter || o.product === productFilter;
-      const matchesState = !stateFilter || o.state === stateFilter;
+      const matchesState = !stateFilter || (o.state.toLowerCase().includes(stateFilter.toLowerCase()));
       const matchesTeam = !teamFilter || o.salesRep === teamFilter;
       return matchesTab && matchesSearch && matchesDate && matchesProduct && matchesState && matchesTeam;
     });
@@ -113,39 +125,117 @@ export function OrdersClient() {
         </div>
 
         <div className="relative">
-          <select 
-            value={productFilter}
-            onChange={(e) => setProductFilter(e.target.value)}
-            className="appearance-none flex items-center gap-2 px-3 py-1.5 bg-black text-white rounded-lg text-xs font-medium pr-8 focus:outline-none cursor-pointer"
+          <button 
+            onClick={() => {
+              setIsProductOpen(!isProductOpen);
+              setIsStateOpen(false);
+              setIsTeamOpen(false);
+            }}
+            className="flex items-center gap-2 px-3 py-1.5 bg-black text-white rounded-lg text-xs font-medium"
           >
-            <option value="">Product</option>
-            {uniqueProducts.map(p => <option key={p} value={p}>{p}</option>)}
-          </select>
-          <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-white" />
+            <span>{productFilter || 'Product'}</span>
+            <ChevronDown size={14} className={`transition-transform duration-200 ${isProductOpen ? 'rotate-180' : ''}`} />
+          </button>
+          {isProductOpen && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setIsProductOpen(false)} />
+              <div className="absolute left-0 top-full mt-1 bg-white border border-gray-100 rounded-lg shadow-xl z-50 py-1 min-w-[150px] max-h-[250px] overflow-y-auto">
+                <button
+                  onClick={() => { setProductFilter(''); setIsProductOpen(false); }}
+                  className="w-full text-left px-4 py-2 text-xs font-medium text-gray-600 hover:bg-purple-50"
+                >
+                  All Products
+                </button>
+                {uniqueProducts.map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => { setProductFilter(p); setIsProductOpen(false); }}
+                    className={`w-full text-left px-4 py-2 text-xs font-medium hover:bg-purple-50 transition-colors ${
+                      productFilter === p ? 'text-[#A020F0] bg-purple-50' : 'text-gray-600'
+                    }`}
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
         </div>
 
         <div className="relative">
-          <select 
-            value={stateFilter}
-            onChange={(e) => setStateFilter(e.target.value)}
-            className="appearance-none flex items-center gap-2 px-3 py-1.5 bg-black text-white rounded-lg text-xs font-medium pr-8 focus:outline-none cursor-pointer"
+          <button 
+            onClick={() => {
+              setIsStateOpen(!isStateOpen);
+              setIsProductOpen(false);
+              setIsTeamOpen(false);
+            }}
+            className="flex items-center gap-2 px-3 py-1.5 bg-black text-white rounded-lg text-xs font-medium"
           >
-            <option value="">State</option>
-            {uniqueStates.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
-          <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-white" />
+            <span>{stateFilter || 'State'}</span>
+            <ChevronDown size={14} className={`transition-transform duration-200 ${isStateOpen ? 'rotate-180' : ''}`} />
+          </button>
+          {isStateOpen && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setIsStateOpen(false)} />
+              <div className="absolute left-0 top-full mt-1 bg-white border border-gray-100 rounded-lg shadow-xl z-50 py-1 min-w-[150px] max-h-[250px] overflow-y-auto">
+                <button
+                  onClick={() => { setStateFilter(''); setIsStateOpen(false); }}
+                  className="w-full text-left px-4 py-2 text-xs font-medium text-gray-600 hover:bg-purple-50"
+                >
+                  All States
+                </button>
+                {NIGERIAN_STATES.map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => { setStateFilter(s); setIsStateOpen(false); }}
+                    className={`w-full text-left px-4 py-2 text-xs font-medium hover:bg-purple-50 transition-colors ${
+                      stateFilter === s ? 'text-[#A020F0] bg-purple-50' : 'text-gray-600'
+                    }`}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
         </div>
 
         <div className="relative">
-          <select 
-            value={teamFilter}
-            onChange={(e) => setTeamFilter(e.target.value)}
-            className="appearance-none flex items-center gap-2 px-3 py-1.5 bg-black text-white rounded-lg text-xs font-medium pr-8 focus:outline-none cursor-pointer"
+          <button 
+            onClick={() => {
+              setIsTeamOpen(!isTeamOpen);
+              setIsProductOpen(false);
+              setIsStateOpen(false);
+            }}
+            className="flex items-center gap-2 px-3 py-1.5 bg-black text-white rounded-lg text-xs font-medium"
           >
-            <option value="">Team</option>
-            {uniqueSalesReps.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
-          <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-white" />
+            <span>{teamFilter || 'Team'}</span>
+            <ChevronDown size={14} className={`transition-transform duration-200 ${isTeamOpen ? 'rotate-180' : ''}`} />
+          </button>
+          {isTeamOpen && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setIsTeamOpen(false)} />
+              <div className="absolute left-0 top-full mt-1 bg-white border border-gray-100 rounded-lg shadow-xl z-50 py-1 min-w-[150px] max-h-[250px] overflow-y-auto">
+                <button
+                  onClick={() => { setTeamFilter(''); setIsTeamOpen(false); }}
+                  className="w-full text-left px-4 py-2 text-xs font-medium text-gray-600 hover:bg-purple-50"
+                >
+                  All Teams
+                </button>
+                {uniqueSalesReps.map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => { setTeamFilter(s); setIsTeamOpen(false); }}
+                    className={`w-full text-left px-4 py-2 text-xs font-medium hover:bg-purple-50 transition-colors ${
+                      teamFilter === s ? 'text-[#A020F0] bg-purple-50' : 'text-gray-600'
+                    }`}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
         </div>
 
         <button className="p-2 text-gray-400 hover:text-gray-600">

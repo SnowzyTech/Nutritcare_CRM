@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { 
   ChevronDown, 
   MessageCircle, 
@@ -9,10 +9,50 @@ import {
   Calendar,
   Share2
 } from 'lucide-react';
-import { MOCK_ANALYTICS, SALES_REPS } from '@/lib/mock-data/data-analysis';
+import { MOCK_ANALYTICS, SALES_REPS, MONTHS } from '@/lib/mock-data/data-analysis';
 import Image from 'next/image';
 
+function MonthDropdown({ value, onChange }: { value: string; onChange: (val: string) => void }) {
+  const [isOpen, setIsOpen] = useState(false);
+
+  return (
+    <div className="relative">
+      <div 
+        onClick={() => setIsOpen(!isOpen)}
+        className="flex items-center gap-1 px-2 py-0.5 bg-gray-50 rounded-lg border border-gray-100 cursor-pointer hover:bg-gray-100 transition-colors"
+      >
+        <span className="text-[10px] font-bold text-gray-500">{value}</span>
+        <ChevronDown size={10} className="text-gray-400" />
+      </div>
+      {isOpen && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
+          <div className="absolute right-0 top-full mt-1 bg-white border border-gray-100 rounded-lg shadow-lg z-50 py-1 min-w-[120px] max-h-[200px] overflow-y-auto">
+            {['This Month', ...MONTHS].map((month) => (
+              <button
+                key={month}
+                onClick={() => {
+                  onChange(month);
+                  setIsOpen(false);
+                }}
+                className={`w-full text-left px-3 py-1.5 text-[10px] font-bold hover:bg-purple-50 transition-colors ${
+                  value === month ? 'text-[#A020F0] bg-purple-50' : 'text-gray-600'
+                }`}
+              >
+                {month}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export function AnalyticsDashboardClient({ id }: { id: string }) {
+  const [selectedMonth, setSelectedMonth] = useState('This Month');
+  const [tableMonth, setTableMonth] = useState('September');
+  
   const rep = SALES_REPS.find(r => r.id === id) || SALES_REPS[0];
   const analytics = MOCK_ANALYTICS[id] || MOCK_ANALYTICS['adebimpe-tolani'];
 
@@ -53,10 +93,7 @@ export function AnalyticsDashboardClient({ id }: { id: string }) {
           <div key={index} className="bg-white p-6 rounded-2xl border border-gray-50 shadow-sm space-y-4">
             <div className="flex items-center justify-between">
               <span className="text-sm font-bold text-gray-800">{metric.label}</span>
-              <div className="flex items-center gap-1 px-2 py-0.5 bg-gray-50 rounded-lg border border-gray-100 cursor-pointer">
-                <span className="text-[10px] font-bold text-gray-500">This Month</span>
-                <ChevronDown size={10} className="text-gray-400" />
-              </div>
+              <MonthDropdown value={selectedMonth} onChange={setSelectedMonth} />
             </div>
             <div className="flex items-end justify-between">
               <span className="text-4xl font-black text-gray-900 tracking-tight">{metric.value}</span>
@@ -98,10 +135,7 @@ export function AnalyticsDashboardClient({ id }: { id: string }) {
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-bold text-gray-700">Best Selling Product</h3>
-            <div className="flex items-center gap-1 px-3 py-1 bg-gray-50 rounded-lg border border-gray-100 cursor-pointer">
-              <span className="text-[11px] font-bold text-gray-500">This Month</span>
-              <ChevronDown size={12} className="text-gray-400" />
-            </div>
+            <MonthDropdown value={selectedMonth} onChange={setSelectedMonth} />
           </div>
           <div className="bg-white rounded-2xl border border-gray-50 shadow-sm overflow-hidden">
             <table className="w-full text-left">
@@ -122,10 +156,7 @@ export function AnalyticsDashboardClient({ id }: { id: string }) {
             </table>
           </div>
           <div className="flex flex-col gap-4">
-            <div className="flex items-center gap-1 px-3 py-1 bg-gray-50 rounded-lg border border-gray-100 self-start cursor-pointer">
-              <span className="text-[11px] font-bold text-gray-500">September</span>
-              <ChevronDown size={12} className="text-gray-400" />
-            </div>
+            <MonthDropdown value={tableMonth} onChange={setTableMonth} />
             <button className="flex items-center justify-center gap-2 w-full py-3 bg-[#F4EBFF] text-[#A020F0] rounded-xl text-sm font-bold transition-transform active:scale-95">
               <Share2 size={16} />
               Generate Weekly Report
@@ -138,10 +169,7 @@ export function AnalyticsDashboardClient({ id }: { id: string }) {
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-bold text-gray-700">Upselling Rate</h3>
-            <div className="flex items-center gap-1 px-3 py-1 bg-gray-50 rounded-lg border border-gray-100 cursor-pointer">
-              <span className="text-[11px] font-bold text-gray-500">This Month</span>
-              <ChevronDown size={12} className="text-gray-400" />
-            </div>
+            <MonthDropdown value={selectedMonth} onChange={setSelectedMonth} />
           </div>
           <div className="bg-white rounded-2xl border border-gray-50 shadow-sm overflow-hidden">
             <table className="w-full text-left">
@@ -162,10 +190,7 @@ export function AnalyticsDashboardClient({ id }: { id: string }) {
             </table>
           </div>
           <div className="flex flex-col gap-4">
-            <div className="flex items-center gap-1 px-3 py-1 bg-gray-50 rounded-lg border border-gray-100 self-start cursor-pointer">
-              <span className="text-[11px] font-bold text-gray-500">September</span>
-              <ChevronDown size={12} className="text-gray-400" />
-            </div>
+            <MonthDropdown value={tableMonth} onChange={setTableMonth} />
             <button className="flex items-center justify-center gap-2 w-full py-3 bg-[#F4EBFF] text-[#A020F0] rounded-xl text-sm font-bold transition-transform active:scale-95">
               <Share2 size={16} />
               Generate Monthly Report
