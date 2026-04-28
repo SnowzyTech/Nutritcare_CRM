@@ -3,24 +3,32 @@
 import React, { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Search, SlidersHorizontal, ArrowUpDown, ChevronDown } from 'lucide-react';
-import { SALES_REPS, SalesRep } from '@/lib/mock-data/data-analysis';
+import { SalesRepItem } from '@/modules/data-analysis/services/data-analysis.service';
 import Image from 'next/image';
 
-export function SalesRepListClient() {
+interface SalesRepListClientProps {
+  initialReps?: SalesRepItem[];
+}
+
+export function SalesRepListClient({ initialReps = [] }: SalesRepListClientProps) {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
   const [teamFilter, setTeamFilter] = useState('All');
   const [dateFilter, setDateFilter] = useState('');
-  
+
+  const teams = useMemo(() => {
+    const names = Array.from(new Set(initialReps.map(r => r.teamName).filter(Boolean)));
+    return ['All', ...names];
+  }, [initialReps]);
+
   const filteredReps = useMemo(() => {
-    return SALES_REPS.filter(rep => {
-      const matchesSearch = rep.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                           rep.phoneNumber.includes(searchQuery);
-      const matchesTeam = teamFilter === 'All' || rep.team === teamFilter;
-      // In a real app we would filter by a date field, for now we just make the UI functional
+    return initialReps.filter(rep => {
+      const matchesSearch = rep.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                           rep.phone.includes(searchQuery);
+      const matchesTeam = teamFilter === 'All' || rep.teamName === teamFilter;
       return matchesSearch && matchesTeam;
     });
-  }, [searchQuery, teamFilter]);
+  }, [initialReps, searchQuery, teamFilter]);
 
   const handleRowClick = (id: string) => {
     if (!id || id === 'undefined') return;
@@ -47,14 +55,14 @@ export function SalesRepListClient() {
           </div>
 
           <div className="relative group">
-            <select 
+            <select
               value={teamFilter}
               onChange={(e) => setTeamFilter(e.target.value)}
               className="appearance-none flex items-center gap-2 px-3 py-1.5 bg-white rounded-lg text-sm font-medium text-purple-600 border border-gray-100 shadow-sm pr-8 focus:outline-none cursor-pointer"
             >
-              <option value="All">All Teams</option>
-              <option value="Team 1">Team 1</option>
-              <option value="Team 2">Team 2</option>
+              {teams.map(t => (
+                <option key={t} value={t}>{t === 'All' ? 'All Teams' : t}</option>
+              ))}
             </select>
             <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-purple-600" />
           </div>
@@ -97,11 +105,11 @@ export function SalesRepListClient() {
                 <td className="px-8 py-4">
                   <div className="flex items-center gap-4">
                     <div className="relative w-10 h-10 rounded-full overflow-hidden border border-gray-100">
-                      <Image 
-                        src={rep.avatar} 
-                        alt={rep.name} 
-                        fill 
-                        className="object-cover" 
+                      <Image
+                        src={rep.avatarUrl}
+                        alt={rep.name}
+                        fill
+                        className="object-cover"
                         sizes="40px"
                       />
                     </div>
@@ -109,13 +117,13 @@ export function SalesRepListClient() {
                   </div>
                 </td>
                 <td className="px-8 py-4 text-center">
-                  <span className="text-sm text-gray-600 font-medium">{rep.pendingOrders}</span>
+                  <span className="text-sm text-gray-600 font-medium">{rep.pendingOrderCount}</span>
                 </td>
                 <td className="px-8 py-4">
-                  <span className="text-sm text-gray-500">{rep.phoneNumber}</span>
+                  <span className="text-sm text-gray-500">{rep.phone}</span>
                 </td>
                 <td className="px-8 py-4 text-right">
-                  <span className="text-sm font-bold text-gray-700">{rep.performance}%</span>
+                  <span className="text-sm font-bold text-gray-700">{rep.generalPerformance}%</span>
                 </td>
               </tr>
             ))}

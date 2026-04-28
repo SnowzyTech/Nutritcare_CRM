@@ -4,13 +4,24 @@ import React, { useState } from 'react';
 import Image from 'next/image';
 import { User, Mail, Shield, Camera, Save } from 'lucide-react';
 
-export function ProfileClient() {
+interface ProfileClientProps {
+  initialName: string;
+  initialEmail: string;
+  initialRole: string;
+}
+
+export function ProfileClient({ initialName, initialEmail, initialRole }: ProfileClientProps) {
   const [formData, setFormData] = useState({
-    name: 'Favour Isunuoya',
-    email: 'favour@nutricare.com',
-    role: 'Senior Data Analyst',
-    bio: 'Experienced data analyst focused on supply chain optimization and sales performance tracking.',
+    name: initialName,
+    email: initialEmail,
+    role: initialRole,
+    bio: '',
   });
+
+  const displayRole = initialRole
+    .replace(/_/g, ' ')
+    .toLowerCase()
+    .replace(/\b\w/g, (c) => c.toUpperCase());
 
   return (
     <div className="p-8 max-w-4xl mx-auto">
@@ -20,13 +31,12 @@ export function ProfileClient() {
       </div>
 
       <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
-        {/* Header/Cover area */}
         <div className="h-32 bg-gradient-to-r from-purple-600 to-indigo-600 relative">
           <div className="absolute -bottom-12 left-8">
             <div className="relative">
               <div className="w-24 h-24 rounded-full border-4 border-white overflow-hidden bg-gray-100 shadow-md">
                 <Image
-                  src="https://ui-avatars.com/api/?name=Favour+Isunuoya&background=f3f4f6&color=6b7280"
+                  src={`https://ui-avatars.com/api/?name=${encodeURIComponent(initialName)}&background=f3f4f6&color=6b7280`}
                   alt="Avatar"
                   fill
                   className="object-cover"
@@ -41,7 +51,6 @@ export function ProfileClient() {
 
         <div className="pt-16 pb-10 px-8">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            {/* Personal Info */}
             <div className="space-y-6">
               <div>
                 <label className="block text-sm font-bold text-gray-700 mb-2">Full Name</label>
@@ -81,7 +90,7 @@ export function ProfileClient() {
                   </div>
                   <input
                     type="text"
-                    value={formData.role}
+                    value={displayRole}
                     disabled
                     className="block w-full pl-10 pr-4 py-3 bg-gray-50 border-transparent rounded-xl text-sm text-gray-500 cursor-not-allowed"
                   />
@@ -89,7 +98,6 @@ export function ProfileClient() {
               </div>
             </div>
 
-            {/* Bio & More */}
             <div className="space-y-6">
               <div>
                 <label className="block text-sm font-bold text-gray-700 mb-2">Bio</label>
@@ -97,6 +105,7 @@ export function ProfileClient() {
                   rows={4}
                   value={formData.bio}
                   onChange={(e) => setFormData({ ...formData, bio: e.target.value })}
+                  placeholder="Tell us about yourself..."
                   className="block w-full p-4 bg-gray-50 border-transparent rounded-xl text-sm focus:bg-white focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all resize-none"
                 />
               </div>

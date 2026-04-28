@@ -46,7 +46,7 @@ export function DataSidebar({ user }: SidebarProps) {
     { href: '/data/history', icon: Clock, label: 'History' },
   ];
 
-  const bottomLinks = [
+  const bottomLinks: { href: string; icon: React.ElementType; label: string; badge?: number }[] = [
     { href: '/data/settings', icon: User, label: 'Profile' },
   ];
 

@@ -8,7 +8,7 @@ import {
   ChevronDown, 
   MessageCircle
 } from 'lucide-react';
-import { ALL_ORDERS } from '@/lib/mock-data/data-analysis';
+import { OrderRow } from '@/modules/data-analysis/services/data-analysis.service';
 import { useRouter } from 'next/navigation';
 
 const STATUS_STYLES: Record<string, { dot: string; bg: string; text: string; label: string }> = {
@@ -29,7 +29,11 @@ const NIGERIAN_STATES = [
   'Rivers', 'Sokoto', 'Taraba', 'Yobe', 'Zamfara'
 ];
 
-export function OrdersClient() {
+interface OrdersClientProps {
+  initialOrders?: OrderRow[];
+}
+
+export function OrdersClient({ initialOrders = [] }: OrdersClientProps) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
@@ -42,34 +46,32 @@ export function OrdersClient() {
   const [isStateOpen, setIsStateOpen] = useState(false);
   const [isTeamOpen, setIsTeamOpen] = useState(false);
 
-  const counts = useMemo(() => {
-    return {
-      All: ALL_ORDERS.length,
-      Pending: ALL_ORDERS.filter(o => o.status === 'Pending').length,
-      Confirmed: ALL_ORDERS.filter(o => o.status === 'Confirmed').length,
-      Delivered: ALL_ORDERS.filter(o => o.status === 'Delivered').length,
-      Cancelled: ALL_ORDERS.filter(o => o.status === 'Cancelled').length,
-      Failed: ALL_ORDERS.filter(o => o.status === 'Failed').length,
-    };
-  }, []);
+  const counts = useMemo(() => ({
+    All: initialOrders.length,
+    Pending: initialOrders.filter(o => o.status === 'Pending').length,
+    Confirmed: initialOrders.filter(o => o.status === 'Confirmed').length,
+    Delivered: initialOrders.filter(o => o.status === 'Delivered').length,
+    Cancelled: initialOrders.filter(o => o.status === 'Cancelled').length,
+    Failed: initialOrders.filter(o => o.status === 'Failed').length,
+  }), [initialOrders]);
 
   const filteredOrders = useMemo(() => {
-    return ALL_ORDERS.filter(o => {
+    return initialOrders.filter(o => {
       const matchesTab = activeTab === 'All' || o.status === activeTab;
-      const matchesSearch = o.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+      const matchesSearch = o.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
                            o.gmail.toLowerCase().includes(searchQuery.toLowerCase()) ||
                            o.salesRep.toLowerCase().includes(searchQuery.toLowerCase());
       const matchesDate = !dateFilter || o.date.includes(dateFilter);
       const matchesProduct = !productFilter || o.product === productFilter;
-      const matchesState = !stateFilter || (o.state.toLowerCase().includes(stateFilter.toLowerCase()));
+      const matchesState = !stateFilter || o.state.toLowerCase().includes(stateFilter.toLowerCase());
       const matchesTeam = !teamFilter || o.salesRep === teamFilter;
       return matchesTab && matchesSearch && matchesDate && matchesProduct && matchesState && matchesTeam;
     });
-  }, [activeTab, searchQuery, dateFilter, productFilter, stateFilter, teamFilter]);
+  }, [initialOrders, activeTab, searchQuery, dateFilter, productFilter, stateFilter, teamFilter]);
 
-  const uniqueProducts = Array.from(new Set(ALL_ORDERS.map(o => o.product)));
-  const uniqueStates = Array.from(new Set(ALL_ORDERS.map(o => o.state)));
-  const uniqueSalesReps = Array.from(new Set(ALL_ORDERS.map(o => o.salesRep)));
+  const uniqueProducts = useMemo(() => Array.from(new Set(initialOrders.map(o => o.product))), [initialOrders]);
+  const uniqueStates = useMemo(() => Array.from(new Set(initialOrders.map(o => o.state))), [initialOrders]);
+  const uniqueSalesReps = useMemo(() => Array.from(new Set(initialOrders.map(o => o.salesRep))), [initialOrders]);
 
   return (
     <div className="p-8 max-w-[1400px] mx-auto">
@@ -283,7 +285,7 @@ export function OrdersClient() {
               return (
                 <tr 
                   key={order.id} 
-                  onClick={() => router.push(`/data/order/${order.id === '1' ? '012994248' : order.id === '2' ? '012994249' : order.id === '3' ? '012994250' : order.id === '4' ? '012994248' : order.id === '5' ? '012994250' : order.id === '7' ? '012994252' : order.id === '9' ? '012994251' : '012994248'}`)}
+                  onClick={() => router.push(`/data/order/${order.id}`)}
                   className="group hover:bg-gray-50 transition-colors border-b border-gray-50 last:border-0 cursor-pointer"
                 >
                   <td className="px-6 py-4">
