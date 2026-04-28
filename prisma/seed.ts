@@ -69,7 +69,28 @@ async function cleanSeedData() {
     where: { email: { endsWith: "@seed.nutritcare" }, role: "DELIVERY_AGENT" },
     data: { agentId: null },
   });
+
+  // Delete seed agents by phone prefix
   await prisma.agent.deleteMany({ where: { phone1: { startsWith: "+2340000" } } });
+
+  // Delete any remaining agents added by seed users (FK: agents.addedById → users.id).
+  // This covers agents created via the app while logged in as a seed user.
+  const seedUserIds = (await prisma.user.findMany({
+    where: { email: { endsWith: "@seed.nutritcare" } },
+    select: { id: true },
+  })).map((u) => u.id);
+
+  const extraAgentIds = (await prisma.agent.findMany({
+    where: { addedById: { in: seedUserIds } },
+    select: { id: true },
+  })).map((a) => a.id);
+
+  if (extraAgentIds.length > 0) {
+    await prisma.delivery.deleteMany({ where: { agentId: { in: extraAgentIds } } });
+    await prisma.order.updateMany({ where: { agentId: { in: extraAgentIds } }, data: { agentId: null } });
+    await prisma.agent.deleteMany({ where: { id: { in: extraAgentIds } } });
+  }
+
   await prisma.customer.deleteMany({ where: { email: { endsWith: "@seed.test" } } });
   await prisma.product.deleteMany({ where: { sku: { startsWith: "SEED-" } } });
   await prisma.productCategory.deleteMany({ where: { categoryName: "Nutricare [SEED]" } });

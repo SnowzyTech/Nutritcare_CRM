@@ -532,12 +532,12 @@ export async function getOrderByOrderNumber(orderNumber: string): Promise<OrderD
       : undefined,
     agent: order.agent
       ? {
-          name: order.agent.companyName,
-          location: order.agent.state ?? order.agent.address ?? "",
-          phone: order.agent.phone1,
-          totalDeliveries: order.agent._count.deliveries,
-          activeOrders: order.agent._count.orders,
-        }
+        name: order.agent.companyName,
+        location: order.agent.state ?? order.agent.address ?? "",
+        phone: order.agent.phone1,
+        totalDeliveries: order.agent._count.deliveries,
+        activeOrders: order.agent._count.orders,
+      }
       : undefined,
     contactMethod: "None",
     cancellationReason: order.status === "CANCELLED" ? (order.notes ?? undefined) : undefined,
@@ -706,6 +706,25 @@ export async function getTeamsAnalytics(options?: { month: number; year: number 
   }
 
   return results;
+}
+
+export async function getCompanyAnalytics(options?: { month: number; year: number }): Promise<RepAnalyticsData> {
+  const now = new Date();
+  const month = options?.month ?? now.getMonth();
+  const year = options?.year ?? now.getFullYear();
+
+  const currentStart = new Date(year, month, 1);
+  const nextStart = new Date(year, month + 1, 1);
+  const lastStart = new Date(year, month - 1, 1);
+
+  const [currentOrders, lastOrders] = await Promise.all([
+    fetchOrdersForMetrics({ createdAt: { gte: currentStart, lt: nextStart } }),
+    fetchOrdersForMetrics({ createdAt: { gte: lastStart, lt: currentStart } }),
+  ]);
+
+  const current = computeMetrics(currentOrders);
+  const last = lastOrders.length > 0 ? computeMetrics(lastOrders) : null;
+  return toRepAnalyticsData(current, last);
 }
 
 export async function getUserActivityHistory(userId: string): Promise<ActivityGroup[]> {

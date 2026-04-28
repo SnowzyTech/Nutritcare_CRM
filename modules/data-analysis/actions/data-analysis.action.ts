@@ -3,6 +3,7 @@
 import {
   getSalesRepAnalyticsForUI,
   getTeamsAnalytics,
+  getCompanyAnalytics,
 } from "@/modules/data-analysis/services/data-analysis.service";
 import type {
   RepAnalyticsData,
@@ -22,4 +23,11 @@ export async function fetchTeamsAnalyticsForMonth(
   year: number
 ): Promise<TeamAnalyticsEntry[]> {
   return getTeamsAnalytics({ month, year });
+}
+
+export async function fetchCompanyAnalyticsForMonth(
+  month: number,
+  year: number
+): Promise<RepAnalyticsData> {
+  return getCompanyAnalytics({ month, year });
 }
