@@ -3,6 +3,7 @@
 import React, { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronLeft, MessageCircle, X } from "lucide-react";
+import { AgentInfoDrawer } from "@/components/ui/agent-info-drawer";
 import Image from "next/image";
 import {
   Select,
@@ -18,6 +19,7 @@ import {
   adminFailOrderAction,
   adminDeliverOrderAction,
   adminAddOrderItemsAction,
+  adminReassignOrderAgentAction,
 } from "@/modules/orders/actions/admin-orders.action";
 
 export type SerializedOrder = {
@@ -40,7 +42,14 @@ export type SerializedOrder = {
     landmark: string | null;
     source: string | null;
   };
-  agent: { id: string; companyName: string; state: string | null } | null;
+  agent: {
+    id: string;
+    companyName: string;
+    state: string | null;
+    phone: string;
+    totalDeliveries: number;
+    activeOrders: number;
+  } | null;
   items: Array<{
     id: string;
     quantity: number;
@@ -63,9 +72,19 @@ export type ProductOption = {
   sku: string;
 };
 
+export type AgentOption = {
+  id: string;
+  companyName: string;
+  state: string | null;
+  phone: string;
+  activeOrders: number;
+  totalDeliveries: number;
+};
+
 interface AdminOrderDetailClientProps {
   order: SerializedOrder;
   products: ProductOption[];
+  agents: AgentOption[];
 }
 
 const STATUS_BADGE: Record<OrderStatus, { bg: string; text: string; label: string }> = {
@@ -126,10 +145,14 @@ function DetailItem({ label, value }: { label: string; value: string }) {
 export function AdminOrderDetailClient({
   order,
   products,
+  agents,
 }: AdminOrderDetailClientProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [isAddProductOpen, setIsAddProductOpen] = useState(false);
+  const [isAgentDrawerOpen, setIsAgentDrawerOpen] = useState(false);
+  const [isReassignOpen, setIsReassignOpen] = useState(false);
+  const [selectedAgentId, setSelectedAgentId] = useState("");
   const [productRows, setProductRows] = useState([
     { id: Date.now(), productId: products[0]?.id ?? "", qty: "1" },
   ]);
@@ -407,39 +430,59 @@ export function AdminOrderDetailClient({
               <span className="text-xl font-bold text-slate-800">{formattedTotal}</span>
             </div>
 
-            {(order.status === "CONFIRMED" || order.status === "DELIVERED") && (
+            {order.status !== "PENDING" && order.agent && (
               <>
-                <div className="flex justify-between items-center py-4 border-b border-slate-200">
-                  <span className="text-sm font-bold text-slate-700">
-                    Estimated Delivery Date
-                  </span>
-                  <span className="text-sm font-bold text-slate-500">
-                    {delivery?.scheduledTime
-                      ? new Date(delivery.scheduledTime).toLocaleDateString("en-NG")
-                      : "24 hours"}
-                  </span>
-                </div>
-
-                {order.agent && (
-                  <div className="flex justify-between items-center py-4">
+                {(order.status === "CONFIRMED" || order.status === "DELIVERED") && (
+                  <div className="flex justify-between items-center py-4 border-b border-slate-200">
                     <span className="text-sm font-bold text-slate-700">
-                      Agent Assigned
+                      Estimated Delivery Date
                     </span>
-                    <div className="text-right">
-                      <p className="text-sm font-bold text-slate-700">
-                        {order.agent.companyName}
-                      </p>
-                      <p className="text-[0.7rem] font-bold text-slate-400 uppercase">
-                        {order.agent.state}
-                      </p>
-                    </div>
+                    <span className="text-sm font-bold text-slate-500">
+                      {delivery?.scheduledTime
+                        ? new Date(delivery.scheduledTime).toLocaleDateString("en-NG")
+                        : "24 hours"}
+                    </span>
                   </div>
                 )}
 
-                <button className="w-full bg-purple-50 text-purple-600 hover:bg-purple-100 font-bold py-3 rounded-xl border border-purple-100 text-sm transition-colors">
+                <div className="flex justify-between items-center py-4">
+                  <span className="text-sm font-bold text-slate-700">
+                    Agent Assigned
+                  </span>
+                  <div className="text-right">
+                    <p className="text-sm font-bold text-slate-700">
+                      {order.agent.companyName}
+                    </p>
+                    <p className="text-[0.7rem] font-bold text-slate-400 uppercase">
+                      {order.agent.state}
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setIsAgentDrawerOpen(true)}
+                  className="w-full bg-purple-50 text-purple-600 hover:bg-purple-100 font-bold py-3 rounded-xl border border-purple-100 text-sm transition-colors"
+                >
                   View Agent Info
                 </button>
+                {(order.status === "CONFIRMED" || order.status === "FAILED") && (
+                  <button
+                    onClick={() => { setSelectedAgentId(order.agent?.id ?? ""); setIsReassignOpen(true); }}
+                    className="w-full bg-purple-100 border border-purple-200 py-3 rounded-xl text-purple-600 font-bold text-sm hover:bg-purple-50 transition-colors"
+                  >
+                    Reassign Agent
+                  </button>
+                )}
               </>
+            )}
+
+            {order.status === "FAILED" && !order.agent && (
+              <button
+                onClick={() => { setSelectedAgentId(""); setIsReassignOpen(true); }}
+                className="w-full bg-purple-100 border border-purple-200 py-3 rounded-xl text-purple-600 font-bold text-sm hover:bg-purple-50 transition-colors"
+              >
+                Assign Agent
+              </button>
             )}
 
             {/* Contact method */}
@@ -529,6 +572,84 @@ export function AdminOrderDetailClient({
           </div>
         </div>
       </div>
+
+      {/* Agent Info Drawer */}
+      {order.agent && (
+        <AgentInfoDrawer
+          agent={order.agent}
+          isOpen={isAgentDrawerOpen}
+          onClose={() => setIsAgentDrawerOpen(false)}
+        />
+      )}
+
+      {/* Reassign Agent Modal */}
+      {isReassignOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            onClick={() => setIsReassignOpen(false)}
+          />
+          <div className="relative bg-white rounded-[40px] shadow-2xl w-full max-w-[500px] p-10 animate-in fade-in zoom-in duration-300">
+            <div className="flex items-center justify-between mb-8">
+              <h2 className="text-2xl font-black text-slate-800">Reassign Agent</h2>
+              <button
+                onClick={() => setIsReassignOpen(false)}
+                className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-200 transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <p className="text-sm text-slate-500 mb-6">
+              Select a new delivery agent for this order.
+              {order.status === "FAILED" && (
+                <span className="block mt-1 text-purple-600 font-medium">
+                  The order status will be reset to Confirmed.
+                </span>
+              )}
+            </p>
+
+            <div className="flex flex-col gap-3 max-h-[320px] overflow-y-auto pr-1 mb-8">
+              {agents.length === 0 && (
+                <p className="text-sm text-slate-400 text-center py-6">No active agents available.</p>
+              )}
+              {agents.map((agent) => (
+                <button
+                  key={agent.id}
+                  onClick={() => setSelectedAgentId(agent.id)}
+                  className={`flex items-center justify-between p-4 rounded-2xl border-2 text-left transition-all ${
+                    selectedAgentId === agent.id
+                      ? "border-purple-600 bg-purple-50"
+                      : "border-slate-100 bg-slate-50 hover:border-purple-200"
+                  }`}
+                >
+                  <div>
+                    <p className="font-bold text-slate-800 text-sm">{agent.companyName}</p>
+                    <p className="text-xs text-slate-400 mt-0.5">{agent.state ?? "—"} · {agent.phone}</p>
+                  </div>
+                  <div className="text-right shrink-0 ml-4">
+                    <p className="text-xs text-slate-500">{agent.activeOrders} active orders</p>
+                    <p className="text-xs text-slate-400">{agent.totalDeliveries} deliveries</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            <button
+              disabled={isPending || !selectedAgentId}
+              onClick={() =>
+                handleAction(async () => {
+                  await adminReassignOrderAgentAction(order.id, selectedAgentId);
+                  setIsReassignOpen(false);
+                })
+              }
+              className="w-full bg-purple-600 text-white py-4 rounded-2xl text-[1rem] font-black hover:bg-purple-700 transition-all shadow-lg shadow-purple-100 flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              Confirm Reassignment →
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Add Product Modal */}
       {isAddProductOpen && (
