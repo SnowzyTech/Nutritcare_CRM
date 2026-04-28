@@ -158,6 +158,14 @@ async function main() {
     prisma.team.create({ data: { name: "[SEED] Data Team 1",            department: "DATA" } }),
   ]);
 
+  // ── Assign sales reps to teams ───────────────────────────────────────────
+  await Promise.all([
+    prisma.user.update({ where: { id: salesRep.id }, data: { teamId: teamSales1.id } }),
+    prisma.user.update({ where: { id: chiamaka.id }, data: { teamId: teamSales2.id } }),
+    prisma.user.update({ where: { id: blessingE.id }, data: { teamId: teamSales3.id } }),
+    prisma.user.update({ where: { id: emeka.id },    data: { teamId: teamSales4.id } }),
+  ]);
+
   // ── Team Leads (APPROVED) ──────────────────────────────────────────────────
   await Promise.all([
     prisma.user.create({ data: { name: "Victoria Ademuyiwa", email: "victoria@seed.nutritcare", password: await bcrypt.hash("TeamLead@123", 10), role: "SALES_REP",           isActive: true, isTeamLead: true, accountActivationStatus: "APPROVED", teamId: teamSales1.id } }),

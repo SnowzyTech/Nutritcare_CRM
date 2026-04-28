@@ -1,7 +1,7 @@
-import React from "react";
+import { SalesRepListClient } from "./_components/SalesRepListClient";
+import { getSalesRepsList } from "@/modules/data-analysis/services/data-analysis.service";
 
-const page = () => {
-  return <div>Data Pages Loading</div>;
-};
-
-export default page;
+export default async function DataDashboard() {
+  const reps = await getSalesRepsList();
+  return <SalesRepListClient initialReps={reps} />;
+}
