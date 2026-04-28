@@ -1,7 +1,5 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
 @AGENTS.md
 
 ## Commands
@@ -27,7 +25,7 @@ Required in `.env`:
 
 ## Stack
 
-Next.js 16.2.4, React 19.2.4, TypeScript 5, NextAuth v5 (beta.31), Prisma 5.22 + Neon serverless PostgreSQL, Tailwind CSS v4, Zod v4, Recharts 3, Base UI (`@base-ui/react`), lucide-react.
+Next.js 16.2.4, React 19.2.4, TypeScript 5 (strict), NextAuth v5 (beta.31), Prisma 5.22 + Neon serverless PostgreSQL, Tailwind CSS v4, Zod v4, Recharts 3, Base UI (`@base-ui/react`), lucide-react, date-fns 4, bcryptjs.
 
 ## Architecture
 
@@ -50,14 +48,22 @@ Each domain lives under `modules/{feature}/`:
 - `actions/*.action.ts` — server actions (validation, auth check, service call, revalidate/redirect)
 - `services/*.service.ts` — pure async DB query functions
 
-Active modules: `auth`, `orders`, `users`, `delivery`, `finance`, `inventory` (stub).
-New files: `modules/orders/services/products.service.ts`, `modules/orders/actions/orders.action.ts`.
+Active modules: `auth`, `orders`, `users`, `delivery`, `finance`, `inventory`, `products`.
+
+| Module | Actions | Services |
+|---|---|---|
+| auth | login, admin-login, signup | auth |
+| orders | orders, admin-orders | orders, admin-dashboard, analytics, products |
+| delivery | agents, delivery-agent-portal, logistics-agents | agents, create-delivery-agent, create-driver, delivery, delivery-agent-portal, logistics-orders |
+| users | users | users |
+| finance | — | finance |
+| inventory | — | inventory (stub) |
 
 ### Auth (Two-File Pattern)
 
 Split for Edge compatibility:
 - `lib/auth/auth.config.ts` — Edge-safe config (no Prisma); route protection, role-based redirects, JWT/session callbacks
-- `lib/auth/auth.ts` — Full server-side NextAuth with Credentials provider, Prisma lookup, bcryptjs
+- `lib/auth/auth.ts` — Full server-side NextAuth with Credentials provider, Prisma lookup, bcryptjs (12 rounds)
 - `lib/auth/role-routes.ts` — `ROLE_HOME` map and `getRoleHome()` utility
 - `middleware.ts` — Runs on Edge; delegates to `authConfig.authorized()`
 
@@ -65,12 +71,11 @@ Session shape (`types/next-auth.d.ts`): `{ id, name, email, role: UserRole }`.
 
 ### Route Groups (Role-Based Dashboards)
 
-Each role gets its own route group and layout:
-
 | Group | Route prefix | Role |
 |---|---|---|
 | `(admin)` | `/admin` | ADMIN |
 | `(sales-rep)` | `/sales-rep` | SALES_REP |
+| `(sales-rep-manager)` | `/sales-rep-manager` | SALES_REP_MANAGER |
 | `(delivery-agents)` | `/delivery-agents` | DELIVERY_AGENT |
 | `(accounting)` | `/accounting` | ACCOUNTANT |
 | `(inventory)` | `/inventory` | INVENTORY_MANAGER |
@@ -82,14 +87,18 @@ Each role gets its own route group and layout:
 
 ### Database
 
-Prisma with Neon serverless adapter (WebSocket pooled connections). Key models and their actual enum values:
+Prisma with Neon serverless adapter (WebSocket pooled connections). The client in `lib/db/prisma.ts` detects `neon.tech` in `DATABASE_URL` and switches to the Neon adapter automatically; otherwise falls back to standard Postgres.
+
+All models use `cuid()` PKs, `createdAt`/`updatedAt`, and most have `deletedAt` for soft deletes. Monetary fields are `Decimal(10,2)` (Nigerian Naira). Tables are mapped to `snake_case` via `@@map`.
+
+#### Key Models & Enums
 
 **User**
-- `role`: `ADMIN | SALES_REP | DELIVERY_AGENT | ACCOUNTANT | INVENTORY_MANAGER | WAREHOUSE_MANAGER | LOGISTICS_MANAGER | DATA_ANALYST`
+- `role`: `ADMIN | SALES_REP | SALES_REP_MANAGER | DELIVERY_AGENT | ACCOUNTANT | INVENTORY_MANAGER | WAREHOUSE_MANAGER | LOGISTICS_MANAGER | DATA_ANALYST`
 
 **Order**
 - `status`: `PENDING | CONFIRMED | DELIVERED | CANCELLED | FAILED`
-- Links to `Customer`, `User` (salesRep), `Agent`, and `OrderItem[]`
+- Relations: `Customer`, `User` (salesRep), `Agent`, `OrderItem[]`
 
 **Delivery**
 - `status`: `PENDING_DISPATCH | IN_TRANSIT | DELIVERED | FAILED`
@@ -105,7 +114,9 @@ Prisma with Neon serverless adapter (WebSocket pooled connections). Key models a
 **PickPack**
 - `status`: `QUEUED | PACKING | PACKED | DISPATCHED`
 
-All monetary fields use `Decimal(10,2)`. All models use CUID PKs and `createdAt`/`updatedAt`.
+**Agent** — External delivery/distribution agents (NOT a `User`; entirely separate model with its own `AgentStatus`, ledger, and settlement models).
+
+Other models: `Product`, `ProductCategory`, `ProductOffer`, `ProductCombo`, `ProductGift`, `Supplier`, `Warehouse`, `WarehouseLocation`, `StockTransfer`, `PurchaseOrder`, `GoodsReceiving`, `Vehicle`, `DeliveryZone`, `Route`, `DamageReport`, `AgentSettlement`, `AgentLedgerEntry`, `SettlementAdjustment`, `Expense`, `ExpenseCategory`, `PaymentAccount`, `Notification`, `AuditLog`, `Team`, `Customer`.
 
 ### Utilities
 
@@ -118,20 +129,36 @@ All monetary fields use `Decimal(10,2)`. All models use CUID PKs and `createdAt`
 ### UI Conventions
 
 - Dark theme: slate-950 base, emerald accents
+- Component style: `base-nova` (ShadCN variant) with CSS variables and neutral base color
 - Component library: `@base-ui/react` primitives in `components/ui/`
 - Icons: `lucide-react`
-- Charts: `recharts` (DashboardLineChart, DashboardBarChart in `components/dashboard/dashboard-charts.tsx`)
-- Sidebar: client component (`-client.tsx` naming convention for any interactive component) — active link detection via `usePathname`
+- Charts: `recharts` — `DashboardLineChart`, `DashboardBarChart` in `components/dashboard/dashboard-charts.tsx`
+- Sidebar: client component (`sidebar-client.tsx`) — active link detection via `usePathname`
 - Header: server component — fetches session server-side
 - Navigation config: `components/layout/nav-config.ts` — `allNavItems` array
 
 ### Naming Conventions
 
-- Client components that need interactivity: suffix `-client.tsx` (e.g., `orders-client.tsx`, `order-detail-client.tsx`, `sidebar-client.tsx`)
+- Client components that need interactivity: suffix `-client.tsx` (e.g., `orders-client.tsx`, `sidebar-client.tsx`)
 - Server actions: `*.action.ts`
 - Services: `*.service.ts`
 - Zod schemas: `lib/validations/*.ts`
+- Tables: `snake_case` via `@@map`; IDs: `cuid()`
 
 ### Allowed Remote Images (next.config.ts)
 
-`ui-avatars.com`, `avatar.iran.liara.run`, `images.unsplash.com`
+`ui-avatars.com`, `avatar.iran.liara.run`, `images.unsplash.com`, `placehold.co`
+
+## Key Design Decisions
+
+- **Single `StockMovement` model** covers INCOMING/OUTGOING/RETURN with nullable type-specific fields — avoids a separate model per movement type.
+- **Agent ≠ User** — `Agent` is an external entity; `User` is internal staff only.
+- **Polymorphic transfers** — `StockTransfer` uses `sourceId`/`targetId` strings + node-type enums (Prisma idiom for polymorphism).
+- **`Notification.type` is a String** — avoids DB migrations as notification types grow.
+- **`statesCovered` on Agent** — stored as JSON array to avoid a junction table for a finite, rarely-changing set.
+
+## Additional Docs
+
+- `docs/architecture.md` — Folder structure, coding conventions, new module creation steps
+- `docs/business-context.md` — Full business domain: roles, order lifecycle, screen mockups, 21 business rules
+- `docs/schema-notes.md` — All 37 models and 18 enums explained with design rationale

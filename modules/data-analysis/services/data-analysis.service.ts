@@ -532,12 +532,12 @@ export async function getOrderByOrderNumber(orderNumber: string): Promise<OrderD
       : undefined,
     agent: order.agent
       ? {
-          name: order.agent.companyName,
-          location: order.agent.state ?? order.agent.address ?? "",
-          phone: order.agent.phone1,
-          totalDeliveries: order.agent._count.deliveries,
-          activeOrders: order.agent._count.orders,
-        }
+        name: order.agent.companyName,
+        location: order.agent.state ?? order.agent.address ?? "",
+        phone: order.agent.phone1,
+        totalDeliveries: order.agent._count.deliveries,
+        activeOrders: order.agent._count.orders,
+      }
       : undefined,
     contactMethod: "None",
     cancellationReason: order.status === "CANCELLED" ? (order.notes ?? undefined) : undefined,

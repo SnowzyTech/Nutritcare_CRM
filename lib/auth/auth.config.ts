@@ -5,13 +5,13 @@ const PUBLIC_AUTH_PAGES = ["/login", "/signup", "/admin/login"];
 
 // Which roles may access each admin sub-route prefix
 const ADMIN_ROUTE_ROLES: { prefix: string; roles: string[] }[] = [
-  { prefix: "/admin/orders", roles: ["ADMIN", "SALES_REP"] },
-  { prefix: "/admin/delivery", roles: ["ADMIN", "DELIVERY_AGENT", "LOGISTICS_MANAGER"] },
-  { prefix: "/admin/inventory", roles: ["ADMIN", "INVENTORY_MANAGER", "WAREHOUSE_MANAGER"] },
-  { prefix: "/admin/finance", roles: ["ADMIN", "ACCOUNTANT"] },
+  { prefix: "/admin/orders", roles: ["ADMIN",] },
+  { prefix: "/admin/delivery", roles: ["ADMIN",] },
+  { prefix: "/admin/inventory", roles: ["ADMIN",] },
+  { prefix: "/admin/accounting", roles: ["ADMIN",] },
   { prefix: "/admin/users", roles: ["ADMIN"] },
   { prefix: "/admin/staff", roles: ["ADMIN"] },
-  { prefix: "/admin/analytics", roles: ["ADMIN", "DATA_ANALYST"] },
+  { prefix: "/admin/analytics", roles: ["ADMIN",] },
 ];
 
 // Role-specific dashboard routes (non-admin)
