@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useTransition } from 'react';
 import { ChevronDown, MessageCircle, ArrowUpRight, Share2 } from 'lucide-react';
 import { RepAnalyticsData, SalesRepProfile } from '@/modules/data-analysis/services/data-analysis.service';
+import { fetchAnalyticsForMonth } from '@/modules/data-analysis/actions/data-analysis.action';
 import Image from 'next/image';
 
 const MONTHS = [
@@ -10,18 +11,29 @@ const MONTHS = [
   'July', 'August', 'September', 'October', 'November', 'December'
 ];
 
-function MonthDropdown({ value, onChange }: { value: string; onChange: (val: string) => void }) {
+function monthIndexFromName(name: string): { month: number; year: number } {
+  const now = new Date();
+  if (name === 'This Month') {
+    return { month: now.getMonth(), year: now.getFullYear() };
+  }
+  const idx = MONTHS.indexOf(name);
+  // If the month hasn't happened yet this year, use previous year
+  const year = idx <= now.getMonth() ? now.getFullYear() : now.getFullYear() - 1;
+  return { month: idx, year };
+}
+
+function MonthDropdown({ value, onChange, disabled }: { value: string; onChange: (val: string) => void; disabled?: boolean }) {
   const [isOpen, setIsOpen] = useState(false);
   return (
     <div className="relative">
       <div
-        onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-1 px-2 py-0.5 bg-gray-50 rounded-lg border border-gray-100 cursor-pointer hover:bg-gray-100 transition-colors"
+        onClick={() => !disabled && setIsOpen(!isOpen)}
+        className={`flex items-center gap-1 px-2 py-0.5 bg-gray-50 rounded-lg border border-gray-100 transition-colors ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-gray-100'}`}
       >
         <span className="text-[10px] font-bold text-gray-500">{value}</span>
         <ChevronDown size={10} className="text-gray-400" />
       </div>
-      {isOpen && (
+      {isOpen && !disabled && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
           <div className="absolute right-0 top-full mt-1 bg-white border border-gray-100 rounded-lg shadow-lg z-50 py-1 min-w-[120px] max-h-[200px] overflow-y-auto">
@@ -48,7 +60,17 @@ interface AnalyticsDashboardClientProps {
 
 export function AnalyticsDashboardClient({ analytics, repProfile }: AnalyticsDashboardClientProps) {
   const [selectedMonth, setSelectedMonth] = useState('This Month');
-  const [tableMonth, setTableMonth] = useState('This Month');
+  const [currentAnalytics, setCurrentAnalytics] = useState(analytics);
+  const [isPending, startTransition] = useTransition();
+
+  function handleMonthChange(month: string) {
+    setSelectedMonth(month);
+    const { month: m, year: y } = monthIndexFromName(month);
+    startTransition(async () => {
+      const data = await fetchAnalyticsForMonth(repProfile.id, m, y);
+      setCurrentAnalytics(data);
+    });
+  }
 
   return (
     <div className="p-8 max-w-[1400px] mx-auto space-y-8">
@@ -59,7 +81,7 @@ export function AnalyticsDashboardClient({ analytics, repProfile }: AnalyticsDas
             <Image src={repProfile.avatarUrl} alt={repProfile.name} fill className="object-cover" sizes="48px" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-gray-800">{repProfile.name}'s</h1>
+            <h1 className="text-2xl font-bold text-gray-800">{repProfile.name}&apos;s</h1>
             <p className="text-sm text-gray-400 font-medium">Dashboard</p>
           </div>
         </div>
@@ -68,15 +90,17 @@ export function AnalyticsDashboardClient({ analytics, repProfile }: AnalyticsDas
         </div>
       </div>
 
-      <h2 className="text-2xl font-bold text-gray-700">Analytics</h2>
+      <div className="flex items-center justify-between">
+        <h2 className="text-2xl font-bold text-gray-700">Analytics</h2>
+        <MonthDropdown value={selectedMonth} onChange={handleMonthChange} disabled={isPending} />
+      </div>
 
       {/* Metrics Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {analytics.metrics.map((metric, index) => (
+      <div className={`grid grid-cols-1 md:grid-cols-3 gap-6 transition-opacity duration-200 ${isPending ? 'opacity-50' : 'opacity-100'}`}>
+        {currentAnalytics.metrics.map((metric, index) => (
           <div key={index} className="bg-white p-6 rounded-2xl border border-gray-50 shadow-sm space-y-4">
             <div className="flex items-center justify-between">
               <span className="text-sm font-bold text-gray-800">{metric.label}</span>
-              <MonthDropdown value={selectedMonth} onChange={setSelectedMonth} />
             </div>
             <div className="flex items-end justify-between">
               <span className="text-4xl font-black text-gray-900 tracking-tight">{metric.value}</span>
@@ -96,27 +120,26 @@ export function AnalyticsDashboardClient({ analytics, repProfile }: AnalyticsDas
           <div className="flex justify-between items-start">
             <div className="space-y-1">
               <span className="text-xs font-bold uppercase tracking-widest opacity-80 text-[#D6BBFB]">KPI</span>
-              <p className="text-4xl font-black">{analytics.kpi.value}</p>
+              <p className="text-4xl font-black">{currentAnalytics.kpi.value}</p>
             </div>
             <div className="text-right">
               <span className="text-[10px] font-medium opacity-60">Target for the month:</span>
-              <p className="text-xs font-bold">{analytics.kpi.target}</p>
+              <p className="text-xs font-bold">{currentAnalytics.kpi.target}</p>
             </div>
           </div>
           <div className="flex items-center gap-2 mt-4">
-            <span className="text-green-400 text-sm font-bold">{analytics.kpi.change}</span>
+            <span className="text-green-400 text-sm font-bold">{currentAnalytics.kpi.change}</span>
             <span className="text-[10px] font-medium opacity-60">vs last month</span>
           </div>
         </div>
       </div>
 
       {/* Tables */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mt-12">
+      <div className={`grid grid-cols-1 lg:grid-cols-2 gap-8 mt-12 transition-opacity duration-200 ${isPending ? 'opacity-50' : 'opacity-100'}`}>
         {/* Best Selling Products */}
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-bold text-gray-700">Best Selling Product</h3>
-            <MonthDropdown value={selectedMonth} onChange={setSelectedMonth} />
           </div>
           <div className="bg-white rounded-2xl border border-gray-50 shadow-sm overflow-hidden">
             <table className="w-full text-left">
@@ -127,7 +150,7 @@ export function AnalyticsDashboardClient({ analytics, repProfile }: AnalyticsDas
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {analytics.bestSellingProducts.length > 0 ? analytics.bestSellingProducts.map((p, i) => (
+                {currentAnalytics.bestSellingProducts.length > 0 ? currentAnalytics.bestSellingProducts.map((p, i) => (
                   <tr key={i} className="hover:bg-gray-50 transition-colors">
                     <td className="px-6 py-3 text-sm text-gray-600 font-medium">{p.product}</td>
                     <td className="px-6 py-3 text-sm text-gray-600 font-bold text-right">{p.amount}</td>
@@ -139,7 +162,6 @@ export function AnalyticsDashboardClient({ analytics, repProfile }: AnalyticsDas
             </table>
           </div>
           <div className="flex flex-col gap-4">
-            <MonthDropdown value={tableMonth} onChange={setTableMonth} />
             <button className="flex items-center justify-center gap-2 w-full py-3 bg-[#F4EBFF] text-[#A020F0] rounded-xl text-sm font-bold transition-transform active:scale-95">
               <Share2 size={16} />
               Generate Weekly Report
@@ -152,7 +174,6 @@ export function AnalyticsDashboardClient({ analytics, repProfile }: AnalyticsDas
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-bold text-gray-700">Upselling Rate</h3>
-            <MonthDropdown value={selectedMonth} onChange={setSelectedMonth} />
           </div>
           <div className="bg-white rounded-2xl border border-gray-50 shadow-sm overflow-hidden">
             <table className="w-full text-left">
@@ -163,7 +184,7 @@ export function AnalyticsDashboardClient({ analytics, repProfile }: AnalyticsDas
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {analytics.upsellingRate.length > 0 ? analytics.upsellingRate.map((p, i) => (
+                {currentAnalytics.upsellingRate.length > 0 ? currentAnalytics.upsellingRate.map((p, i) => (
                   <tr key={i} className="hover:bg-gray-50 transition-colors">
                     <td className="px-6 py-3 text-sm text-gray-600 font-medium">{p.product}</td>
                     <td className="px-6 py-3 text-sm text-gray-600 font-bold text-right">{p.upsell}</td>
@@ -175,7 +196,6 @@ export function AnalyticsDashboardClient({ analytics, repProfile }: AnalyticsDas
             </table>
           </div>
           <div className="flex flex-col gap-4">
-            <MonthDropdown value={tableMonth} onChange={setTableMonth} />
             <button className="flex items-center justify-center gap-2 w-full py-3 bg-[#F4EBFF] text-[#A020F0] rounded-xl text-sm font-bold transition-transform active:scale-95">
               <Share2 size={16} />
               Generate Monthly Report

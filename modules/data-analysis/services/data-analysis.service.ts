@@ -121,7 +121,13 @@ export type OrderDetailFull = {
   upsoldProduct?: { name: string; quantity: number };
   deliveryFee?: string;
   estimatedDeliveryDate?: string;
-  agent?: { name: string; location: string };
+  agent?: {
+    name: string;
+    location: string;
+    phone: string;
+    totalDeliveries: number;
+    activeOrders: number;
+  };
   contactMethod: "Phone Call" | "WhatsApp" | "Both" | "None";
   cancellationReason?: string;
   failureReason?: string;
@@ -436,7 +442,20 @@ export async function getOrderByOrderNumber(orderNumber: string): Promise<OrderD
     include: {
       customer: true,
       salesRep: { select: { name: true, avatarUrl: true } },
-      agent: { select: { companyName: true, state: true, address: true } },
+      agent: {
+        select: {
+          companyName: true,
+          state: true,
+          address: true,
+          phone1: true,
+          _count: {
+            select: {
+              deliveries: { where: { status: "DELIVERED" } },
+              orders: { where: { status: "CONFIRMED", deletedAt: null } },
+            },
+          },
+        },
+      },
       items: {
         include: { product: { select: { name: true, sellingPrice: true } } },
         orderBy: { createdAt: "asc" },
@@ -512,7 +531,13 @@ export async function getOrderByOrderNumber(orderNumber: string): Promise<OrderD
       ? `₦${Number(order.deliveryFee).toLocaleString("en-NG")}`
       : undefined,
     agent: order.agent
-      ? { name: order.agent.companyName, location: order.agent.state ?? order.agent.address ?? "" }
+      ? {
+          name: order.agent.companyName,
+          location: order.agent.state ?? order.agent.address ?? "",
+          phone: order.agent.phone1,
+          totalDeliveries: order.agent._count.deliveries,
+          activeOrders: order.agent._count.orders,
+        }
       : undefined,
     contactMethod: "None",
     cancellationReason: order.status === "CANCELLED" ? (order.notes ?? undefined) : undefined,
@@ -612,11 +637,17 @@ export async function getSalesRepOrders(salesRepId: string): Promise<OrderRow[]>
   }));
 }
 
-export async function getSalesRepAnalyticsForUI(salesRepId: string): Promise<RepAnalyticsData> {
+export async function getSalesRepAnalyticsForUI(
+  salesRepId: string,
+  options?: { month: number; year: number }
+): Promise<RepAnalyticsData> {
   const now = new Date();
-  const currentStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  const nextStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-  const lastStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const month = options?.month ?? now.getMonth();
+  const year = options?.year ?? now.getFullYear();
+
+  const currentStart = new Date(year, month, 1);
+  const nextStart = new Date(year, month + 1, 1);
+  const lastStart = new Date(year, month - 1, 1);
 
   const [currentOrders, lastOrders] = await Promise.all([
     fetchOrdersForMetrics({ salesRepId, createdAt: { gte: currentStart, lt: nextStart } }),
@@ -628,7 +659,7 @@ export async function getSalesRepAnalyticsForUI(salesRepId: string): Promise<Rep
   return toRepAnalyticsData(current, last);
 }
 
-export async function getTeamsAnalytics(): Promise<TeamAnalyticsEntry[]> {
+export async function getTeamsAnalytics(options?: { month: number; year: number }): Promise<TeamAnalyticsEntry[]> {
   const teams = await prisma.team.findMany({
     where: { department: "SALES" },
     select: {
@@ -640,9 +671,12 @@ export async function getTeamsAnalytics(): Promise<TeamAnalyticsEntry[]> {
   });
 
   const now = new Date();
-  const currentStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  const nextStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-  const lastStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const month = options?.month ?? now.getMonth();
+  const year = options?.year ?? now.getFullYear();
+
+  const currentStart = new Date(year, month, 1);
+  const nextStart = new Date(year, month + 1, 1);
+  const lastStart = new Date(year, month - 1, 1);
 
   const results: TeamAnalyticsEntry[] = [];
 

@@ -217,19 +217,10 @@ export function OrderDetailClient({ order }: OrderDetailClientProps) {
                 </div>
               )}
 
-              {(order.status === 'Confirmed' || order.status === 'Failed') && order.agent && (
+              {order.agent && (
                 <button
                   onClick={() => setIsAgentModalOpen(true)}
                   className="w-full py-4 bg-[#F4EBFF] text-[#A020F0] rounded-2xl text-xs font-black transition-all hover:bg-[#E9D5FF] shadow-sm shadow-purple-50 uppercase tracking-widest"
-                >
-                  View Agent Info
-                </button>
-              )}
-
-              {order.status === 'Delivered' && order.agent && (
-                <button
-                  disabled
-                  className="w-full py-4 bg-gray-100 text-gray-400 rounded-2xl text-xs font-black uppercase tracking-widest cursor-not-allowed"
                 >
                   View Agent Info
                 </button>
@@ -270,7 +261,7 @@ export function OrderDetailClient({ order }: OrderDetailClientProps) {
 
             {(order.status === 'Confirmed' || order.status === 'Failed' || order.status === 'Delivered') && (
               <div className="pt-6 border-t border-gray-100">
-                <PrescriptionEditor initialValue={order.prescription} />
+                <PrescriptionEditor initialValue={order.prescription} readOnly />
               </div>
             )}
           </div>
@@ -279,7 +270,7 @@ export function OrderDetailClient({ order }: OrderDetailClientProps) {
 
       {order.agent && (
         <AgentInfoModal
-          agentName={order.agent.name}
+          agent={order.agent}
           isOpen={isAgentModalOpen}
           onClose={() => setIsAgentModalOpen(false)}
         />

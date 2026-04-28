@@ -143,7 +143,10 @@ export function SalesRepSummaryClient({ repData }: SalesRepSummaryClientProps) {
           </div>
 
           <div className="mt-8">
-            <button className="flex items-center gap-2 px-6 py-2.5 rounded-xl border-2 border-[#A020F0] text-[#A020F0] text-sm font-bold hover:bg-purple-50 transition-colors ml-auto">
+            <button
+              onClick={() => router.push(`/data/sales-reps/${repData.id}/profile`)}
+              className="flex items-center gap-2 px-6 py-2.5 rounded-xl border-2 border-[#A020F0] text-[#A020F0] text-sm font-bold hover:bg-purple-50 transition-colors ml-auto"
+            >
               See Full Profile
               <ChevronRight size={16} />
             </button>
