@@ -114,6 +114,22 @@ export async function updateOrderTotalAction(orderId: string, totalAmount: numbe
   revalidateOrderPaths(orderId);
 }
 
+export async function reassignOrderAgentAction(orderId: string, agentId: string) {
+  const session = await auth();
+  if (!session?.user?.id) throw new Error("Unauthorized");
+
+  const order = await getOwnedOrder(orderId, session.user.id);
+  if (!order || (order.status !== "CONFIRMED" && order.status !== "FAILED")) {
+    throw new Error("Cannot reassign agent for this order");
+  }
+
+  await prisma.order.update({
+    where: { id: orderId },
+    data: { agentId, ...(order.status === "FAILED" ? { status: "CONFIRMED" } : {}) },
+  });
+  revalidateOrderPaths(orderId);
+}
+
 export async function addOrderItemsAction(
   orderId: string,
   items: Array<{ productId: string; quantity: number }>

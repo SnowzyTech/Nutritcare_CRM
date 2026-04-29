@@ -2,6 +2,7 @@ import { auth } from "@/lib/auth/auth";
 import { notFound, redirect } from "next/navigation";
 import { getOrderWithDetails } from "@/modules/orders/services/orders.service";
 import { getActiveProducts } from "@/modules/orders/services/products.service";
+import { getAgentsForReassignment } from "@/modules/delivery/services/agents.service";
 import { AdminOrderDetailClient } from "./order-detail-admin-client";
 import type { Metadata } from "next";
 
@@ -20,9 +21,10 @@ export default async function AdminOrderDetailPage({ params }: Props) {
   const session = await auth();
   if (!session?.user?.id) redirect("/login");
 
-  const [rawOrder, rawProducts] = await Promise.all([
+  const [rawOrder, rawProducts, rawAgents] = await Promise.all([
     getOrderWithDetails(id),
     getActiveProducts(),
+    getAgentsForReassignment(),
   ]);
 
   if (!rawOrder) notFound();
@@ -52,6 +54,9 @@ export default async function AdminOrderDetailPage({ params }: Props) {
           id: rawOrder.agent.id,
           companyName: rawOrder.agent.companyName,
           state: rawOrder.agent.state ?? null,
+          phone: rawOrder.agent.phone1,
+          totalDeliveries: rawOrder.agent._count.deliveries,
+          activeOrders: rawOrder.agent._count.orders,
         }
       : null,
     items: rawOrder.items.map((item) => ({
@@ -79,5 +84,14 @@ export default async function AdminOrderDetailPage({ params }: Props) {
     sku: p.sku,
   }));
 
-  return <AdminOrderDetailClient order={order} products={products} />;
+  const agents = rawAgents.map((a) => ({
+    id: a.id,
+    companyName: a.companyName,
+    state: a.state ?? null,
+    phone: a.phone1,
+    activeOrders: a._count.orders,
+    totalDeliveries: a._count.deliveries,
+  }));
+
+  return <AdminOrderDetailClient order={order} products={products} agents={agents} />;
 }

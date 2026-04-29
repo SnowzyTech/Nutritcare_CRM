@@ -65,6 +65,20 @@ export async function getDeliveryAgentsList() {
   });
 }
 
+export async function getAgentsForReassignment() {
+  return prisma.agent.findMany({
+    where: { deletedAt: null, status: "ACTIVE" },
+    select: {
+      id: true,
+      companyName: true,
+      state: true,
+      phone1: true,
+      _count: { select: { orders: true, deliveries: true } },
+    },
+    orderBy: { companyName: "asc" },
+  });
+}
+
 export async function getDeliveryAgentById(id: string) {
   return prisma.agent.findUnique({
     where: { id },

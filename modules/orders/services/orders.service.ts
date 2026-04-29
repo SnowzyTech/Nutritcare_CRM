@@ -94,7 +94,14 @@ export async function getOrderWithDetails(id: string) {
     include: {
       customer: true,
       agent: {
-        select: { id: true, companyName: true, state: true },
+        select: {
+          id: true,
+          companyName: true,
+          state: true,
+          address: true,
+          phone1: true,
+          _count: { select: { deliveries: true, orders: true } },
+        },
       },
       items: {
         include: { product: { select: { id: true, name: true } } },
