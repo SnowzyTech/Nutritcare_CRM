@@ -599,6 +599,8 @@ export type IncomingMovementDetail = {
   recordedBy: string;
   dateReceived: string;
   status: string;
+  reversalReason: string | null;
+  dateReversed: string | null;
   products: DetailProduct[];
 };
 
@@ -612,6 +614,8 @@ export type OutgoingMovementDetail = {
   addedBy: string;
   date: string;
   status: string;
+  reversalReason: string | null;
+  dateReversed: string | null;
   products: DetailProduct[];
 };
 
@@ -621,6 +625,7 @@ export type ReturnedMovementDetail = {
   agent: string;
   qtyReturned: number;
   status: string;
+  damaged: boolean;
   addedBy: string;
   date: string;
   remarks: string;
@@ -636,6 +641,8 @@ export type StockTransferDetail = {
   addedBy: string;
   date: string;
   status: string;
+  reversalReason: string | null;
+  dateReversed: string | null;
   products: DetailProductWithUnit[];
 };
 
@@ -652,7 +659,7 @@ export async function getIncomingMovementById(id: string): Promise<IncomingMovem
   if (!m || m.type !== "INCOMING") return null;
 
   const statusLabel: Record<string, string> = {
-    DRAFT: "Draft", RECORDED: "Recorded", RECEIVED: "Received", SHELVED: "Shelved",
+    DRAFT: "Draft", RECORDED: "Recorded", RECEIVED: "Received", SHELVED: "Shelved", REVERSED: "Reversed",
   };
 
   return {
@@ -664,6 +671,8 @@ export async function getIncomingMovementById(id: string): Promise<IncomingMovem
     recordedBy: m.createdBy.name,
     dateReceived: formatMovementDate(m.date),
     status: statusLabel[m.status] ?? m.status,
+    reversalReason: m.status === "REVERSED" ? (m.remarks ?? null) : null,
+    dateReversed: m.status === "REVERSED" ? formatMovementDate(m.updatedAt) : null,
     products: m.items.map((item, i) => ({
       id: i + 1,
       product: item.product.name,
@@ -685,7 +694,7 @@ export async function getOutgoingMovementById(id: string): Promise<OutgoingMovem
   if (!m || m.type !== "OUTGOING") return null;
 
   const statusLabel: Record<string, string> = {
-    DRAFT: "Draft", NOT_RECEIVED: "Not Received", RECEIVED: "Received",
+    DRAFT: "Draft", NOT_RECEIVED: "Not Received", RECEIVED: "Received", REVERSED: "Reversed",
   };
 
   return {
@@ -698,6 +707,8 @@ export async function getOutgoingMovementById(id: string): Promise<OutgoingMovem
     addedBy: m.createdBy.name,
     date: formatMovementDate(m.date),
     status: statusLabel[m.status] ?? m.status,
+    reversalReason: m.status === "REVERSED" ? (m.remarks ?? null) : null,
+    dateReversed: m.status === "REVERSED" ? formatMovementDate(m.updatedAt) : null,
     products: m.items.map((item, i) => ({
       id: i + 1,
       product: item.product.name,
@@ -726,6 +737,7 @@ export async function getReturnedMovementById(id: string): Promise<ReturnedMovem
     agent: m.agent?.companyName ?? "—",
     qtyReturned: totalQty,
     status: m.damaged ? "Damaged" : "Returned",
+    damaged: m.damaged ?? false,
     addedBy: m.createdBy.name,
     date: formatMovementDate(m.date),
     remarks: m.remarks ?? "",
@@ -772,7 +784,7 @@ export async function getStockTransferById(id: string): Promise<StockTransferDet
   }
 
   const statusLabel: Record<string, string> = {
-    DRAFT: "DRAFT", SUBMITTED: "RECORDED", COMPLETED: "RECORDED",
+    DRAFT: "DRAFT", SUBMITTED: "RECORDED", COMPLETED: "RECORDED", REVERSED: "REVERSED",
   };
 
   return {
@@ -784,6 +796,8 @@ export async function getStockTransferById(id: string): Promise<StockTransferDet
     addedBy: t.createdBy.name,
     date: formatMovementDate(t.date),
     status: statusLabel[t.status] ?? t.status,
+    reversalReason: t.status === "REVERSED" ? (t.notes ?? null) : null,
+    dateReversed: t.status === "REVERSED" ? formatMovementDate(t.updatedAt) : null,
     products: t.items.map((item, i) => ({
       id: i + 1,
       product: item.product.name,

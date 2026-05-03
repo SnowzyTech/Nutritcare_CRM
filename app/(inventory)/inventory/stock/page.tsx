@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import {
   getStockAgents,
   getStockSuppliers,
@@ -17,12 +18,14 @@ export default async function StockPage() {
   ]);
 
   return (
-    <StockClient
-      agents={agents}
-      suppliers={suppliers}
-      warehouses={warehouses}
-      products={products}
-      categories={categories}
-    />
+    <Suspense>
+      <StockClient
+        agents={agents}
+        suppliers={suppliers}
+        warehouses={warehouses}
+        products={products}
+        categories={categories}
+      />
+    </Suspense>
   );
 }

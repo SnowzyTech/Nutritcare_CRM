@@ -24,6 +24,158 @@ async function requireAuth() {
   return session.user;
 }
 
+// ── Reverse Incoming Movement ─────────────────────────────────────────────────
+
+export async function reverseIncomingMovementAction(
+  id: string,
+  reason: string
+): Promise<{ error?: string }> {
+  await requireAuth();
+
+  const movement = await prisma.stockMovement.findUnique({ where: { id } });
+  if (!movement || movement.type !== "INCOMING") return { error: "Movement not found" };
+  if (movement.status === "REVERSED") return { error: "Movement is already reversed" };
+
+  await prisma.stockMovement.update({
+    where: { id },
+    data: { status: "REVERSED", remarks: reason.trim() || null },
+  });
+
+  revalidatePath(`/inventory/incoming/${id}`);
+  revalidatePath("/inventory/incoming");
+  return {};
+}
+
+// ── Delete Incoming Movement ──────────────────────────────────────────────────
+
+export async function deleteIncomingMovementAction(
+  id: string
+): Promise<{ error?: string }> {
+  await requireAuth();
+
+  const movement = await prisma.stockMovement.findUnique({ where: { id } });
+  if (!movement || movement.type !== "INCOMING") return { error: "Movement not found" };
+
+  await prisma.stockMovement.delete({ where: { id } });
+
+  revalidatePath("/inventory/incoming");
+  return {};
+}
+
+// ── Reverse Outgoing Movement ─────────────────────────────────────────────────
+
+export async function reverseOutgoingMovementAction(
+  id: string,
+  reason: string
+): Promise<{ error?: string }> {
+  await requireAuth();
+
+  const movement = await prisma.stockMovement.findUnique({ where: { id } });
+  if (!movement || movement.type !== "OUTGOING") return { error: "Movement not found" };
+  if (movement.status === "REVERSED") return { error: "Movement is already reversed" };
+
+  await prisma.stockMovement.update({
+    where: { id },
+    data: { status: "REVERSED", remarks: reason.trim() || null },
+  });
+
+  revalidatePath(`/inventory/outgoing/${id}`);
+  revalidatePath("/inventory/outgoing");
+  return {};
+}
+
+// ── Delete Outgoing Movement ──────────────────────────────────────────────────
+
+export async function deleteOutgoingMovementAction(
+  id: string
+): Promise<{ error?: string }> {
+  await requireAuth();
+
+  const movement = await prisma.stockMovement.findUnique({ where: { id } });
+  if (!movement || movement.type !== "OUTGOING") return { error: "Movement not found" };
+
+  await prisma.stockMovement.delete({ where: { id } });
+
+  revalidatePath("/inventory/outgoing");
+  return {};
+}
+
+// ── Reverse Stock Transfer ────────────────────────────────────────────────────
+
+export async function reverseStockTransferAction(
+  id: string,
+  reason: string
+): Promise<{ error?: string }> {
+  await requireAuth();
+
+  const transfer = await prisma.stockTransfer.findUnique({ where: { id } });
+  if (!transfer) return { error: "Transfer not found" };
+  if (transfer.status === "REVERSED") return { error: "Transfer is already reversed" };
+
+  await prisma.stockTransfer.update({
+    where: { id },
+    data: { status: "REVERSED", notes: reason.trim() || null },
+  });
+
+  revalidatePath(`/inventory/transfer/${id}`);
+  revalidatePath("/inventory/transfer");
+  return {};
+}
+
+// ── Delete Stock Transfer ─────────────────────────────────────────────────────
+
+export async function deleteStockTransferAction(
+  id: string
+): Promise<{ error?: string }> {
+  await requireAuth();
+
+  const transfer = await prisma.stockTransfer.findUnique({ where: { id } });
+  if (!transfer) return { error: "Transfer not found" };
+
+  await prisma.stockTransfer.delete({ where: { id } });
+
+  revalidatePath("/inventory/transfer");
+  return {};
+}
+
+// ── Update Returned Movement ──────────────────────────────────────────────────
+
+export async function updateReturnedMovementAction(
+  id: string,
+  damaged: boolean,
+  remarks: string
+): Promise<{ error?: string }> {
+  await requireAuth();
+
+  const movement = await prisma.stockMovement.findUnique({ where: { id } });
+  if (!movement || movement.type !== "RETURN") return { error: "Movement not found" };
+
+  await prisma.stockMovement.update({
+    where: { id },
+    data: { damaged, remarks: remarks.trim() || null },
+  });
+
+  revalidatePath(`/inventory/returned/${id}`);
+  revalidatePath("/inventory/returned");
+  return {};
+}
+
+// ── Delete Returned Movement ──────────────────────────────────────────────────
+
+export async function deleteReturnedMovementAction(
+  id: string
+): Promise<{ error?: string }> {
+  await requireAuth();
+
+  const movement = await prisma.stockMovement.findUnique({ where: { id } });
+  if (!movement || movement.type !== "RETURN") return { error: "Movement not found" };
+
+  await prisma.stockMovement.delete({ where: { id } });
+
+  revalidatePath("/inventory/returned");
+  return {};
+}
+
 // ── Add Supplier ──────────────────────────────────────────────────────────────
 
 const AddSupplierSchema = z.object({
@@ -141,9 +293,6 @@ const AddWarehouseSchema = z.object({
   warehouseEmail: z.string().email("Invalid email").or(z.literal("")).optional(),
   moreInformation: z.string().optional(),
   country: z.string().optional(),
-  managerName: z.string().optional(),
-  managerTelephone: z.string().optional(),
-  managerEmail: z.string().email("Invalid manager email").or(z.literal("")).optional(),
 });
 
 export async function addWarehouseAction(
@@ -159,9 +308,6 @@ export async function addWarehouseAction(
     warehouseEmail: (formData.get("warehouseEmail") as string) || "",
     moreInformation: (formData.get("moreInformation") as string) || undefined,
     country: (formData.get("country") as string) || undefined,
-    managerName: (formData.get("managerName") as string) || undefined,
-    managerTelephone: (formData.get("managerTelephone") as string) || undefined,
-    managerEmail: (formData.get("managerEmail") as string) || "",
   };
 
   const parsed = AddWarehouseSchema.safeParse(raw);
@@ -175,9 +321,6 @@ export async function addWarehouseAction(
       email: parsed.data.warehouseEmail || null,
       additionalInfo: parsed.data.moreInformation ?? null,
       country: parsed.data.country ?? null,
-      managerName: parsed.data.managerName ?? null,
-      managerPhone: parsed.data.managerTelephone ?? null,
-      managerEmail: parsed.data.managerEmail || null,
     },
   });
 

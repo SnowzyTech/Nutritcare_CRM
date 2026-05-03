@@ -1,34 +1,60 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { RefreshCw, Search, Trash2, Printer } from "lucide-react";
 import type { OutgoingMovementDetail } from "@/modules/inventory/services/inventory.service";
+import {
+  reverseOutgoingMovementAction,
+  deleteOutgoingMovementAction,
+} from "@/modules/inventory/actions/stock.action";
 
 export function OutgoingDetailClient({ record }: { record: OutgoingMovementDetail }) {
   const router = useRouter();
   const [search, setSearch] = useState("");
   const [isReverseModalOpen, setIsReverseModalOpen] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [reversalReason, setReversalReason] = useState("");
-  const [localStatus, setLocalStatus] = useState(record.status);
-  const [dateReversed, setDateReversed] = useState("");
-  const [savedReversalReason, setSavedReversalReason] = useState("");
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+
+  const isReversed = record.status === "Reversed";
 
   const handleConfirmReverse = () => {
-    const today = new Date();
-    const dd = String(today.getDate()).padStart(2, "0");
-    const mm = String(today.getMonth() + 1).padStart(2, "0");
-    const yyyy = today.getFullYear();
-    setDateReversed(`${dd}-${mm}-${yyyy}`);
-    setSavedReversalReason(reversalReason);
-    setLocalStatus("Reversed");
-    setIsReverseModalOpen(false);
+    setActionError(null);
+    startTransition(async () => {
+      const result = await reverseOutgoingMovementAction(record.id, reversalReason);
+      if (result.error) {
+        setActionError(result.error);
+        return;
+      }
+      setIsReverseModalOpen(false);
+      setReversalReason("");
+      router.refresh();
+    });
+  };
+
+  const handleConfirmDelete = () => {
+    setActionError(null);
+    startTransition(async () => {
+      const result = await deleteOutgoingMovementAction(record.id);
+      if (result.error) {
+        setActionError(result.error);
+        setIsDeleteModalOpen(false);
+        return;
+      }
+      router.push("/inventory/outgoing");
+    });
+  };
+
+  const handlePrint = () => {
+    window.print();
   };
 
   return (
     <div className="max-w-[1400px] mx-auto">
-      {/* Top toolbar */}
-      <div className="flex items-center gap-5 mb-8">
+      {/* Top toolbar — hidden when printing */}
+      <div className="flex items-center gap-5 mb-8 print:hidden">
         <button
           onClick={() => router.back()}
           className="flex items-center gap-2 text-sm font-semibold text-gray-600 hover:text-[#9D00FF] transition-colors"
@@ -58,14 +84,14 @@ export function OutgoingDetailClient({ record }: { record: OutgoingMovementDetai
           <p className="text-sm text-gray-400 mt-0.5 mb-3">Voucher</p>
           <span
             className={`inline-block px-3 py-1 text-xs font-bold text-white rounded-sm tracking-wide ${
-              localStatus === "Not Received"
+              record.status === "Not Received"
                 ? "bg-amber-400"
-                : localStatus === "Reversed"
+                : record.status === "Reversed"
                 ? "bg-red-500"
                 : "bg-green-500"
             }`}
           >
-            {localStatus.toUpperCase()}
+            {record.status.toUpperCase()}
           </span>
         </div>
 
@@ -99,14 +125,21 @@ export function OutgoingDetailClient({ record }: { record: OutgoingMovementDetai
             </tr>
           </thead>
           <tbody>
-            {record.products.map((row) => (
-              <tr key={row.id} className="border-t border-gray-100">
-                <td className="py-3 px-4 text-sm text-gray-600">{row.id}</td>
-                <td className="py-3 px-4 text-sm text-gray-600 text-center">{row.product}</td>
-                <td className="py-3 px-4 text-sm text-gray-600 text-center">{row.productCode}</td>
-                <td className="py-3 px-4 text-sm text-gray-600 text-right">{row.quantity}</td>
-              </tr>
-            ))}
+            {record.products
+              .filter(
+                (row) =>
+                  !search ||
+                  row.product.toLowerCase().includes(search.toLowerCase()) ||
+                  row.productCode.toLowerCase().includes(search.toLowerCase())
+              )
+              .map((row) => (
+                <tr key={row.id} className="border-t border-gray-100">
+                  <td className="py-3 px-4 text-sm text-gray-600">{row.id}</td>
+                  <td className="py-3 px-4 text-sm text-gray-600 text-center">{row.product}</td>
+                  <td className="py-3 px-4 text-sm text-gray-600 text-center">{row.productCode}</td>
+                  <td className="py-3 px-4 text-sm text-gray-600 text-right">{row.quantity}</td>
+                </tr>
+              ))}
           </tbody>
         </table>
       </div>
@@ -114,33 +147,48 @@ export function OutgoingDetailClient({ record }: { record: OutgoingMovementDetai
       {/* Footer */}
       <div className="flex items-start justify-between">
         <div>
-          {localStatus === "Reversed" && (
+          {isReversed && (record.dateReversed || record.reversalReason) && (
             <div className="bg-gray-50/80 rounded-xl px-6 py-5 space-y-4 min-w-[380px]">
-              <div className="flex items-center gap-4">
-                <span className="text-sm font-bold text-gray-600 w-36 shrink-0">Date Reversed:</span>
-                <span className="text-sm font-medium text-gray-600">{dateReversed}</span>
-              </div>
-              <div className="flex items-center gap-4">
-                <span className="text-sm font-bold text-gray-600 w-36 shrink-0">Reversal Reason:</span>
-                <span className="text-sm font-medium text-gray-600">{savedReversalReason}</span>
-              </div>
+              {record.dateReversed && (
+                <div className="flex items-center gap-4">
+                  <span className="text-sm font-bold text-gray-600 w-36 shrink-0">Date Reversed:</span>
+                  <span className="text-sm font-medium text-gray-600">{record.dateReversed}</span>
+                </div>
+              )}
+              {record.reversalReason && (
+                <div className="flex items-center gap-4">
+                  <span className="text-sm font-bold text-gray-600 w-36 shrink-0">Reversal Reason:</span>
+                  <span className="text-sm font-medium text-gray-600">{record.reversalReason}</span>
+                </div>
+              )}
             </div>
+          )}
+          {actionError && (
+            <p className="text-red-500 text-sm font-medium mt-2">{actionError}</p>
           )}
         </div>
 
-        <div className="flex gap-3">
-          {localStatus !== "Reversed" && (
+        <div className="flex gap-3 print:hidden">
+          {!isReversed && (
             <button
-              onClick={() => setIsReverseModalOpen(true)}
-              className="px-5 py-2.5 rounded-md text-sm font-semibold text-white bg-amber-400 hover:bg-amber-500 transition-colors"
+              onClick={() => { setActionError(null); setIsReverseModalOpen(true); }}
+              disabled={isPending}
+              className="px-5 py-2.5 rounded-md text-sm font-semibold text-white bg-amber-400 hover:bg-amber-500 transition-colors disabled:opacity-60"
             >
               Reverse
             </button>
           )}
-          <button className="flex items-center gap-1.5 px-5 py-2.5 rounded-md text-sm font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors">
+          <button
+            onClick={() => { setActionError(null); setIsDeleteModalOpen(true); }}
+            disabled={isPending}
+            className="flex items-center gap-1.5 px-5 py-2.5 rounded-md text-sm font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors disabled:opacity-60"
+          >
             <Trash2 className="w-4 h-4" /> Delete
           </button>
-          <button className="flex items-center gap-1.5 px-5 py-2.5 rounded-md text-sm font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors">
+          <button
+            onClick={handlePrint}
+            className="flex items-center gap-1.5 px-5 py-2.5 rounded-md text-sm font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors"
+          >
             <Printer className="w-4 h-4" /> PDF/Print
           </button>
         </div>
@@ -148,7 +196,7 @@ export function OutgoingDetailClient({ record }: { record: OutgoingMovementDetai
 
       {/* Reversal Modal */}
       {isReverseModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm print:hidden">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-lg overflow-hidden">
             <div className="p-8">
               <div className="border border-gray-200 rounded-md overflow-hidden mb-6 flex flex-col">
@@ -180,19 +228,58 @@ export function OutgoingDetailClient({ record }: { record: OutgoingMovementDetai
                   className="w-full border border-gray-200 rounded-md p-4 text-sm outline-none focus:border-[#9D00FF] resize-none h-36 text-gray-700 placeholder:text-gray-300 transition-colors bg-white"
                 />
               </div>
+              {actionError && (
+                <p className="text-red-500 text-sm font-medium mb-4">{actionError}</p>
+              )}
               <p className="text-amber-500 font-semibold mb-6">Do you want to reverse Stock?</p>
               <div className="flex gap-4">
                 <button
-                  onClick={() => setIsReverseModalOpen(false)}
-                  className="px-6 py-2.5 rounded-md text-sm font-semibold text-white bg-gray-400 hover:bg-gray-500 transition-colors"
+                  onClick={() => { setIsReverseModalOpen(false); setActionError(null); }}
+                  disabled={isPending}
+                  className="px-6 py-2.5 rounded-md text-sm font-semibold text-white bg-gray-400 hover:bg-gray-500 transition-colors disabled:opacity-60"
                 >
                   Close
                 </button>
                 <button
                   onClick={handleConfirmReverse}
-                  className="px-6 py-2.5 rounded-md text-sm font-semibold text-white bg-[#9D00FF] hover:bg-[#8500d9] transition-colors"
+                  disabled={isPending}
+                  className="px-6 py-2.5 rounded-md text-sm font-semibold text-white bg-[#9D00FF] hover:bg-[#8500d9] transition-colors disabled:opacity-60"
                 >
-                  Reverse
+                  {isPending ? "Reversing…" : "Reverse"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {isDeleteModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm print:hidden">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md overflow-hidden">
+            <div className="p-8">
+              <h2 className="text-lg font-bold text-gray-900 mb-2">Delete Stock Movement</h2>
+              <p className="text-sm text-gray-600 mb-1">
+                Are you sure you want to delete <span className="font-semibold">{record.soId}</span>?
+              </p>
+              <p className="text-sm text-red-500 font-medium mb-6">This action cannot be undone.</p>
+              {actionError && (
+                <p className="text-red-500 text-sm font-medium mb-4">{actionError}</p>
+              )}
+              <div className="flex gap-4">
+                <button
+                  onClick={() => { setIsDeleteModalOpen(false); setActionError(null); }}
+                  disabled={isPending}
+                  className="px-6 py-2.5 rounded-md text-sm font-semibold text-white bg-gray-400 hover:bg-gray-500 transition-colors disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleConfirmDelete}
+                  disabled={isPending}
+                  className="px-6 py-2.5 rounded-md text-sm font-semibold text-white bg-red-500 hover:bg-red-600 transition-colors disabled:opacity-60"
+                >
+                  {isPending ? "Deleting…" : "Delete"}
                 </button>
               </div>
             </div>

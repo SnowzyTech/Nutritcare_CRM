@@ -1,22 +1,56 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeftCircle, Search, Trash2, Printer, MessageCircle } from "lucide-react";
 import type { StockTransferDetail } from "@/modules/inventory/services/inventory.service";
+import {
+  reverseStockTransferAction,
+  deleteStockTransferAction,
+} from "@/modules/inventory/actions/stock.action";
 
 export function TransferDetailClient({ record }: { record: StockTransferDetail }) {
   const router = useRouter();
   const [search, setSearch] = useState("");
-  const [localStatus, setLocalStatus] = useState(record.status);
   const [isReverseModalOpen, setIsReverseModalOpen] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [reversalReason, setReversalReason] = useState("");
-  const [savedReversalReason, setSavedReversalReason] = useState("");
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+
+  const isReversed = record.status === "REVERSED";
+  const isDraft = record.status === "DRAFT";
+  const isRecorded = record.status === "RECORDED";
 
   const handleConfirmReverse = () => {
-    setLocalStatus("REVERSED");
-    setSavedReversalReason(reversalReason);
-    setIsReverseModalOpen(false);
+    setActionError(null);
+    startTransition(async () => {
+      const result = await reverseStockTransferAction(record.id, reversalReason);
+      if (result.error) {
+        setActionError(result.error);
+        return;
+      }
+      setIsReverseModalOpen(false);
+      setReversalReason("");
+      router.refresh();
+    });
+  };
+
+  const handleConfirmDelete = () => {
+    setActionError(null);
+    startTransition(async () => {
+      const result = await deleteStockTransferAction(record.id);
+      if (result.error) {
+        setActionError(result.error);
+        setIsDeleteModalOpen(false);
+        return;
+      }
+      router.push("/inventory/transfer");
+    });
+  };
+
+  const handlePrint = () => {
+    window.print();
   };
 
   const getBadgeStyle = (status: string) => {
@@ -30,12 +64,12 @@ export function TransferDetailClient({ record }: { record: StockTransferDetail }
 
   return (
     <div className="max-w-[1400px] mx-auto relative pb-10">
-      <button className="absolute -top-4 right-0 w-12 h-12 bg-[#F6E8FF] rounded-full flex items-center justify-center text-[#9D00FF] shadow-sm hover:bg-[#ebd5fa] transition-colors z-50">
+      <button className="absolute -top-4 right-0 w-12 h-12 bg-[#F6E8FF] rounded-full flex items-center justify-center text-[#9D00FF] shadow-sm hover:bg-[#ebd5fa] transition-colors z-50 print:hidden">
         <MessageCircle className="w-6 h-6 fill-current" />
       </button>
 
       {/* Top toolbar */}
-      <div className="flex items-center gap-5 mb-12">
+      <div className="flex items-center gap-5 mb-12 print:hidden">
         <button
           onClick={() => router.back()}
           className="flex items-center gap-2 text-sm font-bold text-gray-600 hover:text-[#9D00FF] transition-colors"
@@ -63,8 +97,8 @@ export function TransferDetailClient({ record }: { record: StockTransferDetail }
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Stock Transfer</h1>
           <p className="text-sm text-gray-400 mt-0.5 mb-3">Voucher</p>
-          <span className={`inline-block px-3 py-1 text-[11px] font-bold rounded-sm tracking-widest uppercase ${getBadgeStyle(localStatus)}`}>
-            {localStatus}
+          <span className={`inline-block px-3 py-1 text-[11px] font-bold rounded-sm tracking-widest uppercase ${getBadgeStyle(record.status)}`}>
+            {record.status}
           </span>
         </div>
 
@@ -102,14 +136,21 @@ export function TransferDetailClient({ record }: { record: StockTransferDetail }
             </tr>
           </thead>
           <tbody>
-            {record.products.map((row) => (
-              <tr key={row.id} className="border-t border-gray-100 bg-white">
-                <td className="py-4 px-6 text-xs font-medium text-gray-600">{row.product}</td>
-                <td className="py-4 px-6 text-xs text-gray-500 text-center">{row.productCode}</td>
-                <td className="py-4 px-6 text-xs text-gray-500 text-center">{row.unit}</td>
-                <td className="py-4 px-6 text-xs text-gray-500 text-right">{row.quantity}</td>
-              </tr>
-            ))}
+            {record.products
+              .filter(
+                (row) =>
+                  !search ||
+                  row.product.toLowerCase().includes(search.toLowerCase()) ||
+                  row.productCode.toLowerCase().includes(search.toLowerCase())
+              )
+              .map((row) => (
+                <tr key={row.id} className="border-t border-gray-100 bg-white">
+                  <td className="py-4 px-6 text-xs font-medium text-gray-600">{row.product}</td>
+                  <td className="py-4 px-6 text-xs text-gray-500 text-center">{row.productCode}</td>
+                  <td className="py-4 px-6 text-xs text-gray-500 text-center">{row.unit}</td>
+                  <td className="py-4 px-6 text-xs text-gray-500 text-right">{row.quantity}</td>
+                </tr>
+              ))}
           </tbody>
         </table>
       </div>
@@ -117,42 +158,58 @@ export function TransferDetailClient({ record }: { record: StockTransferDetail }
       {/* Footer */}
       <div className="flex items-start justify-between">
         <div className="max-w-xl">
-          {localStatus === "REVERSED" && (
+          {isReversed && (record.dateReversed || record.reversalReason) && (
             <div className="space-y-4 pt-2">
               <div className="bg-red-50/50 border border-red-100 rounded-lg px-6 py-5">
                 <h3 className="text-sm font-bold text-red-800 mb-2">Reversal Reason:</h3>
-                <p className="text-sm text-gray-700 leading-relaxed">{savedReversalReason || "No reason provided."}</p>
+                <p className="text-sm text-gray-700 leading-relaxed">
+                  {record.reversalReason || "No reason provided."}
+                </p>
               </div>
-              <div className="flex gap-10 px-2">
-                <div>
-                  <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Date Reversed</p>
-                  <p className="text-sm font-medium text-gray-900">
-                    {new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}
-                  </p>
+              {record.dateReversed && (
+                <div className="flex gap-10 px-2">
+                  <div>
+                    <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Date Reversed</p>
+                    <p className="text-sm font-medium text-gray-900">{record.dateReversed}</p>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
+          )}
+          {actionError && (
+            <p className="text-red-500 text-sm font-medium mt-2">{actionError}</p>
           )}
         </div>
 
-        <div className="flex justify-end gap-3 shrink-0 ml-8">
-          {localStatus === "DRAFT" && (
-            <button className="px-6 py-2.5 rounded-md text-sm font-semibold text-white bg-amber-400 hover:bg-amber-500 transition-colors">
+        <div className="flex justify-end gap-3 shrink-0 ml-8 print:hidden">
+          {isDraft && (
+            <button
+              disabled={isPending}
+              className="px-6 py-2.5 rounded-md text-sm font-semibold text-white bg-amber-400 hover:bg-amber-500 transition-colors disabled:opacity-60"
+            >
               Edit
             </button>
           )}
-          {localStatus === "RECORDED" && (
+          {isRecorded && (
             <button
-              onClick={() => setIsReverseModalOpen(true)}
-              className="px-6 py-2.5 rounded-md text-sm font-semibold text-white bg-amber-400 hover:bg-amber-500 transition-colors"
+              onClick={() => { setActionError(null); setIsReverseModalOpen(true); }}
+              disabled={isPending}
+              className="px-6 py-2.5 rounded-md text-sm font-semibold text-white bg-amber-400 hover:bg-amber-500 transition-colors disabled:opacity-60"
             >
               Reverse
             </button>
           )}
-          <button className="flex items-center gap-1.5 px-5 py-2.5 rounded-md text-sm font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors">
+          <button
+            onClick={() => { setActionError(null); setIsDeleteModalOpen(true); }}
+            disabled={isPending}
+            className="flex items-center gap-1.5 px-5 py-2.5 rounded-md text-sm font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors disabled:opacity-60"
+          >
             <Trash2 className="w-4 h-4" /> Delete
           </button>
-          <button className="flex items-center gap-1.5 px-5 py-2.5 rounded-md text-sm font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors">
+          <button
+            onClick={handlePrint}
+            className="flex items-center gap-1.5 px-5 py-2.5 rounded-md text-sm font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors"
+          >
             <Printer className="w-4 h-4" /> PDF/Print
           </button>
         </div>
@@ -160,7 +217,7 @@ export function TransferDetailClient({ record }: { record: StockTransferDetail }
 
       {/* Reversal Modal */}
       {isReverseModalOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm print:hidden">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden p-10">
             <div className="border border-gray-300 rounded-sm overflow-hidden mb-6">
               {[
@@ -187,20 +244,56 @@ export function TransferDetailClient({ record }: { record: StockTransferDetail }
                 className="w-full border border-gray-200 rounded-md px-4 py-3 text-sm text-gray-700 placeholder:text-gray-200 outline-none focus:border-[#9D00FF] resize-none"
               />
             </div>
+            {actionError && (
+              <p className="text-red-500 text-sm font-medium mb-4">{actionError}</p>
+            )}
             <h3 className="text-amber-500 text-lg font-medium mb-6">Do you want to reverse Stock?</h3>
             <div className="flex gap-4">
               <button
-                onClick={() => setIsReverseModalOpen(false)}
-                className="px-8 py-2.5 rounded-md text-[15px] font-bold text-white bg-gray-400 hover:bg-gray-500 transition-colors"
+                onClick={() => { setIsReverseModalOpen(false); setActionError(null); }}
+                disabled={isPending}
+                className="px-8 py-2.5 rounded-md text-[15px] font-bold text-white bg-gray-400 hover:bg-gray-500 transition-colors disabled:opacity-60"
               >
                 Close
               </button>
               <button
                 onClick={handleConfirmReverse}
-                disabled={!reversalReason.trim()}
+                disabled={isPending || !reversalReason.trim()}
                 className="px-8 py-2.5 rounded-md text-[15px] font-bold text-white bg-[#9D00FF] hover:bg-[#8500d9] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Reverse
+                {isPending ? "Reversing…" : "Reverse"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {isDeleteModalOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm print:hidden">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden p-10">
+            <h2 className="text-lg font-bold text-gray-900 mb-2">Delete Stock Transfer</h2>
+            <p className="text-sm text-gray-600 mb-1">
+              Are you sure you want to delete <span className="font-semibold">{record.transferId}</span>?
+            </p>
+            <p className="text-sm text-red-500 font-medium mb-6">This action cannot be undone.</p>
+            {actionError && (
+              <p className="text-red-500 text-sm font-medium mb-4">{actionError}</p>
+            )}
+            <div className="flex gap-4">
+              <button
+                onClick={() => { setIsDeleteModalOpen(false); setActionError(null); }}
+                disabled={isPending}
+                className="px-8 py-2.5 rounded-md text-[15px] font-bold text-white bg-gray-400 hover:bg-gray-500 transition-colors disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmDelete}
+                disabled={isPending}
+                className="px-8 py-2.5 rounded-md text-[15px] font-bold text-white bg-red-500 hover:bg-red-600 transition-colors disabled:opacity-60"
+              >
+                {isPending ? "Deleting…" : "Delete"}
               </button>
             </div>
           </div>

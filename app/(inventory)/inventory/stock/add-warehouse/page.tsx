@@ -119,44 +119,6 @@ export default function AddWarehousePage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-              <div>
-                <label className={labelClass} htmlFor="managerName">Warehouse Managers Name</label>
-                <input
-                  id="managerName"
-                  type="text"
-                  name="managerName"
-                  placeholder="Type in here"
-                  className={inputClass}
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-              <div>
-                <label className={labelClass} htmlFor="managerTelephone">Warehouse Managers Telephone</label>
-                <input
-                  id="managerTelephone"
-                  type="tel"
-                  name="managerTelephone"
-                  placeholder="Type in here"
-                  className={inputClass}
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-              <div>
-                <label className={labelClass} htmlFor="managerEmail">Warehouse Managers Email</label>
-                <input
-                  id="managerEmail"
-                  type="email"
-                  name="managerEmail"
-                  placeholder="Type in here"
-                  className={inputClass}
-                />
-              </div>
-            </div>
           </div>
 
           <div className="flex items-center gap-3 mt-8">
