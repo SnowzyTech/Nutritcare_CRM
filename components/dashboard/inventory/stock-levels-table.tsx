@@ -1,10 +1,10 @@
 "use client";
 
 import React from "react";
-import { stockLevels } from "@/lib/mock-data/inventory";
 import { cn } from "@/lib/utils";
+import type { StockLevelRow } from "@/modules/inventory/services/inventory.service";
 
-export function StockLevelsTable() {
+export function StockLevelsTable({ stocks }: { stocks: StockLevelRow[] }) {
   return (
     <div className="bg-white rounded-3xl border border-gray-100 overflow-hidden shadow-sm">
       <div className="bg-white px-6 py-4 flex justify-between items-center border-b border-gray-50">
@@ -20,7 +20,7 @@ export function StockLevelsTable() {
               <th className="px-6 py-4 w-10">
                 <input type="checkbox" className="rounded border-gray-300 text-[#9D00FF] focus:ring-[#9D00FF]" />
               </th>
-              <th className="px-4 py-4">CATEGORY</th>
+              <th className="px-4 py-4">SKU</th>
               <th className="px-4 py-4">PRODUCT</th>
               <th className="px-4 py-4">QTY</th>
               <th className="px-4 py-4">MIN</th>
@@ -28,21 +28,21 @@ export function StockLevelsTable() {
             </tr>
           </thead>
           <tbody className="text-sm">
-            {stockLevels.map((item) => (
+            {stocks.map((item) => (
               <tr key={item.id} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
                 <td className="px-6 py-4">
                   <input type="checkbox" className="rounded border-gray-300 text-[#9D00FF] focus:ring-[#9D00FF]" />
                 </td>
-                <td className="px-4 py-4 text-gray-500 font-medium">{item.category}</td>
+                <td className="px-4 py-4 text-gray-500 font-medium">{item.sku}</td>
                 <td className="px-4 py-4 text-gray-900 font-medium">{item.product}</td>
                 <td className="px-4 py-4 text-gray-900 font-medium">{item.qty}</td>
                 <td className="px-4 py-4 text-gray-500 font-medium">{item.min}</td>
                 <td className="px-4 py-4">
-                  <div 
+                  <div
                     className={cn(
                       "text-[10px] font-bold text-center py-2 rounded-md w-20 text-white uppercase",
-                      item.status === "OK" ? "bg-[#008037]" : 
-                      item.status === "Low" ? "bg-[#8B0000]" : 
+                      item.status === "OK" ? "bg-[#008037]" :
+                      item.status === "Low" ? "bg-[#8B0000]" :
                       "bg-[#FFA500]"
                     )}
                   >

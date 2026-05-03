@@ -44,6 +44,21 @@ const d = (iso: string) => new Date(iso);
 
 // ── Cleanup helpers ─────────────────────────────────────────────────────────────
 async function cleanSeedData() {
+  // ── Inventory cleanup (before agent/order cleanup due to FK refs) ────────────
+  const seedMovementIds = (await prisma.stockMovement.findMany({
+    where: { referenceNumber: { startsWith: "SEED-S" } },
+    select: { id: true },
+  })).map((m) => m.id);
+  if (seedMovementIds.length > 0) {
+    await prisma.goodsReceiving.deleteMany({ where: { stockMovementId: { in: seedMovementIds } } });
+    await prisma.stockMovement.deleteMany({ where: { id: { in: seedMovementIds } } }); // cascades items
+  }
+  await prisma.stockTransfer.deleteMany({ where: { referenceNumber: { startsWith: "SEED-ST" } } }); // cascades items
+  await prisma.purchaseOrder.deleteMany({ where: { poNumber: { startsWith: "SEED-PO" } } }); // cascades items
+  await prisma.supplier.deleteMany({ where: { phone1: { startsWith: "+234SEED" } } });
+  await prisma.warehouse.deleteMany({ where: { name: { startsWith: "[SEED]" } } });
+
+  // ── Order cleanup ─────────────────────────────────────────────────────────────
   const seedOrders = await prisma.order.findMany({
     where: { orderNumber: { startsWith: "SEED-" } },
     select: { id: true },
@@ -221,13 +236,13 @@ async function main() {
   // ── Products ────────────────────────────────────────────────────────────────
   const [prosxact, shredBelly, fonioMill, trimTone, neuroBalm, afterNatal, linix] =
     await Promise.all([
-      prisma.product.create({ data: { name: "Prosxact",        costPrice: PRICES.prosxact.cost,   sellingPrice: PRICES.prosxact.sell,   sku: "SEED-PRX-001", categoryId: category.id, isActive: true } }),
-      prisma.product.create({ data: { name: "Shred Belly",     costPrice: PRICES.shredBelly.cost, sellingPrice: PRICES.shredBelly.sell, sku: "SEED-SHB-002", categoryId: category.id, isActive: true } }),
-      prisma.product.create({ data: { name: "Fonio-Mill",      costPrice: PRICES.fonioMill.cost,  sellingPrice: PRICES.fonioMill.sell,  sku: "SEED-FNM-003", categoryId: category.id, isActive: true } }),
-      prisma.product.create({ data: { name: "Trim and Tone",   costPrice: PRICES.trimTone.cost,   sellingPrice: PRICES.trimTone.sell,   sku: "SEED-TAT-004", categoryId: category.id, isActive: true } }),
-      prisma.product.create({ data: { name: "Neuro-Vive Balm", costPrice: PRICES.neuroBalm.cost,  sellingPrice: PRICES.neuroBalm.sell,  sku: "SEED-NVB-005", categoryId: category.id, isActive: true } }),
-      prisma.product.create({ data: { name: "After-Natal",     costPrice: PRICES.afterNatal.cost, sellingPrice: PRICES.afterNatal.sell, sku: "SEED-ATN-006", categoryId: category.id, isActive: true } }),
-      prisma.product.create({ data: { name: "Linix",           costPrice: PRICES.linix.cost,      sellingPrice: PRICES.linix.sell,      sku: "SEED-LNX-007", categoryId: category.id, isActive: true } }),
+      prisma.product.create({ data: { name: "Prosxact",        costPrice: PRICES.prosxact.cost,   sellingPrice: PRICES.prosxact.sell,   sku: "SEED-PRX-001", categoryId: category.id, isActive: true, lowStockAlertQtyTotal: 100 } }),
+      prisma.product.create({ data: { name: "Shred Belly",     costPrice: PRICES.shredBelly.cost, sellingPrice: PRICES.shredBelly.sell, sku: "SEED-SHB-002", categoryId: category.id, isActive: true, lowStockAlertQtyTotal: 100 } }),
+      prisma.product.create({ data: { name: "Fonio-Mill",      costPrice: PRICES.fonioMill.cost,  sellingPrice: PRICES.fonioMill.sell,  sku: "SEED-FNM-003", categoryId: category.id, isActive: true, lowStockAlertQtyTotal: 100 } }),
+      prisma.product.create({ data: { name: "Trim and Tone",   costPrice: PRICES.trimTone.cost,   sellingPrice: PRICES.trimTone.sell,   sku: "SEED-TAT-004", categoryId: category.id, isActive: true, lowStockAlertQtyTotal: 100 } }),
+      prisma.product.create({ data: { name: "Neuro-Vive Balm", costPrice: PRICES.neuroBalm.cost,  sellingPrice: PRICES.neuroBalm.sell,  sku: "SEED-NVB-005", categoryId: category.id, isActive: true, lowStockAlertQtyTotal:  50 } }),
+      prisma.product.create({ data: { name: "After-Natal",     costPrice: PRICES.afterNatal.cost, sellingPrice: PRICES.afterNatal.sell, sku: "SEED-ATN-006", categoryId: category.id, isActive: true, lowStockAlertQtyTotal: 100 } }),
+      prisma.product.create({ data: { name: "Linix",           costPrice: PRICES.linix.cost,      sellingPrice: PRICES.linix.sell,      sku: "SEED-LNX-007", categoryId: category.id, isActive: true, lowStockAlertQtyTotal: 100 } }),
     ]);
 
   // ── Agents ──────────────────────────────────────────────────────────────────
@@ -777,6 +792,381 @@ async function main() {
   { const total = PRICES.neuroBalm.sell * 4;
     await prisma.order.create({ data: { orderNumber: num(), customerId: samuel.id, salesRepId: emeka.id, status: "PENDING", totalAmount: total, netAmount: total, deliveryFee: 0, createdAt: d("2026-04-20T09:00:00Z"), items: { create: { productId: neuroBalm.id, quantity: 4, unitPrice: PRICES.neuroBalm.sell, lineTotal: total } } } }); }
 
+  // ════════════════════════════════════════════════════════════════════════════
+  // INVENTORY DATA
+  // ════════════════════════════════════════════════════════════════════════════
+
+  // ── Suppliers ────────────────────────────────────────────────────────────────
+  const [supAustin, supGlobal, supZenith, supLagosImports, supNutrimax, supSunrise] = await Promise.all([
+    prisma.supplier.create({ data: { name: "Austin Traders",          phone1: "+234SEED00001", state: "Lagos State",        country: "Nigeria", address: "14 Trade Way, Apapa, Lagos" } }),
+    prisma.supplier.create({ data: { name: "Global Supplies Ltd",     phone1: "+234SEED00002", state: "Lagos State",        country: "Nigeria", address: "7 Commerce Road, Ikoyi, Lagos" } }),
+    prisma.supplier.create({ data: { name: "Zenith Pharma",           phone1: "+234SEED00003", state: "FCT Abuja",          country: "Nigeria", address: "Plot 22 Wuse Zone 4, Abuja" } }),
+    prisma.supplier.create({ data: { name: "Lagos Imports Ltd",       phone1: "+234SEED00004", state: "Lagos State",        country: "Nigeria", address: "33 Import Drive, Ojo, Lagos" } }),
+    prisma.supplier.create({ data: { name: "Nutrimax Inc.",           phone1: "+234SEED00005", state: "Kano State",         country: "Nigeria", address: "10 Bello Road, Kano" } }),
+    prisma.supplier.create({ data: { name: "Sunrise Distributors",    phone1: "+234SEED00006", state: "Rivers State",       country: "Nigeria", address: "5 GRA Phase II, Port Harcourt" } }),
+  ]);
+
+  // ── Warehouses ───────────────────────────────────────────────────────────────
+  const [whLagos, whAbuja, whPH] = await Promise.all([
+    prisma.warehouse.create({ data: { name: "[SEED] Lagos HQ",              address: "12 Femtech Estate, Ikeja, Lagos",          country: "Nigeria", phone: "+2341200000001", managerName: "Kunle Fashola",  managerPhone: "+2348070000101" } }),
+    prisma.warehouse.create({ data: { name: "[SEED] Abuja Warehouse",       address: "Plot 45 Pamtech Park, Wuse II, Abuja",     country: "Nigeria", phone: "+2341200000002", managerName: "Ahmed Salisu",   managerPhone: "+2348070000102" } }),
+    prisma.warehouse.create({ data: { name: "[SEED] Port Harcourt Depot",   address: "7 Trans-Amadi Industrial Layout, PH",      country: "Nigeria", phone: "+2341200000003", managerName: "Emeka Okonkwo",  managerPhone: "+2348070000103" } }),
+  ]);
+
+  console.log("  ✓ Suppliers and warehouses created");
+
+  // ── INCOMING Stock Movements ──────────────────────────────────────────────────
+  // Resulting net stock per product (INCOMING - OUTGOING + RETURN):
+  //   Prosxact:        500 - 130 + 10 = 380  → OK  (min=100)
+  //   Shred Belly:     350 - 150 + 20 = 220  → OK  (min=100)
+  //   Fonio-Mill:      120 - 100 + 10 =  30  → Low (min=100)
+  //   Trim and Tone:   350 - 290 + 15 =  75  → Low (min=100)
+  //   After-Natal:     250 -  90 + 15 = 175  → OK  (min=100)
+  //   Neuro-Vive Balm: 200 - 150 + 10 =  60  → Watch (min=50, watch < 75)
+  //   Linix:           180 - 165 +  5 =  20  → Low (min=100)
+
+  const inSI = await Promise.all([
+    // SI-001
+    prisma.stockMovement.create({ data: {
+      referenceNumber: "SEED-SI-001", type: "INCOMING", status: "RECORDED",
+      warehouseId: whLagos.id, supplierId: supAustin.id, supplierReference: "AUT-1001",
+      date: d("2026-01-05T09:00:00Z"), createdById: adminUser.id,
+      items: { create: [{ productId: prosxact.id, productCode: "SEED-PRX-001", quantity: 200 }] },
+    }}),
+    // SI-002
+    prisma.stockMovement.create({ data: {
+      referenceNumber: "SEED-SI-002", type: "INCOMING", status: "RECORDED",
+      warehouseId: whAbuja.id, supplierId: supGlobal.id, supplierReference: "GLB-2001",
+      date: d("2026-01-12T10:00:00Z"), createdById: adminUser.id,
+      items: { create: [{ productId: shredBelly.id, productCode: "SEED-SHB-002", quantity: 150 }] },
+    }}),
+    // SI-003
+    prisma.stockMovement.create({ data: {
+      referenceNumber: "SEED-SI-003", type: "INCOMING", status: "RECORDED",
+      warehouseId: whPH.id, supplierId: supZenith.id, supplierReference: "ZEN-3001",
+      date: d("2026-01-20T11:00:00Z"), createdById: adminUser.id,
+      items: { create: [{ productId: fonioMill.id, productCode: "SEED-FNM-003", quantity: 120 }] },
+    }}),
+    // SI-004
+    prisma.stockMovement.create({ data: {
+      referenceNumber: "SEED-SI-004", type: "INCOMING", status: "RECORDED",
+      warehouseId: whLagos.id, supplierId: supLagosImports.id, supplierReference: "LGI-4001",
+      date: d("2026-02-03T08:30:00Z"), createdById: adminUser.id,
+      items: { create: [{ productId: trimTone.id, productCode: "SEED-TAT-004", quantity: 200 }] },
+    }}),
+    // SI-005
+    prisma.stockMovement.create({ data: {
+      referenceNumber: "SEED-SI-005", type: "INCOMING", status: "RECORDED",
+      warehouseId: whAbuja.id, supplierId: supNutrimax.id, supplierReference: "NTM-5001",
+      date: d("2026-02-15T09:00:00Z"), createdById: adminUser.id,
+      items: { create: [{ productId: afterNatal.id, productCode: "SEED-ATN-006", quantity: 150 }] },
+    }}),
+    // SI-006
+    prisma.stockMovement.create({ data: {
+      referenceNumber: "SEED-SI-006", type: "INCOMING", status: "RECORDED",
+      warehouseId: whPH.id, supplierId: supSunrise.id, supplierReference: "SUN-6001",
+      date: d("2026-02-22T10:30:00Z"), createdById: adminUser.id,
+      items: { create: [{ productId: neuroBalm.id, productCode: "SEED-NVB-005", quantity: 100 }] },
+    }}),
+    // SI-007
+    prisma.stockMovement.create({ data: {
+      referenceNumber: "SEED-SI-007", type: "INCOMING", status: "RECORDED",
+      warehouseId: whLagos.id, supplierId: supAustin.id, supplierReference: "AUT-1007",
+      date: d("2026-03-05T09:00:00Z"), createdById: adminUser.id,
+      items: { create: [{ productId: linix.id, productCode: "SEED-LNX-007", quantity: 80 }] },
+    }}),
+    // SI-008 (multi-product)
+    prisma.stockMovement.create({ data: {
+      referenceNumber: "SEED-SI-008", type: "INCOMING", status: "RECORDED",
+      warehouseId: whLagos.id, supplierId: supGlobal.id, supplierReference: "GLB-2008",
+      date: d("2026-03-18T11:00:00Z"), createdById: adminUser.id,
+      items: { create: [
+        { productId: prosxact.id,   productCode: "SEED-PRX-001", quantity: 150 },
+        { productId: afterNatal.id, productCode: "SEED-ATN-006", quantity: 100 },
+      ]},
+    }}),
+    // SI-009
+    prisma.stockMovement.create({ data: {
+      referenceNumber: "SEED-SI-009", type: "INCOMING", status: "RECORDED",
+      warehouseId: whLagos.id, supplierId: supAustin.id, supplierReference: "AUT-1009",
+      date: d("2026-03-25T08:00:00Z"), createdById: adminUser.id,
+      items: { create: [{ productId: shredBelly.id, productCode: "SEED-SHB-002", quantity: 200 }] },
+    }}),
+    // SI-010
+    prisma.stockMovement.create({ data: {
+      referenceNumber: "SEED-SI-010", type: "INCOMING", status: "RECORDED",
+      warehouseId: whAbuja.id, supplierId: supLagosImports.id, supplierReference: "LGI-4010",
+      date: d("2026-04-10T09:30:00Z"), createdById: adminUser.id,
+      items: { create: [{ productId: trimTone.id, productCode: "SEED-TAT-004", quantity: 150 }] },
+    }}),
+    // SI-011 — DRAFT (not counted in stock)
+    prisma.stockMovement.create({ data: {
+      referenceNumber: "SEED-SI-011", type: "INCOMING", status: "DRAFT",
+      warehouseId: whLagos.id, supplierId: supZenith.id, supplierReference: "ZEN-3011",
+      date: d("2026-04-18T14:00:00Z"), createdById: adminUser.id,
+      notes: "Pending supplier confirmation",
+      items: { create: [{ productId: fonioMill.id, productCode: "SEED-FNM-003", quantity: 80 }] },
+    }}),
+    // SI-012
+    prisma.stockMovement.create({ data: {
+      referenceNumber: "SEED-SI-012", type: "INCOMING", status: "RECORDED",
+      warehouseId: whAbuja.id, supplierId: supAustin.id, supplierReference: "AUT-1012",
+      date: d("2026-04-22T10:00:00Z"), createdById: adminUser.id,
+      items: { create: [{ productId: linix.id, productCode: "SEED-LNX-007", quantity: 100 }] },
+    }}),
+    // SI-013 (recent — last 7 days chart)
+    prisma.stockMovement.create({ data: {
+      referenceNumber: "SEED-SI-013", type: "INCOMING", status: "RECORDED",
+      warehouseId: whLagos.id, supplierId: supSunrise.id, supplierReference: "SUN-6013",
+      date: d("2026-04-25T09:00:00Z"), createdById: adminUser.id,
+      items: { create: [{ productId: neuroBalm.id, productCode: "SEED-NVB-005", quantity: 100 }] },
+    }}),
+    // SI-014 (recent — last 7 days chart)
+    prisma.stockMovement.create({ data: {
+      referenceNumber: "SEED-SI-014", type: "INCOMING", status: "RECORDED",
+      warehouseId: whLagos.id, supplierId: supGlobal.id, supplierReference: "GLB-2014",
+      date: d("2026-04-28T08:30:00Z"), createdById: adminUser.id,
+      items: { create: [{ productId: prosxact.id, productCode: "SEED-PRX-001", quantity: 150 }] },
+    }}),
+  ]);
+  console.log("  ✓ Incoming stock movements created (14)");
+
+  // ── OUTGOING Stock Movements ─────────────────────────────────────────────────
+  await Promise.all([
+    // SO-001
+    prisma.stockMovement.create({ data: {
+      referenceNumber: "SEED-SO-001", type: "OUTGOING", status: "RECEIVED",
+      warehouseId: whLagos.id, agentId: agentOla.id,
+      state: "Lagos State", country: "Nigeria",
+      date: d("2026-02-10T10:00:00Z"), createdById: adminUser.id,
+      items: { create: [{ productId: prosxact.id, productCode: "SEED-PRX-001", quantity: 80 }] },
+    }}),
+    // SO-002
+    prisma.stockMovement.create({ data: {
+      referenceNumber: "SEED-SO-002", type: "OUTGOING", status: "RECEIVED",
+      warehouseId: whAbuja.id, agentId: agentQudus.id,
+      state: "Oyo State", country: "Nigeria",
+      date: d("2026-02-18T11:00:00Z"), createdById: adminUser.id,
+      items: { create: [{ productId: shredBelly.id, productCode: "SEED-SHB-002", quantity: 100 }] },
+    }}),
+    // SO-003
+    prisma.stockMovement.create({ data: {
+      referenceNumber: "SEED-SO-003", type: "OUTGOING", status: "RECEIVED",
+      warehouseId: whPH.id, agentId: agentSunmi.id,
+      state: "FCT Abuja", country: "Nigeria",
+      date: d("2026-03-01T09:00:00Z"), createdById: adminUser.id,
+      items: { create: [{ productId: fonioMill.id, productCode: "SEED-FNM-003", quantity: 100 }] },
+    }}),
+    // SO-004
+    prisma.stockMovement.create({ data: {
+      referenceNumber: "SEED-SO-004", type: "OUTGOING", status: "RECEIVED",
+      warehouseId: whLagos.id, agentId: agentFlymack.id,
+      state: "Lagos State", country: "Nigeria",
+      date: d("2026-03-10T08:30:00Z"), createdById: adminUser.id,
+      items: { create: [{ productId: trimTone.id, productCode: "SEED-TAT-004", quantity: 150 }] },
+    }}),
+    // SO-005
+    prisma.stockMovement.create({ data: {
+      referenceNumber: "SEED-SO-005", type: "OUTGOING", status: "RECEIVED",
+      warehouseId: whLagos.id, agentId: agentOla.id,
+      state: "Lagos State", country: "Nigeria",
+      date: d("2026-03-20T10:00:00Z"), createdById: adminUser.id,
+      items: { create: [{ productId: afterNatal.id, productCode: "SEED-ATN-006", quantity: 60 }] },
+    }}),
+    // SO-006
+    prisma.stockMovement.create({ data: {
+      referenceNumber: "SEED-SO-006", type: "OUTGOING", status: "RECEIVED",
+      warehouseId: whLagos.id, agentId: agentQudus.id,
+      state: "Lagos State", country: "Nigeria",
+      date: d("2026-04-01T09:00:00Z"), createdById: adminUser.id,
+      items: { create: [{ productId: neuroBalm.id, productCode: "SEED-NVB-005", quantity: 80 }] },
+    }}),
+    // SO-007
+    prisma.stockMovement.create({ data: {
+      referenceNumber: "SEED-SO-007", type: "OUTGOING", status: "RECEIVED",
+      warehouseId: whAbuja.id, agentId: agentSunmi.id,
+      state: "Oyo State", country: "Nigeria",
+      date: d("2026-04-05T11:00:00Z"), createdById: adminUser.id,
+      items: { create: [{ productId: linix.id, productCode: "SEED-LNX-007", quantity: 130 }] },
+    }}),
+    // SO-008
+    prisma.stockMovement.create({ data: {
+      referenceNumber: "SEED-SO-008", type: "OUTGOING", status: "NOT_RECEIVED",
+      warehouseId: whLagos.id, agentId: agentFlymack.id,
+      state: "Kaduna State", country: "Nigeria",
+      date: d("2026-04-15T09:00:00Z"), createdById: adminUser.id,
+      items: { create: [{ productId: prosxact.id, productCode: "SEED-PRX-001", quantity: 50 }] },
+    }}),
+    // SO-009 (recent)
+    prisma.stockMovement.create({ data: {
+      referenceNumber: "SEED-SO-009", type: "OUTGOING", status: "NOT_RECEIVED",
+      warehouseId: whLagos.id, agentId: agentOla.id,
+      state: "Lagos State", country: "Nigeria",
+      date: d("2026-04-22T10:30:00Z"), createdById: adminUser.id,
+      items: { create: [{ productId: trimTone.id, productCode: "SEED-TAT-004", quantity: 140 }] },
+    }}),
+    // SO-010 (recent — chart)
+    prisma.stockMovement.create({ data: {
+      referenceNumber: "SEED-SO-010", type: "OUTGOING", status: "NOT_RECEIVED",
+      warehouseId: whAbuja.id, agentId: agentQudus.id,
+      state: "Lagos State", country: "Nigeria",
+      date: d("2026-04-30T09:00:00Z"), createdById: adminUser.id,
+      items: { create: [{ productId: shredBelly.id, productCode: "SEED-SHB-002", quantity: 50 }] },
+    }}),
+    // SO-011 (recent — chart)
+    prisma.stockMovement.create({ data: {
+      referenceNumber: "SEED-SO-011", type: "OUTGOING", status: "NOT_RECEIVED",
+      warehouseId: whAbuja.id, agentId: agentSunmi.id,
+      state: "Oyo State", country: "Nigeria",
+      date: d("2026-04-28T11:00:00Z"), createdById: adminUser.id,
+      items: { create: [{ productId: afterNatal.id, productCode: "SEED-ATN-006", quantity: 30 }] },
+    }}),
+    // SO-012
+    prisma.stockMovement.create({ data: {
+      referenceNumber: "SEED-SO-012", type: "OUTGOING", status: "RECEIVED",
+      warehouseId: whLagos.id, agentId: agentFlymack.id,
+      state: "Kaduna State", country: "Nigeria",
+      date: d("2026-04-20T10:00:00Z"), createdById: adminUser.id,
+      items: { create: [{ productId: neuroBalm.id, productCode: "SEED-NVB-005", quantity: 70 }] },
+    }}),
+    // SO-013 (recent — chart)
+    prisma.stockMovement.create({ data: {
+      referenceNumber: "SEED-SO-013", type: "OUTGOING", status: "NOT_RECEIVED",
+      warehouseId: whLagos.id, agentId: agentOla.id,
+      state: "Lagos State", country: "Nigeria",
+      date: d("2026-04-27T09:00:00Z"), createdById: adminUser.id,
+      items: { create: [{ productId: linix.id, productCode: "SEED-LNX-007", quantity: 35 }] },
+    }}),
+  ]);
+  console.log("  ✓ Outgoing stock movements created (13)");
+
+  // ── RETURN Stock Movements ────────────────────────────────────────────────────
+  await Promise.all([
+    prisma.stockMovement.create({ data: {
+      referenceNumber: "SEED-SR-001", type: "RETURN", status: "RECEIVED",
+      warehouseId: whLagos.id, agentId: agentOla.id,
+      state: "Lagos State", damaged: false, remarks: "Good condition",
+      date: d("2026-03-15T10:00:00Z"), createdById: adminUser.id,
+      items: { create: [{ productId: prosxact.id, productCode: "SEED-PRX-001", quantity: 10 }] },
+    }}),
+    prisma.stockMovement.create({ data: {
+      referenceNumber: "SEED-SR-002", type: "RETURN", status: "RECEIVED",
+      warehouseId: whAbuja.id, agentId: agentQudus.id,
+      state: "Oyo State", damaged: false, remarks: "Unsold stock returned",
+      date: d("2026-03-22T11:00:00Z"), createdById: adminUser.id,
+      items: { create: [{ productId: shredBelly.id, productCode: "SEED-SHB-002", quantity: 20 }] },
+    }}),
+    prisma.stockMovement.create({ data: {
+      referenceNumber: "SEED-SR-003", type: "RETURN", status: "RECEIVED",
+      warehouseId: whPH.id, agentId: agentSunmi.id,
+      state: "FCT Abuja", damaged: true, remarks: "Packaging damaged in transit",
+      date: d("2026-04-01T09:30:00Z"), createdById: adminUser.id,
+      items: { create: [{ productId: fonioMill.id, productCode: "SEED-FNM-003", quantity: 10 }] },
+    }}),
+    prisma.stockMovement.create({ data: {
+      referenceNumber: "SEED-SR-004", type: "RETURN", status: "RECEIVED",
+      warehouseId: whLagos.id, agentId: agentFlymack.id,
+      state: "Kaduna State", damaged: true, remarks: "Customer refused delivery",
+      date: d("2026-04-10T10:00:00Z"), createdById: adminUser.id,
+      items: { create: [{ productId: trimTone.id, productCode: "SEED-TAT-004", quantity: 15 }] },
+    }}),
+    prisma.stockMovement.create({ data: {
+      referenceNumber: "SEED-SR-005", type: "RETURN", status: "RECEIVED",
+      warehouseId: whLagos.id, agentId: agentOla.id,
+      state: "Lagos State", damaged: false, remarks: "Unsold — returned in good condition",
+      date: d("2026-04-15T11:00:00Z"), createdById: adminUser.id,
+      items: { create: [{ productId: afterNatal.id, productCode: "SEED-ATN-006", quantity: 15 }] },
+    }}),
+    prisma.stockMovement.create({ data: {
+      referenceNumber: "SEED-SR-006", type: "RETURN", status: "RECEIVED",
+      warehouseId: whLagos.id, agentId: agentQudus.id,
+      state: "Lagos State", damaged: false, remarks: "Unsold stock",
+      date: d("2026-04-20T09:00:00Z"), createdById: adminUser.id,
+      items: { create: [{ productId: neuroBalm.id, productCode: "SEED-NVB-005", quantity: 10 }] },
+    }}),
+    prisma.stockMovement.create({ data: {
+      referenceNumber: "SEED-SR-007", type: "RETURN", status: "RECEIVED",
+      warehouseId: whAbuja.id, agentId: agentSunmi.id,
+      state: "Oyo State", damaged: false, remarks: "Returned unsold",
+      date: d("2026-04-25T10:00:00Z"), createdById: adminUser.id,
+      items: { create: [{ productId: linix.id, productCode: "SEED-LNX-007", quantity: 5 }] },
+    }}),
+  ]);
+  console.log("  ✓ Return stock movements created (7)");
+
+  // ── Purchase Orders ───────────────────────────────────────────────────────────
+  await Promise.all([
+    prisma.purchaseOrder.create({ data: {
+      poNumber: "SEED-PO-001", supplierId: supAustin.id, status: "PENDING",
+      date: d("2026-04-20T09:00:00Z"), createdById: adminUser.id,
+      items: { create: [{ productId: prosxact.id, quantity: 100, unitCost: PRICES.prosxact.cost }] },
+    }}),
+    prisma.purchaseOrder.create({ data: {
+      poNumber: "SEED-PO-002", supplierId: supZenith.id, status: "PENDING",
+      date: d("2026-04-22T10:00:00Z"), createdById: adminUser.id,
+      items: { create: [{ productId: fonioMill.id, quantity: 200, unitCost: PRICES.fonioMill.cost }] },
+    }}),
+    prisma.purchaseOrder.create({ data: {
+      poNumber: "SEED-PO-003", supplierId: supAustin.id, status: "IN_TRANSIT",
+      date: d("2026-04-25T09:00:00Z"), createdById: adminUser.id,
+      items: { create: [{ productId: linix.id, quantity: 150, unitCost: PRICES.linix.cost }] },
+    }}),
+    prisma.purchaseOrder.create({ data: {
+      poNumber: "SEED-PO-004", supplierId: supLagosImports.id, status: "PENDING",
+      date: d("2026-04-28T10:00:00Z"), createdById: adminUser.id,
+      items: { create: [{ productId: trimTone.id, quantity: 200, unitCost: PRICES.trimTone.cost }] },
+    }}),
+    prisma.purchaseOrder.create({ data: {
+      poNumber: "SEED-PO-005", supplierId: supGlobal.id, status: "IN_TRANSIT",
+      date: d("2026-04-30T09:00:00Z"), createdById: adminUser.id,
+      items: { create: [{ productId: shredBelly.id, quantity: 100, unitCost: PRICES.shredBelly.cost }] },
+    }}),
+  ]);
+  console.log("  ✓ Purchase orders created (5)");
+
+  // ── Stock Transfers ───────────────────────────────────────────────────────────
+  await Promise.all([
+    prisma.stockTransfer.create({ data: {
+      referenceNumber: "SEED-ST-001", sourceType: "WAREHOUSE", sourceId: whLagos.id,
+      targetType: "WAREHOUSE", targetId: whAbuja.id, status: "COMPLETED",
+      date: d("2026-03-10T10:00:00Z"), createdById: adminUser.id,
+      notes: "Restocking Abuja warehouse",
+      items: { create: [
+        { productId: prosxact.id,  quantity: 50 },
+        { productId: shredBelly.id, quantity: 30 },
+      ]},
+    }}),
+    prisma.stockTransfer.create({ data: {
+      referenceNumber: "SEED-ST-002", sourceType: "WAREHOUSE", sourceId: whAbuja.id,
+      targetType: "AGENT",     targetId: agentSunmi.id, status: "COMPLETED",
+      date: d("2026-04-05T09:00:00Z"), createdById: adminUser.id,
+      notes: "Transfer to Oyo agent",
+      items: { create: [{ productId: trimTone.id, quantity: 60 }] },
+    }}),
+    prisma.stockTransfer.create({ data: {
+      referenceNumber: "SEED-ST-003", sourceType: "WAREHOUSE", sourceId: whPH.id,
+      targetType: "WAREHOUSE", targetId: whLagos.id, status: "SUBMITTED",
+      date: d("2026-04-20T10:00:00Z"), createdById: adminUser.id,
+      notes: "Consolidating stock at Lagos HQ",
+      items: { create: [{ productId: neuroBalm.id, quantity: 30 }] },
+    }}),
+    prisma.stockTransfer.create({ data: {
+      referenceNumber: "SEED-ST-004", sourceType: "WAREHOUSE", sourceId: whLagos.id,
+      targetType: "AGENT",     targetId: agentOla.id, status: "DRAFT",
+      date: d("2026-04-28T11:00:00Z"), createdById: adminUser.id,
+      notes: "Pending dispatch review",
+      items: { create: [{ productId: afterNatal.id, quantity: 40 }] },
+    }}),
+    prisma.stockTransfer.create({ data: {
+      referenceNumber: "SEED-ST-005", sourceType: "WAREHOUSE", sourceId: whAbuja.id,
+      targetType: "WAREHOUSE", targetId: whPH.id, status: "DRAFT",
+      date: d("2026-04-30T09:30:00Z"), createdById: adminUser.id,
+      notes: "PH stock replenishment draft",
+      items: { create: [{ productId: linix.id, quantity: 50 }] },
+    }}),
+  ]);
+  console.log("  ✓ Stock transfers created (5)");
+
   // ── Summary ─────────────────────────────────────────────────────────────────
   console.log("✅  Done!\n");
   console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
@@ -797,6 +1187,11 @@ async function main() {
   console.log("  Chiamaka(12): March 5D+1F+1C | April 2D+2Conf+1P");
   console.log("  Blessing(11): March 4D+1F+1C | April 1D+2Conf+2P");
   console.log("  Emeka   (8): March 2D+2F+1C | April 1D+1F+1P");
+  console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+  console.log("🏭  INVENTORY: 6 suppliers | 3 warehouses | 14 incoming | 13 outgoing | 7 returns | 5 POs | 5 transfers");
+  console.log("  Net stock:  Prosxact=380(OK) | ShredBelly=220(OK) | FonioMill=30(Low)");
+  console.log("              TrimTone=75(Low) | AfterNatal=175(OK) | NVBalm=60(Watch) | Linix=20(Low)");
+  console.log("  Inv. Login  │  emeka.tl@seed.nutritcare     │  TeamLead@123");
   console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 }
 

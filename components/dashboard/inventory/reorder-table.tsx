@@ -1,10 +1,10 @@
 "use client";
 
 import React from "react";
-import { reorderOrders } from "@/lib/mock-data/inventory";
 import { cn } from "@/lib/utils";
+import type { PurchaseOrderRow } from "@/modules/inventory/services/inventory.service";
 
-export function ReorderTable() {
+export function ReorderTable({ orders }: { orders: PurchaseOrderRow[] }) {
   return (
     <div className="bg-white rounded-3xl border border-gray-100 overflow-hidden shadow-sm">
       <div className="bg-white px-6 py-4 flex justify-between items-center border-b border-gray-50">
@@ -23,12 +23,12 @@ export function ReorderTable() {
               <th className="px-4 py-4">PO #</th>
               <th className="px-4 py-4">SUPPLIER</th>
               <th className="px-4 py-4">ITEMS</th>
-              <th className="px-4 py-4">TIME</th>
+              <th className="px-4 py-4">DATE</th>
               <th className="px-4 py-4">STATUS</th>
             </tr>
           </thead>
           <tbody className="text-sm">
-            {reorderOrders.map((order) => (
+            {orders.map((order) => (
               <tr key={order.id} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
                 <td className="px-6 py-4">
                   <input type="checkbox" className="rounded border-gray-300 text-[#9D00FF] focus:ring-[#9D00FF]" />
@@ -36,13 +36,13 @@ export function ReorderTable() {
                 <td className="px-4 py-4 text-gray-500 font-medium">{order.poNumber}</td>
                 <td className="px-4 py-4 text-gray-900 font-medium">{order.supplier}</td>
                 <td className="px-4 py-4 text-gray-900 font-medium">{order.items}</td>
-                <td className="px-4 py-4 text-gray-500 font-medium">{order.time}</td>
+                <td className="px-4 py-4 text-gray-500 font-medium">{order.date}</td>
                 <td className="px-4 py-4">
-                  <div 
+                  <div
                     className={cn(
                       "text-[10px] font-bold text-center py-1 rounded-full px-4 w-fit",
-                      order.status === "In Transit" 
-                        ? "bg-[#F3E8FF] text-[#9D00FF]" 
+                      order.status === "In Transit"
+                        ? "bg-[#F3E8FF] text-[#9D00FF]"
                         : "bg-[#FEF9C3] text-[#A16207]"
                     )}
                   >
