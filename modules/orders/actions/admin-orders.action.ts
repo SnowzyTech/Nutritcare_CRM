@@ -76,6 +76,19 @@ export async function adminReassignOrdersAction(
   revalidatePath("/sales-rep/orders");
 }
 
+export async function adminReassignOrderAgentAction(orderId: string, agentId: string) {
+  await checkAdmin();
+  const order = await getOrder(orderId);
+  if (!order || (order.status !== "CONFIRMED" && order.status !== "FAILED")) {
+    throw new Error("Cannot reassign agent for this order");
+  }
+  await prisma.order.update({
+    where: { id: orderId },
+    data: { agentId, ...(order.status === "FAILED" ? { status: "CONFIRMED" } : {}) },
+  });
+  revalidate(orderId);
+}
+
 export async function adminAddOrderItemsAction(
   orderId: string,
   items: Array<{ productId: string; quantity: number }>

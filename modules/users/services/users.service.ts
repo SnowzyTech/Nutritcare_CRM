@@ -414,6 +414,28 @@ export async function getTeamAnalytics(teamId: string) {
   };
 }
 
+export async function getStaffByRole(role: UserRole) {
+  return prisma.user.findMany({
+    where: { role },
+    select: {
+      id: true, name: true, email: true, phone: true,
+      isActive: true, createdAt: true, avatarUrl: true,
+    },
+    orderBy: { name: "asc" },
+  });
+}
+
+export async function getStaffMemberById(id: string) {
+  return prisma.user.findUnique({
+    where: { id },
+    select: {
+      id: true, name: true, email: true, phone: true, whatsappNumber: true,
+      avatarUrl: true, isActive: true, isTeamLead: true, createdAt: true, role: true,
+      team: { select: { id: true, name: true } },
+    },
+  });
+}
+
 export async function approveAccount(id: string) {
   return prisma.user.update({
     where: { id },

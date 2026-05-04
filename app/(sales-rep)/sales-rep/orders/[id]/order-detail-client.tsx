@@ -4,6 +4,7 @@ import React, { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { X } from "lucide-react";
 import type { OrderStatus } from "@prisma/client";
+import { AgentInfoDrawer } from "@/components/ui/agent-info-drawer";
 import {
   confirmOrderAction,
   cancelOrderAction,
@@ -12,6 +13,7 @@ import {
   addOrderItemsAction,
   updateOrderNotesAction,
   updateOrderTotalAction,
+  reassignOrderAgentAction,
 } from "@/modules/orders/actions/orders.action";
 
 // Serialized types (Decimals as strings, Dates as ISO strings)
@@ -35,7 +37,14 @@ export type SerializedOrder = {
     landmark: string | null;
     source: string | null;
   };
-  agent: { id: string; companyName: string; state: string | null } | null;
+  agent: {
+    id: string;
+    companyName: string;
+    state: string | null;
+    phone: string;
+    totalDeliveries: number;
+    activeOrders: number;
+  } | null;
   items: Array<{
     id: string;
     quantity: number;
@@ -58,9 +67,19 @@ export type ProductOption = {
   sku: string;
 };
 
+export type AgentOption = {
+  id: string;
+  companyName: string;
+  state: string | null;
+  phone: string;
+  activeOrders: number;
+  totalDeliveries: number;
+};
+
 interface OrderDetailClientProps {
   order: SerializedOrder;
   products: ProductOption[];
+  agents: AgentOption[];
 }
 
 function StepIndicator({
@@ -219,10 +238,13 @@ function FieldRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-export function OrderDetailClient({ order, products }: OrderDetailClientProps) {
+export function OrderDetailClient({ order, products, agents }: OrderDetailClientProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [isAddProductOpen, setIsAddProductOpen] = useState(false);
+  const [isAgentDrawerOpen, setIsAgentDrawerOpen] = useState(false);
+  const [isReassignOpen, setIsReassignOpen] = useState(false);
+  const [selectedAgentId, setSelectedAgentId] = useState("");
   const [prescription, setPrescription] = useState(order.notes ?? "");
   const [totalInput, setTotalInput] = useState(order.totalAmount);
   const [productRows, setProductRows] = useState([
@@ -493,48 +515,64 @@ export function OrderDetailClient({ order, products }: OrderDetailClientProps) {
               </div>
             )}
 
-            {(order.status === "CONFIRMED" || order.status === "DELIVERED") &&
-              formattedDeliveryFee && (
+            {order.status !== "PENDING" && order.agent && (
                 <>
+                  {(order.status === "CONFIRMED" || order.status === "DELIVERED") && formattedDeliveryFee && (
+                    <>
+                      <div className="flex justify-between">
+                        <span className="text-sm text-gray-500">
+                          Estimated Delivery
+                        </span>
+                        <span className="font-semibold text-gray-900">
+                          {delivery?.scheduledTime
+                            ? new Date(delivery.scheduledTime).toLocaleDateString("en-NG")
+                            : "24 hours"}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-sm text-gray-500">Delivery Fee</span>
+                        <span className="font-semibold text-gray-900">
+                          {formattedDeliveryFee}
+                        </span>
+                      </div>
+                    </>
+                  )}
                   <div className="flex justify-between">
-                    <span className="text-sm text-gray-500">
-                      Estimated Delivery
-                    </span>
-                    <span className="font-semibold text-gray-900">
-                      {delivery?.scheduledTime
-                        ? new Date(delivery.scheduledTime).toLocaleDateString(
-                            "en-NG",
-                          )
-                        : "24 hours"}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm text-gray-500">Delivery Fee</span>
-                    <span className="font-semibold text-gray-900">
-                      {formattedDeliveryFee}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm text-gray-500">
-                      Agent Assigned
-                    </span>
+                    <span className="text-sm text-gray-500">Agent Assigned</span>
                     <div className="text-right">
                       <div className="font-semibold text-gray-900">
-                        {order.agent?.companyName ?? "—"}
+                        {order.agent.companyName}
                       </div>
                       <div className="text-xs text-gray-400">
-                        {order.agent?.state ?? ""}
+                        {order.agent.state ?? ""}
                       </div>
                     </div>
                   </div>
-                  <button className="w-full bg-white border border-gray-200 px-4 py-2 rounded-lg text-gray-500 font-semibold text-sm hover:bg-gray-50 transition">
+                  <button
+                    onClick={() => setIsAgentDrawerOpen(true)}
+                    className="w-full bg-white border border-gray-200 px-4 py-2 rounded-lg text-gray-500 font-semibold text-sm hover:bg-gray-50 transition"
+                  >
                     View Agent Info
                   </button>
-                  <button className="w-full bg-purple-100 border border-purple-200 px-4 py-2 rounded-lg text-purple-600 font-semibold text-sm hover:bg-purple-50 transition">
-                    Reassign Agent
-                  </button>
+                  {(order.status === "CONFIRMED" || order.status === "FAILED") && (
+                    <button
+                      onClick={() => { setSelectedAgentId(order.agent?.id ?? ""); setIsReassignOpen(true); }}
+                      className="w-full bg-purple-100 border border-purple-200 px-4 py-2 rounded-lg text-purple-600 font-semibold text-sm hover:bg-purple-50 transition"
+                    >
+                      Reassign Agent
+                    </button>
+                  )}
                 </>
               )}
+
+            {order.status === "FAILED" && !order.agent && (
+              <button
+                onClick={() => { setSelectedAgentId(""); setIsReassignOpen(true); }}
+                className="w-full bg-purple-100 border border-purple-200 px-4 py-2 rounded-lg text-purple-600 font-semibold text-sm hover:bg-purple-50 transition"
+              >
+                Assign Agent
+              </button>
+            )}
 
             {order.status === "DELIVERED" && deliveredDate && (
               <div className="bg-green-50 border border-green-200 rounded-lg p-4">
@@ -630,6 +668,84 @@ export function OrderDetailClient({ order, products }: OrderDetailClientProps) {
           )}
         </div>
       </div>
+
+      {/* Agent Info Drawer */}
+      {order.agent && (
+        <AgentInfoDrawer
+          agent={order.agent}
+          isOpen={isAgentDrawerOpen}
+          onClose={() => setIsAgentDrawerOpen(false)}
+        />
+      )}
+
+      {/* Reassign Agent Modal */}
+      {isReassignOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            onClick={() => setIsReassignOpen(false)}
+          />
+          <div className="relative bg-white rounded-[40px] shadow-2xl w-full max-w-[500px] p-10 animate-in fade-in zoom-in duration-300">
+            <div className="flex items-center justify-between mb-8">
+              <h2 className="text-2xl font-black text-slate-800">Reassign Agent</h2>
+              <button
+                onClick={() => setIsReassignOpen(false)}
+                className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-200 transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <p className="text-sm text-gray-500 mb-6">
+              Select a new delivery agent for this order.
+              {order.status === "FAILED" && (
+                <span className="block mt-1 text-purple-600 font-medium">
+                  The order status will be reset to Confirmed.
+                </span>
+              )}
+            </p>
+
+            <div className="flex flex-col gap-3 max-h-[320px] overflow-y-auto pr-1 mb-8">
+              {agents.length === 0 && (
+                <p className="text-sm text-gray-400 text-center py-6">No active agents available.</p>
+              )}
+              {agents.map((agent) => (
+                <button
+                  key={agent.id}
+                  onClick={() => setSelectedAgentId(agent.id)}
+                  className={`flex items-center justify-between p-4 rounded-2xl border-2 text-left transition-all ${
+                    selectedAgentId === agent.id
+                      ? "border-purple-600 bg-purple-50"
+                      : "border-slate-100 bg-slate-50 hover:border-purple-200"
+                  }`}
+                >
+                  <div>
+                    <p className="font-bold text-slate-800 text-sm">{agent.companyName}</p>
+                    <p className="text-xs text-slate-400 mt-0.5">{agent.state ?? "—"} · {agent.phone}</p>
+                  </div>
+                  <div className="text-right shrink-0 ml-4">
+                    <p className="text-xs text-slate-500">{agent.activeOrders} active orders</p>
+                    <p className="text-xs text-slate-400">{agent.totalDeliveries} deliveries</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            <button
+              disabled={isPending || !selectedAgentId}
+              onClick={() =>
+                handleAction(async () => {
+                  await reassignOrderAgentAction(order.id, selectedAgentId);
+                  setIsReassignOpen(false);
+                })
+              }
+              className="w-full bg-purple-600 text-white py-4 rounded-2xl text-[1rem] font-black hover:bg-purple-700 transition-all shadow-lg shadow-purple-100 flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              Confirm Reassignment →
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Add Product Modal */}
       {isAddProductOpen && (

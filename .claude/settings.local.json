@@ -9,7 +9,8 @@
       "Bash(node -e \"const { z } = require\\('zod'\\); console.log\\(typeof z.email\\)\")",
       "Bash(tasklist)",
       "Bash(findstr /i \"node\")",
-      "Bash(grep -v \"^$\")"
+      "Bash(grep -v \"^$\")",
+      "Bash(npx next *)"
     ]
   }
 }

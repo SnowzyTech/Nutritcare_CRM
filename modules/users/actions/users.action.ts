@@ -28,7 +28,7 @@ export async function deleteUserAction(userId: string): Promise<ActionResult> {
   try {
     await requireAdmin();
     await deleteUser(userId);
-    revalidatePath("/admin/staff/sales-rep");
+    revalidatePath("/admin/staff", "layout");
     return { success: true };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Failed to delete account" };
@@ -39,8 +39,7 @@ export async function suspendUserAction(userId: string): Promise<ActionResult> {
   try {
     await requireAdmin();
     await suspendUser(userId);
-    revalidatePath(`/admin/staff/sales-rep/${userId}`);
-    revalidatePath("/admin/staff/sales-rep");
+    revalidatePath("/admin/staff", "layout");
     return { success: true };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Failed to suspend account" };
@@ -51,8 +50,7 @@ export async function activateUserAction(userId: string): Promise<ActionResult> 
   try {
     await requireAdmin();
     await activateUser(userId);
-    revalidatePath(`/admin/staff/sales-rep/${userId}`);
-    revalidatePath("/admin/staff/sales-rep");
+    revalidatePath("/admin/staff", "layout");
     return { success: true };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Failed to activate account" };

@@ -1,27 +1,25 @@
-import { auth } from "@/lib/auth/auth";
+import React from "react";
 import type { Metadata } from "next";
+import { InventorySidebar } from "@/components/layout/inventory-sidebar";
 
 export const metadata: Metadata = {
   title: {
-    default: "",
+    default: "Inventory Management",
     template: "%s | Nutricare CRM",
   },
 };
 
-export default async function SalesRepLayout({
+export default function InventoryLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const session = await auth();
-
   return (
-    <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
-      {/* Main area */}
-      <div className="flex flex-col flex-1 overflow-hidden">
-        {/* Page content */}
-        <main className="flex-1 overflow-y-auto p-8">{children}</main>
-      </div>
+    <div className="flex h-screen bg-[#F8F9FB] font-sans overflow-hidden">
+      <InventorySidebar />
+      <main className="flex-1 p-8 overflow-y-auto">
+        {children}
+      </main>
     </div>
   );
 }

@@ -1,0 +1,14 @@
+import StaffDetailPage from "../../staff-detail-page";
+
+type Props = { params: Promise<{ id: string }> };
+
+export default async function InventoryManagerDetailPage({ params }: Props) {
+  const { id } = await params;
+  return (
+    <StaffDetailPage
+      id={id}
+      roleLabel="Inventory Managers"
+      basePath="/admin/staff/inventory-manager"
+    />
+  );
+}
