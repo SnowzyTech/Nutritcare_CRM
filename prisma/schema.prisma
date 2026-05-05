@@ -88,6 +88,12 @@ enum StockTransferStatus {
   REVERSED
 }
 
+enum StockAdjustmentStatus {
+  DRAFT
+  RECORDED
+  REVERSED
+}
+
 enum PurchaseOrderStatus {
   PENDING
   IN_TRANSIT
@@ -188,6 +194,7 @@ model User {
   invoices              Invoice[]              @relation("InvoiceCreatedBy")
   expenses              Expense[]              @relation("ExpenseCreatedBy")
   settlementAdjustments SettlementAdjustment[] @relation("AdjustmentCreatedBy")
+  stockAdjustments      StockAdjustment[]      @relation("StockAdjustmentCreatedBy")
   notifications         Notification[]         @relation("UserNotifications")
   auditLogs             AuditLog[]             @relation("UserAuditLogs")
   damageReports         DamageReport[]         @relation("DamageReportedBy")
@@ -279,10 +286,11 @@ model Product {
   gifts              ProductGift[]       @relation("ParentProductGifts")
   giftOf             ProductGift[]       @relation("GiftProduct")
   orderItems         OrderItem[]
-  stockMovementItems StockMovementItem[]
-  stockTransferItems StockTransferItem[]
-  purchaseOrderItems PurchaseOrderItem[]
-  invoiceItems       InvoiceItem[]
+  stockMovementItems   StockMovementItem[]
+  stockTransferItems   StockTransferItem[]
+  stockAdjustmentItems StockAdjustmentItem[]
+  purchaseOrderItems   PurchaseOrderItem[]
+  invoiceItems         InvoiceItem[]
 
   @@index([categoryId])
   @@index([sku])
@@ -406,8 +414,9 @@ model Warehouse {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  locations      WarehouseLocation[]
-  stockMovements StockMovement[]
+  locations        WarehouseLocation[]
+  stockMovements   StockMovement[]
+  stockAdjustments StockAdjustment[]
 
   @@map("warehouses")
 }
@@ -965,4 +974,43 @@ model AuditLog {
   @@index([entityType])
   @@index([createdAt])
   @@map("audit_logs")
+}
+
+model StockAdjustment {
+  id              String                @id @default(cuid())
+  referenceNumber String                @unique
+  warehouseId     String
+  reason          String?
+  notes           String?
+  status          StockAdjustmentStatus @default(DRAFT)
+  date            DateTime
+  createdById     String
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+
+  warehouse   Warehouse             @relation(fields: [warehouseId], references: [id])
+  createdBy   User                  @relation("StockAdjustmentCreatedBy", fields: [createdById], references: [id])
+  items       StockAdjustmentItem[]
+
+  @@index([warehouseId])
+  @@index([status])
+  @@index([createdById])
+  @@map("stock_adjustments")
+}
+
+model StockAdjustmentItem {
+  id                String   @id @default(cuid())
+  stockAdjustmentId String
+  productId         String
+  quantityBefore    Int
+  quantityAfter     Int
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  stockAdjustment StockAdjustment @relation(fields: [stockAdjustmentId], references: [id], onDelete: Cascade)
+  product         Product         @relation(fields: [productId], references: [id])
+
+  @@index([stockAdjustmentId])
+  @@index([productId])
+  @@map("stock_adjustment_items")
 }
