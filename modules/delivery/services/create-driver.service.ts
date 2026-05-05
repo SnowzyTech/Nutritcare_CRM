@@ -8,6 +8,7 @@ export interface CreateDriverInput {
   address?: string;
   state?: string;
   country?: string;
+  vehicleNo?: string;
   statesCovered?: string[];
   addedById: string;
 }
@@ -29,6 +30,7 @@ export async function createDriver(input: CreateDriverInput) {
       address: input.address,
       state: input.state,
       country: input.country,
+      vehicleNo: input.vehicleNo,
       statesCovered: input.statesCovered ?? [],
       status: "ACTIVE",
       addedById: input.addedById,

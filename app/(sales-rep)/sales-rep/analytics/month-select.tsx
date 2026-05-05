@@ -34,7 +34,7 @@ export function MonthSelect() {
       value={currentMonth}
       onValueChange={(value) => {
         const params = new URLSearchParams(searchParams.toString())
-        params.set("month", value)
+        params.set("month", value || "")
         router.push(`?${params.toString()}`)
       }}
     >

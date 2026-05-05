@@ -1,0 +1,1036 @@
+'use client';
+
+import React, { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import {
+  Search,
+  ChevronLeft,
+  ChevronRight,
+  RotateCcw,
+  MessageCircle,
+  MapPin,
+  Truck,
+  CreditCard,
+  Calendar as CalendarIcon,
+  ChevronDown,
+  ArrowUpDown,
+  History,
+  Check
+} from 'lucide-react';
+import { agentSettlementsData, agentLedgerData, AgentSettlement, AgentLedgerEntry } from '@/lib/mock-data/agent-settlement';
+import { salesRecordsData } from '@/lib/mock-data/sales-records';
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { format } from "date-fns";
+
+export function AgentSettlementClient() {
+  const router = useRouter();
+  const [activeTab, setActiveTab] = useState<'list' | 'ledger' | 'remittance' | 'adjustment'>('list');
+  const [search, setSearch] = useState('');
+
+  // Filter States
+  const [stateFilter, setStateFilter] = useState('All');
+  const [agentTypeFilter, setAgentTypeFilter] = useState('All');
+  const [statusFilter, setStatusFilter] = useState('All');
+  const [dateRange, setDateRange] = useState({ from: '', to: '' });
+
+  const [openDropdown, setOpenDropdown] = useState<string | null>(null);
+
+  const toggleDropdown = (name: string) => {
+    setOpenDropdown(openDropdown === name ? null : name);
+  };
+
+  const tabs = [
+    { id: 'list', label: 'Agent List' },
+    { id: 'ledger', label: 'Agent Ledger' },
+    { id: 'remittance', label: 'Remittance Entry' },
+    { id: 'adjustment', label: 'Settlement Adjustment' }
+  ];
+
+  return (
+    <div className="p-8 max-w-[1400px] mx-auto min-h-screen bg-[#F9FAFB]">
+      {/* Top Header */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-4">
+          <button className="p-1.5 text-purple-400 hover:text-purple-600 transition-colors bg-purple-50 rounded-lg">
+            <ChevronLeft size={20} />
+          </button>
+          <button className="p-1.5 text-purple-400 hover:text-purple-600 transition-colors bg-purple-50 rounded-lg">
+            <ChevronRight size={20} />
+          </button>
+          <button className="p-1.5 text-purple-400 hover:text-purple-600 transition-colors bg-purple-50 rounded-lg">
+            <RotateCcw size={18} />
+          </button>
+        </div>
+        <button className="w-12 h-12 bg-[#AE00FF] rounded-full flex items-center justify-center text-white shadow-lg shadow-purple-200">
+          <MessageCircle size={24} fill="currentColor" />
+        </button>
+      </div>
+
+      <div className="flex items-center justify-between mb-8">
+        <h1 className="text-[32px] font-bold text-gray-800 tracking-tight">
+          {activeTab === 'list' ? 'Agent List' : 'Agents Ledger'}
+        </h1>
+
+        {/* Tab Switcher */}
+        <div className="flex bg-white p-1 rounded-xl border border-gray-100 shadow-sm">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id as any)}
+              className={`px-6 py-2.5 rounded-lg text-[13px] font-bold transition-all duration-200 ${activeTab === tab.id
+                ? 'bg-[#AE00FF] text-white shadow-md'
+                : 'text-gray-500 hover:bg-gray-50'
+                }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {activeTab === 'list' ? (
+        <AgentListView
+          search={search}
+          setSearch={setSearch}
+          openDropdown={openDropdown}
+          toggleDropdown={toggleDropdown}
+          stateFilter={stateFilter}
+          setStateFilter={setStateFilter}
+          agentTypeFilter={agentTypeFilter}
+          setAgentTypeFilter={setAgentTypeFilter}
+          statusFilter={statusFilter}
+          setStatusFilter={setStatusFilter}
+          dateRange={dateRange}
+          setDateRange={setDateRange}
+          setOpenDropdown={setOpenDropdown}
+          router={router}
+        />
+      ) : activeTab === 'ledger' ? (
+        <AgentLedgerView
+          search={search}
+          setSearch={setSearch}
+          openDropdown={openDropdown}
+          toggleDropdown={toggleDropdown}
+        />
+      ) : activeTab === 'remittance' ? (
+        <RemittanceEntryView />
+      ) : activeTab === 'adjustment' ? (
+        <SettlementAdjustmentView />
+      ) : (
+        <div className="bg-white rounded-3xl p-20 text-center border border-gray-100 shadow-sm">
+          <p className="text-gray-400 font-medium">Content for {activeTab} coming soon...</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SettlementAdjustmentView() {
+  const [date, setDate] = useState<Date | undefined>(new Date());
+  const [adjustmentType, setAdjustmentType] = useState('Correction');
+  const [paymentType, setPaymentType] = useState('Waybill');
+  
+  const orderIds = [
+    'ORD-1001', 'ORD-1001', 'ORD-1001', 'ORD-1001',
+    'ORD-1001', 'ORD-1001', 'ORD-1001', 'ORD-1001',
+    'ORD-1001', 'ORD-1001', 'ORD-1001', 'ORD-1001',
+    'ORD-1001', 'ORD-1001', 'ORD-1001', 'ORD-1001'
+  ];
+
+  return (
+    <div className="animate-in fade-in duration-500">
+      <div className="flex gap-12 items-start mb-16">
+        {/* Left Form Column */}
+        <div className="flex-1 space-y-8">
+          <div className="grid grid-cols-2 gap-8">
+            <div className="space-y-2">
+              <label className="text-[14px] font-bold text-gray-700">Agent Name</label>
+              <div className="relative">
+                <select className="w-full h-[54px] bg-white border border-gray-100 rounded-2xl px-6 text-[14px] text-gray-800 appearance-none focus:outline-none focus:ring-1 focus:ring-purple-200 font-medium">
+                  <option>Ibrahim Lawal</option>
+                  <option>Emeka Nwosu</option>
+                  <option>Yusuf Sani</option>
+                </select>
+                <ChevronDown size={18} className="absolute right-5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <label className="text-[14px] font-bold text-gray-700">Date</label>
+              <Popover>
+                <PopoverTrigger className="w-full h-[54px] bg-white border border-gray-100 rounded-2xl px-6 flex items-center justify-between text-[14px] text-gray-800 font-medium focus:outline-none focus:ring-1 focus:ring-purple-200">
+                  <span>{date ? format(date, "PPP") : "Pick a date"}</span>
+                  <CalendarIcon size={18} className="text-gray-400" />
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0 rounded-2xl border-gray-100 shadow-xl" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={date}
+                    onSelect={setDate}
+                    initialFocus
+                    className="rounded-2xl border-none"
+                  />
+                </PopoverContent>
+              </Popover>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-8">
+            <div className="space-y-2">
+              <label className="text-[14px] font-bold text-gray-700">Adjustment Type</label>
+              <div className="relative">
+                <select 
+                  value={adjustmentType}
+                  onChange={(e) => setAdjustmentType(e.target.value)}
+                  className="w-full h-[54px] bg-white border border-gray-100 rounded-2xl px-6 text-[14px] text-gray-800 appearance-none focus:outline-none focus:ring-1 focus:ring-purple-200 font-medium"
+                >
+                  <option value="Correction">Correction</option>
+                  <option value="Overpayment/Refund">Overpayment/Refund</option>
+                  <option value="Balance/Underpayment">Balance/Underpayment</option>
+                  <option value="Payment">Payment</option>
+                </select>
+                <ChevronDown size={18} className="absolute right-5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+              </div>
+            </div>
+
+            {adjustmentType === 'Correction' && (
+              <div className="space-y-2">
+                <label className="text-[14px] font-bold text-gray-700">Linked Reference ID</label>
+                <div className="w-full h-[54px] bg-white border border-gray-100 rounded-2xl px-6 flex items-center text-[14px] text-gray-400 font-medium">
+                  REM-1023
+                </div>
+              </div>
+            )}
+
+            {adjustmentType === 'Payment' && (
+              <div className="space-y-2">
+                <label className="text-[14px] font-bold text-gray-700">Payment Type</label>
+                <div className="relative">
+                  <select 
+                    value={paymentType}
+                    onChange={(e) => setPaymentType(e.target.value)}
+                    className="w-full h-[54px] bg-white border border-gray-100 rounded-2xl px-6 text-[14px] text-gray-800 appearance-none focus:outline-none focus:ring-1 focus:ring-purple-200 font-medium"
+                  >
+                    <option value="Waybill">Waybill</option>
+                    <option value="Delivery fee">Delivery fee</option>
+                    <option value="Miscellaneous">Miscellaneous</option>
+                  </select>
+                  <ChevronDown size={18} className="absolute right-5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                </div>
+              </div>
+            )}
+
+            {(adjustmentType === 'Overpayment/Refund' || adjustmentType === 'Balance/Underpayment' || adjustmentType === 'Payment') && (
+              <div className="space-y-2">
+                <label className="text-[14px] font-bold text-gray-700">
+                  {adjustmentType === 'Payment' ? 'Transaction ID / Reference' : 'Reference ID'}
+                </label>
+                <input
+                  type="text"
+                  placeholder={adjustmentType === 'Payment' ? "Enter transaction reference" : "Enter reference ID"}
+                  className="w-full h-[54px] bg-white border border-gray-100 rounded-2xl px-6 text-[14px] text-gray-800 focus:outline-none focus:ring-1 focus:ring-purple-200 font-medium"
+                />
+              </div>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-8 items-center">
+            <div className="space-y-2">
+              <label className="text-[14px] font-bold text-gray-400">
+                {adjustmentType === 'Correction' ? 'Amount Remitted' : 
+                 adjustmentType === 'Overpayment/Refund' ? 'Amount to be subtracted' :
+                 adjustmentType === 'Balance/Underpayment' ? 'Balance' : 'Amount'}
+              </label>
+              {adjustmentType === 'Correction' ? (
+                <div className="w-full h-[54px] bg-white border border-gray-100 rounded-2xl px-6 flex items-center text-[14px] text-gray-400 font-medium">
+                  ₦280,000
+                </div>
+              ) : (
+                <input
+                  type="text"
+                  placeholder="₦0.00"
+                  className="w-full h-[54px] bg-white border border-gray-100 rounded-2xl px-6 text-[14px] text-gray-800 focus:outline-none focus:ring-1 focus:ring-purple-200 font-medium"
+                />
+              )}
+            </div>
+            
+            {adjustmentType === 'Correction' && (
+              <div className="flex items-center gap-3 text-[13px] text-gray-600 font-medium pt-6">
+                <div className="w-5 h-5 rounded-full bg-green-500 flex items-center justify-center text-white">
+                  <div className="text-[10px] font-bold">!</div>
+                </div>
+                <span className="text-[13px] font-bold">New Amount will be adjusted to <span className="font-black">₦280,000</span></span>
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-[16px] font-bold text-gray-400">Note</label>
+            <div className="relative">
+              <textarea
+                className="w-full h-[180px] bg-white border border-purple-200 rounded-[24px] p-8 text-[18px] text-gray-800 focus:outline-none font-medium"
+                placeholder="Add a note here..."
+                defaultValue={adjustmentType === 'Correction' ? "Running balance of N25,000 from this agent" : ""}
+              />
+              <button className="absolute bottom-6 right-6 bg-[#F3E8FF] text-[#AE00FF] px-6 py-2 rounded-lg text-[11px] font-bold hover:bg-[#E9D5FF] transition-colors">
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+
+
+        {/* Right Summary Column */}
+        <div className="w-[420px] space-y-6">
+          <div className="bg-white rounded-[32px] border-[12px] border-gray-400 shadow-xl p-10 min-h-[500px]">
+            <div className="flex items-center justify-between mb-10">
+              <h3 className="text-[14px] font-bold text-gray-800">
+                {adjustmentType === 'Payment' ? 'Reference ID' : 'Referenced ID'}
+              </h3>
+              <span className="text-[12px] font-bold text-gray-400 uppercase">
+                {adjustmentType === 'Payment' ? 'REF-8821' : 'REM-1023'}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-12 mb-10">
+              <div className="w-12 h-12 rounded-full bg-green-200 flex items-center justify-center text-green-700 font-bold text-[18px]">I</div>
+              <div className="flex-1 grid grid-cols-2 gap-x-8 gap-y-2">
+                <span className="text-[11px] font-bold text-gray-400 uppercase">Agent Name</span>
+                <span className="text-[11px] font-bold text-gray-400 uppercase">Date</span>
+                <span className="text-[14px] font-bold text-gray-800">Ibrahim Lawal</span>
+                <span className="text-[14px] font-bold text-gray-800">{date ? format(date, "yyyy-MM-dd") : '2026-03-01'}</span>
+              </div>
+            </div>
+
+            {adjustmentType === 'Correction' ? (
+              <div className="mb-10">
+                <p className="text-[11px] font-bold text-gray-400 uppercase mb-2">Orders Covered</p>
+                <p className="text-[16px] font-bold text-gray-800 mb-4">16 Orders</p>
+                <div className="grid grid-cols-4 gap-2">
+                  {orderIds.map((id, i) => (
+                    <div key={i} className="bg-purple-50 text-[#AE00FF] text-[9px] font-bold py-1 px-2 rounded flex items-center justify-center">
+                      {id}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="mb-10 p-6 bg-gray-50 rounded-2xl border border-dashed border-gray-200">
+                <p className="text-[11px] font-bold text-gray-400 uppercase mb-2">Adjustment Details</p>
+                <p className="text-[14px] font-bold text-gray-700 italic">
+                  {adjustmentType === 'Payment' ? `Payment for ${paymentType}` : 
+                   adjustmentType === 'Overpayment/Refund' ? 'Processing Refund' : 'Balance Settlement'}
+                </p>
+              </div>
+            )}
+
+            <div className="space-y-6 pt-6 border-t border-gray-50">
+              <div className="flex items-center justify-between">
+                <span className="text-[14px] text-gray-400 font-medium">
+                  {adjustmentType === 'Correction' ? 'Amount Remitted' : 
+                   adjustmentType === 'Overpayment/Refund' ? 'Amount to be subtracted' :
+                   adjustmentType === 'Balance/Underpayment' ? 'Balance' : 'Amount'}
+                </span>
+                <span className="text-[22px] font-black text-gray-800">
+                  {adjustmentType === 'Correction' ? '₦270,000' : '₦0.00'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-[12px] text-gray-400 font-medium uppercase">Auto Running Balance</span>
+                <span className="text-[14px] font-bold text-gray-600">₦60,000</span>
+              </div>
+            </div>
+          </div>
+
+          <button className="w-full h-[70px] bg-[#AE00FF] text-white rounded-2xl text-[20px] font-black shadow-lg shadow-purple-200 hover:scale-[1.02] transition-transform">
+            Continue
+          </button>
+        </div>
+
+      </div>
+
+      <div className="flex gap-12 items-start">
+        {/* Bottom Left Table Section */}
+        <div className="flex-1">
+          <h3 className="text-[18px] font-bold text-gray-500 mb-6">Reecent Remittance</h3>
+          <div className="bg-white rounded-2xl overflow-hidden border border-gray-100 shadow-sm">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-[#E5E7EB]/80 text-[12px] font-bold text-gray-600">
+                  <th className="px-6 py-4">Date</th>
+                  <th className="px-6 py-4">Reference ID</th>
+                  <th className="px-6 py-4">Amount</th>
+                  <th className="px-6 py-4">Running Balance</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {[
+                  { date: '2026-03-01', id: 'REM-1023', amt: '₦45,000', bal: '₦45,000' },
+                  { date: '2026-03-02', id: 'REM-1022', amt: '₦80,300', bal: '₦42,500' },
+                  { date: '2026-03-01', id: 'REM-1013', amt: '₦450,000', bal: '₦45,000' },
+                  { date: '2026-03-02', id: 'REM-1223', amt: '₦300,000', bal: '₦42,500' },
+                ].map((row, idx) => (
+                  <tr key={idx} className={`${idx % 2 === 1 ? 'bg-gray-50/30' : 'bg-white'} hover:bg-gray-50/50 transition-colors`}>
+                    <td className="px-6 py-5 text-[13px] text-gray-400 font-medium">{row.date}</td>
+                    <td className="px-6 py-5 text-[13px] text-gray-800 font-bold tracking-tight">{row.id}</td>
+                    <td className="px-6 py-5 text-[13px] font-bold text-gray-800">{row.amt}</td>
+                    <td className="px-6 py-5 text-[13px] font-bold text-gray-800">{row.bal}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Bottom Right Adjustment History Section */}
+        <div className="w-[420px]">
+          <div className="bg-white rounded-[32px] border border-gray-100 shadow-sm p-8 min-h-[300px]">
+            <h3 className="text-[18px] font-bold text-gray-500 mb-8">Adjustment History</h3>
+
+            <div className="space-y-12 relative">
+              {/* Timeline Line */}
+              <div className="absolute left-[11px] top-4 bottom-4 w-[2px] bg-purple-100"></div>
+
+              <div className="flex gap-6 relative">
+                <div className="w-6 h-6 rounded-full bg-[#300066] border-4 border-white shadow-sm z-10 flex-shrink-0"></div>
+                <div className="space-y-1">
+                  <p className="text-[16px] font-bold text-gray-800">Remittance Entry</p>
+                  <p className="text-[14px] font-bold text-gray-400">REM-1023</p>
+                  <p className="text-[12px] font-bold text-gray-300">2026-03-02</p>
+                </div>
+              </div>
+
+              <div className="flex gap-6 relative">
+                <div className="w-6 h-6 rounded-full bg-[#300066] border-4 border-white shadow-sm z-10 flex-shrink-0"></div>
+                <div className="space-y-1">
+                  <p className="text-[16px] font-bold text-gray-800">Correction</p>
+                  <p className="text-[14px] font-bold text-gray-400">ADJ-0031</p>
+                  <p className="text-[12px] font-bold text-gray-300">2026-03-02</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RemittanceEntryView() {
+  const [date, setDate] = useState<Date | undefined>(new Date());
+  const [selectedOrders, setSelectedOrders] = useState<string[]>([]);
+  const [tempSelected, setTempSelected] = useState<string[]>([]);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+
+  // Unique delivered orders for the selection
+  const deliveredOrders = [
+    { id: 'rec-1', orderId: 'ORD-001', customer: 'Ibrahim Lawal', state: 'Kano', netAmount: '₦25,000', date: '2026-03-01' },
+    { id: 'rec-2', orderId: 'ORD-002', customer: 'Emeka Nwosu', state: 'Rivers', netAmount: '₦15,000', date: '2026-03-01' },
+    { id: 'rec-3', orderId: 'ORD-003', customer: 'Yusuf Sani', state: 'Kaduna', netAmount: '₦42,000', date: '2026-03-02' },
+    { id: 'rec-4', orderId: 'ORD-004', customer: 'Blessing Okorie', state: 'Rivers', netAmount: '₦35,500', date: '2026-03-02' },
+    { id: 'rec-5', orderId: 'ORD-005', customer: 'Samuel Etim', state: 'Akwa Ibom', netAmount: '₦28,000', date: '2026-03-03' },
+    { id: 'rec-6', orderId: 'ORD-006', customer: 'Musa Hassan', state: 'Kano', netAmount: '₦12,500', date: '2026-03-03' },
+    { id: 'rec-7', orderId: 'ORD-007', customer: 'Aisha Yusuf', state: 'Kaduna', netAmount: '₦31,200', date: '2026-03-04' },
+    { id: 'rec-8', orderId: 'ORD-008', customer: 'Godwin Efe', state: 'Delta', netAmount: '₦19,800', date: '2026-03-04' },
+    { id: 'rec-9', orderId: 'ORD-009', customer: 'John Obi', state: 'Lagos', netAmount: '₦22,000', date: '2026-03-05' },
+    { id: 'rec-10', orderId: 'ORD-010', customer: 'Mrs. Sumni', state: 'Lagos', netAmount: '₦38,000', date: '2026-03-05' },
+  ];
+
+  const handleConfirm = () => {
+    setSelectedOrders(tempSelected);
+    setIsModalOpen(false);
+  };
+
+  const toggleTempOrder = (recordId: string) => {
+    setTempSelected(prev => 
+      prev.includes(recordId) ? prev.filter(id => id !== recordId) : [...prev, recordId]
+    );
+  };
+
+  // Helper to get Order ID from record ID
+  const getOrderId = (recordId: string) => deliveredOrders.find(o => o.id === recordId)?.orderId || '';
+
+  return (
+    <div className="animate-in fade-in duration-500">
+      {/* Large Order Selection Modal */}
+      {isModalOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-8 bg-black/60 backdrop-blur-md animate-in fade-in duration-300">
+          <div className="bg-white w-full max-w-[1100px] h-[85vh] rounded-[48px] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-300">
+            {/* Modal Header */}
+            <div className="p-12 border-b border-gray-100 flex items-center justify-between bg-white sticky top-0 z-10">
+              <div>
+                <h2 className="text-[36px] font-black text-gray-800 tracking-tight leading-tight">Select Delivered Orders</h2>
+                <p className="text-gray-400 text-[18px] font-medium mt-2">Pick the orders you want to include in this remittance entry</p>
+              </div>
+              <button 
+                onClick={() => setIsModalOpen(false)}
+                className="w-14 h-14 rounded-2xl bg-gray-50 flex items-center justify-center text-gray-400 hover:bg-gray-100 transition-all hover:rotate-90"
+              >
+                <RotateCcw size={24} />
+              </button>
+            </div>
+
+            {/* Modal Content - Order Grid */}
+            <div className="flex-1 overflow-y-auto p-12 custom-scrollbar bg-[#F9FAFB]/50">
+              <div className="grid grid-cols-3 gap-8">
+                {deliveredOrders.map((order) => (
+                  <div 
+                    key={order.id}
+                    onClick={() => toggleTempOrder(order.id)}
+                    className={`p-8 rounded-[40px] border-2 transition-all cursor-pointer relative group flex flex-col justify-between min-h-[220px] ${
+                      tempSelected.includes(order.id)
+                        ? 'border-[#AE00FF] bg-white shadow-2xl shadow-purple-100 ring-4 ring-purple-50'
+                        : 'border-white bg-white hover:border-purple-200 shadow-sm hover:shadow-md'
+                    }`}
+                  >
+                    <div className="flex justify-between items-start mb-6">
+                      <span className={`text-[12px] font-black px-4 py-1.5 rounded-full uppercase tracking-wider ${
+                        tempSelected.includes(order.id) ? 'bg-[#AE00FF] text-white' : 'bg-gray-100 text-gray-500'
+                      }`}>
+                        {order.orderId}
+                      </span>
+                      {tempSelected.includes(order.id) && (
+                        <div className="w-8 h-8 rounded-full bg-green-500 flex items-center justify-center text-white shadow-lg shadow-green-100">
+                          <Check size={18} strokeWidth={4} />
+                        </div>
+                      )}
+                    </div>
+                    
+                    <div className="space-y-1">
+                      <p className="text-[20px] font-black text-gray-800 line-clamp-1">{order.customer}</p>
+                      <p className="text-[14px] text-gray-400 font-bold uppercase tracking-tight flex items-center gap-2">
+                        <MapPin size={14} className="text-purple-300" /> {order.state}
+                      </p>
+                    </div>
+
+                    <div className="mt-8 pt-6 border-t border-gray-50 flex justify-between items-center">
+                      <div className="flex flex-col">
+                        <span className="text-[10px] text-gray-400 font-black uppercase mb-1">Net Amount</span>
+                        <span className="text-[18px] font-black text-[#AE00FF]">{order.netAmount}</span>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[10px] text-gray-400 font-black uppercase mb-1 block">Date</span>
+                        <span className="text-[13px] font-bold text-gray-600">{order.date}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-12 border-t border-gray-100 bg-white flex items-center justify-between">
+              <div className="flex items-center gap-6">
+                <div className="w-16 h-16 rounded-3xl bg-purple-50 flex items-center justify-center text-[#AE00FF]">
+                  <Check size={32} strokeWidth={3} />
+                </div>
+                <div>
+                  <p className="text-[24px] font-black text-gray-800 leading-none">{tempSelected.length} Orders</p>
+                  <p className="text-gray-400 font-bold uppercase tracking-widest text-[12px] mt-1">Ready for settlement</p>
+                </div>
+              </div>
+              <div className="flex gap-6">
+                <button 
+                  onClick={() => setIsModalOpen(false)}
+                  className="px-10 py-5 rounded-2xl text-gray-400 font-black text-[16px] hover:bg-gray-50 transition-colors uppercase tracking-widest"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={handleConfirm}
+                  className="px-16 py-5 bg-[#AE00FF] text-white rounded-[24px] text-[20px] font-black shadow-2xl shadow-purple-200 hover:scale-[1.05] active:scale-95 transition-all uppercase tracking-widest"
+                >
+                  Okay
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="flex gap-12 items-start mb-16">
+        {/* Left Form Column */}
+        <div className="flex-1 space-y-8">
+          <div className="grid grid-cols-2 gap-8">
+            <div className="space-y-2">
+              <label className="text-[14px] font-bold text-gray-700">Agent Name</label>
+              <div className="relative">
+                <select className="w-full h-[54px] bg-white border border-gray-100 rounded-2xl px-6 text-[14px] text-gray-800 appearance-none focus:outline-none focus:ring-1 focus:ring-purple-200 font-medium">
+                  <option>Ibrahim Lawal</option>
+                  <option>Emeka Nwosu</option>
+                </select>
+                <ChevronDown size={18} className="absolute right-5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <label className="text-[14px] font-bold text-gray-700">Date</label>
+              <Popover>
+                <PopoverTrigger className="w-full h-[54px] bg-white border border-gray-100 rounded-2xl px-6 flex items-center justify-between text-[14px] text-gray-800 font-medium focus:outline-none focus:ring-1 focus:ring-purple-200">
+                  <span>{date ? format(date, "PPP") : "Pick a date"}</span>
+                  <CalendarIcon size={18} className="text-gray-400" />
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0 rounded-2xl border-gray-100 shadow-xl" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={date}
+                    onSelect={setDate}
+                    initialFocus
+                    className="rounded-2xl border-none"
+                  />
+                </PopoverContent>
+              </Popover>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-8">
+            <div className="space-y-2">
+              <label className="text-[14px] font-bold text-gray-700">Orders Covered (multi-select)</label>
+              <div 
+                onClick={() => { setTempSelected(selectedOrders); setIsModalOpen(true); }}
+                className="w-full h-[54px] bg-white border border-gray-100 rounded-2xl px-6 flex items-center justify-between text-[14px] text-gray-400 font-medium focus:outline-none focus:ring-1 focus:ring-purple-200 cursor-pointer hover:border-purple-200 transition-colors"
+              >
+                <span className={selectedOrders.length > 0 ? "text-gray-800 font-bold" : "text-gray-300"}>
+                  {selectedOrders.length > 0 ? `${selectedOrders.length} Orders Selected` : 'Select Orders'}
+                </span>
+                <ChevronDown size={18} className="text-gray-400" />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <label className="text-[14px] font-bold text-gray-700">Amount Remitted</label>
+              <input
+                type="text"
+                placeholder="Amount Remitted"
+                className="w-full h-[54px] bg-white border border-gray-100 rounded-2xl px-6 text-[14px] text-gray-800 focus:outline-none focus:ring-1 focus:ring-purple-200 font-medium"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-8 items-center">
+            <div className="space-y-2">
+              <label className="text-[14px] font-bold text-gray-400">Total Expected Amount (auto-calculated)</label>
+              <div className="w-full h-[54px] bg-white border border-gray-100 rounded-2xl px-6 flex items-center text-[14px] text-gray-400 font-medium">
+                ₦{selectedOrders.length > 0 ? (selectedOrders.length * 16875).toLocaleString() : '0'}
+              </div>
+            </div>
+            <div className="flex items-center gap-3 text-[13px] text-gray-600 font-medium pt-6">
+              <div className={`w-5 h-5 rounded-full flex items-center justify-center text-white transition-colors ${selectedOrders.length > 0 ? 'bg-green-500' : 'bg-gray-300'}`}>
+                <Check size={12} strokeWidth={4} />
+              </div>
+              <span className={selectedOrders.length > 0 ? 'text-gray-700 font-medium' : 'text-gray-400'}>
+                {selectedOrders.length > 0 ? 'Expected amount correspond with the orders covered' : 'Select orders to calculate expected amount'}
+              </span>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-[16px] font-bold text-gray-400">Note</label>
+            <div className="relative">
+              <textarea
+                className="w-full h-[180px] bg-white border border-purple-200 rounded-[24px] p-8 text-[18px] text-gray-800 focus:outline-none font-medium"
+                defaultValue="Running balance of N25,000 from this agent"
+              />
+              <button className="absolute bottom-6 right-6 bg-[#F3E8FF] text-[#AE00FF] px-6 py-2 rounded-lg text-[11px] font-bold hover:bg-[#E9D5FF] transition-colors">
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Right Summary Column */}
+        <div className="w-[420px] space-y-6">
+          <div className="bg-white rounded-[32px] border-[12px] border-gray-400 shadow-xl p-10 min-h-[500px]">
+            <h3 className="text-[18px] font-bold text-gray-800 text-center mb-10">Summary</h3>
+
+            <div className="flex items-center gap-12 mb-10">
+              <div className="w-12 h-12 rounded-full bg-green-200 flex items-center justify-center text-green-700 font-bold text-[18px]">I</div>
+              <div className="flex-1 grid grid-cols-2 gap-x-8 gap-y-2">
+                <span className="text-[11px] font-bold text-gray-400 uppercase">Agent Name</span>
+                <span className="text-[11px] font-bold text-gray-400 uppercase">Date</span>
+                <span className="text-[14px] font-bold text-gray-800">Ibrahim Lawal</span>
+                <span className="text-[14px] font-bold text-gray-800">{date ? format(date, "yyyy-MM-dd") : '2026-03-01'}</span>
+              </div>
+            </div>
+
+            <div className="mb-10">
+              <p className="text-[11px] font-bold text-gray-400 uppercase mb-2">Orders Covered</p>
+              <p className="text-[16px] font-bold text-gray-800 mb-4">{selectedOrders.length} Orders</p>
+              <div className="grid grid-cols-4 gap-2">
+                {selectedOrders.map((recId) => (
+                  <div key={recId} className="bg-purple-50 text-[#AE00FF] text-[9px] font-bold py-1 px-2 rounded flex items-center justify-center">
+                    {getOrderId(recId)}
+                  </div>
+                ))}
+                {selectedOrders.length === 0 && (
+                  <div className="col-span-4 text-center py-4 border-2 border-dashed border-gray-100 rounded-xl text-gray-300 text-[11px] font-bold uppercase">
+                    No Orders Selected
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-6 pt-6 border-t border-gray-50">
+              <div className="flex items-center justify-between">
+                <span className="text-[14px] text-gray-400 font-medium">Amount Remitted</span>
+                <span className="text-[22px] font-black text-gray-800">₦{selectedOrders.length > 0 ? (selectedOrders.length * 16875).toLocaleString() : '0'}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-[12px] text-gray-400 font-medium uppercase">Auto Running Balance</span>
+                <span className="text-[14px] font-bold text-gray-600">₦60,000</span>
+              </div>
+            </div>
+          </div>
+
+          <button className="w-full h-[70px] bg-[#AE00FF] text-white rounded-2xl text-[20px] font-black shadow-lg shadow-purple-200 hover:scale-[1.02] transition-transform">
+            Confirm
+          </button>
+        </div>
+      </div>
+
+
+
+
+      {/* Bottom Table Section */}
+      <h3 className="text-[18px] font-bold text-gray-500 mb-6">Reecent Remittance</h3>
+      <div className="bg-white rounded-2xl overflow-hidden border border-gray-100 shadow-sm">
+        <table className="w-full text-left border-collapse">
+          <thead>
+            <tr className="bg-[#E5E7EB]/80 text-[12px] font-bold text-gray-600">
+              <th className="px-6 py-4">Date</th>
+              <th className="px-6 py-4">Reference ID</th>
+              <th className="px-6 py-4">Amount</th>
+              <th className="px-6 py-4">Running Balance</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-50">
+            {[
+              { date: '2026-03-01', id: 'REM-1023', amt: '₦45,000', bal: '₦45,000' },
+              { date: '2026-03-02', id: 'REM-1022', amt: '₦80,300', bal: '₦42,500' },
+              { date: '2026-03-01', id: 'REM-1013', amt: '₦450,000', bal: '₦45,000' },
+              { date: '2026-03-02', id: 'REM-1223', amt: '₦300,000', bal: '₦42,500' },
+            ].map((row, idx) => (
+              <tr key={idx} className={`${idx % 2 === 1 ? 'bg-gray-50/30' : 'bg-white'} hover:bg-gray-50/50 transition-colors`}>
+                <td className="px-6 py-5 text-[13px] text-gray-400 font-medium">{row.date}</td>
+                <td className="px-6 py-5 text-[13px] text-gray-800 font-bold tracking-tight">{row.id}</td>
+                <td className="px-6 py-5 text-[13px] font-bold text-gray-800">{row.amt}</td>
+                <td className="px-6 py-5 text-[13px] font-bold text-gray-800">{row.bal}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function AgentListView({
+  search,
+  setSearch,
+  openDropdown,
+  toggleDropdown,
+  stateFilter,
+  setStateFilter,
+  agentTypeFilter,
+  setAgentTypeFilter,
+  statusFilter,
+  setStatusFilter,
+  dateRange,
+  setDateRange,
+  setOpenDropdown,
+  router
+}: any) {
+  const nigerianStates = [
+    "Abia", "Adamawa", "Akwa Ibom", "Anambra", "Bauchi", "Bayelsa", "Benue", "Borno",
+    "Cross River", "Delta", "Ebonyi", "Edo", "Ekiti", "Enugu", "FCT", "Gombe", "Imo",
+    "Jigawa", "Kaduna", "Kano", "Katsina", "Kebbi", "Kogi", "Kwara", "Lagos",
+    "Nasarawa", "Niger", "Ogun", "Ondo", "Osun", "Oyo", "Plateau", "Rivers",
+    "Sokoto", "Taraba", "Yobe", "Zamfara"
+  ];
+
+  const agentTypes = ["Independent", "Logistics Partner", "In-house"];
+  const statuses = ["Paid", "Underpayment", "Overpayment", "Pending"];
+
+  const filtered = agentSettlementsData.filter((a) => {
+    const matchSearch = a.agentName.toLowerCase().includes(search.toLowerCase());
+    const matchState = stateFilter === 'All' || a.state === stateFilter;
+    const matchStatus = statusFilter === 'All' ||
+      (statusFilter === 'Paid' && a.balance === '₦0') ||
+      (statusFilter === 'Underpayment' && a.underpayment !== '₦0') ||
+      (statusFilter === 'Overpayment' && a.overpayment !== '₦0');
+    return matchSearch && matchState && matchStatus;
+  });
+
+  return (
+    <>
+      {/* Filter Bar */}
+      <div className="flex flex-wrap items-center gap-3 mb-8">
+        {/* State Filter */}
+        <div className="relative">
+          <FilterButton
+            icon={<MapPin size={16} strokeWidth={2.5} />}
+            label={stateFilter === 'All' ? 'State' : stateFilter}
+            onClick={() => toggleDropdown('state')}
+            isOpen={openDropdown === 'state'}
+          />
+          {openDropdown === 'state' && (
+            <div className="absolute top-full left-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-gray-100 z-50 p-2 py-3 max-h-[300px] overflow-y-auto custom-scrollbar">
+              <div
+                className="px-3 py-2 text-[13px] text-gray-600 hover:bg-gray-50 rounded-lg cursor-pointer font-medium"
+                onClick={() => { setStateFilter('All'); setOpenDropdown(null); }}
+              >
+                All States
+              </div>
+              {nigerianStates.map(s => (
+                <div
+                  key={s}
+                  className="px-3 py-2 text-[13px] text-gray-600 hover:bg-gray-50 rounded-lg cursor-pointer font-medium"
+                  onClick={() => { setStateFilter(s); setOpenDropdown(null); }}
+                >
+                  {s}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Agent Type Filter */}
+        <div className="relative">
+          <FilterButton
+            icon={<Truck size={16} strokeWidth={2.5} />}
+            label={agentTypeFilter === 'All' ? 'Agent Type' : agentTypeFilter}
+            onClick={() => toggleDropdown('type')}
+            isOpen={openDropdown === 'type'}
+          />
+          {openDropdown === 'type' && (
+            <div className="absolute top-full left-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-gray-100 z-50 p-2 py-3">
+              <div
+                className="px-3 py-2 text-[13px] text-gray-600 hover:bg-gray-50 rounded-lg cursor-pointer font-medium"
+                onClick={() => { setAgentTypeFilter('All'); setOpenDropdown(null); }}
+              >
+                All Types
+              </div>
+              {agentTypes.map(t => (
+                <div
+                  key={t}
+                  className="px-3 py-2 text-[13px] text-gray-600 hover:bg-gray-50 rounded-lg cursor-pointer font-medium"
+                  onClick={() => { setAgentTypeFilter(t); setOpenDropdown(null); }}
+                >
+                  {t}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Payment Status Filter */}
+        <div className="relative">
+          <FilterButton
+            icon={<CreditCard size={16} strokeWidth={2.5} />}
+            label={statusFilter === 'All' ? 'Payment Status' : statusFilter}
+            onClick={() => toggleDropdown('status')}
+            isOpen={openDropdown === 'status'}
+          />
+          {openDropdown === 'status' && (
+            <div className="absolute top-full left-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-gray-100 z-50 p-2 py-3">
+              <div
+                className="px-3 py-2 text-[13px] text-gray-600 hover:bg-gray-50 rounded-lg cursor-pointer font-medium"
+                onClick={() => { setStatusFilter('All'); setOpenDropdown(null); }}
+              >
+                All Statuses
+              </div>
+              {statuses.map(s => (
+                <div
+                  key={s}
+                  className="px-3 py-2 text-[13px] text-gray-600 hover:bg-gray-50 rounded-lg cursor-pointer font-medium"
+                  onClick={() => { setStatusFilter(s); setOpenDropdown(null); }}
+                >
+                  {s}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Date Range Filter */}
+        <div className="relative">
+          <FilterButton
+            icon={<CalendarIcon size={16} strokeWidth={2.5} />}
+            label="Date Range"
+            onClick={() => toggleDropdown('date')}
+            isOpen={openDropdown === 'date'}
+          />
+          {openDropdown === 'date' && (
+            <div className="absolute top-full left-0 mt-2 bg-white rounded-xl shadow-xl border border-gray-100 z-50 p-4 w-72">
+              <div className="space-y-4">
+                <div>
+                  <label className="text-[11px] font-bold text-gray-400 uppercase block mb-1">From</label>
+                  <input
+                    type="date"
+                    value={dateRange.from}
+                    onChange={(e) => setDateRange((prev: any) => ({ ...prev, from: e.target.value }))}
+                    className="w-full h-10 border border-gray-200 rounded-lg px-3 text-sm focus:outline-none focus:border-purple-300"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] font-bold text-gray-400 uppercase block mb-1">To</label>
+                  <input
+                    type="date"
+                    value={dateRange.to}
+                    onChange={(e) => setDateRange((prev: any) => ({ ...prev, to: e.target.value }))}
+                    className="w-full h-10 border border-gray-200 rounded-lg px-3 text-sm focus:outline-none focus:border-purple-300"
+                  />
+                </div>
+                <button
+                  onClick={() => setOpenDropdown(null)}
+                  className="w-full bg-[#AE00FF] text-white py-2 rounded-lg text-sm font-bold mt-2"
+                >
+                  Apply Filter
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Search */}
+        <div className="relative flex-1 min-w-[300px]">
+          <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input
+            type="text"
+            placeholder="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full h-[48px] pl-12 pr-4 bg-white border border-gray-100 rounded-xl text-[14px] text-gray-600 focus:outline-none focus:ring-1 focus:ring-purple-200 shadow-sm"
+          />
+        </div>
+      </div>
+
+      {/* Table */}
+      <div className="bg-white  overflow-hidden">
+        <div className="overflow-x-auto no-scrollbar">
+          <table className="w-full text-left border-collapse min-w-[1200px]">
+            <thead>
+              <tr className="bg-[#E5E7EB]/80 text-[12px] font-bold text-gray-600">
+                <th className="px-6 py-4 whitespace-nowrap">Agent Name</th>
+                <th className="px-6 py-4 whitespace-nowrap">State</th>
+                <th className="px-6 py-4 whitespace-nowrap">Total Sales Value</th>
+                <th className="px-6 py-4 whitespace-nowrap">Del. Fees Earned</th>
+                <th className="px-6 py-4 whitespace-nowrap">Total Remitted</th>
+                <th className="px-6 py-4 whitespace-nowrap">Balance</th>
+                <th className="px-6 py-4 whitespace-nowrap">Overpayment</th>
+                <th className="px-6 py-4 whitespace-nowrap">Underpayment</th>
+                <th className="px-6 py-4 whitespace-nowrap">Date</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {filtered.map((a, idx) => (
+                <tr 
+                  key={idx} 
+                  onClick={() => router.push(`/accounting/agent-settlement/${a.id}`)}
+                  className={`${idx % 2 === 1 ? 'bg-gray-50/30' : 'bg-white'} hover:bg-gray-50/50 transition-colors cursor-pointer group`}
+                >
+                  <td className="px-6 py-5 text-[13px] font-bold text-gray-800 group-hover:text-[#AE00FF] transition-colors">{a.agentName}</td>
+                  <td className="px-6 py-5 text-[13px] text-gray-600 font-medium">{a.state}</td>
+                  <td className="px-6 py-5 text-[13px] font-bold text-gray-800">{a.totalSalesValue}</td>
+                  <td className="px-6 py-5 text-[13px] text-gray-600 font-medium">{a.delFeesEarned}</td>
+                  <td className="px-6 py-5 text-[13px] font-bold text-gray-800">{a.totalRemitted}</td>
+                  <td className="px-6 py-5 text-[13px] font-bold text-gray-800">{a.balance}</td>
+                  <td className="px-6 py-5 text-[13px] text-gray-600 font-medium">{a.overpayment}</td>
+                  <td className="px-6 py-5 text-[13px] text-gray-600 font-medium">{a.underpayment}</td>
+                  <td className="px-6 py-5 text-[13px] text-gray-400 font-medium">{a.date}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function AgentLedgerView({ search, setSearch, openDropdown, toggleDropdown }: any) {
+  return (
+    <>
+      {/* Filter Bar */}
+      <div className="flex flex-wrap items-center gap-3 mb-8">
+        <FilterButton icon={<History size={16} strokeWidth={2.5} />} label="Reference Type" onClick={() => toggleDropdown('ref')} isOpen={openDropdown === 'ref'} />
+        <FilterButton icon={<CalendarIcon size={16} strokeWidth={2.5} />} label="Date Range" onClick={() => toggleDropdown('date')} isOpen={openDropdown === 'date'} />
+
+        {/* Search */}
+        <div className="relative flex-1 min-w-[300px]">
+          <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input
+            type="text"
+            placeholder="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full h-[48px] pl-12 pr-4 bg-white border border-gray-100 rounded-xl text-[14px] text-gray-600 focus:outline-none focus:ring-1 focus:ring-purple-200 shadow-sm"
+          />
+        </div>
+      </div>
+
+      {/* Table */}
+      <div className="bg-white overflow-hidden">
+        <div className="overflow-x-auto no-scrollbar">
+          <table className="w-full text-left border-collapse min-w-[1000px]">
+            <thead>
+              <tr className="bg-[#E5E7EB]/80 text-[12px] font-bold text-gray-600">
+                <th className="px-6 py-4 whitespace-nowrap">Date</th>
+                <th className="px-6 py-4 whitespace-nowrap">Agent</th>
+                <th className="px-6 py-4 whitespace-nowrap">Reference Type</th>
+                <th className="px-6 py-4 whitespace-nowrap">Reference ID</th>
+                <th className="px-6 py-4 whitespace-nowrap">
+                  <div className="flex items-center gap-2">
+                    Debit <ArrowUpDown size={14} className="text-orange-500" />
+                  </div>
+                </th>
+                <th className="px-6 py-4 whitespace-nowrap">
+                  <div className="flex items-center gap-2">
+                    Credit <ArrowUpDown size={14} className="text-green-500 rotate-180" />
+                  </div>
+                </th>
+                <th className="px-6 py-4 whitespace-nowrap">Running Balance</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {agentLedgerData.map((l, idx) => (
+                <tr key={idx} className={`${idx % 2 === 1 ? 'bg-gray-50/30' : 'bg-white'} hover:bg-gray-50/50 transition-colors`}>
+                  <td className="px-6 py-5 text-[13px] text-gray-400 font-medium">{l.date}</td>
+                  <td className="px-6 py-5">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-[12px] font-bold text-white ${['bg-orange-400', 'bg-blue-400', 'bg-purple-400', 'bg-green-400', 'bg-pink-400'][idx % 5]
+                        }`}>
+                        {l.agent.charAt(0)}
+                      </div>
+                      <span className="text-[13px] font-bold text-gray-800">{l.agent}</span>
+                    </div>
+                  </td>
+                  <td className="px-6 py-5 text-[13px] text-gray-600 font-medium">{l.referenceType}</td>
+                  <td className="px-6 py-5 text-[13px] text-gray-800 font-bold tracking-tight">{l.referenceId}</td>
+                  <td className="px-6 py-5 text-[13px] font-bold text-gray-800">{l.debit}</td>
+                  <td className="px-6 py-5 text-[13px] font-bold text-gray-800">{l.credit}</td>
+                  <td className="px-6 py-5 text-[13px] font-black text-gray-900">{l.runningBalance}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function FilterButton({ icon, label, onClick, isOpen }: any) {
+  return (
+    <div className="relative">
+      <button
+        onClick={onClick}
+        className="flex items-center gap-3 bg-black text-white px-4 py-3 rounded-xl text-[13px] font-semibold min-w-[130px] justify-between shadow-sm hover:bg-gray-900 transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          {icon}
+          <span>{label}</span>
+        </div>
+        <ChevronDown size={14} strokeWidth={3} className={`transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+      </button>
+    </div>
+  );
+}

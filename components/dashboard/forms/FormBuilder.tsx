@@ -4,7 +4,7 @@ import { useState } from "react";
 import {
   Plus, Trash2, FileText, User, Mail, MapPin, Map, Phone,
   ListChecks, Send, LayoutTemplate, Palette, Copy, Check,
-  ChevronLeft, PenLine,
+  ChevronLeft, PenLine, Search
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 

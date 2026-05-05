@@ -22,6 +22,7 @@ export default function AddDriverPage() {
   const [phone3, setPhone3] = useState("");
   const [country, setCountry] = useState("Nigeria");
   const [state, setState] = useState("");
+  const [vehicleNo, setVehicleNo] = useState("");
   const [locations, setLocations] = useState([""]);
 
   const [loading, setLoading] = useState(false);
@@ -38,7 +39,7 @@ export default function AddDriverPage() {
 
   const handleReset = () => {
     setName(""); setAddress(""); setPhone(""); setPhone2(""); setPhone3("");
-    setCountry("Nigeria"); setState(""); setLocations([""]); setError("");
+    setCountry("Nigeria"); setState(""); setVehicleNo(""); setLocations([""]); setError("");
   };
 
   const handleSubmit = async () => {
@@ -57,6 +58,7 @@ export default function AddDriverPage() {
       address: address.trim() || undefined,
       state: state.trim() || undefined,
       country: country.trim() || undefined,
+      vehicleNo: vehicleNo.trim() || undefined,
       statesCovered,
     });
 
@@ -152,14 +154,12 @@ export default function AddDriverPage() {
           </div>
           <div className="space-y-2">
             <label className="text-[10px] font-bold text-gray-700 uppercase">Country</label>
-            <Select value={country} onValueChange={(v) => setCountry(v ?? "Nigeria")}>
-              <SelectTrigger className="h-11 text-xs text-gray-400 border-gray-200">
-                <SelectValue placeholder="Select an Option" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="Nigeria">Nigeria</SelectItem>
-              </SelectContent>
-            </Select>
+            <Input
+              value={country}
+              onChange={(e) => setCountry(e.target.value)}
+              placeholder="e.g. Nigeria"
+              className="bg-white border-gray-200 h-11 text-xs focus:ring-[#ad1df4]"
+            />
           </div>
         </div>
 
@@ -204,6 +204,15 @@ export default function AddDriverPage() {
               value={state}
               onChange={(e) => setState(e.target.value)}
               placeholder="e.g. Lagos State"
+              className="bg-white border-gray-200 h-11 text-xs focus:ring-[#ad1df4]"
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-[10px] font-bold text-gray-700 uppercase">Vehicle No.</label>
+            <Input
+              value={vehicleNo}
+              onChange={(e) => setVehicleNo(e.target.value)}
+              placeholder="e.g. ABC-123-XY"
               className="bg-white border-gray-200 h-11 text-xs focus:ring-[#ad1df4]"
             />
           </div>

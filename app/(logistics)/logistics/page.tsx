@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 
 export default function LogisticsDashboardPage() {
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
+    <div className="space-y-6 m-3 mt-7 max-w-7xl mx-auto">
       {/* Top Stepper */}
       <div className="bg-[#faf5ff] rounded-full px-6 py-3 flex items-center gap-2 text-sm">
         <Step number="1" label="Order in" />
@@ -21,7 +21,7 @@ export default function LogisticsDashboardPage() {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white border rounded-xl p-5 shadow-sm flex flex-col justify-between h-32 relative overflow-hidden">
           <span className="text-xs font-bold text-gray-500 uppercase">Pending Dispatch</span>
           <div className="flex items-end justify-between mt-auto">
@@ -55,7 +55,7 @@ export default function LogisticsDashboardPage() {
       {/* Main Tables Grid */}
       <div className="grid grid-cols-12 gap-6">
         {/* Delivery Queue */}
-        <div className="col-span-7 bg-white rounded-xl shadow-sm overflow-hidden flex flex-col">
+        <div className="col-span-7 bg-white  overflow-hidden flex flex-col">
           <div className="bg-[#e5e7eb] px-4 py-3 flex items-center justify-between">
             <h3 className="font-semibold text-gray-600 text-sm">Delivery Queue</h3>
             <Button className="bg-[#ad1df4] hover:bg-[#8e14cc] text-white h-8 text-xs px-4 rounded-md">
@@ -101,7 +101,7 @@ export default function LogisticsDashboardPage() {
         </div>
 
         {/* Driver assignments */}
-        <div className="col-span-5 bg-white rounded-xl shadow-sm overflow-hidden flex flex-col">
+        <div className="col-span-5 bg-white  overflow-hidden flex flex-col">
           <div className="bg-[#e5e7eb] px-4 py-3 flex items-center justify-between">
             <h3 className="font-semibold text-gray-600 text-sm">Driver assignments</h3>
             <Button className="bg-[#ad1df4] hover:bg-[#8e14cc] text-white h-8 text-xs px-4 rounded-md">
@@ -181,10 +181,9 @@ export default function LogisticsDashboardPage() {
 function Step({ number, label, active, disabled }: { number: string; label: string; active?: boolean; disabled?: boolean }) {
   return (
     <div className={`flex items-center gap-1.5 ${disabled ? 'text-gray-400' : 'text-gray-700'}`}>
-      <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
-        active ? 'bg-[#ad1df4] text-white' : 
+      <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${active ? 'bg-[#ad1df4] text-white' :
         disabled ? 'bg-gray-200 text-gray-500' : 'bg-gray-800 text-white'
-      }`}>
+        }`}>
         {number}
       </div>
       <span className={`font-semibold ${active ? 'text-[#ad1df4]' : ''}`}>{label}</span>

@@ -52,6 +52,7 @@ export async function createDriverAction(input: {
   address?: string;
   state?: string;
   country?: string;
+  vehicleNo?: string;
   statesCovered?: string[];
 }): Promise<DriverResult> {
   try {

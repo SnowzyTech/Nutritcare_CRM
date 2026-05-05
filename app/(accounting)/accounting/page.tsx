@@ -1,7 +1,5 @@
-import React from "react";
+import { DashboardClient } from "./_components/DashboardClient";
 
-const page = () => {
-  return <div>Accounting Page Coming Soon...</div>;
-};
-
-export default page;
+export default function AccountingDashboardPage() {
+  return <DashboardClient />;
+}
