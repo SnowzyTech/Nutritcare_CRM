@@ -15,7 +15,9 @@ import {
   ChevronDown,
   ArrowUpDown,
   History,
-  Check
+  Check,
+  User,
+  X
 } from 'lucide-react';
 import { agentSettlementsData, agentLedgerData, AgentSettlement, AgentLedgerEntry } from '@/lib/mock-data/agent-settlement';
 import { salesRecordsData } from '@/lib/mock-data/sales-records';
@@ -131,6 +133,38 @@ function SettlementAdjustmentView() {
   const [adjustmentType, setAdjustmentType] = useState('Correction');
   const [paymentType, setPaymentType] = useState('Waybill');
   
+  const [selectedOrders, setSelectedOrders] = useState<string[]>([]);
+  const [tempSelected, setTempSelected] = useState<string[]>([]);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  
+  const [selectedHistory, setSelectedHistory] = useState<any>(null);
+
+  const deliveredOrders = [
+    { id: 'rec-1', orderId: 'ORD-001', customer: 'Ibrahim Lawal', state: 'Kano', netAmount: '₦25,000', date: '2026-03-01' },
+    { id: 'rec-2', orderId: 'ORD-002', customer: 'Emeka Nwosu', state: 'Rivers', netAmount: '₦15,000', date: '2026-03-01' },
+    { id: 'rec-3', orderId: 'ORD-003', customer: 'Yusuf Sani', state: 'Kaduna', netAmount: '₦42,000', date: '2026-03-02' },
+    { id: 'rec-4', orderId: 'ORD-004', customer: 'Blessing Okorie', state: 'Rivers', netAmount: '₦35,500', date: '2026-03-02' },
+    { id: 'rec-5', orderId: 'ORD-005', customer: 'Samuel Etim', state: 'Akwa Ibom', netAmount: '₦28,000', date: '2026-03-03' },
+    { id: 'rec-6', orderId: 'ORD-006', customer: 'Musa Hassan', state: 'Kano', netAmount: '₦12,500', date: '2026-03-03' },
+    { id: 'rec-7', orderId: 'ORD-007', customer: 'Aisha Yusuf', state: 'Kaduna', netAmount: '₦31,200', date: '2026-03-04' },
+    { id: 'rec-8', orderId: 'ORD-008', customer: 'Godwin Efe', state: 'Delta', netAmount: '₦19,800', date: '2026-03-04' },
+    { id: 'rec-9', orderId: 'ORD-009', customer: 'John Obi', state: 'Lagos', netAmount: '₦22,000', date: '2026-03-05' },
+    { id: 'rec-10', orderId: 'ORD-010', customer: 'Mrs. Sumni', state: 'Lagos', netAmount: '₦38,000', date: '2026-03-05' },
+  ];
+
+  const handleConfirm = () => {
+    setSelectedOrders(tempSelected);
+    setIsModalOpen(false);
+  };
+
+  const toggleTempOrder = (recordId: string) => {
+    setTempSelected(prev => 
+      prev.includes(recordId) ? prev.filter(id => id !== recordId) : [...prev, recordId]
+    );
+  };
+
+  const getOrderId = (recordId: string) => deliveredOrders.find(o => o.id === recordId)?.orderId || '';
+
   const orderIds = [
     'ORD-1001', 'ORD-1001', 'ORD-1001', 'ORD-1001',
     'ORD-1001', 'ORD-1001', 'ORD-1001', 'ORD-1001',
@@ -140,6 +174,167 @@ function SettlementAdjustmentView() {
 
   return (
     <div className="animate-in fade-in duration-500">
+      {/* Large Order Selection Modal */}
+      {isModalOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-8 bg-black/60 backdrop-blur-md animate-in fade-in duration-300">
+          <div className="bg-white w-full max-w-[1100px] h-[85vh] rounded-[48px] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-300">
+            {/* Modal Header */}
+            <div className="p-12 border-b border-gray-100 flex items-center justify-between bg-white sticky top-0 z-10">
+              <div>
+                <h2 className="text-[36px] font-black text-gray-800 tracking-tight leading-tight">Select Delivered Orders</h2>
+                <p className="text-gray-400 text-[18px] font-medium mt-2">Pick the orders you want to include in this remittance entry</p>
+              </div>
+              <button 
+                onClick={() => setIsModalOpen(false)}
+                className="w-14 h-14 rounded-2xl bg-gray-50 flex items-center justify-center text-gray-400 hover:bg-gray-100 transition-all hover:rotate-90"
+              >
+                <RotateCcw size={24} />
+              </button>
+            </div>
+
+            {/* Modal Content - Order Grid */}
+            <div className="flex-1 overflow-y-auto p-12 custom-scrollbar bg-[#F9FAFB]/50">
+              <div className="grid grid-cols-3 gap-8">
+                {deliveredOrders.map((order) => (
+                  <div 
+                    key={order.id}
+                    onClick={() => toggleTempOrder(order.id)}
+                    className={`p-8 rounded-[40px] border-2 transition-all cursor-pointer relative group flex flex-col justify-between min-h-[220px] ${
+                      tempSelected.includes(order.id)
+                        ? 'border-[#AE00FF] bg-white shadow-2xl shadow-purple-100 ring-4 ring-purple-50'
+                        : 'border-white bg-white hover:border-purple-200 shadow-sm hover:shadow-md'
+                    }`}
+                  >
+                    <div className="flex justify-between items-start mb-6">
+                      <span className={`text-[12px] font-black px-4 py-1.5 rounded-full uppercase tracking-wider ${
+                        tempSelected.includes(order.id) ? 'bg-[#AE00FF] text-white' : 'bg-gray-100 text-gray-500'
+                      }`}>
+                        {order.orderId}
+                      </span>
+                      {tempSelected.includes(order.id) && (
+                        <div className="w-8 h-8 rounded-full bg-green-500 flex items-center justify-center text-white shadow-lg shadow-green-100">
+                          <Check size={18} strokeWidth={4} />
+                        </div>
+                      )}
+                    </div>
+                    
+                    <div className="space-y-1">
+                      <p className="text-[20px] font-black text-gray-800 line-clamp-1">{order.customer}</p>
+                      <p className="text-[14px] text-gray-400 font-bold uppercase tracking-tight flex items-center gap-2">
+                        <MapPin size={14} className="text-purple-300" /> {order.state}
+                      </p>
+                    </div>
+
+                    <div className="mt-8 pt-6 border-t border-gray-50 flex justify-between items-center">
+                      <div className="flex flex-col">
+                        <span className="text-[10px] text-gray-400 font-black uppercase mb-1">Net Amount</span>
+                        <span className="text-[18px] font-black text-[#AE00FF]">{order.netAmount}</span>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[10px] text-gray-400 font-black uppercase mb-1 block">Date</span>
+                        <span className="text-[13px] font-bold text-gray-600">{order.date}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-12 border-t border-gray-100 bg-white flex items-center justify-between">
+              <div className="flex items-center gap-6">
+                <div className="w-16 h-16 rounded-3xl bg-purple-50 flex items-center justify-center text-[#AE00FF]">
+                  <Check size={32} strokeWidth={3} />
+                </div>
+                <div>
+                  <p className="text-[24px] font-black text-gray-800 leading-none">{tempSelected.length} Orders</p>
+                  <p className="text-gray-400 font-bold uppercase tracking-widest text-[12px] mt-1">Ready for settlement</p>
+                </div>
+              </div>
+              <div className="flex gap-6">
+                <button 
+                  onClick={() => setIsModalOpen(false)}
+                  className="px-10 py-5 rounded-2xl text-gray-400 font-black text-[16px] hover:bg-gray-50 transition-colors uppercase tracking-widest"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={handleConfirm}
+                  className="px-16 py-5 bg-[#AE00FF] text-white rounded-[24px] text-[20px] font-black shadow-2xl shadow-purple-200 hover:scale-[1.05] active:scale-95 transition-all uppercase tracking-widest"
+                >
+                  Okay
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* History Details Modal */}
+      {selectedHistory && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-8 bg-black/40 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="bg-white w-full max-w-[800px] max-h-[90vh] overflow-y-auto rounded-[32px] shadow-2xl flex flex-col animate-in zoom-in-95 duration-300 p-12 relative border border-gray-100">
+            
+            <button 
+              onClick={() => setSelectedHistory(null)}
+              className="absolute top-8 right-8 w-10 h-10 rounded-full bg-gray-50 flex items-center justify-center text-gray-400 hover:bg-gray-100 transition-all hover:rotate-90"
+            >
+               <X size={20} />
+            </button>
+
+            <h3 className="text-[20px] font-medium text-gray-500 mb-8">Adjustment History</h3>
+            
+            <div className="flex items-center gap-4 mb-8">
+              <div className="w-12 h-12 rounded-full bg-[#A7F3D0] text-[#065F46] font-bold text-[18px] flex items-center justify-center shadow-sm">
+                I
+              </div>
+              <p className="text-[18px] text-gray-600 font-medium">Ibrahim Lawal</p>
+            </div>
+
+            <div className="flex items-center justify-between mb-8">
+              <p className="text-[20px] font-black text-gray-800 w-[200px]">{selectedHistory.type}</p>
+              <p className="text-[18px] text-gray-500 font-medium">{selectedHistory.id}</p>
+              <p className="text-[14px] text-gray-500 font-medium w-[100px] text-right">{selectedHistory.date}</p>
+            </div>
+
+            <div className="w-full h-[1px] bg-gray-200 mb-8"></div>
+
+            <div className="mb-8">
+              <p className="text-[13px] text-gray-500 font-medium mb-2">Orders Covered</p>
+              <p className="text-[18px] font-black text-gray-800 mb-6">16 Orders</p>
+              <div className="flex flex-wrap gap-2.5">
+                {orderIds.map((id, i) => (
+                  <span key={i} className="px-5 py-2 bg-[#F4E6FF] text-[#AE00FF] text-[11px] font-bold rounded-full">
+                    {id}
+                  </span>
+                ))}
+                <button className="px-5 py-2 bg-white border border-[#AE00FF] text-[#AE00FF] text-[11px] font-bold rounded-full hover:bg-purple-50 transition-colors">
+                  Add Order
+                </button>
+              </div>
+            </div>
+
+            <div className="w-full min-h-[100px] border border-[#E9D5FF] rounded-[20px] p-6 mb-10 flex items-center shadow-sm">
+              <p className="text-[18px] text-gray-400 font-medium">Running balance of N25,000 from this agent</p>
+            </div>
+
+            <div>
+              <p className="text-[18px] text-gray-600 font-medium mb-6">Adjusted by</p>
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 rounded-full bg-gray-100 overflow-hidden flex items-center justify-center border-2 border-white shadow-sm">
+                  <User size={26} className="text-gray-400" />
+                </div>
+                <div>
+                  <p className="text-[18px] font-black text-gray-800 leading-tight mb-1">Victoria Nwachukwu</p>
+                  <p className="text-[14px] text-gray-400 font-medium">Accountant</p>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      )}
+
       <div className="flex gap-12 items-start mb-16">
         {/* Left Form Column */}
         <div className="flex-1 space-y-8">
@@ -195,10 +390,13 @@ function SettlementAdjustmentView() {
 
             {adjustmentType === 'Correction' && (
               <div className="space-y-2">
-                <label className="text-[14px] font-bold text-gray-700">Linked Reference ID</label>
-                <div className="w-full h-[54px] bg-white border border-gray-100 rounded-2xl px-6 flex items-center text-[14px] text-gray-400 font-medium">
-                  REM-1023
-                </div>
+                <label className="text-[14px] font-bold text-gray-700">Reference ID</label>
+                <input
+                  type="text"
+                  placeholder="Enter reference ID"
+                  defaultValue="REM-1023"
+                  className="w-full h-[54px] bg-white border border-gray-100 rounded-2xl px-6 text-[14px] text-gray-800 focus:outline-none focus:ring-1 focus:ring-purple-200 font-medium"
+                />
               </div>
             )}
 
@@ -220,7 +418,20 @@ function SettlementAdjustmentView() {
               </div>
             )}
 
-            {(adjustmentType === 'Overpayment/Refund' || adjustmentType === 'Balance/Underpayment' || adjustmentType === 'Payment') && (
+            {adjustmentType === 'Payment' && paymentType === 'Delivery fee' ? (
+              <div className="space-y-2">
+                <label className="text-[14px] font-bold text-gray-700">Orders Covered (multi-select)</label>
+                <div 
+                  onClick={() => { setTempSelected(selectedOrders); setIsModalOpen(true); }}
+                  className="w-full h-[54px] bg-white border border-gray-100 rounded-2xl px-6 flex items-center justify-between text-[14px] text-gray-400 font-medium focus:outline-none focus:ring-1 focus:ring-purple-200 cursor-pointer hover:border-purple-200 transition-colors"
+                >
+                  <span className={selectedOrders.length > 0 ? "text-gray-800 font-bold" : "text-gray-300"}>
+                    {selectedOrders.length > 0 ? `${selectedOrders.length} Orders Selected` : 'Select Orders'}
+                  </span>
+                  <ChevronDown size={18} className="text-gray-400" />
+                </div>
+              </div>
+            ) : (adjustmentType === 'Overpayment/Refund' || adjustmentType === 'Balance/Underpayment' || adjustmentType === 'Payment') && (
               <div className="space-y-2">
                 <label className="text-[14px] font-bold text-gray-700">
                   {adjustmentType === 'Payment' ? 'Transaction ID / Reference' : 'Reference ID'}
@@ -242,9 +453,11 @@ function SettlementAdjustmentView() {
                  adjustmentType === 'Balance/Underpayment' ? 'Balance' : 'Amount'}
               </label>
               {adjustmentType === 'Correction' ? (
-                <div className="w-full h-[54px] bg-white border border-gray-100 rounded-2xl px-6 flex items-center text-[14px] text-gray-400 font-medium">
-                  ₦280,000
-                </div>
+                <input
+                  type="text"
+                  defaultValue="₦280,000"
+                  className="w-full h-[54px] bg-white border border-gray-100 rounded-2xl px-6 text-[14px] text-gray-800 focus:outline-none focus:ring-1 focus:ring-purple-200 font-medium"
+                />
               ) : (
                 <input
                   type="text"
@@ -302,16 +515,23 @@ function SettlementAdjustmentView() {
               </div>
             </div>
 
-            {adjustmentType === 'Correction' ? (
+            {adjustmentType === 'Correction' || (adjustmentType === 'Payment' && paymentType === 'Delivery fee') ? (
               <div className="mb-10">
                 <p className="text-[11px] font-bold text-gray-400 uppercase mb-2">Orders Covered</p>
-                <p className="text-[16px] font-bold text-gray-800 mb-4">16 Orders</p>
+                <p className="text-[16px] font-bold text-gray-800 mb-4">
+                  {adjustmentType === 'Correction' ? '16 Orders' : `${selectedOrders.length} Orders`}
+                </p>
                 <div className="grid grid-cols-4 gap-2">
-                  {orderIds.map((id, i) => (
+                  {(adjustmentType === 'Correction' ? orderIds : selectedOrders).map((id, i) => (
                     <div key={i} className="bg-purple-50 text-[#AE00FF] text-[9px] font-bold py-1 px-2 rounded flex items-center justify-center">
-                      {id}
+                      {adjustmentType === 'Correction' ? id : getOrderId(id)}
                     </div>
                   ))}
+                  {adjustmentType === 'Payment' && paymentType === 'Delivery fee' && selectedOrders.length === 0 && (
+                    <div className="col-span-4 text-center py-4 border-2 border-dashed border-gray-100 rounded-xl text-gray-300 text-[11px] font-bold uppercase">
+                      No Orders Selected
+                    </div>
+                  )}
                 </div>
               </div>
             ) : (
@@ -391,23 +611,23 @@ function SettlementAdjustmentView() {
               {/* Timeline Line */}
               <div className="absolute left-[11px] top-4 bottom-4 w-[2px] bg-purple-100"></div>
 
-              <div className="flex gap-6 relative">
-                <div className="w-6 h-6 rounded-full bg-[#300066] border-4 border-white shadow-sm z-10 flex-shrink-0"></div>
-                <div className="space-y-1">
-                  <p className="text-[16px] font-bold text-gray-800">Remittance Entry</p>
-                  <p className="text-[14px] font-bold text-gray-400">REM-1023</p>
-                  <p className="text-[12px] font-bold text-gray-300">2026-03-02</p>
+              {[
+                { type: 'Remittance Entry', id: 'REM-1023', date: '2026-03-02' },
+                { type: 'Correction', id: 'ADJ-0031', date: '2026-03-02' }
+              ].map((item, i) => (
+                <div 
+                  key={i} 
+                  className="flex gap-6 relative cursor-pointer hover:bg-gray-50 p-2 -ml-2 rounded-xl transition-colors"
+                  onClick={() => setSelectedHistory(item)}
+                >
+                  <div className="w-6 h-6 rounded-full bg-[#300066] border-4 border-white shadow-sm z-10 flex-shrink-0 mt-1"></div>
+                  <div className="space-y-1">
+                    <p className="text-[16px] font-bold text-gray-800">{item.type}</p>
+                    <p className="text-[14px] font-bold text-gray-400">{item.id}</p>
+                    <p className="text-[12px] font-bold text-gray-300">{item.date}</p>
+                  </div>
                 </div>
-              </div>
-
-              <div className="flex gap-6 relative">
-                <div className="w-6 h-6 rounded-full bg-[#300066] border-4 border-white shadow-sm z-10 flex-shrink-0"></div>
-                <div className="space-y-1">
-                  <p className="text-[16px] font-bold text-gray-800">Correction</p>
-                  <p className="text-[14px] font-bold text-gray-400">ADJ-0031</p>
-                  <p className="text-[12px] font-bold text-gray-300">2026-03-02</p>
-                </div>
-              </div>
+              ))}
             </div>
           </div>
         </div>

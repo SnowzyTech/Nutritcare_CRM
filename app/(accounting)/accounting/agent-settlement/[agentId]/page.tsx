@@ -1,7 +1,23 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
+import { format } from "date-fns";
+import { DateRange } from "react-day-picker";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
 import {
   ChevronLeft,
   ChevronRight,
@@ -47,11 +63,36 @@ const chartData = [
 ];
 
 // Mock Data for Tables
+const agentLedgerDataLocal = [
+  { date: '2026-03-01', referenceType: 'Remittance', referenceId: 'REM-1023', debit: '₦0', credit: '₦45,000', runningBalance: '₦45,000' },
+  { date: '2026-03-01', referenceType: 'Adjustment', referenceId: 'ADJ-001', debit: '₦30,000', credit: '₦45,000', runningBalance: '₦45,000' },
+  { date: '2026-03-01', referenceType: 'Remittance', referenceId: 'REM-1023', debit: '₦0', credit: '₦45,000', runningBalance: '₦45,000' },
+  { date: '2026-03-02', referenceType: 'Adjustment', referenceId: 'ADJ-001', debit: '₦2,500', credit: '₦0', runningBalance: '₦42,500' },
+];
+
+const agentInventoryDataLocal = [
+  { product: 'Vitorep', left: '20', scheduled: '12', value: 'N200,000' },
+  { product: 'Shred', left: '32', scheduled: '12', value: 'N200,000' },
+  { product: 'Prosxact', left: '11', scheduled: '23', value: 'N200,000' },
+  { product: 'After-Natal', left: '09', scheduled: '12', value: 'N200,000' },
+  { product: 'Nuero-Vive Balm', left: '72', scheduled: '34', value: 'N200,000' },
+  { product: 'Linix', left: '23', scheduled: '41', value: 'N200,000' },
+];
 
 export default function AgentDetailsPage() {
   const router = useRouter();
   const params = useParams();
   const agentId = params.agentId as string;
+
+  const [chartFilter, setChartFilter] = useState<'Daily' | 'Weekly' | 'Monthly'>('Monthly');
+  
+  // Ledger filters
+  const [ledgerPaymentStatus, setLedgerPaymentStatus] = useState<string>('');
+  const [ledgerDateRange, setLedgerDateRange] = useState<DateRange | undefined>();
+
+  // Inventory filters
+  const [inventoryPaymentStatus, setInventoryPaymentStatus] = useState<string>('');
+  const [inventoryDateRange, setInventoryDateRange] = useState<DateRange | undefined>();
 
   const agent = agentSettlementsData.find((a) => a.id === agentId);
 
@@ -101,21 +142,8 @@ export default function AgentDetailsPage() {
       </div>
 
       {/* Header Row */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-6 relative">
+      <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-6">
         <h1 className="text-[32px] font-bold text-gray-800 tracking-tight">Agent</h1>
-
-        {/* Segmented Controls */}
-        <div className="flex bg-white rounded-lg p-1 border border-gray-100 shadow-sm absolute left-1/2 -translate-x-1/2 z-10">
-          <button className="px-6 py-2 bg-[#AE00FF] text-white rounded-md text-[13px] font-medium shadow-sm">
-            Product List
-          </button>
-          <button className="px-6 py-2 text-gray-500 hover:text-gray-800 rounded-md text-[13px] font-medium transition-colors">
-            Inventory Location View
-          </button>
-          <button className="px-6 py-2 text-gray-500 hover:text-gray-800 rounded-md text-[13px] font-medium transition-colors">
-            Inventory Transfer
-          </button>
-        </div>
 
         {/* Chat Button */}
         <button className="w-14 h-14 bg-[#AE00FF] rounded-full flex items-center justify-center text-white shadow-lg shadow-purple-200 ml-auto z-10 hover:scale-105 transition-transform">
@@ -133,16 +161,16 @@ export default function AgentDetailsPage() {
             
             <div className="flex items-center gap-6 mb-8">
               {/* Avatar */}
-              <div className="w-24 h-24 rounded-full bg-gradient-to-br from-blue-50 to-blue-100 flex items-center justify-center shadow-inner relative flex-shrink-0">
-                 <Database size={40} className="text-blue-400 opacity-80" strokeWidth={1.5} />
+              <div className="w-24 h-24 rounded-full bg-gradient-to-b from-[#EAEFF4] to-[#F3F6F9] flex items-center justify-center shadow-inner relative flex-shrink-0">
+                 <Database size={42} className="text-[#3E82F7] opacity-90 drop-shadow-md" strokeWidth={1.5} />
               </div>
               
               <div>
                 <h3 className="text-[26px] font-bold text-gray-800 flex items-center gap-2 mb-1">
-                  {agent.agentName} <span className="text-gray-300 font-normal">|</span> {agent.state}
+                  Flymack <span className="text-gray-300 font-normal">|</span> Kaduna
                 </h3>
                 <p className="text-[16px] text-gray-400 font-medium mb-3">
-                  Delivery Agent <span className="font-bold text-gray-600">{agent.state}</span>
+                  Delivery Agent <span className="font-bold text-gray-600">Kaduna</span>
                 </p>
                 <div className="inline-flex items-center gap-2 px-3 py-1 border border-green-200 rounded-md text-[12px] text-green-500 font-medium">
                   Online <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
@@ -162,11 +190,11 @@ export default function AgentDetailsPage() {
                 </div>
                 <div className="col-span-1 border-l border-gray-100 pl-3">
                   <p className="text-[11px] text-gray-400 mb-1 font-medium">Email</p>
-                  <p className="text-[13px] font-bold text-gray-800 truncate" title="FlymackLogistics@gmail.com">FlymackLogistics@gmail.com</p>
+                  <p className="text-[13px] font-bold text-gray-800 truncate" title="FlymackLogistics@gamail.com">FlymackLogistics@gamail.com</p>
                 </div>
                 <div className="col-span-1 border-l border-gray-100 pl-3">
                   <p className="text-[11px] text-gray-400 mb-1 font-medium">State</p>
-                  <p className="text-[13px] font-bold text-gray-800 truncate">{agent.state}</p>
+                  <p className="text-[13px] font-bold text-gray-800 truncate">Kaduna</p>
                 </div>
               </div>
             </div>
@@ -192,9 +220,24 @@ export default function AgentDetailsPage() {
             </div>
             
             <div className="flex bg-gray-50 rounded-lg p-1 border border-gray-100">
-              <button className="px-4 py-1.5 text-gray-500 rounded-md text-[12px] font-medium hover:text-gray-800 transition-colors">Daily</button>
-              <button className="px-4 py-1.5 text-gray-500 rounded-md text-[12px] font-medium hover:text-gray-800 transition-colors">Weekly</button>
-              <button className="px-4 py-1.5 bg-[#1A1A1A] text-white rounded-md text-[12px] font-medium shadow-sm">Monthly</button>
+              <button 
+                onClick={() => setChartFilter('Daily')}
+                className={`px-4 py-1.5 rounded-md text-[12px] font-medium transition-colors ${chartFilter === 'Daily' ? 'bg-[#1A1A1A] text-white shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}
+              >
+                Daily
+              </button>
+              <button 
+                onClick={() => setChartFilter('Weekly')}
+                className={`px-4 py-1.5 rounded-md text-[12px] font-medium transition-colors ${chartFilter === 'Weekly' ? 'bg-[#1A1A1A] text-white shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}
+              >
+                Weekly
+              </button>
+              <button 
+                onClick={() => setChartFilter('Monthly')}
+                className={`px-4 py-1.5 rounded-md text-[12px] font-medium transition-colors ${chartFilter === 'Monthly' ? 'bg-[#1A1A1A] text-white shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}
+              >
+                Monthly
+              </button>
             </div>
           </div>
 
@@ -246,12 +289,52 @@ export default function AgentDetailsPage() {
           <h2 className="text-[15px] font-bold text-gray-800 mb-4">Agent Ledger</h2>
           <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-4">
             <div className="flex items-center gap-3">
-              <button className="flex items-center justify-between w-[160px] px-4 py-2.5 bg-[#1A1A1A] text-white rounded-lg text-[13px] font-medium hover:bg-black transition-colors">
-                <div className="flex items-center gap-2"><CalendarIcon size={16} className="text-gray-400" /> Payment Status</div> <ChevronDown size={16} className="text-gray-400" />
-              </button>
-              <button className="flex items-center justify-between w-[160px] px-4 py-2.5 bg-[#1A1A1A] text-white rounded-lg text-[13px] font-medium hover:bg-black transition-colors">
-                 <div className="flex items-center gap-2"><CalendarIcon size={16} className="text-gray-400" /> Date Range</div> <ChevronDown size={16} className="text-gray-400" />
-              </button>
+              <Select value={ledgerPaymentStatus} onValueChange={(val) => setLedgerPaymentStatus(val ?? '')}>
+                <SelectTrigger className="w-[160px] h-[40px] bg-[#1A1A1A] text-white rounded-lg text-[13px] font-medium border-none focus:ring-0 [&>svg]:text-gray-400">
+                  <div className="flex items-center gap-2">
+                    <CalendarIcon size={16} className="text-gray-400" />
+                    <SelectValue placeholder="Payment Status" />
+                  </div>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value="paid">Paid</SelectItem>
+                    <SelectItem value="pending">Pending</SelectItem>
+                    <SelectItem value="failed">Failed</SelectItem>
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+              
+              <Popover>
+                <PopoverTrigger className="flex items-center justify-between w-[220px] px-4 py-2.5 bg-[#1A1A1A] text-white rounded-lg text-[13px] font-medium hover:bg-black transition-colors">
+                     <div className="flex items-center gap-2">
+                       <CalendarIcon size={16} className="text-gray-400" /> 
+                       {ledgerDateRange?.from ? (
+                         ledgerDateRange.to ? (
+                           <>
+                             {format(ledgerDateRange.from, "LLL dd, y")} -{" "}
+                             {format(ledgerDateRange.to, "LLL dd, y")}
+                           </>
+                         ) : (
+                           format(ledgerDateRange.from, "LLL dd, y")
+                         )
+                       ) : (
+                         <span>Date Range</span>
+                       )}
+                     </div>
+                     <ChevronDown size={16} className="text-gray-400" />
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    initialFocus
+                    mode="range"
+                    defaultMonth={ledgerDateRange?.from}
+                    selected={ledgerDateRange}
+                    onSelect={setLedgerDateRange}
+                    numberOfMonths={2}
+                  />
+                </PopoverContent>
+              </Popover>
             </div>
             <div className="relative w-full sm:w-[400px]">
               <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -284,8 +367,12 @@ export default function AgentDetailsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {agentLedgerData.map((row, idx) => (
-                  <tr key={idx} className={`${idx % 2 === 1 ? 'bg-[#F9FAFB]/60' : 'bg-white'} hover:bg-gray-50/80 transition-colors`}>
+                {agentLedgerDataLocal.map((row, idx) => (
+                  <tr 
+                    key={idx} 
+                    onClick={() => router.push(`/accounting/agent-settlement/${agentId}/${row.referenceId}`)}
+                    className={`${idx % 2 === 1 ? 'bg-[#F9FAFB]/60' : 'bg-white'} hover:bg-gray-50/80 transition-colors cursor-pointer`}
+                  >
                     <td className="px-6 py-4 text-[13px] text-gray-500 font-medium">{row.date}</td>
                     <td className="px-6 py-4 text-[13px] text-gray-600">{row.referenceType}</td>
                     <td className="px-6 py-4 text-[13px] text-gray-600">{row.referenceId}</td>
@@ -309,12 +396,52 @@ export default function AgentDetailsPage() {
           <h2 className="text-[15px] font-bold text-gray-800 mb-4">Agent Inventory</h2>
           <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-4">
             <div className="flex items-center gap-3">
-              <button className="flex items-center justify-between w-[160px] px-4 py-2.5 bg-[#1A1A1A] text-white rounded-lg text-[13px] font-medium hover:bg-black transition-colors">
-                <div className="flex items-center gap-2"><CalendarIcon size={16} className="text-gray-400" /> Payment Status</div> <ChevronDown size={16} className="text-gray-400" />
-              </button>
-              <button className="flex items-center justify-between w-[160px] px-4 py-2.5 bg-[#1A1A1A] text-white rounded-lg text-[13px] font-medium hover:bg-black transition-colors">
-                 <div className="flex items-center gap-2"><CalendarIcon size={16} className="text-gray-400" /> Date Range</div> <ChevronDown size={16} className="text-gray-400" />
-              </button>
+              <Select value={inventoryPaymentStatus} onValueChange={(val) => setInventoryPaymentStatus(val ?? '')}>
+                <SelectTrigger className="w-[160px] h-[40px] bg-[#1A1A1A] text-white rounded-lg text-[13px] font-medium border-none focus:ring-0 [&>svg]:text-gray-400">
+                  <div className="flex items-center gap-2">
+                    <CalendarIcon size={16} className="text-gray-400" />
+                    <SelectValue placeholder="Payment Status" />
+                  </div>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value="paid">Paid</SelectItem>
+                    <SelectItem value="pending">Pending</SelectItem>
+                    <SelectItem value="failed">Failed</SelectItem>
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+              
+              <Popover>
+                <PopoverTrigger className="flex items-center justify-between w-[220px] px-4 py-2.5 bg-[#1A1A1A] text-white rounded-lg text-[13px] font-medium hover:bg-black transition-colors">
+                     <div className="flex items-center gap-2">
+                       <CalendarIcon size={16} className="text-gray-400" /> 
+                       {inventoryDateRange?.from ? (
+                         inventoryDateRange.to ? (
+                           <>
+                             {format(inventoryDateRange.from, "LLL dd, y")} -{" "}
+                             {format(inventoryDateRange.to, "LLL dd, y")}
+                           </>
+                         ) : (
+                           format(inventoryDateRange.from, "LLL dd, y")
+                         )
+                       ) : (
+                         <span>Date Range</span>
+                       )}
+                     </div>
+                     <ChevronDown size={16} className="text-gray-400" />
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    initialFocus
+                    mode="range"
+                    defaultMonth={inventoryDateRange?.from}
+                    selected={inventoryDateRange}
+                    onSelect={setInventoryDateRange}
+                    numberOfMonths={2}
+                  />
+                </PopoverContent>
+              </Popover>
             </div>
             <div className="relative w-full sm:w-[400px]">
               <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -326,100 +453,23 @@ export default function AgentDetailsPage() {
             </div>
           </div>
           
-          <div className="bg-white rounded-xl overflow-hidden border border-gray-200 shadow-sm">
+          <div className="bg-white rounded-xl overflow-hidden border border-gray-200 shadow-sm mb-10">
             <table className="w-full text-left">
               <thead>
                 <tr className="bg-[#E5E7EB]/60 text-[12px] font-bold text-gray-600 border-b border-gray-200">
-                  <th className="px-6 py-4">Date</th>
-                  <th className="px-6 py-4">Reference Type</th>
-                  <th className="px-6 py-4">Reference ID</th>
-                  <th className="px-6 py-4">
-                    <div className="flex items-center gap-2">
-                      Debit <ArrowDown size={14} className="text-orange-500" strokeWidth={3} />
-                    </div>
-                  </th>
-                  <th className="px-6 py-4">
-                    <div className="flex items-center gap-2">
-                      Credit <ArrowUp size={14} className="text-green-500" strokeWidth={3} />
-                    </div>
-                  </th>
-                  <th className="px-6 py-4">Running Balance</th>
-                  <th className="px-6 py-4">Amount</th>
+                  <th className="px-6 py-4">Products</th>
+                  <th className="px-6 py-4">No. of product left</th>
+                  <th className="px-6 py-4">Scheduled for del.</th>
+                  <th className="px-6 py-4">Inventory Value</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {agentLedgerData.map((row, idx) => (
+                {agentInventoryDataLocal.map((row, idx) => (
                   <tr key={idx} className={`${idx % 2 === 1 ? 'bg-[#F9FAFB]/60' : 'bg-white'} hover:bg-gray-50/80 transition-colors`}>
-                    <td className="px-6 py-4 text-[13px] text-gray-500 font-medium">{row.date}</td>
-                    <td className="px-6 py-4 text-[13px] text-gray-600">{row.referenceType}</td>
-                    <td className="px-6 py-4 text-[13px] text-gray-600">{row.referenceId}</td>
-                    <td className="px-6 py-4 text-[13px] text-gray-800 font-medium">{row.debit}</td>
-                    <td className="px-6 py-4 text-[13px] text-gray-800 font-medium">{row.credit}</td>
-                    <td className="px-6 py-4 text-[13px] text-gray-800 font-medium">{row.runningBalance}</td>
-                    <td className="px-6 py-4 text-[13px] text-gray-800 font-medium">{row.credit}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div className="mt-4">
-            <button className="flex items-center justify-center gap-2 w-[140px] py-2.5 bg-purple-50 text-[#AE00FF] font-bold text-[13px] rounded-lg hover:bg-purple-100 transition-colors">
-              See All <ArrowRight size={16} />
-            </button>
-          </div>
-        </div>
-
-        {/* Agent Inventory Transfer History */}
-        <div>
-          <h2 className="text-[15px] font-bold text-gray-800 mb-4">Agent Inventory Transfer History</h2>
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-4">
-            <div className="flex items-center gap-3">
-              <button className="flex items-center justify-between w-[160px] px-4 py-2.5 bg-[#1A1A1A] text-white rounded-lg text-[13px] font-medium hover:bg-black transition-colors">
-                <div className="flex items-center gap-2"><CalendarIcon size={16} className="text-gray-400" /> Payment Status</div> <ChevronDown size={16} className="text-gray-400" />
-              </button>
-              <button className="flex items-center justify-between w-[160px] px-4 py-2.5 bg-[#1A1A1A] text-white rounded-lg text-[13px] font-medium hover:bg-black transition-colors">
-                 <div className="flex items-center gap-2"><CalendarIcon size={16} className="text-gray-400" /> Date Range</div> <ChevronDown size={16} className="text-gray-400" />
-              </button>
-            </div>
-            <div className="relative w-full sm:w-[400px]">
-              <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input
-                type="text"
-                placeholder="search"
-                className="w-full h-[44px] pl-12 pr-4 bg-white border border-gray-200 rounded-xl text-[14px] focus:outline-none focus:border-purple-300 shadow-sm transition-colors"
-              />
-            </div>
-          </div>
-          
-          <div className="bg-white rounded-xl overflow-hidden border border-gray-200 shadow-sm">
-            <table className="w-full text-left">
-              <thead>
-                <tr className="bg-[#E5E7EB]/60 text-[12px] font-bold text-gray-600 border-b border-gray-200">
-                  <th className="px-6 py-4">Date</th>
-                  <th className="px-6 py-4">Reference Type</th>
-                  <th className="px-6 py-4">Reference ID</th>
-                  <th className="px-6 py-4">
-                    <div className="flex items-center gap-2">
-                      Debit <ArrowDown size={14} className="text-orange-500" strokeWidth={3} />
-                    </div>
-                  </th>
-                  <th className="px-6 py-4">
-                    <div className="flex items-center gap-2">
-                      Credit <ArrowUp size={14} className="text-green-500" strokeWidth={3} />
-                    </div>
-                  </th>
-                  <th className="px-6 py-4">Running Balance</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {agentLedgerData.map((row, idx) => (
-                  <tr key={idx} className={`${idx % 2 === 1 ? 'bg-[#F9FAFB]/60' : 'bg-white'} hover:bg-gray-50/80 transition-colors`}>
-                    <td className="px-6 py-4 text-[13px] text-gray-500 font-medium">{row.date}</td>
-                    <td className="px-6 py-4 text-[13px] text-gray-600">{row.referenceType}</td>
-                    <td className="px-6 py-4 text-[13px] text-gray-600">{row.referenceId}</td>
-                    <td className="px-6 py-4 text-[13px] text-gray-800 font-medium">{row.debit}</td>
-                    <td className="px-6 py-4 text-[13px] text-gray-800 font-medium">{row.credit}</td>
-                    <td className="px-6 py-4 text-[13px] text-gray-800 font-medium">{row.runningBalance}</td>
+                    <td className="px-6 py-4 text-[13px] text-gray-600 font-medium">{row.product}</td>
+                    <td className="px-6 py-4 text-[13px] text-gray-600">{row.left}</td>
+                    <td className="px-6 py-4 text-[13px] text-gray-600">{row.scheduled}</td>
+                    <td className="px-6 py-4 text-[13px] text-gray-800 font-medium">{row.value}</td>
                   </tr>
                 ))}
               </tbody>
