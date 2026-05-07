@@ -69,6 +69,7 @@ export type ReturnedMovementRow = {
   qtyReturned: number;
   damaged: "Yes" | "No";
   remarks: string;
+  warehouse: string;
   addedBy: string;
 };
 
@@ -302,6 +303,7 @@ export async function getReturnedMovements(): Promise<ReturnedMovementRow[]> {
     where: { type: "RETURN" },
     include: {
       agent: true,
+      warehouse: true,
       createdBy: true,
       items: { include: { product: true } },
     },
@@ -319,6 +321,7 @@ export async function getReturnedMovements(): Promise<ReturnedMovementRow[]> {
       qtyReturned: totalQty,
       damaged: m.damaged ? "Yes" : "No",
       remarks: m.remarks ?? "—",
+      warehouse: m.warehouse?.name ?? "—",
       addedBy: m.createdBy.name,
     };
   });

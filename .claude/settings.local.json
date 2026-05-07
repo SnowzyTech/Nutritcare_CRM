@@ -13,7 +13,12 @@
       "Bash(npx next *)",
       "Bash(grep -E \"\\\\.\\(tsx?|jsx?\\)$\")",
       "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\emmauel\\\\Desktop\\\\organizations\\\\Nutritcare_CRM\\\\app\\\\\\(inventory\\)\" -Recurse -File | Where-Object { $_.Extension -in @\\('.tsx', '.ts', '.jsx', '.js'\\) } | Select-Object FullName | Sort-Object FullName)",
-      "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\emmauel\\\\Desktop\\\\organizations\\\\Nutritcare_CRM\\\\modules\\\\inventory\" -Recurse -File | Where-Object { $_.Extension -in @\\('.tsx', '.ts', '.jsx', '.js'\\) } | Select-Object FullName | Sort-Object FullName)"
+      "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\emmauel\\\\Desktop\\\\organizations\\\\Nutritcare_CRM\\\\modules\\\\inventory\" -Recurse -File | Where-Object { $_.Extension -in @\\('.tsx', '.ts', '.jsx', '.js'\\) } | Select-Object FullName | Sort-Object FullName)",
+      "Bash(Get-PSDrive C)",
+      "Bash(Select-Object Used,Free)",
+      "PowerShell(Get-Volume *)",
+      "PowerShell($drive = [System.IO.DriveInfo]::new\\(\"C\"\\); \"Free: $\\([Math]::Round\\($drive.AvailableFreeSpace/1GB, 2\\)\\) GB / Total: $\\([Math]::Round\\($drive.TotalSize/1GB, 2\\)\\) GB\")",
+      "PowerShell(cd \"C:\\\\Users\\\\emmauel\\\\Desktop\\\\organizations\\\\Nutritcare_CRM\"; npx tsc --noEmit 2>&1 | Where-Object { $_ -match \"order-detail-client|orders-client\" })"
     ]
   }
 }

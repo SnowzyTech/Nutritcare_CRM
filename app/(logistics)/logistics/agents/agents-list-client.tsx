@@ -117,7 +117,9 @@ export default function AgentsListClient({ agents, drivers }: Props) {
                   <Checkbox className="border-gray-300" />
                 </th>
                 <th className="px-4 py-4">
-                  {activeTab === "Agents" ? "Company/Agent Name" : "Driver Name"}
+                  {activeTab === "Agents"
+                    ? "Company/Agent Name"
+                    : "Driver Name"}
                 </th>
                 <th className="px-4 py-4">State</th>
                 <th className="px-4 py-4">Address</th>
@@ -130,7 +132,10 @@ export default function AgentsListClient({ agents, drivers }: Props) {
             <tbody className="divide-y">
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-10 text-center text-gray-400">
+                  <td
+                    colSpan={8}
+                    className="px-4 py-10 text-center text-gray-400"
+                  >
                     No {activeTab.toLowerCase()} found
                   </td>
                 </tr>

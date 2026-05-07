@@ -379,6 +379,7 @@ model Agent {
   statesCovered        Json?
   picksFromOfficeStock Boolean     @default(false)
   country              String?
+  vehicleNo            String?
   reviewStatus         String?
   addedById            String
   deletedAt            DateTime?

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,6 +28,7 @@ export default function AddDriverPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
+  const submittingRef = useRef(false);
 
   const addLocation = () => setLocations([...locations, ""]);
   const removeLocation = (index: number) => {
@@ -43,10 +44,12 @@ export default function AddDriverPage() {
   };
 
   const handleSubmit = async () => {
+    if (submittingRef.current) return;
     setError("");
     if (!name.trim()) return setError("Driver name is required.");
     if (!phone.trim()) return setError("Phone 1 is required.");
 
+    submittingRef.current = true;
     setLoading(true);
     const statesCovered = locations.filter((l) => l.trim() !== "");
 
@@ -62,6 +65,7 @@ export default function AddDriverPage() {
       statesCovered,
     });
 
+    submittingRef.current = false;
     setLoading(false);
 
     if ("error" in result) {

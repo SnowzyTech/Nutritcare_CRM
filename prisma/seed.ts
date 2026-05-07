@@ -107,8 +107,57 @@ async function cleanSeedData() {
   }
 
   await prisma.customer.deleteMany({ where: { email: { endsWith: "@seed.test" } } });
+
+  // Delete any items that reference seed products (created outside seed script via the UI)
+  // so FK constraints don't block product deletion below.
+  const seedProductIds = (await prisma.product.findMany({
+    where: { sku: { startsWith: "SEED-" } },
+    select: { id: true },
+  })).map((p) => p.id);
+  if (seedProductIds.length > 0) {
+    await prisma.stockMovementItem.deleteMany({ where: { productId: { in: seedProductIds } } });
+    await prisma.stockTransferItem.deleteMany({ where: { productId: { in: seedProductIds } } });
+    await prisma.purchaseOrderItem.deleteMany({ where: { productId: { in: seedProductIds } } });
+    await prisma.orderItem.deleteMany({ where: { productId: { in: seedProductIds } } });
+  }
+
+  // Also clean up any non-seed products that ended up in the seed category
+  const seedCat = await prisma.productCategory.findFirst({ where: { categoryName: "Nutricare [SEED]" } });
+  if (seedCat) {
+    const catProductIds = (await prisma.product.findMany({
+      where: { categoryId: seedCat.id },
+      select: { id: true },
+    })).map((p) => p.id);
+    if (catProductIds.length > 0) {
+      await prisma.stockMovementItem.deleteMany({ where: { productId: { in: catProductIds } } });
+      await prisma.stockTransferItem.deleteMany({ where: { productId: { in: catProductIds } } });
+      await prisma.purchaseOrderItem.deleteMany({ where: { productId: { in: catProductIds } } });
+      await prisma.orderItem.deleteMany({ where: { productId: { in: catProductIds } } });
+      await prisma.product.deleteMany({ where: { id: { in: catProductIds } } });
+    }
+  }
+
   await prisma.product.deleteMany({ where: { sku: { startsWith: "SEED-" } } });
   await prisma.productCategory.deleteMany({ where: { categoryName: "Nutricare [SEED]" } });
+
+  // Delete any stock movements created by seed users (via the UI, not covered by SEED- prefix)
+  const allSeedUserIds = (await prisma.user.findMany({
+    where: { email: { endsWith: "@seed.nutritcare" } },
+    select: { id: true },
+  })).map((u) => u.id);
+  if (allSeedUserIds.length > 0) {
+    const userMovementIds = (await prisma.stockMovement.findMany({
+      where: { createdById: { in: allSeedUserIds } },
+      select: { id: true },
+    })).map((m) => m.id);
+    if (userMovementIds.length > 0) {
+      await prisma.goodsReceiving.deleteMany({ where: { stockMovementId: { in: userMovementIds } } });
+      await prisma.stockMovement.deleteMany({ where: { id: { in: userMovementIds } } });
+    }
+    await prisma.stockTransfer.deleteMany({ where: { createdById: { in: allSeedUserIds } } });
+    await prisma.purchaseOrder.deleteMany({ where: { createdById: { in: allSeedUserIds } } });
+  }
+
   await prisma.user.deleteMany({ where: { email: { endsWith: "@seed.nutritcare" } } });
   await prisma.team.deleteMany({ where: { name: { startsWith: "[SEED]" } } });
 }
@@ -1167,6 +1216,143 @@ async function main() {
   ]);
   console.log("  ✓ Stock transfers created (5)");
 
+  // ═══════════════════════════════════════════════════════════════════
+  // PENDING DISPATCH DELIVERIES — May 2026
+  // 8 CONFIRMED orders each with a PENDING_DISPATCH delivery record.
+  // ═══════════════════════════════════════════════════════════════════
+
+  // #59 — Adewale: 4× Prosxact — CONFIRMED, Mr. Ola Logistics
+  {
+    const total = PRICES.prosxact.sell * 4;
+    const order = await prisma.order.create({ data: {
+      orderNumber: num(), customerId: adewale.id, salesRepId: salesRep.id, agentId: agentOla.id,
+      status: "CONFIRMED", totalAmount: total, netAmount: total, deliveryFee: 1500,
+      createdAt: d("2026-05-01T09:00:00Z"),
+      items: { create: { productId: prosxact.id, quantity: 4, unitPrice: PRICES.prosxact.sell, lineTotal: total } },
+    }});
+    await prisma.delivery.create({ data: {
+      orderId: order.id, agentId: agentOla.id,
+      status: "PENDING_DISPATCH", scheduledTime: d("2026-05-03T10:00:00Z"),
+    }});
+  }
+
+  // #60 — Funke: 3× Shred Belly — CONFIRMED, Mr. Qudus Delivery
+  {
+    const total = PRICES.shredBelly.sell * 3;
+    const order = await prisma.order.create({ data: {
+      orderNumber: num(), customerId: funke.id, salesRepId: salesRep.id, agentId: agentQudus.id,
+      status: "CONFIRMED", totalAmount: total, netAmount: total, deliveryFee: 1200,
+      createdAt: d("2026-05-01T10:30:00Z"),
+      items: { create: { productId: shredBelly.id, quantity: 3, unitPrice: PRICES.shredBelly.sell, lineTotal: total } },
+    }});
+    await prisma.delivery.create({ data: {
+      orderId: order.id, agentId: agentQudus.id,
+      status: "PENDING_DISPATCH", scheduledTime: d("2026-05-03T14:00:00Z"),
+    }});
+  }
+
+  // #61 — Halima: 2× After-Natal + 1× Neuro-Vive Balm — CONFIRMED, Mrs. Sunmi Express
+  {
+    const p1 = PRICES.afterNatal.sell * 2;
+    const p2 = PRICES.neuroBalm.sell;
+    const total = p1 + p2;
+    const order = await prisma.order.create({ data: {
+      orderNumber: num(), customerId: halima.id, salesRepId: salesRep.id, agentId: agentSunmi.id,
+      status: "CONFIRMED", totalAmount: total, netAmount: total, deliveryFee: 1500,
+      createdAt: d("2026-05-02T09:00:00Z"),
+      items: { create: [
+        { productId: afterNatal.id, quantity: 2, unitPrice: PRICES.afterNatal.sell, lineTotal: p1 },
+        { productId: neuroBalm.id,  quantity: 1, unitPrice: PRICES.neuroBalm.sell,  lineTotal: p2 },
+      ]},
+    }});
+    await prisma.delivery.create({ data: {
+      orderId: order.id, agentId: agentSunmi.id,
+      status: "PENDING_DISPATCH", scheduledTime: d("2026-05-04T09:00:00Z"),
+    }});
+  }
+
+  // #62 — Ibrahim: 5× Linix — CONFIRMED, Flymack Couriers
+  {
+    const total = PRICES.linix.sell * 5;
+    const order = await prisma.order.create({ data: {
+      orderNumber: num(), customerId: ibrahim.id, salesRepId: chiamaka.id, agentId: agentFlymack.id,
+      status: "CONFIRMED", totalAmount: total, netAmount: total, deliveryFee: 2000,
+      createdAt: d("2026-05-02T11:00:00Z"),
+      items: { create: { productId: linix.id, quantity: 5, unitPrice: PRICES.linix.sell, lineTotal: total } },
+    }});
+    await prisma.delivery.create({ data: {
+      orderId: order.id, agentId: agentFlymack.id,
+      status: "PENDING_DISPATCH", scheduledTime: d("2026-05-04T13:00:00Z"),
+    }});
+  }
+
+  // #63 — Victor: 2× Trim and Tone — CONFIRMED, Mr. Ola Logistics
+  {
+    const total = PRICES.trimTone.sell * 2;
+    const order = await prisma.order.create({ data: {
+      orderNumber: num(), customerId: victor.id, salesRepId: blessingE.id, agentId: agentOla.id,
+      status: "CONFIRMED", totalAmount: total, netAmount: total, deliveryFee: 1000,
+      createdAt: d("2026-05-03T08:30:00Z"),
+      items: { create: { productId: trimTone.id, quantity: 2, unitPrice: PRICES.trimTone.sell, lineTotal: total } },
+    }});
+    await prisma.delivery.create({ data: {
+      orderId: order.id, agentId: agentOla.id,
+      status: "PENDING_DISPATCH", scheduledTime: d("2026-05-05T10:00:00Z"),
+    }});
+  }
+
+  // #64 — Samuel: 3× Fonio-Mill — CONFIRMED, Mr. Qudus Delivery
+  {
+    const total = PRICES.fonioMill.sell * 3;
+    const order = await prisma.order.create({ data: {
+      orderNumber: num(), customerId: samuel.id, salesRepId: emeka.id, agentId: agentQudus.id,
+      status: "CONFIRMED", totalAmount: total, netAmount: total, deliveryFee: 1200,
+      createdAt: d("2026-05-03T10:00:00Z"),
+      items: { create: { productId: fonioMill.id, quantity: 3, unitPrice: PRICES.fonioMill.sell, lineTotal: total } },
+    }});
+    await prisma.delivery.create({ data: {
+      orderId: order.id, agentId: agentQudus.id,
+      status: "PENDING_DISPATCH", scheduledTime: d("2026-05-05T14:00:00Z"),
+    }});
+  }
+
+  // #65 — Blessing: 4× Prosxact — CONFIRMED, Mrs. Sunmi Express
+  {
+    const total = PRICES.prosxact.sell * 4;
+    const order = await prisma.order.create({ data: {
+      orderNumber: num(), customerId: blessing.id, salesRepId: chiamaka.id, agentId: agentSunmi.id,
+      status: "CONFIRMED", totalAmount: total, netAmount: total, deliveryFee: 1800,
+      createdAt: d("2026-05-04T09:00:00Z"),
+      items: { create: { productId: prosxact.id, quantity: 4, unitPrice: PRICES.prosxact.sell, lineTotal: total } },
+    }});
+    await prisma.delivery.create({ data: {
+      orderId: order.id, agentId: agentSunmi.id,
+      status: "PENDING_DISPATCH", scheduledTime: d("2026-05-06T09:00:00Z"),
+    }});
+  }
+
+  // #66 — Chinedu: 6× Shred Belly + 2× Linix — CONFIRMED, Flymack Couriers
+  {
+    const p1 = PRICES.shredBelly.sell * 6;
+    const p2 = PRICES.linix.sell * 2;
+    const total = p1 + p2;
+    const order = await prisma.order.create({ data: {
+      orderNumber: num(), customerId: chinedu.id, salesRepId: salesRep.id, agentId: agentFlymack.id,
+      status: "CONFIRMED", totalAmount: total, netAmount: total, deliveryFee: 2500,
+      createdAt: d("2026-05-04T11:00:00Z"),
+      items: { create: [
+        { productId: shredBelly.id, quantity: 6, unitPrice: PRICES.shredBelly.sell, lineTotal: p1 },
+        { productId: linix.id,      quantity: 2, unitPrice: PRICES.linix.sell,      lineTotal: p2 },
+      ]},
+    }});
+    await prisma.delivery.create({ data: {
+      orderId: order.id, agentId: agentFlymack.id,
+      status: "PENDING_DISPATCH", scheduledTime: d("2026-05-06T13:00:00Z"),
+    }});
+  }
+
+  console.log("  ✓ Pending dispatch deliveries created (8)");
+
   // ── Summary ─────────────────────────────────────────────────────────────────
   console.log("✅  Done!\n");
   console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
@@ -1182,11 +1368,14 @@ async function main() {
   console.log("  Del. Agent │  sunmi@seed.nutritcare        │  Agent@123");
   console.log("  Del. Agent │  flymack@seed.nutritcare      │  Agent@123");
   console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-  console.log("📦  ORDERS: 58 total across 4 sales reps");
+  console.log("📦  ORDERS: 66 total across 4 sales reps (+8 May CONFIRMED with pending delivery)");
   console.log("  Tolani (27): March 7D+3F+2C | April 4P+2Conf+5D+2C+2F");
   console.log("  Chiamaka(12): March 5D+1F+1C | April 2D+2Conf+1P");
   console.log("  Blessing(11): March 4D+1F+1C | April 1D+2Conf+2P");
   console.log("  Emeka   (8): March 2D+2F+1C | April 1D+1F+1P");
+  console.log("  May (8 new): all CONFIRMED with PENDING_DISPATCH delivery");
+  console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+  console.log("🚚  DELIVERIES: 8 PENDING_DISPATCH | multiple IN_TRANSIT (May 2026)");
   console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
   console.log("🏭  INVENTORY: 6 suppliers | 3 warehouses | 14 incoming | 13 outgoing | 7 returns | 5 POs | 5 transfers");
   console.log("  Net stock:  Prosxact=380(OK) | ShredBelly=220(OK) | FonioMill=30(Low)");
