@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { ChevronRight } from "lucide-react";
 import {
   approveAccountAction,
@@ -62,10 +63,12 @@ function ActivationCard({
   colorClass: string;
   onDone: (id: string) => void;
 }) {
+  const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [action, setAction] = useState<"approve" | "reject" | null>(null);
 
-  function handleApprove() {
+  function handleApprove(e: React.MouseEvent) {
+    e.stopPropagation();
     setAction("approve");
     startTransition(async () => {
       await approveAccountAction(req.id);
@@ -73,7 +76,8 @@ function ActivationCard({
     });
   }
 
-  function handleReject() {
+  function handleReject(e: React.MouseEvent) {
+    e.stopPropagation();
     setAction("reject");
     startTransition(async () => {
       await rejectAccountAction(req.id);
@@ -82,7 +86,10 @@ function ActivationCard({
   }
 
   return (
-    <div className="flex flex-col rounded-2xl overflow-hidden border border-slate-100 min-w-[170px] max-w-[190px] shadow-sm bg-slate-50/30 group hover:shadow-md transition-all duration-300">
+    <div
+      onClick={() => router.push(`/admin/staff/manage-account/${req.id}`)}
+      className="flex flex-col rounded-2xl overflow-hidden border border-slate-100 min-w-[170px] max-w-[190px] shadow-sm bg-slate-50/30 group hover:shadow-md transition-all duration-300 cursor-pointer"
+    >
       <div
         className={`h-[130px] ${colorClass} flex items-center justify-center relative overflow-hidden`}
       >
@@ -93,9 +100,14 @@ function ActivationCard({
       </div>
 
       <div className="p-4 bg-white flex-1">
-        <p className="font-bold text-[0.9rem] text-slate-900 truncate">
-          {req.name}
-        </p>
+        <div className="flex justify-between items-start">
+          <p className="font-bold text-[0.9rem] text-slate-900 truncate flex-1 mr-2">
+            {req.name}
+          </p>
+          <span className="shrink-0 w-6 h-6 rounded-full bg-slate-50 group-hover:bg-purple-50 flex items-center justify-center text-slate-300 group-hover:text-purple-500 transition-colors">
+            <ChevronRight size={14} />
+          </span>
+        </div>
         <div className="flex justify-between items-center mt-1.5">
           <p className="text-[0.75rem] text-slate-400 font-bold uppercase tracking-tight">
             {formatRoleLabel(req.role)}
