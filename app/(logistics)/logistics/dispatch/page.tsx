@@ -25,8 +25,8 @@ export default function DispatchPage() {
   });
 
   useEffect(() => {
-    const orderId = searchParams.get("orderId");
-    const address = searchParams.get("address");
+    const orderId = searchParams.get("orderId") ?? "";
+    const address = searchParams.get("address") ?? "";
     if (orderId || address) {
       setFormData(prev => ({
         ...prev,
