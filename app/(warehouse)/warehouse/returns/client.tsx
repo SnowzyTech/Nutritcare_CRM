@@ -4,11 +4,11 @@ import React, { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Checkbox } from "@/components/ui/checkbox";
-import type { ReturnItem } from "@/lib/mock-data/warehouse";
+import type { ReturnedMovementRow } from "@/modules/inventory/services/inventory.service";
 import { Filter, PlusCircle, ArrowUpDown, Search, ArrowLeft, ChevronDown } from "lucide-react";
 
 interface Props {
-  items: ReturnItem[];
+  items: ReturnedMovementRow[];
 }
 
 export default function ReturnsClient({ items }: Props) {
@@ -23,7 +23,7 @@ export default function ReturnsClient({ items }: Props) {
     return (
       item.productName.toLowerCase().includes(q) ||
       item.state.toLowerCase().includes(q) ||
-      item.agentWarehouse.toLowerCase().includes(q) ||
+      item.agent.toLowerCase().includes(q) ||
       item.addedBy.toLowerCase().includes(q)
     );
   });
@@ -149,9 +149,13 @@ export default function ReturnsClient({ items }: Props) {
                       <td className="px-3 py-2.5 border-r border-gray-100 whitespace-nowrap">{item.date}</td>
                       <td className="px-3 py-2.5 border-r border-gray-100">{item.productName}</td>
                       <td className="px-3 py-2.5 border-r border-gray-100">{item.state}</td>
-                      <td className="px-3 py-2.5 border-r border-gray-100">{item.agentWarehouse}</td>
+                      <td className="px-3 py-2.5 border-r border-gray-100 text-[#9747FF]">{item.agent}</td>
                       <td className="px-3 py-2.5 border-r border-gray-100">{item.qtyReturned}</td>
-                      <td className="px-3 py-2.5 border-r border-gray-100">{item.damaged}</td>
+                      <td className="px-3 py-2.5 border-r border-gray-100">
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${item.damaged === "Yes" ? "bg-red-100 text-red-600" : "bg-green-100 text-green-700"}`}>
+                          {item.damaged}
+                        </span>
+                      </td>
                       <td className="px-3 py-2.5 border-r border-gray-100">{item.remarks}</td>
                       <td className="px-3 py-2.5 whitespace-nowrap">{item.addedBy}</td>
                     </tr>

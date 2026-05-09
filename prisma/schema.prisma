@@ -84,7 +84,15 @@ enum StockTransferNodeType {
 enum StockTransferStatus {
   DRAFT
   SUBMITTED
+  IN_TRANSIT
   COMPLETED
+  FAILED
+  REVERSED
+}
+
+enum StockAdjustmentStatus {
+  DRAFT
+  RECORDED
   REVERSED
 }
 
@@ -173,10 +181,12 @@ model User {
   isTeamLead              Boolean                 @default(false)
   accountActivationStatus AccountActivationStatus @default(PENDING)
   agentId                 String?                 @unique
+  warehouseId             String?
   createdAt               DateTime                @default(now())
   updatedAt               DateTime                @updatedAt
 
   team                  Team?                  @relation(fields: [teamId], references: [id])
+  warehouse             Warehouse?             @relation("WarehouseManagers", fields: [warehouseId], references: [id])
   orders                Order[]                @relation("SalesRepOrders")
   agentsAdded           Agent[]                @relation("AgentAddedBy")
   agent                 Agent?                 @relation("UserAgent", fields: [agentId], references: [id])
@@ -188,6 +198,7 @@ model User {
   invoices              Invoice[]              @relation("InvoiceCreatedBy")
   expenses              Expense[]              @relation("ExpenseCreatedBy")
   settlementAdjustments SettlementAdjustment[] @relation("AdjustmentCreatedBy")
+  stockAdjustments      StockAdjustment[]      @relation("StockAdjustmentCreatedBy")
   notifications         Notification[]         @relation("UserNotifications")
   auditLogs             AuditLog[]             @relation("UserAuditLogs")
   damageReports         DamageReport[]         @relation("DamageReportedBy")
@@ -195,6 +206,7 @@ model User {
   @@index([email])
   @@index([role])
   @@index([teamId])
+  @@index([warehouseId])
   @@index([accountActivationStatus])
   @@map("users")
 }
@@ -272,17 +284,18 @@ model Product {
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 
-  category           ProductCategory     @relation(fields: [categoryId], references: [id])
-  offers             ProductOffer[]
-  combos             ProductCombo[]      @relation("ParentProductCombos")
-  comboOf            ProductCombo[]      @relation("ComboProduct")
-  gifts              ProductGift[]       @relation("ParentProductGifts")
-  giftOf             ProductGift[]       @relation("GiftProduct")
-  orderItems         OrderItem[]
-  stockMovementItems StockMovementItem[]
-  stockTransferItems StockTransferItem[]
-  purchaseOrderItems PurchaseOrderItem[]
-  invoiceItems       InvoiceItem[]
+  category             ProductCategory       @relation(fields: [categoryId], references: [id])
+  offers               ProductOffer[]
+  combos               ProductCombo[]        @relation("ParentProductCombos")
+  comboOf              ProductCombo[]        @relation("ComboProduct")
+  gifts                ProductGift[]         @relation("ParentProductGifts")
+  giftOf               ProductGift[]         @relation("GiftProduct")
+  orderItems           OrderItem[]
+  stockMovementItems   StockMovementItem[]
+  stockTransferItems   StockTransferItem[]
+  stockAdjustmentItems StockAdjustmentItem[]
+  purchaseOrderItems   PurchaseOrderItem[]
+  invoiceItems         InvoiceItem[]
 
   @@index([categoryId])
   @@index([sku])
@@ -371,6 +384,7 @@ model Agent {
   statesCovered        Json?
   picksFromOfficeStock Boolean     @default(false)
   country              String?
+  vehicleNo            String?
   reviewStatus         String?
   addedById            String
   deletedAt            DateTime?
@@ -382,6 +396,8 @@ model Agent {
   orders                Order[]
   stockMovementsFrom    StockMovement[]        @relation("StockMovementAgent")
   stockMovementsTo      StockMovement[]        @relation("StockMovementToAgent")
+  stockMovementsDriver  StockMovement[]        @relation("StockMovementDriver")
+  stockTransfersDriver  StockTransfer[]        @relation("StockTransferDriver")
   deliveries            Delivery[]             @relation("AgentDeliveries")
   agentSettlements      AgentSettlement[]
   agentLedgerEntries    AgentLedgerEntry[]
@@ -406,8 +422,10 @@ model Warehouse {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  locations      WarehouseLocation[]
-  stockMovements StockMovement[]
+  managers         User[]              @relation("WarehouseManagers")
+  locations        WarehouseLocation[]
+  stockMovements   StockMovement[]
+  stockAdjustments StockAdjustment[]
 
   @@map("warehouses")
 }
@@ -501,6 +519,8 @@ model StockMovement {
   quantitySent           Int?
   isAgentToAgentTransfer Boolean?            @default(false)
   toAgentId              String?
+  driverAgentId          String?
+  scheduledTime          DateTime?
   createdById            String
   createdAt              DateTime            @default(now())
   updatedAt              DateTime            @updatedAt
@@ -509,6 +529,7 @@ model StockMovement {
   supplier        Supplier?           @relation(fields: [supplierId], references: [id])
   agent           Agent?              @relation("StockMovementAgent", fields: [agentId], references: [id])
   toAgent         Agent?              @relation("StockMovementToAgent", fields: [toAgentId], references: [id])
+  driverAgent     Agent?              @relation("StockMovementDriver", fields: [driverAgentId], references: [id])
   createdBy       User                @relation("StockMovementCreatedBy", fields: [createdById], references: [id])
   items           StockMovementItem[]
   goodsReceivings GoodsReceiving[]
@@ -551,12 +572,15 @@ model StockTransfer {
   date            DateTime
   status          StockTransferStatus   @default(DRAFT)
   notes           String?
+  driverAgentId   String?
+  scheduledTime   DateTime?
   createdById     String
   createdAt       DateTime              @default(now())
   updatedAt       DateTime              @updatedAt
 
-  createdBy User                @relation("StockTransferCreatedBy", fields: [createdById], references: [id])
-  items     StockTransferItem[]
+  createdBy   User                @relation("StockTransferCreatedBy", fields: [createdById], references: [id])
+  driverAgent Agent?              @relation("StockTransferDriver", fields: [driverAgentId], references: [id])
+  items       StockTransferItem[]
 
   @@index([status])
   @@index([createdById])
@@ -965,4 +989,43 @@ model AuditLog {
   @@index([entityType])
   @@index([createdAt])
   @@map("audit_logs")
+}
+
+model StockAdjustment {
+  id              String                @id @default(cuid())
+  referenceNumber String                @unique
+  warehouseId     String
+  reason          String?
+  notes           String?
+  status          StockAdjustmentStatus @default(DRAFT)
+  date            DateTime
+  createdById     String
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+
+  warehouse Warehouse             @relation(fields: [warehouseId], references: [id])
+  createdBy User                  @relation("StockAdjustmentCreatedBy", fields: [createdById], references: [id])
+  items     StockAdjustmentItem[]
+
+  @@index([warehouseId])
+  @@index([status])
+  @@index([createdById])
+  @@map("stock_adjustments")
+}
+
+model StockAdjustmentItem {
+  id                String   @id @default(cuid())
+  stockAdjustmentId String
+  productId         String
+  quantityBefore    Int
+  quantityAfter     Int
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  stockAdjustment StockAdjustment @relation(fields: [stockAdjustmentId], references: [id], onDelete: Cascade)
+  product         Product         @relation(fields: [productId], references: [id])
+
+  @@index([stockAdjustmentId])
+  @@index([productId])
+  @@map("stock_adjustment_items")
 }

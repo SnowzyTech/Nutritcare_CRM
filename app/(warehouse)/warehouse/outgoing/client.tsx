@@ -4,11 +4,11 @@ import React, { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Checkbox } from "@/components/ui/checkbox";
-import type { OutgoingOrder } from "@/lib/mock-data/warehouse";
+import type { OutgoingMovementRow } from "@/modules/inventory/services/inventory.service";
 import { Filter, PlusCircle, ArrowUpDown, Search, ArrowLeft, ChevronDown } from "lucide-react";
 
 interface Props {
-  items: OutgoingOrder[];
+  items: OutgoingMovementRow[];
 }
 
 export default function OutgoingClient({ items }: Props) {

@@ -4,14 +4,15 @@ import React, { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Checkbox } from "@/components/ui/checkbox";
-import type { IncomingGood } from "@/lib/mock-data/warehouse";
-import { Filter, PlusCircle, ArrowUpDown, Search, ArrowLeft } from "lucide-react";
+import type { IncomingGoodsRow } from "@/modules/warehouse/services/warehouse.service";
+import { Filter, PlusCircle, ArrowUpDown, Search, ArrowLeft, AlertTriangle } from "lucide-react";
 
 interface Props {
-  goods: IncomingGood[];
+  goods: IncomingGoodsRow[];
+  hasWarehouse: boolean;
 }
 
-export default function IncomingGoodsClient({ goods }: Props) {
+export default function IncomingGoodsClient({ goods, hasWarehouse }: Props) {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState("");
   const isEmpty = goods.length === 0;
@@ -22,12 +23,27 @@ export default function IncomingGoodsClient({ goods }: Props) {
     return (
       g.siId.toLowerCase().includes(q) ||
       g.supplier.toLowerCase().includes(q) ||
-      g.warehouse.toLowerCase().includes(q) ||
       g.supplierRef.toLowerCase().includes(q) ||
       g.addedBy.toLowerCase().includes(q) ||
-      g.status.toLowerCase().includes(q)
+      g.status.toLowerCase().includes(q) ||
+      g.product.toLowerCase().includes(q)
     );
   });
+
+  if (!hasWarehouse) {
+    return (
+      <div className="flex flex-col h-full bg-[#FAFAFA] min-h-screen items-center justify-center">
+        <div className="bg-white rounded-2xl shadow-sm p-12 flex flex-col items-center gap-4 w-[480px] text-center">
+          <AlertTriangle className="w-12 h-12 text-amber-400" />
+          <h2 className="text-[18px] font-semibold text-gray-700">No Warehouse Assigned</h2>
+          <p className="text-[13px] text-gray-400 leading-relaxed">
+            Your account is not linked to a warehouse yet. Please contact an administrator to assign
+            you to a warehouse before you can manage incoming goods.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full bg-[#FAFAFA] min-h-screen relative">
@@ -67,7 +83,7 @@ export default function IncomingGoodsClient({ goods }: Props) {
           <div className="bg-white rounded-2xl shadow-sm p-12 flex flex-col items-center justify-center w-[500px] h-[380px]">
             <h2 className="text-[22px] font-semibold text-gray-600 mb-8">Stock In</h2>
 
-            <div className="w-[120px] h-[120px] mb-6 relative flex items-center justify-center">
+            <div className="w-[120px] h-[120px] mb-6 flex items-center justify-center">
               <svg width="120" height="120" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path d="M50 20L80 35L50 50L20 35L50 20Z" stroke="#D1D5DB" strokeWidth="4" strokeLinejoin="round"/>
                 <path d="M20 35V65L50 80V50" stroke="#D1D5DB" strokeWidth="4" strokeLinejoin="round"/>
@@ -79,7 +95,10 @@ export default function IncomingGoodsClient({ goods }: Props) {
 
             <p className="text-gray-400 text-sm mb-6">Create Stock in</p>
 
-            <Link href="/warehouse/incoming-goods/add" className="bg-[#9747FF] text-white text-sm font-medium px-6 py-2.5 rounded-lg hover:bg-purple-600 transition-colors">
+            <Link
+              href="/warehouse/incoming-goods/add"
+              className="bg-[#9747FF] text-white text-sm font-medium px-6 py-2.5 rounded-lg hover:bg-purple-600 transition-colors"
+            >
               Click to add Stock
             </Link>
           </div>
@@ -97,15 +116,13 @@ export default function IncomingGoodsClient({ goods }: Props) {
                     <th className="px-3 py-3 font-normal uppercase tracking-wider border-r border-gray-100">DATE</th>
                     <th className="px-3 py-3 font-normal uppercase tracking-wider border-r border-gray-100">SI-ID</th>
                     <th className="px-3 py-3 font-normal uppercase tracking-wider border-r border-gray-100">Supplier</th>
-                    <th className="px-3 py-3 font-normal uppercase tracking-wider border-r border-gray-100">Warehouse</th>
                     <th className="px-3 py-3 font-normal uppercase tracking-wider border-r border-gray-100">Supplier Ref</th>
                     <th className="px-3 py-3 font-normal uppercase tracking-wider border-r border-gray-100">Product</th>
                     <th className="px-3 py-3 font-normal uppercase tracking-wider border-r border-gray-100">Status</th>
-                    <th className="px-3 py-3 font-normal uppercase tracking-wider border-r border-gray-100">CREATED TIME</th>
-                    <th className="px-3 py-3 font-normal uppercase tracking-wider border-r border-gray-100">Added By:</th>
+                    <th className="px-3 py-3 font-normal uppercase tracking-wider border-r border-gray-100">Created Time</th>
                     <th className="px-3 py-3 font-normal uppercase tracking-wider">
                       <div className="flex items-center justify-between">
-                        Action
+                        Added By
                         <Search className="w-[13px] h-[13px] cursor-pointer text-gray-800" strokeWidth={2.5} />
                       </div>
                     </th>
@@ -122,15 +139,13 @@ export default function IncomingGoodsClient({ goods }: Props) {
                         <Checkbox className="border-gray-300 rounded-[3px] w-3.5 h-3.5" />
                       </td>
                       <td className="px-3 py-2.5 border-r border-gray-100 whitespace-nowrap">{item.date}</td>
-                      <td className="px-3 py-2.5 border-r border-gray-100 whitespace-nowrap">{item.siId}</td>
+                      <td className="px-3 py-2.5 border-r border-gray-100 whitespace-nowrap font-medium text-[#9747FF]">{item.siId}</td>
                       <td className="px-3 py-2.5 border-r border-gray-100">{item.supplier}</td>
-                      <td className="px-3 py-2.5 border-r border-gray-100 text-[#9747FF]">{item.warehouse}</td>
                       <td className="px-3 py-2.5 border-r border-gray-100 text-[#9747FF]">{item.supplierRef}</td>
                       <td className="px-3 py-2.5 border-r border-gray-100">{item.product}</td>
                       <td className="px-3 py-2.5 border-r border-gray-100">{item.status}</td>
                       <td className="px-3 py-2.5 border-r border-gray-100 whitespace-nowrap">{item.createdTime}</td>
-                      <td className="px-3 py-2.5 border-r border-gray-100 whitespace-nowrap">{item.addedBy}</td>
-                      <td className="px-3 py-2.5 whitespace-nowrap">{item.action}</td>
+                      <td className="px-3 py-2.5 whitespace-nowrap">{item.addedBy}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -140,7 +155,7 @@ export default function IncomingGoodsClient({ goods }: Props) {
         </div>
       )}
 
-      {/* Back Button — bottom right */}
+      {/* Back Button */}
       <div className="fixed bottom-6 right-8">
         <button
           onClick={() => router.back()}

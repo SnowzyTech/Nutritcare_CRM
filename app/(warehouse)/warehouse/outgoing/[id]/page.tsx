@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
-import { outgoingOrders } from "@/lib/mock-data/warehouse";
 import { notFound } from "next/navigation";
+import { getOutgoingMovementById } from "@/modules/inventory/services/inventory.service";
 import OutgoingDetailClient from "./client";
 
 export const metadata: Metadata = { title: "Outgoing Details" };
@@ -11,7 +11,7 @@ type PageProps = {
 
 export default async function OutgoingDetailPage({ params }: PageProps) {
   const { id } = await params;
-  const item = outgoingOrders.find((o) => o.id === id);
+  const item = await getOutgoingMovementById(id);
 
   if (!item) notFound();
 

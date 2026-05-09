@@ -1,54 +1,60 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useTransition } from "react";
 import Link from "next/link";
-import type { IncomingGood } from "@/lib/mock-data/warehouse";
+import { useRouter } from "next/navigation";
+import type { IncomingGoodDetail } from "@/modules/warehouse/services/warehouse.service";
 import { ArrowLeft, Search, Trash2, Printer, X } from "lucide-react";
-import { format } from "date-fns";
+import {
+  deleteIncomingMovementAction,
+  reverseIncomingMovementWarehouseAction,
+} from "@/modules/warehouse/actions/incoming.action";
 
 interface Props {
-  good: IncomingGood;
+  good: IncomingGoodDetail;
 }
 
-// Mock product line items for the detail view
-const mockProductDetails = [
-  { product: "Shred Belly", productCode: "123456789", quantity: 200 },
-];
-
 export default function IncomingGoodDetailClient({ good }: Props) {
+  const router = useRouter();
+  const [isPendingReverse, startReverseTransition] = useTransition();
+  const [isPendingDelete, startDeleteTransition] = useTransition();
+
   const [showReverseModal, setShowReverseModal] = useState(false);
   const [reversalReason, setReversalReason] = useState("");
-  const [isReversed, setIsReversed] = useState(good.status === "Reversed");
-  const [reversalInfo, setReversalInfo] = useState<{
-    dateReversed: string;
-    reversedBy: string;
-    reason: string;
-  } | null>(
-    good.status === "Reversed"
-      ? { dateReversed: good.date, reversedBy: good.addedBy, reason: "Previously reversed" }
-      : null
-  );
+  const [error, setError] = useState<string | null>(null);
 
-  const currentStatus = isReversed ? "Reversed" : good.status;
+  const isReversed = good.movementStatus === "REVERSED";
 
   const statusColor =
-    currentStatus === "Recorded"
+    good.movementStatus === "RECORDED"
       ? "bg-[#059669] text-white"
-      : currentStatus === "Draft"
+      : good.movementStatus === "DRAFT"
       ? "bg-gray-400 text-white"
-      : "bg-[#F59E0B] text-white";
+      : good.movementStatus === "REVERSED"
+      ? "bg-[#F59E0B] text-white"
+      : "bg-blue-500 text-white";
 
   const handleReverse = () => {
     if (!reversalReason.trim()) return;
-    const now = new Date();
-    setReversalInfo({
-      dateReversed: format(now, "dd-MM-yyyy"),
-      reversedBy: "Yusuf",
-      reason: reversalReason,
+    setError(null);
+    startReverseTransition(async () => {
+      const result = await reverseIncomingMovementWarehouseAction(good.id, reversalReason);
+      if (result?.error) {
+        setError(result.error);
+      } else {
+        setShowReverseModal(false);
+        router.refresh();
+      }
     });
-    setIsReversed(true);
-    setReversalReason("");
-    setShowReverseModal(false);
+  };
+
+  const handleDelete = () => {
+    if (!window.confirm("Are you sure you want to delete this stock in record? This cannot be undone.")) return;
+    setError(null);
+    startDeleteTransition(async () => {
+      const result = await deleteIncomingMovementAction(good.id);
+      if (result?.error) setError(result.error);
+    });
   };
 
   return (
@@ -85,7 +91,7 @@ export default function IncomingGoodDetailClient({ good }: Props) {
               <span
                 className={`inline-block mt-2 px-3 py-1 rounded text-[11px] font-semibold uppercase tracking-wide ${statusColor}`}
               >
-                {currentStatus}
+                {good.statusLabel}
               </span>
             </div>
 
@@ -100,7 +106,7 @@ export default function IncomingGoodDetailClient({ good }: Props) {
                     </tr>
                     <tr className="border-b border-gray-100">
                       <td className="px-5 py-3 text-gray-500 font-medium">Warehouse:</td>
-                      <td className="px-5 py-3 text-gray-800 font-medium uppercase">{good.warehouse}</td>
+                      <td className="px-5 py-3 text-gray-800 font-medium uppercase">{good.warehouseName}</td>
                     </tr>
                     <tr className="border-b border-gray-100">
                       <td className="px-5 py-3 text-gray-500 font-medium">Supplier:</td>
@@ -112,11 +118,11 @@ export default function IncomingGoodDetailClient({ good }: Props) {
                     </tr>
                     <tr className="border-b border-gray-100">
                       <td className="px-5 py-3 text-gray-500 font-medium">Recorded By:</td>
-                      <td className="px-5 py-3 text-gray-800 font-medium uppercase">{good.addedBy}</td>
+                      <td className="px-5 py-3 text-gray-800 font-medium uppercase">{good.recordedBy}</td>
                     </tr>
                     <tr>
                       <td className="px-5 py-3 text-gray-500 font-medium">Date Received:</td>
-                      <td className="px-5 py-3 text-gray-800 font-medium">{good.date}</td>
+                      <td className="px-5 py-3 text-gray-800 font-medium">{good.dateReceived}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -136,9 +142,9 @@ export default function IncomingGoodDetailClient({ good }: Props) {
                 </tr>
               </thead>
               <tbody>
-                {mockProductDetails.map((item, index) => (
-                  <tr key={index} className="border-b border-gray-100 bg-white">
-                    <td className="px-4 py-3 text-[12px] text-gray-500">{index + 1}</td>
+                {good.products.map((item) => (
+                  <tr key={item.id} className="border-b border-gray-100 bg-white">
+                    <td className="px-4 py-3 text-[12px] text-gray-500">{item.id}</td>
                     <td className="px-4 py-3 text-[12px] text-gray-600">{item.product}</td>
                     <td className="px-4 py-3 text-[12px] text-gray-500">{item.productCode}</td>
                     <td className="px-4 py-3 text-[12px] text-gray-600 text-right">{item.quantity}</td>
@@ -148,22 +154,24 @@ export default function IncomingGoodDetailClient({ good }: Props) {
             </table>
           </div>
 
-          {/* Reversal Info (shown after reversing) */}
-          {isReversed && reversalInfo && (
+          {error && <p className="text-red-500 text-[13px] mt-4">{error}</p>}
+
+          {/* Reversal Info */}
+          {isReversed && (
             <div className="mt-8 flex items-end justify-between">
               <div className="space-y-2">
-                <div className="flex gap-6">
-                  <span className="text-[13px] font-semibold text-gray-700 w-[160px]">Date Reversed:</span>
-                  <span className="text-[13px] text-gray-600">{reversalInfo.dateReversed}</span>
-                </div>
-                <div className="flex gap-6">
-                  <span className="text-[13px] font-semibold text-gray-700 w-[160px]">Reversed By:</span>
-                  <span className="text-[13px] text-gray-600">{reversalInfo.reversedBy}</span>
-                </div>
-                <div className="flex gap-6">
-                  <span className="text-[13px] font-semibold text-gray-700 w-[160px]">Reversal Reason:</span>
-                  <span className="text-[13px] text-gray-600">{reversalInfo.reason}</span>
-                </div>
+                {good.dateReversed && (
+                  <div className="flex gap-6">
+                    <span className="text-[13px] font-semibold text-gray-700 w-[160px]">Date Reversed:</span>
+                    <span className="text-[13px] text-gray-600">{good.dateReversed}</span>
+                  </div>
+                )}
+                {good.reversalReason && (
+                  <div className="flex gap-6">
+                    <span className="text-[13px] font-semibold text-gray-700 w-[160px]">Reversal Reason:</span>
+                    <span className="text-[13px] text-gray-600">{good.reversalReason}</span>
+                  </div>
+                )}
               </div>
 
               <button className="flex items-center gap-2 bg-white border border-gray-200 hover:bg-gray-50 text-gray-600 text-[13px] font-medium px-5 h-[38px] rounded-md transition-colors">
@@ -173,7 +181,7 @@ export default function IncomingGoodDetailClient({ good }: Props) {
             </div>
           )}
 
-          {/* Action Buttons (shown when NOT reversed) */}
+          {/* Action Buttons */}
           {!isReversed && (
             <div className="flex items-center justify-end gap-3 mt-10">
               <button
@@ -182,11 +190,18 @@ export default function IncomingGoodDetailClient({ good }: Props) {
               >
                 Reverse
               </button>
-              <button className="flex items-center gap-2 bg-white border border-gray-200 hover:bg-gray-50 text-gray-600 text-[13px] font-medium px-5 h-[38px] rounded-md transition-colors">
+              <button
+                onClick={handleDelete}
+                disabled={isPendingDelete}
+                className="flex items-center gap-2 bg-white border border-gray-200 hover:bg-gray-50 disabled:opacity-60 text-gray-600 text-[13px] font-medium px-5 h-[38px] rounded-md transition-colors"
+              >
                 <Trash2 className="w-4 h-4" />
-                Delete
+                {isPendingDelete ? "Deleting…" : "Delete"}
               </button>
-              <button className="flex items-center gap-2 bg-white border border-gray-200 hover:bg-gray-50 text-gray-600 text-[13px] font-medium px-5 h-[38px] rounded-md transition-colors">
+              <button
+                onClick={() => window.print()}
+                className="flex items-center gap-2 bg-white border border-gray-200 hover:bg-gray-50 text-gray-600 text-[13px] font-medium px-5 h-[38px] rounded-md transition-colors"
+              >
                 <Printer className="w-4 h-4" />
                 PDF/Print
               </button>
@@ -195,18 +210,15 @@ export default function IncomingGoodDetailClient({ good }: Props) {
         </div>
       </div>
 
-      {/* ── Reverse Modal ────────────────────────────────────── */}
+      {/* Reverse Modal */}
       {showReverseModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
-          {/* Backdrop */}
           <div
             className="absolute inset-0 bg-black/40"
             onClick={() => setShowReverseModal(false)}
           />
 
-          {/* Modal */}
           <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-[520px] mx-4 animate-in fade-in zoom-in-95 duration-200">
-            {/* Close */}
             <button
               onClick={() => setShowReverseModal(false)}
               className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors"
@@ -215,7 +227,6 @@ export default function IncomingGoodDetailClient({ good }: Props) {
             </button>
 
             <div className="p-6 pt-8">
-              {/* Order Details Table */}
               <div className="border border-gray-200 rounded-lg overflow-hidden">
                 <table className="w-full text-[13px]">
                   <tbody>
@@ -225,7 +236,7 @@ export default function IncomingGoodDetailClient({ good }: Props) {
                     </tr>
                     <tr className="border-b border-gray-100">
                       <td className="px-5 py-3 text-gray-500 font-medium">Warehouse</td>
-                      <td className="px-5 py-3 text-gray-800 font-medium">{good.warehouse}</td>
+                      <td className="px-5 py-3 text-gray-800 font-medium">{good.warehouseName}</td>
                     </tr>
                     <tr className="border-b border-gray-100">
                       <td className="px-5 py-3 text-gray-500 font-medium">Supplier</td>
@@ -233,13 +244,12 @@ export default function IncomingGoodDetailClient({ good }: Props) {
                     </tr>
                     <tr>
                       <td className="px-5 py-3 text-gray-500 font-medium">Date Received</td>
-                      <td className="px-5 py-3 text-gray-800 font-medium">{good.date}</td>
+                      <td className="px-5 py-3 text-gray-800 font-medium">{good.dateReceived}</td>
                     </tr>
                   </tbody>
                 </table>
               </div>
 
-              {/* Product Table in Modal */}
               <div className="mt-4 border border-gray-200 rounded-lg overflow-hidden">
                 <table className="w-full text-[12px]">
                   <thead>
@@ -249,8 +259,8 @@ export default function IncomingGoodDetailClient({ good }: Props) {
                     </tr>
                   </thead>
                   <tbody>
-                    {mockProductDetails.map((item, index) => (
-                      <tr key={index} className="border-b border-gray-50">
+                    {good.products.map((item) => (
+                      <tr key={item.id} className="border-b border-gray-50">
                         <td className="px-4 py-2.5 text-gray-600">{item.product}</td>
                         <td className="px-4 py-2.5 text-gray-600 text-right">{item.quantity}</td>
                       </tr>
@@ -259,7 +269,6 @@ export default function IncomingGoodDetailClient({ good }: Props) {
                 </table>
               </div>
 
-              {/* Reversal Reason */}
               <div className="mt-6">
                 <label className="text-[13px] font-medium text-gray-700 block mb-2">
                   <span className="text-gray-800">Reversal</span>{" "}
@@ -273,12 +282,12 @@ export default function IncomingGoodDetailClient({ good }: Props) {
                 />
               </div>
 
-              {/* Confirmation Text */}
+              {error && <p className="text-red-500 text-[13px] mt-2">{error}</p>}
+
               <p className="mt-5 text-[14px] text-[#F59E0B] font-medium">
-                Do you want to reverse Stock ?
+                Do you want to reverse Stock?
               </p>
 
-              {/* Action Buttons */}
               <div className="flex items-center gap-3 mt-5 pb-2">
                 <button
                   onClick={() => setShowReverseModal(false)}
@@ -288,10 +297,10 @@ export default function IncomingGoodDetailClient({ good }: Props) {
                 </button>
                 <button
                   onClick={handleReverse}
-                  disabled={!reversalReason.trim()}
+                  disabled={!reversalReason.trim() || isPendingReverse}
                   className="bg-[#9747FF] hover:bg-[#7C3AED] disabled:opacity-50 disabled:cursor-not-allowed text-white text-[13px] font-medium px-6 h-[38px] rounded-md transition-colors"
                 >
-                  Reverse
+                  {isPendingReverse ? "Reversing…" : "Reverse"}
                 </button>
               </div>
             </div>

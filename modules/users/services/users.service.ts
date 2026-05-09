@@ -432,7 +432,22 @@ export async function getStaffMemberById(id: string) {
       id: true, name: true, email: true, phone: true, whatsappNumber: true,
       avatarUrl: true, isActive: true, isTeamLead: true, createdAt: true, role: true,
       team: { select: { id: true, name: true } },
+      warehouse: { select: { id: true, name: true } },
     },
+  });
+}
+
+export async function getWarehousesList() {
+  return prisma.warehouse.findMany({
+    select: { id: true, name: true },
+    orderBy: { name: "asc" },
+  });
+}
+
+export async function assignWarehouseToUser(userId: string, warehouseId: string | null) {
+  return prisma.user.update({
+    where: { id: userId },
+    data: { warehouseId },
   });
 }
 
