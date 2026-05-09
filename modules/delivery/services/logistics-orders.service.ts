@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db/prisma";
+import { formatDate } from "@/lib/utils";
 import type { DeliveryStatus, OrderStatus } from "@prisma/client";
 
 export type LogisticsDeliveryRow = {
@@ -10,36 +11,146 @@ export type LogisticsDeliveryRow = {
   time: string;
   address: string;
   status: DeliveryStatus;
+  sourceType: "stockOut" | "stockTransfer";
 };
 
+function mapMovementStatus(status: string): DeliveryStatus {
+  switch (status) {
+    case "RECEIVED":
+    case "SHELVED":
+      return "DELIVERED";
+    case "NOT_RECEIVED":
+      return "FAILED";
+    case "QC_CHECK":
+      return "IN_TRANSIT";
+    default:
+      return "PENDING_DISPATCH";
+  }
+}
+
+function mapTransferStatus(status: string): DeliveryStatus {
+  switch (status) {
+    case "COMPLETED": return "DELIVERED";
+    case "IN_TRANSIT": return "IN_TRANSIT";
+    case "FAILED": return "FAILED";
+    default: return "PENDING_DISPATCH";
+  }
+}
+
 export async function getLogisticsDeliveries(): Promise<LogisticsDeliveryRow[]> {
-  const deliveries = await prisma.delivery.findMany({
-    orderBy: { createdAt: "desc" },
-    include: {
-      order: {
-        select: {
-          id: true,
-          orderNumber: true,
-          customer: { select: { deliveryAddress: true } },
-        },
-      },
-      agent: { select: { companyName: true } },
-      driver: { select: { name: true } },
+  // 1. Stock out vouchers (OUTGOING movements), excluding DRAFT and REVERSED
+  const outgoing = await prisma.stockMovement.findMany({
+    where: {
+      type: "OUTGOING",
+      status: { notIn: ["DRAFT", "REVERSED"] },
     },
+    select: {
+      id: true,
+      referenceNumber: true,
+      status: true,
+      createdAt: true,
+      scheduledTime: true,
+      agent: { select: { companyName: true, address: true } },
+      driverAgent: { select: { companyName: true } },
+    },
+    orderBy: { createdAt: "desc" },
   });
 
-  return deliveries.map((d) => ({
-    id: d.id,
-    orderNumber: d.order.orderNumber,
-    orderId: d.order.id,
-    agent: d.agent?.companyName ?? "—",
-    driver: d.driver?.name ?? "—",
-    time: d.scheduledTime
-      ? d.scheduledTime.toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit", hour12: false })
-      : "—",
-    address: d.order.customer.deliveryAddress,
-    status: d.status,
+  // 3. Stock transfers, excluding DRAFT and REVERSED
+  const transfers = await prisma.stockTransfer.findMany({
+    where: {
+      status: { notIn: ["DRAFT", "REVERSED"] },
+    },
+    select: {
+      id: true,
+      referenceNumber: true,
+      status: true,
+      createdAt: true,
+      scheduledTime: true,
+      sourceType: true,
+      sourceId: true,
+      targetType: true,
+      targetId: true,
+      driverAgent: { select: { companyName: true } },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  // Resolve warehouse/agent names and addresses for transfers
+  const warehouseIds = [
+    ...new Set([
+      ...transfers.filter((t) => t.targetType === "WAREHOUSE").map((t) => t.targetId),
+      ...transfers.filter((t) => t.sourceType === "WAREHOUSE").map((t) => t.sourceId),
+    ]),
+  ];
+  const agentIds = [
+    ...new Set([
+      ...transfers.filter((t) => t.targetType === "AGENT").map((t) => t.targetId),
+      ...transfers.filter((t) => t.sourceType === "AGENT").map((t) => t.sourceId),
+    ]),
+  ];
+
+  const [warehouses, transferAgents] = await Promise.all([
+    warehouseIds.length > 0
+      ? prisma.warehouse.findMany({
+          where: { id: { in: warehouseIds } },
+          select: { id: true, name: true, address: true },
+        })
+      : [],
+    agentIds.length > 0
+      ? prisma.agent.findMany({
+          where: { id: { in: agentIds } },
+          select: { id: true, companyName: true, address: true },
+        })
+      : [],
+  ]);
+
+  const whMap = new Map(warehouses.map((w) => [w.id, w]));
+  const agentMap = new Map(transferAgents.map((a) => [a.id, a]));
+
+  function resolveName(type: string, id: string): string {
+    if (type === "WAREHOUSE") return whMap.get(id)?.name ?? "—";
+    return agentMap.get(id)?.companyName ?? "—";
+  }
+
+  function resolveAddress(type: string, id: string): string {
+    if (type === "WAREHOUSE") return whMap.get(id)?.address ?? "—";
+    return agentMap.get(id)?.address ?? "—";
+  }
+
+  // Build typed rows with _createdAt for sorting, then strip it
+  type RowWithDate = LogisticsDeliveryRow & { _createdAt: Date };
+
+  const outgoingRows: RowWithDate[] = outgoing.map((m) => ({
+    id: m.id,
+    orderNumber: m.referenceNumber,
+    orderId: m.id,
+    agent: m.agent?.companyName ?? "—",
+    driver: m.driverAgent?.companyName ?? "—",
+    time: m.scheduledTime ? formatDate(m.scheduledTime) : "—",
+    address: m.agent?.address ?? "—",
+    status: mapMovementStatus(m.status),
+    sourceType: "stockOut",
+    _createdAt: m.createdAt,
   }));
+
+  const transferRows: RowWithDate[] = transfers.map((t) => ({
+    id: t.id,
+    orderNumber: t.referenceNumber,
+    orderId: t.id,
+    agent: resolveName(t.sourceType, t.sourceId),
+    driver: t.driverAgent?.companyName ?? "—",
+    time: t.scheduledTime ? formatDate(t.scheduledTime) : "—",
+    address: resolveAddress(t.targetType, t.targetId),
+    status: mapTransferStatus(t.status),
+    sourceType: "stockTransfer",
+    _createdAt: t.createdAt,
+  }));
+
+  const combined: RowWithDate[] = [...outgoingRows, ...transferRows];
+  combined.sort((a, b) => b._createdAt.getTime() - a._createdAt.getTime());
+
+  return combined.map(({ _createdAt, ...row }) => row);
 }
 
 export async function getLogisticsOrders(status?: OrderStatus) {

@@ -16,6 +16,12 @@ import type { DispatchOrder, DispatchDriver } from "@/modules/delivery/services/
 
 const MAX_LOAD = 5;
 
+const SOURCE_LABEL: Record<string, string> = {
+  order: "Order",
+  stockOut: "Stock Out",
+  stockTransfer: "Transfer",
+};
+
 export function DispatchClient({
   orders,
   drivers,
@@ -27,38 +33,39 @@ export function DispatchClient({
   const searchParams = useSearchParams();
   const [isPending, startTransition] = useTransition();
 
-  const [selectedOrderId, setSelectedOrderId] = useState("");
+  const [selectedItemId, setSelectedItemId] = useState("");
   const [selectedDriverId, setSelectedDriverId] = useState("");
   const [priority, setPriority] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  const selectedOrder = orders.find((o) => o.id === selectedOrderId) ?? null;
+  const selectedItem = orders.find((o) => o.id === selectedItemId) ?? null;
 
   // Pre-fill from query params (set by the Assign button on the deliveries page)
   useEffect(() => {
-    const paramOrderId = searchParams.get("orderId");
-    if (paramOrderId && orders.some((o) => o.id === paramOrderId)) {
-      setSelectedOrderId(paramOrderId);
+    const paramId = searchParams.get("orderId");
+    if (paramId && orders.some((o) => o.id === paramId)) {
+      setSelectedItemId(paramId);
     }
   }, [searchParams, orders]);
 
   function handleReset() {
-    setSelectedOrderId("");
+    setSelectedItemId("");
     setSelectedDriverId("");
     setPriority("");
     setError(null);
   }
 
   function handleDispatch() {
-    if (!selectedOrderId) {
-      setError("Please select an order.");
+    if (!selectedItemId) {
+      setError("Please select an item to dispatch.");
       return;
     }
     setError(null);
     startTransition(async () => {
       const result = await dispatchOrderAction(
-        selectedOrderId,
-        selectedDriverId || undefined  // driver's Agent ID → stored in delivery.agentId
+        selectedItemId,
+        selectedDriverId || undefined,
+        selectedItem?.sourceType ?? "order"
       );
       if (!result.success) {
         setError(result.error);
@@ -67,6 +74,8 @@ export function DispatchClient({
       }
     });
   }
+
+  const itemLabel = selectedItem ? SOURCE_LABEL[selectedItem.sourceType] : "Order / Reference";
 
   return (
     <div className="max-w-5xl mx-auto space-y-12 pt-2 pb-20">
@@ -88,7 +97,7 @@ export function DispatchClient({
             </Button>
             <Button
               onClick={handleDispatch}
-              disabled={isPending || !selectedOrderId}
+              disabled={isPending || !selectedItemId}
               className="bg-[#ad1df4] hover:bg-[#8e14cc] text-white px-8 font-bold h-10 rounded-md disabled:opacity-50"
             >
               {isPending ? "Dispatching…" : "Dispatch"}
@@ -103,19 +112,20 @@ export function DispatchClient({
         )}
 
         <div className="grid grid-cols-2 gap-x-12 gap-y-6">
-          {/* Order ID */}
+          {/* Order / Reference ID */}
           <div className="space-y-1.5">
-            <label className="text-[10px] font-bold text-gray-800 uppercase">Order ID</label>
-            <Select value={selectedOrderId} onValueChange={(val) => setSelectedOrderId(val ?? "")}>
+            <label className="text-[10px] font-bold text-gray-800 uppercase">{itemLabel}</label>
+            <Select value={selectedItemId} onValueChange={(val) => setSelectedItemId(val ?? "")}>
               <SelectTrigger className="h-10 text-xs text-gray-500 border-gray-200">
-                <SelectValue placeholder="Select an order" />
+                <SelectValue placeholder="Select an order or reference" />
               </SelectTrigger>
               <SelectContent>
                 {orders.length === 0 && (
-                  <SelectItem value="__none__" disabled>No confirmed orders awaiting dispatch</SelectItem>
+                  <SelectItem value="__none__" disabled>Nothing pending dispatch</SelectItem>
                 )}
                 {orders.map((o) => (
                   <SelectItem key={o.id} value={o.id}>
+                    <span className="text-[10px] text-gray-400 mr-1">[{SOURCE_LABEL[o.sourceType]}]</span>
                     {o.orderNumber}
                   </SelectItem>
                 ))}
@@ -127,7 +137,7 @@ export function DispatchClient({
           <div className="space-y-1.5">
             <label className="text-[10px] font-bold text-gray-800 uppercase">Delivery Address</label>
             <div className="h-10 px-3 flex items-center text-xs text-gray-500 border border-gray-200 rounded-md bg-gray-50">
-              {selectedOrder?.address ?? <span className="text-gray-300">Auto-filled from order</span>}
+              {selectedItem?.address ?? <span className="text-gray-300">Auto-filled from selection</span>}
             </div>
           </div>
 
@@ -167,7 +177,7 @@ export function DispatchClient({
           <div className="space-y-1.5">
             <label className="text-[10px] font-bold text-gray-800 uppercase">Agent</label>
             <div className="h-10 px-3 flex items-center text-xs text-gray-500 border border-gray-200 rounded-md bg-gray-50">
-              {selectedOrder?.agentName ?? <span className="text-gray-300">Auto-filled from order</span>}
+              {selectedItem?.agentName ?? <span className="text-gray-300">Auto-filled from selection</span>}
             </div>
           </div>
 
@@ -175,7 +185,7 @@ export function DispatchClient({
           <div className="space-y-1.5">
             <label className="text-[10px] font-bold text-gray-800 uppercase">State</label>
             <div className="h-10 px-3 flex items-center text-xs text-gray-500 border border-gray-200 rounded-md bg-gray-50">
-              {selectedOrder?.state ?? <span className="text-gray-300">Auto-filled from order</span>}
+              {selectedItem?.state ?? <span className="text-gray-300">Auto-filled from selection</span>}
             </div>
           </div>
         </div>

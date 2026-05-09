@@ -84,7 +84,9 @@ enum StockTransferNodeType {
 enum StockTransferStatus {
   DRAFT
   SUBMITTED
+  IN_TRANSIT
   COMPLETED
+  FAILED
   REVERSED
 }
 
@@ -391,6 +393,8 @@ model Agent {
   orders                Order[]
   stockMovementsFrom    StockMovement[]        @relation("StockMovementAgent")
   stockMovementsTo      StockMovement[]        @relation("StockMovementToAgent")
+  stockMovementsDriver  StockMovement[]        @relation("StockMovementDriver")
+  stockTransfersDriver  StockTransfer[]        @relation("StockTransferDriver")
   deliveries            Delivery[]             @relation("AgentDeliveries")
   agentSettlements      AgentSettlement[]
   agentLedgerEntries    AgentLedgerEntry[]
@@ -511,6 +515,8 @@ model StockMovement {
   quantitySent           Int?
   isAgentToAgentTransfer Boolean?            @default(false)
   toAgentId              String?
+  driverAgentId          String?
+  scheduledTime          DateTime?
   createdById            String
   createdAt              DateTime            @default(now())
   updatedAt              DateTime            @updatedAt
@@ -519,6 +525,7 @@ model StockMovement {
   supplier        Supplier?           @relation(fields: [supplierId], references: [id])
   agent           Agent?              @relation("StockMovementAgent", fields: [agentId], references: [id])
   toAgent         Agent?              @relation("StockMovementToAgent", fields: [toAgentId], references: [id])
+  driverAgent     Agent?              @relation("StockMovementDriver", fields: [driverAgentId], references: [id])
   createdBy       User                @relation("StockMovementCreatedBy", fields: [createdById], references: [id])
   items           StockMovementItem[]
   goodsReceivings GoodsReceiving[]
@@ -561,12 +568,15 @@ model StockTransfer {
   date            DateTime
   status          StockTransferStatus   @default(DRAFT)
   notes           String?
+  driverAgentId   String?
+  scheduledTime   DateTime?
   createdById     String
   createdAt       DateTime              @default(now())
   updatedAt       DateTime              @updatedAt
 
-  createdBy User                @relation("StockTransferCreatedBy", fields: [createdById], references: [id])
-  items     StockTransferItem[]
+  createdBy   User                @relation("StockTransferCreatedBy", fields: [createdById], references: [id])
+  driverAgent Agent?              @relation("StockTransferDriver", fields: [driverAgentId], references: [id])
+  items       StockTransferItem[]
 
   @@index([status])
   @@index([createdById])

@@ -18,7 +18,9 @@
       "Bash(Select-Object Used,Free)",
       "PowerShell(Get-Volume *)",
       "PowerShell($drive = [System.IO.DriveInfo]::new\\(\"C\"\\); \"Free: $\\([Math]::Round\\($drive.AvailableFreeSpace/1GB, 2\\)\\) GB / Total: $\\([Math]::Round\\($drive.TotalSize/1GB, 2\\)\\) GB\")",
-      "PowerShell(cd \"C:\\\\Users\\\\emmauel\\\\Desktop\\\\organizations\\\\Nutritcare_CRM\"; npx tsc --noEmit 2>&1 | Where-Object { $_ -match \"order-detail-client|orders-client\" })"
+      "PowerShell(cd \"C:\\\\Users\\\\emmauel\\\\Desktop\\\\organizations\\\\Nutritcare_CRM\"; npx tsc --noEmit 2>&1 | Where-Object { $_ -match \"order-detail-client|orders-client\" })",
+      "Bash(npm list *)",
+      "Bash(findstr \"date-fns\")"
     ]
   }
 }
