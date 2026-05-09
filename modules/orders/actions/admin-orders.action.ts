@@ -54,6 +54,18 @@ export async function adminDeliverOrderAction(orderId: string) {
   revalidate(orderId);
 }
 
+export async function adminUpdateOrderTotalAction(orderId: string, totalAmount: number) {
+  await checkAdmin();
+  const order = await getOrder(orderId);
+  if (!order || order.status !== "PENDING") throw new Error("Cannot update total for this order");
+
+  await prisma.order.update({
+    where: { id: orderId },
+    data: { totalAmount, netAmount: totalAmount },
+  });
+  revalidate(orderId);
+}
+
 // Distribute orderIds equally (round-robin) among salesRepIds and update salesRepId.
 export async function adminReassignOrdersAction(
   orderIds: string[],

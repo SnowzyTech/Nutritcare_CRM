@@ -1,8 +1,15 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
-import { ChevronRight } from "lucide-react";
+import { useState, useTransition, useRef, useEffect } from "react";
+import { useRouter, usePathname, useSearchParams } from "next/navigation";
+import { ChevronRight, Search, SlidersHorizontal, ArrowUpDown } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   approveAccountAction,
   rejectAccountAction,
@@ -167,9 +174,140 @@ export function ActivationRequestsSection({
           onDone={handleDone}
         />
       ))}
-      <button className="flex flex-col items-center justify-center gap-2 px-6 rounded-2xl border-2 border-dashed border-slate-100 bg-slate-50/30 hover:bg-purple-50 hover:border-purple-100 text-purple-600 font-black text-[0.85rem] transition-all min-w-[100px]">
-        See all <ChevronRight size={18} />
+    </div>
+  );
+}
+
+// ── Toolbar ──────────────────────────────────────────────────────────────────
+
+type Team = { id: string; name: string; department: string };
+
+export function ManageAccountToolbar({ teams }: { teams: Team[] }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  const dept = searchParams.get("dept") ?? "";
+  const team = searchParams.get("team") ?? "";
+  const sort = searchParams.get("sort") ?? "";
+  const q = searchParams.get("q") ?? "";
+
+  const [searchValue, setSearchValue] = useState(q);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    setSearchValue(q);
+  }, [q]);
+
+  function buildParams(updates: Record<string, string>) {
+    const p = new URLSearchParams(searchParams.toString());
+    for (const [k, v] of Object.entries(updates)) {
+      if (v) p.set(k, v);
+      else p.delete(k);
+    }
+    const str = p.toString();
+    return str ? `?${str}` : "";
+  }
+
+  function setDept(val: string) {
+    const d = val === "all" ? "" : val;
+    router.push(`${pathname}${buildParams({ dept: d, team: "" })}`);
+  }
+
+  function setTeam(val: string) {
+    router.push(`${pathname}${buildParams({ team: val === "all" ? "" : val })}`);
+  }
+
+  function toggleSort() {
+    const next = sort === "asc" ? "" : "asc";
+    router.push(`${pathname}${buildParams({ sort: next })}`);
+  }
+
+  function handleSearchChange(value: string) {
+    setSearchValue(value);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      router.push(`${pathname}${buildParams({ q: value.trim() })}`);
+    }, 350);
+  }
+
+  const deptTeams = dept ? teams.filter((t) => t.department === dept) : teams;
+  const sortActive = sort === "asc";
+
+  return (
+    <div className="flex flex-wrap items-center gap-3 mb-8">
+      <button className="flex items-center gap-2 px-4 py-2 border border-slate-200 rounded-lg bg-white text-[0.85rem] font-bold text-slate-700 hover:bg-slate-50 transition-all shadow-sm">
+        <SlidersHorizontal size={15} />
+        Filter
       </button>
+
+      <Select value={dept || "all"} onValueChange={setDept}>
+        <SelectTrigger className="w-[130px] h-[38px] border-slate-200 rounded-lg bg-white text-[0.85rem] font-bold text-slate-700 shadow-sm">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">All Depts</SelectItem>
+          <SelectItem value="SALES">Sales</SelectItem>
+          <SelectItem value="INVENTORY_LOGISTICS">Inventory</SelectItem>
+          <SelectItem value="ACCOUNTING">Accounting</SelectItem>
+          <SelectItem value="DATA">Data</SelectItem>
+        </SelectContent>
+      </Select>
+
+      <Select
+        value={team || "all"}
+        onValueChange={setTeam}
+        disabled={deptTeams.length === 0}
+      >
+        <SelectTrigger className="w-[130px] h-[38px] border-slate-200 rounded-lg bg-white text-[0.85rem] font-bold text-slate-700 shadow-sm">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">All Teams</SelectItem>
+          {deptTeams.map((t) => (
+            <SelectItem key={t.id} value={t.id}>
+              {t.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      <button
+        onClick={toggleSort}
+        title={sortActive ? "Oldest first — click for newest" : "Newest first — click for oldest"}
+        className={`flex items-center gap-1 px-2.5 py-2 border rounded-lg transition-all shadow-sm ${
+          sortActive
+            ? "border-purple-300 text-purple-600 bg-purple-50 hover:bg-purple-100"
+            : "border-slate-200 text-slate-400 bg-white hover:bg-slate-50"
+        }`}
+      >
+        <ArrowUpDown size={15} />
+      </button>
+
+      <button className="bg-purple-600 hover:bg-purple-700 text-white px-5 py-2 rounded-lg text-[0.82rem] font-black uppercase tracking-wider transition-all shadow-md shadow-purple-200">
+        See all Staffs
+      </button>
+
+      <div className="flex-1" />
+
+      <div className="flex items-center gap-2 border border-slate-200 rounded-lg px-4 py-2 bg-white min-w-[280px] shadow-sm">
+        <Search size={15} className="text-slate-400 shrink-0" />
+        <input
+          type="text"
+          placeholder="search by name"
+          value={searchValue}
+          onChange={(e) => handleSearchChange(e.target.value)}
+          className="border-none outline-none text-[0.85rem] text-slate-700 bg-transparent w-full placeholder:text-slate-400"
+        />
+        {searchValue && (
+          <button
+            onClick={() => handleSearchChange("")}
+            className="text-slate-300 hover:text-slate-500 transition-colors text-[0.75rem] shrink-0"
+          >
+            ✕
+          </button>
+        )}
+      </div>
     </div>
   );
 }

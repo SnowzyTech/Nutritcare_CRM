@@ -1,7 +1,12 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
-import { Search, SlidersHorizontal, ArrowUpDown, ChevronDown } from "lucide-react";
+import {
+  Search,
+  SlidersHorizontal,
+  ArrowUpDown,
+  ChevronDown,
+} from "lucide-react";
 import Link from "next/link";
 import {
   Select,
@@ -13,11 +18,43 @@ import {
 import type { OrderStatus } from "@prisma/client";
 
 const nigerianStates = [
-  "Abia", "Adamawa", "Akwa Ibom", "Anambra", "Bauchi", "Bayelsa", "Benue",
-  "Borno", "Cross River", "Delta", "Ebonyi", "Edo", "Ekiti", "Enugu", "FCT",
-  "Gombe", "Imo", "Jigawa", "Kaduna", "Kano", "Katsina", "Kebbi", "Kogi",
-  "Kwara", "Lagos", "Nasarawa", "Niger", "Ogun", "Ondo", "Osun", "Oyo",
-  "Plateau", "Rivers", "Sokoto", "Taraba", "Yobe", "Zamfara",
+  "Abia",
+  "Adamawa",
+  "Akwa Ibom",
+  "Anambra",
+  "Bauchi",
+  "Bayelsa",
+  "Benue",
+  "Borno",
+  "Cross River",
+  "Delta",
+  "Ebonyi",
+  "Edo",
+  "Ekiti",
+  "Enugu",
+  "FCT",
+  "Gombe",
+  "Imo",
+  "Jigawa",
+  "Kaduna",
+  "Kano",
+  "Katsina",
+  "Kebbi",
+  "Kogi",
+  "Kwara",
+  "Lagos",
+  "Nasarawa",
+  "Niger",
+  "Ogun",
+  "Ondo",
+  "Osun",
+  "Oyo",
+  "Plateau",
+  "Rivers",
+  "Sokoto",
+  "Taraba",
+  "Yobe",
+  "Zamfara",
 ];
 
 export type AdminOrderListItem = {
@@ -90,19 +127,19 @@ export function AdminOrdersClient({
           o.customer.name.toLowerCase().includes(q) ||
           (o.customer.email ?? "").toLowerCase().includes(q) ||
           o.orderNumber.toLowerCase().includes(q) ||
-          o.salesRep.name.toLowerCase().includes(q)
+          o.salesRep.name.toLowerCase().includes(q),
       );
     }
 
     if (selectedProduct && selectedProduct !== "__all__") {
       result = result.filter((o) =>
-        o.items.some((i) => i.product.name === selectedProduct)
+        o.items.some((i) => i.product.name === selectedProduct),
       );
     }
 
     if (selectedState && selectedState !== "__all__") {
       result = result.filter(
-        (o) => o.customer.state.toLowerCase() === selectedState.toLowerCase()
+        (o) => o.customer.state.toLowerCase() === selectedState.toLowerCase(),
       );
     }
 
@@ -114,7 +151,14 @@ export function AdminOrdersClient({
     }
 
     return result;
-  }, [orders, activeTab, searchQuery, selectedProduct, selectedState, selectedDate]);
+  }, [
+    orders,
+    activeTab,
+    searchQuery,
+    selectedProduct,
+    selectedState,
+    selectedDate,
+  ]);
 
   function formatDate(iso: string) {
     const d = new Date(iso);
@@ -148,7 +192,9 @@ export function AdminOrdersClient({
             >
               <span
                 className={`text-[0.9rem] font-black ${
-                  isActive ? "text-purple-700" : "text-slate-400 hover:text-slate-600"
+                  isActive
+                    ? "text-purple-700"
+                    : "text-slate-400 hover:text-slate-600"
                 }`}
               >
                 {tab.label}
@@ -193,7 +239,10 @@ export function AdminOrdersClient({
         </div>
 
         {/* Product dropdown */}
-        <Select value={selectedProduct} onValueChange={(v) => setSelectedProduct(v ?? "__all__")}>
+        <Select
+          value={selectedProduct}
+          onValueChange={(v) => setSelectedProduct(v ?? "__all__")}
+        >
           <SelectTrigger className="w-[130px] h-[32px] border-black rounded-lg bg-white text-[0.75rem] font-black shadow-sm px-2">
             <SelectValue placeholder="Product" />
           </SelectTrigger>
@@ -208,7 +257,10 @@ export function AdminOrdersClient({
         </Select>
 
         {/* State dropdown */}
-        <Select value={selectedState} onValueChange={(v) => setSelectedState(v ?? "__all__")}>
+        <Select
+          value={selectedState}
+          onValueChange={(v) => setSelectedState(v ?? "__all__")}
+        >
           <SelectTrigger className="w-[110px] h-[32px] border-black rounded-lg bg-white text-[0.75rem] font-black shadow-sm px-2">
             <SelectValue placeholder="State" />
           </SelectTrigger>
@@ -222,7 +274,9 @@ export function AdminOrdersClient({
           </SelectContent>
         </Select>
 
-        {selectedDate || selectedProduct !== "__all__" || selectedState !== "__all__" ? (
+        {selectedDate ||
+        selectedProduct !== "__all__" ||
+        selectedState !== "__all__" ? (
           <button
             onClick={() => {
               setSelectedDate("");
@@ -275,16 +329,23 @@ export function AdminOrdersClient({
       <div className="bg-white rounded-2xl shadow-[0_1px_6px_rgba(0,0,0,0.05)] overflow-hidden">
         {/* Header row */}
         <div className="grid grid-cols-[2.2fr_1.2fr_1.2fr_1.2fr_1.2fr_1.2fr_0.8fr_1fr] px-8 py-5 border-b border-slate-100 bg-slate-50/20">
-          {["G-Mail", "Name", "Agent", "State", "Sales Rep", "Product", "Qty", "Date"].map(
-            (h, i) => (
-              <span
-                key={i}
-                className="text-[0.75rem] font-black text-slate-500 uppercase tracking-tight"
-              >
-                {h}
-              </span>
-            )
-          )}
+          {[
+            "G-Mail",
+            "Name",
+            "Agent",
+            "State",
+            "Sales Rep",
+            "Product",
+            "Qty",
+            "Date",
+          ].map((h, i) => (
+            <span
+              key={i}
+              className="text-[0.75rem] font-black text-slate-500 uppercase tracking-tight"
+            >
+              {h}
+            </span>
+          ))}
         </div>
 
         {/* Rows */}
@@ -296,7 +357,10 @@ export function AdminOrdersClient({
           <div className="divide-y divide-slate-50">
             {filteredOrders.map((order) => {
               const firstItem = order.items[0];
-              const totalQty = order.items.reduce((sum, i) => sum + i.quantity, 0);
+              const totalQty = order.items.reduce(
+                (sum, i) => sum + i.quantity,
+                0,
+              );
               return (
                 <Link
                   href={`/admin/orders/${order.id}`}
