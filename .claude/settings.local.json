@@ -10,7 +10,10 @@
       "Bash(tasklist)",
       "Bash(findstr /i \"node\")",
       "Bash(grep -v \"^$\")",
-      "Bash(npx next *)"
+      "Bash(npx next *)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\emmauel\\\\Desktop\\\\organizations\\\\Nutritcare_CRM\\\\app\\\\\\(accounting\\)\\\\accounting\" -Recurse -File)",
+      "Bash(Select-Object FullName)",
+      "Bash(git stash *)"
     ]
   }
 }

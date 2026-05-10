@@ -21,6 +21,35 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  createExpenseAction,
+  createExpenseCategoryAction,
+  createPaymentAccountAction,
+} from "@/modules/finance/actions/expenses.action";
+import { createSupplierAction } from "@/modules/finance/actions/suppliers.action";
+import { useRouter } from "next/navigation";
+
+interface ExpenseHistoryRow {
+  id?: string;
+  category: string;
+  ref: string;
+  account: string;
+  accountType: string;
+  val1: string;
+  val2: string;
+  date: string;
+  notes?: string;
+  attachmentUrl?: string | null;
+  createdBy?: string;
+}
+
+interface ExpensesClientProps {
+  initialHistory?: ExpenseHistoryRow[];
+  initialCategories?: { id: string; name: string }[];
+  initialAccounts?: { id: string; name: string }[];
+  initialSuppliers?: { id?: string; name: string; contact: string; balance: string }[];
+  nextRef?: string;
+}
 
 const tabs = [
   { id: 'new', label: 'New Expense' },
@@ -28,7 +57,7 @@ const tabs = [
   { id: 'supplier', label: 'Supplier' },
 ];
 
-const historyData = [
+const fallbackHistoryData = [
   { category: 'Delivery Costs', ref: 'EXP 1202', account: 'MoniePoint', accountType: 'moniepoint', val1: 'REM-1023', val2: '₦0', date: '12 - 06 -26' },
   { category: 'Office Supplies', ref: 'EXP 1002', account: 'Gt Bank', accountType: 'gtbank', val1: 'DF-204', val2: '₦2,500', date: '13 - 06 -26' },
   { category: 'Staff Salaries', ref: 'EXP 1342', account: 'MoniePoint', accountType: 'moniepoint', val1: 'ADJ-001', val2: '₦30,000', date: '12 - 03 -26' },
@@ -58,17 +87,53 @@ const initialSupplierData = [
   { name: 'Crestfield Energy', contact: '0803 472 9156', balance: 'ADJ-001' },
 ];
 
-export function ExpensesClient() {
+export function ExpensesClient({
+  initialHistory,
+  initialCategories,
+  initialAccounts,
+  initialSuppliers,
+  nextRef,
+}: ExpensesClientProps = {}) {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState('new');
-  const [date, setDate] = useState<Date | undefined>(new Date(2026, 5, 12));
+  const [date, setDate] = useState<Date | undefined>(new Date());
   const [filterDate, setFilterDate] = useState<Date | undefined>();
   const [selectedExpense, setSelectedExpense] = useState<any>(null);
+  const [historyData] = useState<ExpenseHistoryRow[]>(initialHistory ?? (fallbackHistoryData as any));
 
-  const [categories, setCategories] = useState(['Office Supplies', 'Delivery Costs', 'Staff Salaries']);
-  const [accounts, setAccounts] = useState(['Gt Bank - 0123456789', 'MoniePoint - 9876543210']);
-  const [suppliers, setSuppliers] = useState(initialSupplierData);
+  const [categories, setCategories] = useState<{ id: string; name: string }[]>(
+    initialCategories && initialCategories.length > 0
+      ? initialCategories
+      : [
+          { id: '__local-1', name: 'Office Supplies' },
+          { id: '__local-2', name: 'Delivery Costs' },
+          { id: '__local-3', name: 'Staff Salaries' },
+        ]
+  );
+  const [accounts, setAccounts] = useState<{ id: string; name: string }[]>(
+    initialAccounts && initialAccounts.length > 0
+      ? initialAccounts
+      : [
+          { id: '__local-1', name: 'Gt Bank - 0123456789' },
+          { id: '__local-2', name: 'MoniePoint - 9876543210' },
+        ]
+  );
+  const [suppliers, setSuppliers] = useState(initialSuppliers ?? initialSupplierData);
 
-  const [lineItems, setLineItems] = useState([ { id: 1 }, { id: 2 }, { id: 3 } ]);
+  // Form state for new expense
+  const [selectedCategoryId, setSelectedCategoryId] = useState('');
+  const [selectedAccountId, setSelectedAccountId] = useState('');
+  const [notesText, setNotesText] = useState('');
+  const [savingExpense, setSavingExpense] = useState(false);
+
+  type LineRow = { id: number; product: string; description: string; qty: string; amount: string; tax: string };
+  const [lineItems, setLineItems] = useState<LineRow[]>([
+    { id: 1, product: '', description: '', qty: '1', amount: '', tax: '' },
+    { id: 2, product: '', description: '', qty: '1', amount: '', tax: '' },
+    { id: 3, product: '', description: '', qty: '1', amount: '', tax: '' },
+  ]);
+  const updateLine = (id: number, field: keyof LineRow, value: string) =>
+    setLineItems(prev => prev.map(l => (l.id === id ? { ...l, [field]: value } : l)));
 
   const [isCategoryModalOpen, setCategoryModalOpen] = useState(false);
   const [newCategory, setNewCategory] = useState({ type: '', description: '', instances: '' });
@@ -79,39 +144,77 @@ export function ExpensesClient() {
   const [isSupplierModalOpen, setSupplierModalOpen] = useState(false);
   const [newSupplier, setNewSupplier] = useState({ name: '', contact: '', balance: '' });
 
-  const handleAddCategory = () => {
-    if (newCategory.type) {
-      setCategories([...categories, newCategory.type]);
-      setCategoryModalOpen(false);
-      setNewCategory({ type: '', description: '', instances: '' });
-    }
+  const handleAddCategory = async () => {
+    if (!newCategory.type) return;
+    const res = await createExpenseCategoryAction(newCategory.type);
+    if ('error' in res) { alert(res.error); return; }
+    setCategories(prev => [...prev, { id: res.id!, name: res.name! }]);
+    setCategoryModalOpen(false);
+    setNewCategory({ type: '', description: '', instances: '' });
   };
 
-  const handleAddAccount = () => {
-    if (newAccount.bankName) {
-      setAccounts([...accounts, `${newAccount.bankName} - ${newAccount.accountNumber}`]);
-      setAccountModalOpen(false);
-      setNewAccount({ accountNumber: '', bankName: '' });
-    }
+  const handleAddAccount = async () => {
+    if (!newAccount.bankName) return;
+    const display = `${newAccount.bankName}${newAccount.accountNumber ? ' - ' + newAccount.accountNumber : ''}`;
+    const res = await createPaymentAccountAction(display, 'BANK');
+    if ('error' in res) { alert(res.error); return; }
+    setAccounts(prev => [...prev, { id: res.id!, name: res.name! }]);
+    setAccountModalOpen(false);
+    setNewAccount({ accountNumber: '', bankName: '' });
   };
 
-  const handleAddSupplier = () => {
-    if (newSupplier.name) {
-      setSuppliers([...suppliers, { name: newSupplier.name, contact: newSupplier.contact, balance: newSupplier.balance }]);
-      setSupplierModalOpen(false);
-      setNewSupplier({ name: '', contact: '', balance: '' });
-    }
+  const handleAddSupplier = async () => {
+    if (!newSupplier.name) return;
+    const res = await createSupplierAction({
+      name: newSupplier.name,
+      phone1: newSupplier.contact || `unknown-${Date.now()}`,
+    });
+    if ('error' in res) { alert(res.error); return; }
+    setSuppliers(prev => [
+      ...prev,
+      { id: res.id, name: newSupplier.name, contact: newSupplier.contact, balance: newSupplier.balance || '₦0' },
+    ]);
+    setSupplierModalOpen(false);
+    setNewSupplier({ name: '', contact: '', balance: '' });
   };
 
   const handleAddLine = () => {
-    setLineItems([...lineItems, { id: Date.now() }]);
+    setLineItems([...lineItems, { id: Date.now(), product: '', description: '', qty: '1', amount: '', tax: '' }]);
   };
 
   const handleDeleteLine = (id: number) => {
     setLineItems(lineItems.filter(item => item.id !== id));
   };
 
-  const handleSaveEntry = () => {
+  const handleSaveEntry = async () => {
+    if (!selectedCategoryId || !selectedAccountId) {
+      alert('Select category and account');
+      return;
+    }
+    const items = lineItems
+      .filter(l => parseFloat(l.amount) > 0)
+      .map(l => ({
+        product: l.product,
+        description: l.description,
+        quantity: parseFloat(l.qty) || 1,
+        amount: parseFloat(l.amount) || 0,
+        tax: parseFloat(l.tax) || 0,
+      }));
+    if (items.length === 0) {
+      alert('Add at least one line item with an amount');
+      return;
+    }
+    setSavingExpense(true);
+    const res = await createExpenseAction({
+      expenseCategoryId: selectedCategoryId,
+      paidFromAccountId: selectedAccountId,
+      date: date ?? new Date(),
+      notes: notesText,
+      lineItems: items,
+    });
+    setSavingExpense(false);
+    if ('error' in res) { alert(res.error); return; }
+    router.refresh();
     setActiveTab('history');
   };
 
@@ -206,7 +309,7 @@ export function ExpensesClient() {
                   <h2 className="text-[20px] font-bold text-gray-700">New Expense Entry</h2>
                   <div className="flex items-center gap-2 text-gray-400">
                     <span className="text-[16px] font-medium">REF:</span>
-                    <span className="text-[20px] font-bold text-gray-600">EXP 1023</span>
+                    <span className="text-[20px] font-bold text-gray-600">{nextRef ?? 'EXP 1023'}</span>
                   </div>
                 </div>
                 <button className="bg-[#4A0A77] text-white px-6 py-2.5 rounded-lg text-[12px] font-bold hover:bg-[#3B0069] transition-all shadow-sm">
@@ -220,10 +323,14 @@ export function ExpensesClient() {
                   <div className="col-span-4 space-y-2">
                     <label className="text-[13px] font-bold text-gray-600">Expense Category</label>
                     <div className="relative">
-                      <select className="w-full h-12 bg-white border border-gray-200 rounded-lg px-4 text-[14px] text-gray-600 appearance-none focus:outline-none focus:ring-1 focus:ring-purple-400">
+                      <select
+                        value={selectedCategoryId}
+                        onChange={e => setSelectedCategoryId(e.target.value)}
+                        className="w-full h-12 bg-white border border-gray-200 rounded-lg px-4 text-[14px] text-gray-600 appearance-none focus:outline-none focus:ring-1 focus:ring-purple-400"
+                      >
                         <option value="">Please Select</option>
-                        {categories.map((cat, idx) => (
-                          <option key={idx} value={cat}>{cat}</option>
+                        {categories.map(cat => (
+                          <option key={cat.id} value={cat.id}>{cat.name}</option>
                         ))}
                       </select>
                       <ChevronDown size={18} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-300 pointer-events-none" />
@@ -265,10 +372,14 @@ export function ExpensesClient() {
                   <div className="col-span-4 space-y-2">
                     <label className="text-[13px] font-bold text-gray-600">Paid From Account</label>
                     <div className="relative">
-                      <select className="w-full h-12 bg-white border border-gray-200 rounded-lg px-4 text-[14px] text-gray-600 appearance-none focus:outline-none focus:ring-1 focus:ring-purple-400">
+                      <select
+                        value={selectedAccountId}
+                        onChange={e => setSelectedAccountId(e.target.value)}
+                        className="w-full h-12 bg-white border border-gray-200 rounded-lg px-4 text-[14px] text-gray-600 appearance-none focus:outline-none focus:ring-1 focus:ring-purple-400"
+                      >
                         <option value="">Please Select</option>
-                        {accounts.map((acc, idx) => (
-                          <option key={idx} value={acc}>{acc}</option>
+                        {accounts.map(acc => (
+                          <option key={acc.id} value={acc.id}>{acc.name}</option>
                         ))}
                       </select>
                       <ChevronDown size={18} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-300 pointer-events-none" />
@@ -290,8 +401,8 @@ export function ExpensesClient() {
                     <div className="relative">
                       <select className="w-full h-12 bg-white border border-gray-200 rounded-lg px-4 text-[14px] text-gray-600 appearance-none focus:outline-none focus:ring-1 focus:ring-purple-400">
                         <option value="">Please Select</option>
-                        {suppliers.map((sup, idx) => (
-                          <option key={idx} value={sup.name}>{sup.name}</option>
+                        {suppliers.map((sup: any, idx: number) => (
+                          <option key={sup.id ?? idx} value={sup.name}>{sup.name}</option>
                         ))}
                       </select>
                       <ChevronDown size={18} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-300 pointer-events-none" />
@@ -325,24 +436,19 @@ export function ExpensesClient() {
                         <tr key={item.id} className="border-b border-gray-100 last:border-0 bg-white">
                           <td className="px-4 py-3 text-[12px] font-medium text-gray-600">{index + 1}</td>
                           <td className="px-4 py-3">
-                            <div className="relative">
-                              <select className="w-full h-8 border border-gray-100 rounded bg-white px-2 text-[11px] text-gray-600 appearance-none focus:outline-none focus:border-purple-400">
-                                <option>Product/Service</option>
-                              </select>
-                              <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-                            </div>
+                            <input type="text" placeholder="Product/Service" value={item.product} onChange={e => updateLine(item.id, 'product', e.target.value)} className="w-full h-8 border border-gray-100 rounded bg-white px-3 text-[11px] text-gray-600 focus:outline-none focus:border-purple-400 placeholder:text-gray-300" />
                           </td>
                           <td className="px-4 py-3">
-                            <input type="text" placeholder="Description" className="w-full h-8 border border-gray-100 rounded bg-white px-3 text-[11px] text-gray-600 focus:outline-none focus:border-purple-400 placeholder:text-gray-300" />
+                            <input type="text" placeholder="Description" value={item.description} onChange={e => updateLine(item.id, 'description', e.target.value)} className="w-full h-8 border border-gray-100 rounded bg-white px-3 text-[11px] text-gray-600 focus:outline-none focus:border-purple-400 placeholder:text-gray-300" />
                           </td>
                           <td className="px-4 py-3">
-                            <input type="number" placeholder="Qty" className="w-full h-8 border border-gray-100 rounded bg-white px-3 text-[11px] text-gray-600 focus:outline-none focus:border-purple-400 placeholder:text-gray-300 text-center" />
+                            <input type="number" placeholder="Qty" value={item.qty} onChange={e => updateLine(item.id, 'qty', e.target.value)} className="w-full h-8 border border-gray-100 rounded bg-white px-3 text-[11px] text-gray-600 focus:outline-none focus:border-purple-400 placeholder:text-gray-300 text-center" />
                           </td>
                           <td className="px-4 py-3">
-                            <input type="number" placeholder="Amount" className="w-full h-8 border border-gray-100 rounded bg-white px-3 text-[11px] text-gray-600 focus:outline-none focus:border-purple-400 placeholder:text-gray-300" />
+                            <input type="number" placeholder="Amount" value={item.amount} onChange={e => updateLine(item.id, 'amount', e.target.value)} className="w-full h-8 border border-gray-100 rounded bg-white px-3 text-[11px] text-gray-600 focus:outline-none focus:border-purple-400 placeholder:text-gray-300" />
                           </td>
                           <td className="px-4 py-3">
-                            <input type="text" placeholder="Tax" className="w-full h-8 border border-gray-100 rounded bg-white px-3 text-[11px] text-gray-600 focus:outline-none focus:border-purple-400 placeholder:text-gray-300" />
+                            <input type="number" placeholder="Tax" value={item.tax} onChange={e => updateLine(item.id, 'tax', e.target.value)} className="w-full h-8 border border-gray-100 rounded bg-white px-3 text-[11px] text-gray-600 focus:outline-none focus:border-purple-400 placeholder:text-gray-300" />
                           </td>
                           <td className="px-4 py-3 text-center">
                             <button onClick={() => handleDeleteLine(item.id)} className="text-gray-400 hover:text-red-500 transition-colors">
@@ -367,6 +473,8 @@ export function ExpensesClient() {
                   <label className="text-[13px] font-bold text-gray-600">Notes</label>
                   <textarea
                     placeholder="Type here"
+                    value={notesText}
+                    onChange={e => setNotesText(e.target.value)}
                     className="w-full h-32 bg-white border border-gray-200 rounded-lg p-4 text-[13px] text-gray-600 focus:outline-none focus:ring-1 focus:ring-purple-400 resize-none"
                   />
                 </div>
@@ -386,11 +494,12 @@ export function ExpensesClient() {
                     <button className="px-6 py-2.5 border border-gray-300 text-gray-600 rounded-lg text-[13px] font-bold hover:bg-gray-50 transition-colors bg-white shadow-sm">
                       Save & Add Another
                     </button>
-                    <button 
+                    <button
+                      disabled={savingExpense}
                       onClick={handleSaveEntry}
-                      className="px-8 py-2.5 bg-[#AE00FF] text-white rounded-lg text-[13px] font-bold hover:bg-[#9900E6] transition-colors shadow-sm"
+                      className="px-8 py-2.5 bg-[#AE00FF] text-white rounded-lg text-[13px] font-bold hover:bg-[#9900E6] transition-colors shadow-sm disabled:opacity-50"
                     >
-                      Save Expense Entry
+                      {savingExpense ? 'Saving…' : 'Save Expense Entry'}
                     </button>
                   </div>
                 </div>
@@ -457,7 +566,7 @@ export function ExpensesClient() {
                     </tr>
                   </thead>
                   <tbody>
-                    {historyData.map((row, idx) => (
+                    {historyData.map((row: any, idx: number) => (
                       <tr 
                         key={idx} 
                         onClick={() => {

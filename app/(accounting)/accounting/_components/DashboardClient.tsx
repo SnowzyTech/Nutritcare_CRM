@@ -10,9 +10,9 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 
-/* ── Mock Data ────────────────────────────────────────────────────────────── */
+/* ── Fallback Mock Data ─────────────────────────────────────────────────── */
 
-const financialSummary = [
+const fallbackFinancialSummary = [
   { label: 'Total Revenue', value: 'N60,000,000', change: '+12%', isPositive: true, subText: 'vs last month', highlight: 'default' as const },
   { label: 'Net Profit', value: 'N52,000,000', change: '+12%', isPositive: true, subText: 'vs last month', highlight: 'purple' as const },
   { label: 'Total Expenses', value: 'N8,000,000', change: '+12%', isPositive: true, subText: 'vs last month', highlight: 'default' as const },
@@ -36,7 +36,7 @@ const inventorySnapshot2 = [
   { label: 'Stock In Warehouse', value: '14,000', subLabel: 'products across 12', subDetail: 'warehouses', color: '#10B981', bg: 'bg-white' },
 ];
 
-const salesChartData = [
+const fallbackSalesChartData = [
   { name: 'JAN', value: 30_000_000 }, { name: 'FEB', value: 25_000_000 },
   { name: 'MAR', value: 35_000_000 }, { name: 'APR', value: 28_000_000 },
   { name: 'MAY', value: 40_000_000 }, { name: 'JUN', value: 55_000_000 },
@@ -45,14 +45,14 @@ const salesChartData = [
   { name: 'NOV', value: 35_000_000 }, { name: 'DEC', value: 20_000_000 },
 ];
 
-const salesByProduct = [
+const fallbackSalesByProduct = [
   { name: 'FORD', value: 8 }, { name: 'SHRED', value: 12 },
   { name: 'AFTER-', value: 6 }, { name: 'PROMACT', value: 10 },
   { name: 'TRM', value: 15, isMax: true }, { name: 'LINK', value: 8 },
   { name: 'NEURO-VIVE', value: 11 }, { name: 'VITOMP', value: 9 },
 ];
 
-const salesByState = [
+const fallbackSalesByState = [
   { name: 'LAGOS', value: 5 }, { name: 'OSUN', value: 3 },
   { name: 'OYO', value: 4 }, { name: 'DELTA', value: 2 },
   { name: 'IMO', value: 3 }, { name: 'KADUNA', value: 6, isMax: true },
@@ -126,13 +126,92 @@ function MonthDropdown({ value, onChange, theme = 'light' }: { value: string; on
 
 /* ── Dashboard Component ──────────────────────────────────────────────────── */
 
-export function DashboardClient() {
+interface DashboardClientProps {
+  summary?: {
+    totalRevenue: number;
+    netProfit: number;
+    totalExpenses: number;
+    deliveryExpenses: number;
+    revenueChangePct: number;
+    expenseChangePct: number;
+    profitChangePct: number;
+    deliveryChangePct: number;
+  };
+  salesByMonth?: { name: string; value: number }[];
+  salesByProductData?: { name: string; value: number; isMax?: boolean }[];
+  salesByStateData?: { name: string; value: number; isMax?: boolean }[];
+  inventory?: {
+    totalValue: number;
+    totalProducts: number;
+    agentStock: number;
+    warehouseStock: number;
+    agentCount: number;
+    warehouseCount: number;
+    products: { id: string; name: string; total: number; value: number; lowStock: boolean }[];
+  };
+  settlementSummary?: {
+    totalPendingRemittance: number;
+    totalPendingCount: number;
+    totalOverpayments: number;
+    companyOwingAgents: number;
+    topAgentName: string;
+    topAgentState: string;
+    topAgentRemitted: number;
+  };
+}
+
+const fmtN = (n: number) => `N${Number(n).toLocaleString("en-NG", { maximumFractionDigits: 0 })}`;
+
+export function DashboardClient({
+  summary,
+  salesByMonth,
+  salesByProductData,
+  salesByStateData,
+  inventory,
+  settlementSummary,
+}: DashboardClientProps = {}) {
   const [mounted, setMounted] = useState(false);
   const [activeRange, setActiveRange] = useState<'Daily' | 'Weekly' | 'Monthly'>('Monthly');
   const [selectedMonth, setSelectedMonth] = useState('This Month');
   const [isCreateOpen, setIsCreateOpen] = useState(false);
 
   useEffect(() => { setMounted(true); }, []);
+
+  const financialSummary = summary
+    ? [
+        { label: 'Total Revenue', value: fmtN(summary.totalRevenue), change: `${summary.revenueChangePct >= 0 ? '+' : ''}${summary.revenueChangePct}%`, isPositive: summary.revenueChangePct >= 0, subText: 'vs last month', highlight: 'default' as const },
+        { label: 'Net Profit', value: fmtN(summary.netProfit), change: `${summary.profitChangePct >= 0 ? '+' : ''}${summary.profitChangePct}%`, isPositive: summary.profitChangePct >= 0, subText: 'vs last month', highlight: 'purple' as const },
+        { label: 'Total Expenses', value: fmtN(summary.totalExpenses), change: `${summary.expenseChangePct >= 0 ? '+' : ''}${summary.expenseChangePct}%`, isPositive: summary.expenseChangePct <= 0, subText: 'vs last month', highlight: 'default' as const },
+        { label: 'Delivery Expenses', value: fmtN(summary.deliveryExpenses), change: `${summary.deliveryChangePct >= 0 ? '+' : ''}${summary.deliveryChangePct}%`, isPositive: summary.deliveryChangePct <= 0, subText: 'vs last month', highlight: 'default' as const },
+        { label: 'Tax Payable', value: '24%', change: '', isPositive: true, subText: '', highlight: 'default' as const },
+      ]
+    : fallbackFinancialSummary;
+
+  const salesChartData = salesByMonth && salesByMonth.length > 0 ? salesByMonth : fallbackSalesChartData;
+  const salesByProduct = salesByProductData && salesByProductData.length > 0 ? salesByProductData : fallbackSalesByProduct;
+  const salesByState = salesByStateData && salesByStateData.length > 0 ? salesByStateData : fallbackSalesByState;
+
+  const buildInventorySnapshot1 = () => {
+    if (!inventory) return inventorySnapshot1;
+    const top5 = inventory.products.slice(0, 5);
+    return [
+      { label: 'Total Inventory Value', value: fmtN(inventory.totalValue), subLabel: `${inventory.totalProducts.toLocaleString()} Products`, color: '#10B981', bg: 'bg-[#FDF9FF]' },
+      ...top5.map(p => ({ label: p.name, value: fmtN(p.value), subLabel: `${p.total.toLocaleString()} Products`, color: '#10B981', bg: 'bg-white' as const })),
+    ];
+  };
+  const inventorySnapshot1Data = buildInventorySnapshot1();
+
+  const buildInventorySnapshot2 = () => {
+    if (!inventory) return inventorySnapshot2;
+    const next2 = inventory.products.slice(5, 7);
+    const lowStock = inventory.products.find(p => p.lowStock);
+    const items: any[] = next2.map(p => ({ label: p.name, value: fmtN(p.value), subLabel: `${p.total.toLocaleString()} Products`, color: '#10B981', bg: 'bg-white' }));
+    if (lowStock) items.push({ label: lowStock.name, value: fmtN(lowStock.value), subLabel: `${lowStock.total.toLocaleString()} Products`, color: '#EF4444', bg: 'bg-white', badge: 'Low Stock' });
+    items.push({ label: 'Stock With Agents', value: inventory.agentStock.toLocaleString(), subLabel: 'products across', subDetail: `${inventory.agentCount} delivery agents`, color: '#10B981', bg: 'bg-white' });
+    items.push({ label: 'Stock In Warehouse', value: inventory.warehouseStock.toLocaleString(), subLabel: `products across ${inventory.warehouseCount}`, subDetail: 'warehouses', color: '#10B981', bg: 'bg-white' });
+    return items;
+  };
+  const inventorySnapshot2Data = buildInventorySnapshot2();
 
   return (
     <div className="p-8 max-w-[1400px] mx-auto space-y-6">
@@ -253,7 +332,7 @@ export function DashboardClient() {
 
         {/* Row 1 */}
         <div className="grid grid-cols-6 gap-3 mb-3">
-          {inventorySnapshot1.map((item, i) => (
+          {inventorySnapshot1Data.map((item: any, i: number) => (
             <div key={i} className={`rounded-xl border border-gray-100 p-3.5 shadow-sm hover:border-gray-200 transition-colors ${item.bg}`}>
               <span className="text-[9px] font-bold text-gray-800 tracking-wide block mb-2">{item.label}</span>
               <p className="text-[17px] font-black text-gray-600 tracking-tight mb-1">{item.value}</p>
@@ -264,7 +343,7 @@ export function DashboardClient() {
 
         {/* Row 2 */}
         <div className="grid grid-cols-[1fr_1fr_1.5fr_1.5fr_1fr_1fr] gap-3">
-          {inventorySnapshot2.map((item, i) => (
+          {inventorySnapshot2Data.map((item: any, i: number) => (
             <div key={i} className={`rounded-xl border border-gray-100 p-3.5 shadow-sm hover:border-gray-200 transition-colors relative ${i === 2 || i === 3 ? 'col-span-1' : ''
               } ${i === 0 || i === 1 ? 'col-span-1' : ''
               }`}>
@@ -304,7 +383,10 @@ export function DashboardClient() {
             <div>
               <span className="text-[11px] text-gray-400 font-medium">Sales 2022</span>
               <div className="flex items-center gap-3">
-                <p className="text-[22px] font-black text-gray-900">N60.7M</p>
+                <p className="text-[22px] font-black text-gray-900">{(() => {
+                  const total = salesChartData.reduce((s, x) => s + Number(x.value), 0);
+                  return total >= 1_000_000 ? `N${(total / 1_000_000).toFixed(1)}M` : fmtN(total);
+                })()}</p>
                 <span className="text-[10px] font-bold text-[#10B981] flex items-center gap-1">
                   <span className="w-1.5 h-1.5 bg-[#10B981] rounded-full" />
                   1.3% <span className="text-gray-400 font-medium tracking-wide">VS LAST YEAR</span>
@@ -356,8 +438,8 @@ export function DashboardClient() {
               <div>
                 <span className="text-[10px] font-bold text-gray-800 tracking-wide block mb-3">Total Pending Remittance</span>
                 <div className="flex justify-between items-end mb-2">
-                  <p className="text-[20px] font-black text-gray-600 tracking-tight leading-none">N600,000</p>
-                  <span className="text-[18px] font-black text-gray-600 leading-none">4</span>
+                  <p className="text-[20px] font-black text-gray-600 tracking-tight leading-none">{settlementSummary ? fmtN(settlementSummary.totalPendingRemittance) : 'N600,000'}</p>
+                  <span className="text-[18px] font-black text-gray-600 leading-none">{settlementSummary?.totalPendingCount ?? 4}</span>
                 </div>
               </div>
               <p className="text-[10px] font-bold text-[#10B981] flex items-center gap-1">+12% <span className="font-medium text-gray-400">vs last month</span></p>
@@ -367,7 +449,7 @@ export function DashboardClient() {
             <div className="rounded-xl border border-gray-100 p-4 shadow-sm hover:border-gray-200 transition-colors flex flex-col justify-between">
               <div>
                 <span className="text-[10px] font-bold text-gray-800 tracking-wide block mb-3">Total Overpayments</span>
-                <p className="text-[20px] font-black text-gray-600 tracking-tight leading-none mb-2">N80,000</p>
+                <p className="text-[20px] font-black text-gray-600 tracking-tight leading-none mb-2">{settlementSummary ? fmtN(settlementSummary.totalOverpayments) : 'N80,000'}</p>
               </div>
               <p className="text-[10px] font-bold text-[#10B981] flex items-center gap-1">+12% <span className="font-medium text-gray-400">vs last month</span></p>
             </div>
@@ -376,7 +458,7 @@ export function DashboardClient() {
             <div className="rounded-xl border border-gray-100 p-4 shadow-sm hover:border-gray-200 transition-colors flex flex-col justify-between">
               <div>
                 <span className="text-[10px] font-bold text-gray-800 tracking-wide block mb-3">Company Owing Agents</span>
-                <p className="text-[20px] font-black text-gray-600 tracking-tight leading-none mb-2">N800,000</p>
+                <p className="text-[20px] font-black text-gray-600 tracking-tight leading-none mb-2">{settlementSummary ? fmtN(settlementSummary.companyOwingAgents) : 'N800,000'}</p>
               </div>
               <p className="text-[10px] font-bold text-[#10B981] flex items-center gap-1">+12% <span className="font-medium text-gray-400">vs last month</span></p>
             </div>
@@ -385,9 +467,9 @@ export function DashboardClient() {
             <div className="rounded-xl border border-gray-100 p-4 shadow-sm hover:border-gray-200 transition-colors flex flex-col justify-between">
               <div>
                 <span className="text-[10px] font-bold text-gray-800 tracking-wide block mb-3">Top Performing Agents</span>
-                <p className="text-[16px] font-black text-gray-600 tracking-tight leading-none mb-2">Mr Elijah | Kaduna</p>
+                <p className="text-[16px] font-black text-gray-600 tracking-tight leading-none mb-2">{settlementSummary ? `${settlementSummary.topAgentName}${settlementSummary.topAgentState ? ` | ${settlementSummary.topAgentState}` : ''}` : 'Mr Elijah | Kaduna'}</p>
               </div>
-              <p className="text-[10px] font-bold text-[#10B981]">N1.4M Remitted</p>
+              <p className="text-[10px] font-bold text-[#10B981]">{settlementSummary ? `${fmtN(settlementSummary.topAgentRemitted)} Remitted` : 'N1.4M Remitted'}</p>
             </div>
           </div>
         </div>

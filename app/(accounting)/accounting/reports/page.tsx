@@ -1,5 +1,7 @@
 import { ReportsClient } from "../_components/ReportsClient";
+import { getAgentPerformanceReport } from "@/modules/finance/services/reports.service";
 
-export default function ReportsPage() {
-  return <ReportsClient />;
+export default async function ReportsPage() {
+  const data = await getAgentPerformanceReport();
+  return <ReportsClient agentPerformance={data} />;
 }

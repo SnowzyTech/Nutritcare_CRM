@@ -19,13 +19,21 @@ import {
   User,
   X
 } from 'lucide-react';
-import { agentSettlementsData, agentLedgerData, AgentSettlement, AgentLedgerEntry } from '@/lib/mock-data/agent-settlement';
-import { salesRecordsData } from '@/lib/mock-data/sales-records';
+import { agentSettlementsData as fallbackSettlements, agentLedgerData as fallbackLedger, AgentSettlement, AgentLedgerEntry } from '@/lib/mock-data/agent-settlement';
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { format } from "date-fns";
+import { createRemittanceAction, createSettlementAdjustmentAction } from "@/modules/finance/actions/settlements.action";
 
-export function AgentSettlementClient() {
+interface AgentSettlementWithId extends AgentSettlement { agentId?: string }
+type AnyLedgerEntry = Omit<AgentLedgerEntry, 'referenceType'> & { referenceType: string; agentId?: string };
+interface AgentSettlementClientProps {
+  initialSettlements?: AgentSettlementWithId[];
+  initialLedger?: AnyLedgerEntry[];
+  agentOptions?: { id: string; companyName: string; state: string | null }[];
+}
+
+export function AgentSettlementClient({ initialSettlements, initialLedger, agentOptions }: AgentSettlementClientProps = {}) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<'list' | 'ledger' | 'remittance' | 'adjustment'>('list');
   const [search, setSearch] = useState('');
@@ -107,6 +115,7 @@ export function AgentSettlementClient() {
           setDateRange={setDateRange}
           setOpenDropdown={setOpenDropdown}
           router={router}
+          initialSettlements={initialSettlements}
         />
       ) : activeTab === 'ledger' ? (
         <AgentLedgerView
@@ -114,11 +123,12 @@ export function AgentSettlementClient() {
           setSearch={setSearch}
           openDropdown={openDropdown}
           toggleDropdown={toggleDropdown}
+          initialLedger={initialLedger}
         />
       ) : activeTab === 'remittance' ? (
-        <RemittanceEntryView />
+        <RemittanceEntryView agentOptions={agentOptions} />
       ) : activeTab === 'adjustment' ? (
-        <SettlementAdjustmentView />
+        <SettlementAdjustmentView agentOptions={agentOptions} />
       ) : (
         <div className="bg-white rounded-3xl p-20 text-center border border-gray-100 shadow-sm">
           <p className="text-gray-400 font-medium">Content for {activeTab} coming soon...</p>
@@ -128,16 +138,48 @@ export function AgentSettlementClient() {
   );
 }
 
-function SettlementAdjustmentView() {
+function SettlementAdjustmentView({ agentOptions }: { agentOptions?: { id: string; companyName: string; state: string | null }[] }) {
   const [date, setDate] = useState<Date | undefined>(new Date());
   const [adjustmentType, setAdjustmentType] = useState('Correction');
   const [paymentType, setPaymentType] = useState('Waybill');
-  
+
   const [selectedOrders, setSelectedOrders] = useState<string[]>([]);
   const [tempSelected, setTempSelected] = useState<string[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  
+
   const [selectedHistory, setSelectedHistory] = useState<any>(null);
+  const [agentId, setAgentId] = useState(agentOptions?.[0]?.id ?? '');
+  const [referenceId, setReferenceId] = useState('');
+  const [amountText, setAmountText] = useState('');
+  const [noteText, setNoteText] = useState('');
+  const [savingAdj, setSavingAdj] = useState(false);
+  const routerAdj = useRouter();
+
+  const submitAdjustment = async () => {
+    const map: Record<string, 'PAYMENT' | 'OVERPAYMENT' | 'CORRECTION'> = {
+      Correction: 'CORRECTION',
+      'Overpayment/Refund': 'OVERPAYMENT',
+      'Balance/Underpayment': 'CORRECTION',
+      Payment: 'PAYMENT',
+    };
+    if (!agentId) { alert('Select agent'); return; }
+    if (!amountText) { alert('Enter amount'); return; }
+    setSavingAdj(true);
+    const res = await createSettlementAdjustmentAction({
+      agentId,
+      date: date ?? new Date(),
+      adjustmentType: map[adjustmentType] ?? 'CORRECTION',
+      paymentType,
+      linkedReferenceId: referenceId || `MANUAL-${Date.now()}`,
+      amount: parseFloat(amountText.replace(/[^0-9.]/g, '')) || 0,
+      note: noteText,
+    });
+    setSavingAdj(false);
+    if ('error' in res) { alert(res.error); return; }
+    routerAdj.refresh();
+    setAmountText('');
+    setReferenceId('');
+  };
 
   const deliveredOrders = [
     { id: 'rec-1', orderId: 'ORD-001', customer: 'Ibrahim Lawal', state: 'Kano', netAmount: '₦25,000', date: '2026-03-01' },
@@ -562,8 +604,12 @@ function SettlementAdjustmentView() {
             </div>
           </div>
 
-          <button className="w-full h-[70px] bg-[#AE00FF] text-white rounded-2xl text-[20px] font-black shadow-lg shadow-purple-200 hover:scale-[1.02] transition-transform">
-            Continue
+          <button
+            onClick={submitAdjustment}
+            disabled={savingAdj}
+            className="w-full h-[70px] bg-[#AE00FF] text-white rounded-2xl text-[20px] font-black shadow-lg shadow-purple-200 hover:scale-[1.02] transition-transform disabled:opacity-50"
+          >
+            {savingAdj ? 'Saving…' : 'Continue'}
           </button>
         </div>
 
@@ -636,11 +682,36 @@ function SettlementAdjustmentView() {
   );
 }
 
-function RemittanceEntryView() {
+function RemittanceEntryView({ agentOptions }: { agentOptions?: { id: string; companyName: string; state: string | null }[] }) {
   const [date, setDate] = useState<Date | undefined>(new Date());
   const [selectedOrders, setSelectedOrders] = useState<string[]>([]);
   const [tempSelected, setTempSelected] = useState<string[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [agentId, setAgentId] = useState(agentOptions?.[0]?.id ?? '');
+  const [amountRemitted, setAmountRemitted] = useState('');
+  const [noteText, setNoteText] = useState('');
+  const [savingRem, setSavingRem] = useState(false);
+  const router = useRouter();
+
+  const handleSubmitRemittance = async () => {
+    if (!agentId || selectedOrders.length === 0 || !amountRemitted) {
+      alert('Select agent, orders, and amount');
+      return;
+    }
+    setSavingRem(true);
+    const res = await createRemittanceAction({
+      agentId,
+      date: date ?? new Date(),
+      orderIds: selectedOrders,
+      amountRemitted: parseFloat(amountRemitted) || 0,
+      note: noteText,
+    });
+    setSavingRem(false);
+    if ('error' in res) { alert(res.error); return; }
+    router.refresh();
+    setSelectedOrders([]);
+    setAmountRemitted('');
+  };
 
   // Unique delivered orders for the selection
   const deliveredOrders = [
@@ -775,9 +846,14 @@ function RemittanceEntryView() {
             <div className="space-y-2">
               <label className="text-[14px] font-bold text-gray-700">Agent Name</label>
               <div className="relative">
-                <select className="w-full h-[54px] bg-white border border-gray-100 rounded-2xl px-6 text-[14px] text-gray-800 appearance-none focus:outline-none focus:ring-1 focus:ring-purple-200 font-medium">
-                  <option>Ibrahim Lawal</option>
-                  <option>Emeka Nwosu</option>
+                <select
+                  value={agentId}
+                  onChange={e => setAgentId(e.target.value)}
+                  className="w-full h-[54px] bg-white border border-gray-100 rounded-2xl px-6 text-[14px] text-gray-800 appearance-none focus:outline-none focus:ring-1 focus:ring-purple-200 font-medium"
+                >
+                  {(agentOptions ?? []).map(a => (
+                    <option key={a.id} value={a.id}>{a.companyName}{a.state ? ` | ${a.state}` : ''}</option>
+                  ))}
                 </select>
                 <ChevronDown size={18} className="absolute right-5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
               </div>
@@ -818,7 +894,9 @@ function RemittanceEntryView() {
             <div className="space-y-2">
               <label className="text-[14px] font-bold text-gray-700">Amount Remitted</label>
               <input
-                type="text"
+                type="number"
+                value={amountRemitted}
+                onChange={e => setAmountRemitted(e.target.value)}
                 placeholder="Amount Remitted"
                 className="w-full h-[54px] bg-white border border-gray-100 rounded-2xl px-6 text-[14px] text-gray-800 focus:outline-none focus:ring-1 focus:ring-purple-200 font-medium"
               />
@@ -900,8 +978,12 @@ function RemittanceEntryView() {
             </div>
           </div>
 
-          <button className="w-full h-[70px] bg-[#AE00FF] text-white rounded-2xl text-[20px] font-black shadow-lg shadow-purple-200 hover:scale-[1.02] transition-transform">
-            Confirm
+          <button
+            onClick={handleSubmitRemittance}
+            disabled={savingRem}
+            className="w-full h-[70px] bg-[#AE00FF] text-white rounded-2xl text-[20px] font-black shadow-lg shadow-purple-200 hover:scale-[1.02] transition-transform disabled:opacity-50"
+          >
+            {savingRem ? 'Saving…' : 'Confirm'}
           </button>
         </div>
       </div>
@@ -956,7 +1038,8 @@ function AgentListView({
   dateRange,
   setDateRange,
   setOpenDropdown,
-  router
+  router,
+  initialSettlements,
 }: any) {
   const nigerianStates = [
     "Abia", "Adamawa", "Akwa Ibom", "Anambra", "Bauchi", "Bayelsa", "Benue", "Borno",
@@ -969,7 +1052,8 @@ function AgentListView({
   const agentTypes = ["Independent", "Logistics Partner", "In-house"];
   const statuses = ["Paid", "Underpayment", "Overpayment", "Pending"];
 
-  const filtered = agentSettlementsData.filter((a) => {
+  const settlementsSource: any[] = (initialSettlements && initialSettlements.length > 0) ? initialSettlements : fallbackSettlements;
+  const filtered = settlementsSource.filter((a: any) => {
     const matchSearch = a.agentName.toLowerCase().includes(search.toLowerCase());
     const matchState = stateFilter === 'All' || a.state === stateFilter;
     const matchStatus = statusFilter === 'All' ||
@@ -1144,7 +1228,7 @@ function AgentListView({
               {filtered.map((a, idx) => (
                 <tr 
                   key={idx} 
-                  onClick={() => router.push(`/accounting/agent-settlement/${a.id}`)}
+                  onClick={() => router.push(`/accounting/agent-settlement/${a.agentId ?? a.id}`)}
                   className={`${idx % 2 === 1 ? 'bg-gray-50/30' : 'bg-white'} hover:bg-gray-50/50 transition-colors cursor-pointer group`}
                 >
                   <td className="px-6 py-5 text-[13px] font-bold text-gray-800 group-hover:text-[#AE00FF] transition-colors">{a.agentName}</td>
@@ -1166,7 +1250,8 @@ function AgentListView({
   );
 }
 
-function AgentLedgerView({ search, setSearch, openDropdown, toggleDropdown }: any) {
+function AgentLedgerView({ search, setSearch, openDropdown, toggleDropdown, initialLedger }: any) {
+  const ledgerSource: any[] = (initialLedger && initialLedger.length > 0) ? initialLedger : fallbackLedger;
   return (
     <>
       {/* Filter Bar */}
@@ -1211,7 +1296,7 @@ function AgentLedgerView({ search, setSearch, openDropdown, toggleDropdown }: an
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {agentLedgerData.map((l, idx) => (
+              {ledgerSource.map((l: any, idx: number) => (
                 <tr key={idx} className={`${idx % 2 === 1 ? 'bg-gray-50/30' : 'bg-white'} hover:bg-gray-50/50 transition-colors`}>
                   <td className="px-6 py-5 text-[13px] text-gray-400 font-medium">{l.date}</td>
                   <td className="px-6 py-5">

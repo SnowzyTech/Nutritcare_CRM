@@ -44,7 +44,7 @@ import {
   Tooltip,
   ResponsiveContainer
 } from 'recharts';
-import { agentSettlementsData, agentLedgerData } from '@/lib/mock-data/agent-settlement';
+import { agentSettlementsData as fallbackSettlements } from '@/lib/mock-data/agent-settlement';
 
 // Mock Data for Chart
 const chartData = [
@@ -94,7 +94,7 @@ export default function AgentDetailsPage() {
   const [inventoryPaymentStatus, setInventoryPaymentStatus] = useState<string>('');
   const [inventoryDateRange, setInventoryDateRange] = useState<DateRange | undefined>();
 
-  const agent = agentSettlementsData.find((a) => a.id === agentId);
+  const agent = fallbackSettlements.find((a) => a.id === agentId) ?? { id: agentId, agentName: 'Agent', state: '—', totalSalesValue: '₦0', delFeesEarned: '₦0', totalRemitted: '₦0', balance: '₦0', overpayment: '₦0', underpayment: '₦0', date: '' };
 
   if (!agent) {
     return (

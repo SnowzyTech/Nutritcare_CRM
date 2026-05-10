@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
-const mainTableData = [
+const fallbackMainTableData = [
   { name: 'Prosxact', cost: '₦3,500', selling: '₦5,200', total: '1,200', warehouse: '800', agents: '400', value: '₦1,250,000' },
   { name: 'Neuro-Vive Balm', cost: '₦2,800', selling: '₦4,500', total: '980', warehouse: '620', agents: '360', value: '₦887,900' },
   { name: 'After-Natal', cost: '₦4,200', selling: '₦6,800', total: '1,450', warehouse: '1,050', agents: '400', value: '₦1,250,000' },
@@ -43,16 +43,16 @@ const variants = [
   { id: 6, name: 'Premium', qty: 6, price: '₦110,000' },
 ];
 
-const productHeaders = ['Prosxact', 'Neuro-Vive', 'Trim & Tone', 'Shred Belly', 'After-Natal', 'Vitorep', 'Fonio-Mill', 'Linix', 'Total'];
+const fallbackProductHeaders = ['Prosxact', 'Neuro-Vive', 'Trim & Tone', 'Shred Belly', 'After-Natal', 'Vitorep', 'Fonio-Mill', 'Linix', 'Total'];
 
-const warehouseData = [
+const fallbackWarehouseData = [
   { warehouse: 'Lagos', values: [800, 720, 392, 299, 996, 381, 122, 223, 872] },
   { warehouse: 'Owerri', values: [872, 998, 1120, 3004, 207, 1998, 1762, 1762, 1876] },
   { warehouse: 'Abuja', values: [1892, 1298, 3020, 500, 2134, 762, 2371, 3294, 2887] },
   { warehouse: 'Total', values: [1892, 1298, 3020, 500, 2134, 762, 2371, 3294, 10000] },
 ];
 
-const agentData = [
+const fallbackAgentData = [
   { name: 'Ibrahim Lawal', avatar: 'I', color: 'bg-[#A7F3D0]', textColor: 'text-[#065F46]', values: [800, 720, 392, 299, 996, 381, 122, 223, 872] },
   { name: 'Flymack | Lagos', avatar: '🟦', color: 'bg-blue-100', textColor: 'text-blue-700', values: [299, 229, 134, 234, 209, '093', 873, '028', 736] },
   { name: 'Qudus Aina', avatar: '', color: 'bg-gray-200', textColor: 'text-gray-600', values: [917, 763, 736, 653, 653, 862, 358, 726, 826] },
@@ -67,8 +67,19 @@ const agentData = [
   { name: 'Flymack | Lagos', avatar: '🟦', color: 'bg-blue-100', textColor: 'text-blue-700', values: [299, 229, 134, 234, 209, '093', 873, '028', 736] },
 ];
 
-export function InventoryClient() {
+interface ProductRow { name: string; cost: string; selling: string; total: string; warehouse: string; agents: string; value: string; }
+interface InventoryClientProps {
+  productList?: ProductRow[];
+  locationView?: {
+    productHeaders: string[];
+    warehouseRows: { warehouse: string; values: (number | string)[] }[];
+    agentRows: { name: string; values: (number | string)[] }[];
+  };
+}
+
+export function InventoryClient({ productList, locationView }: InventoryClientProps = {}) {
   const [activeTab, setActiveTab] = useState<'product' | 'location'>('product');
+  const mainTableData = (productList && productList.length > 0) ? productList : fallbackMainTableData;
 
   return (
     <div className="p-8 max-w-[1600px] mx-auto min-h-screen bg-[#FAFAFA] font-sans">
@@ -190,7 +201,7 @@ export function InventoryClient() {
           </div>
         </>
       ) : (
-        <InventoryLocationView />
+        <InventoryLocationView locationView={locationView} />
       )}
     </div>
   );
@@ -204,17 +215,21 @@ const nigerianStates = [
   'Rivers', 'Sokoto', 'Taraba', 'Yobe', 'Zamfara'
 ];
 
-function InventoryLocationView() {
+function InventoryLocationView({ locationView }: { locationView?: InventoryClientProps['locationView'] }) {
   const [search, setSearch] = useState('');
   const [stateFilter, setStateFilter] = useState('All');
 
-  const filteredWarehouse = warehouseData.filter(row => {
+  const productHeaders = locationView?.productHeaders ?? fallbackProductHeaders;
+  const warehouseData: any[] = locationView?.warehouseRows ?? fallbackWarehouseData;
+  const agentData: any[] = locationView?.agentRows ?? fallbackAgentData;
+
+  const filteredWarehouse = warehouseData.filter((row: any) => {
     if (stateFilter === 'All') return true;
     return row.warehouse === stateFilter || row.warehouse === 'Total';
   });
 
-  const filteredAgents = agentData.filter(agent =>
-    agent.name.toLowerCase().includes(search.toLowerCase())
+  const filteredAgents = agentData.filter((agent: any) =>
+    (agent.name ?? '').toLowerCase().includes(search.toLowerCase())
   );
 
   return (
@@ -261,12 +276,12 @@ function InventoryLocationView() {
             </tr>
           </thead>
           <tbody>
-            {filteredWarehouse.map((row, idx) => (
+            {filteredWarehouse.map((row: any, idx: number) => (
               <tr key={idx} className={`${idx % 2 === 1 ? 'bg-[#F9FAFB]' : 'bg-white'} ${row.warehouse === 'Total' ? 'border-t border-gray-200' : ''}`}>
                 <td className={`px-6 py-5 text-[14px] ${row.warehouse === 'Total' ? 'font-bold text-gray-700' : 'text-gray-500'}`}>{row.warehouse}</td>
-                {row.values.map((val, i) => (
+                {row.values.map((val: any, i: number) => (
                   <td key={i} className={`px-4 py-5 text-[14px] text-center ${i === row.values.length - 1 ? 'font-black text-gray-800' : 'text-gray-500'} ${row.warehouse === 'Total' ? 'font-bold' : ''}`}>
-                    {val.toLocaleString()}
+                    {typeof val === 'number' ? val.toLocaleString() : val}
                   </td>
                 ))}
               </tr>
@@ -291,21 +306,21 @@ function InventoryLocationView() {
               <tr key={idx} className={`${idx % 2 === 1 ? 'bg-[#F9FAFB]' : 'bg-white'} hover:bg-gray-50 transition-colors`}>
                 <td className="px-6 py-4 text-[14px] text-gray-600">
                   <div className="flex items-center gap-3">
-                    <div className={`w-8 h-8 rounded-full ${agent.color} ${agent.textColor} flex items-center justify-center text-[12px] font-bold flex-shrink-0`}>
+                    <div className={`w-8 h-8 rounded-full ${agent.color ?? 'bg-purple-100'} ${agent.textColor ?? 'text-purple-700'} flex items-center justify-center text-[12px] font-bold flex-shrink-0`}>
                       {agent.avatar === '🟦' ? (
                         <div className="w-full h-full rounded-full bg-blue-400" />
                       ) : agent.avatar ? (
                         agent.avatar
                       ) : (
-                        <img src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=80&h=80&fit=crop&crop=face" alt="" className="w-full h-full rounded-full object-cover" />
+                        <span>{(agent.name ?? '?').charAt(0)}</span>
                       )}
                     </div>
                     <span className="font-medium text-[13px]">{agent.name}</span>
                   </div>
                 </td>
-                {agent.values.map((val, i) => (
+                {agent.values.map((val: any, i: number) => (
                   <td key={i} className={`px-4 py-4 text-[14px] text-center ${i === agent.values.length - 1 ? 'font-bold text-gray-800' : 'text-gray-500'}`}>
-                    {val}
+                    {typeof val === 'number' ? val.toLocaleString() : val}
                   </td>
                 ))}
               </tr>

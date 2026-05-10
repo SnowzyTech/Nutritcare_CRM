@@ -17,11 +17,23 @@ import {
   Edit2,
   Check
 } from 'lucide-react';
-import { salesRecordsData, SalesRecord } from '@/lib/mock-data/sales-records';
+import { SalesRecord } from '@/lib/mock-data/sales-records';
+import { updateOrderDeliveryFeeAction } from '@/modules/finance/actions/sales-record.action';
 
-export function SalesRecordClient() {
+type SalesRecordRow = Omit<SalesRecord, 'orderStatus' | 'remStatus'> & {
+  orderStatus: string;
+  remStatus: string;
+};
+
+interface SalesRecordClientProps {
+  initialRecords?: SalesRecordRow[];
+  products?: string[];
+  agents?: { id: string; name: string }[];
+}
+
+export function SalesRecordClient({ initialRecords = [], products: productProp, agents: agentProp }: SalesRecordClientProps = {}) {
   const router = useRouter();
-  const [records, setRecords] = useState(salesRecordsData);
+  const [records, setRecords] = useState<SalesRecordRow[]>(initialRecords);
   const [search, setSearch] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
 
@@ -43,6 +55,12 @@ export function SalesRecordClient() {
     setRecords(prev => prev.map(r => r.id === id ? { ...r, deliveryFee: `₦${newNumber}` } : r));
   };
 
+  const persistDeliveryFee = async (id: string, value: string) => {
+    const numeric = parseFloat(value.replace(/[^0-9.]/g, '')) || 0;
+    setEditingId(null);
+    try { await updateOrderDeliveryFeeAction({ orderId: id, deliveryFee: numeric }); } catch {}
+  };
+
   // Nigerian States
   const nigerianStates = [
     "Abia", "Adamawa", "Akwa Ibom", "Anambra", "Bauchi", "Bayelsa", "Benue", "Borno",
@@ -52,8 +70,8 @@ export function SalesRecordClient() {
     "Sokoto", "Taraba", "Yobe", "Zamfara"
   ];
 
-  const products = ["Fonio Mill", "Trim & Tone", "Prosxact", "Shred Belly", "Neuro-Vive Balm"];
-  const agents = ["Ibrahim Lawal", "Emeka Nwosu", "Yusuf Sani", "Samuel Etim", "Monday Oghene"];
+  const products = productProp ?? ["Fonio Mill", "Trim & Tone", "Prosxact", "Shred Belly", "Neuro-Vive Balm"];
+  const agents = (agentProp ?? []).map(a => a.name);
   const statuses = ["Pending", "Delivered", "Cancelled", "Failed"];
 
   const filtered = records.filter((r) => {
@@ -348,8 +366,8 @@ export function SalesRecordClient() {
                           onChange={(e) => updateDeliveryFee(r.id, e.target.value)}
                           className="w-16 bg-transparent border-b border-purple-400 focus:outline-none text-[13px] text-gray-800 font-bold px-0 py-0"
                         />
-                        <button 
-                          onClick={() => setEditingId(null)}
+                        <button
+                          onClick={() => persistDeliveryFee(r.id, r.deliveryFee)}
                           className="p-1 text-green-500 hover:bg-green-50 rounded"
                         >
                           <Check size={14} />

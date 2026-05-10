@@ -36,7 +36,7 @@ const reportTypes = [
   "Aging Report"
 ];
 
-const chartData = [
+const fallbackChartData = [
   { name: 'JAN', delivered: 400, failed: 240 },
   { name: 'FEB', delivered: 1800, failed: 800 },
   { name: 'MAR', delivered: 1600, failed: 1200 },
@@ -51,7 +51,7 @@ const chartData = [
   { name: 'DEC', delivered: 600, failed: 400 },
 ];
 
-const tableData = [
+const fallbackTableData = [
   { name: 'Mr Ola Adewale', state: 'Lagos', product: 5, performance: '89%', avatar: 'https://ui-avatars.com/api/?name=Ola+Adewale&background=FFB6C1&color=fff' },
   { name: 'Mr. Qudus Aina', state: 'Ibadan', product: 12, performance: '87%', avatar: 'https://ui-avatars.com/api/?name=Qudus+Aina&background=4B0082&color=fff' },
   { name: 'Mr. Elijah', state: 'Kano', product: 19, performance: '89%', avatar: 'https://ui-avatars.com/api/?name=Elijah&background=FFD700&color=fff' },
@@ -63,8 +63,23 @@ const tableData = [
   { name: 'AirPeace', state: 'Abeokuta', product: 6, performance: '84%', avatar: 'https://ui-avatars.com/api/?name=AirPeace&background=00008B&color=fff' },
 ];
 
-export function ReportsClient() {
+interface ReportsClientProps {
+  agentPerformance?: {
+    chartData: { name: string; delivered: number; failed: number }[];
+    tableData: { name: string; state: string; product: number; performance: string }[];
+    summary: { overallPerformance: number; bestAgent: { name: string; performance: string } | null };
+  };
+}
+
+export function ReportsClient({ agentPerformance }: ReportsClientProps = {}) {
   const [activeReport, setActiveReport] = useState("Agent Performance");
+  const chartData = agentPerformance?.chartData?.length ? agentPerformance.chartData : fallbackChartData;
+  const tableData = agentPerformance?.tableData?.length
+    ? agentPerformance.tableData.map(t => ({ ...t, avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(t.name)}&background=4B0082&color=fff` }))
+    : fallbackTableData;
+  const overallPerf = agentPerformance?.summary.overallPerformance ?? 65;
+  const bestAgentName = agentPerformance?.summary.bestAgent?.name ?? "Qudus Aina";
+  const bestAgentPerf = agentPerformance?.summary.bestAgent?.performance ?? "75%";
 
   return (
     <div className="p-8 max-w-[1600px] mx-auto min-h-screen bg-[#F9FAFB]">
@@ -122,7 +137,7 @@ export function ReportsClient() {
                   </button>
                 </div>
                 <div className="flex items-end gap-3 relative z-10">
-                  <span className="text-[56px] font-black text-gray-800 leading-none">65%</span>
+                  <span className="text-[56px] font-black text-gray-800 leading-none">{overallPerf}%</span>
                   <div className="flex items-center gap-1 text-emerald-500 font-black text-[14px] mb-2">
                     +9% <span className="text-gray-400 font-bold text-[10px] uppercase tracking-wider ml-1">vs last month</span>
                   </div>
@@ -142,7 +157,7 @@ export function ReportsClient() {
                     <img src="https://ui-avatars.com/api/?name=Qudus+Aina&background=4B0082&color=fff" alt="Best Agent" />
                   </div>
                   <div>
-                    <h4 className="text-[18px] font-black leading-tight">Qudus Aina <span className="opacity-80">75%</span></h4>
+                    <h4 className="text-[18px] font-black leading-tight">{bestAgentName} <span className="opacity-80">{bestAgentPerf}</span></h4>
                   </div>
                 </div>
               </div>
