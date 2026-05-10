@@ -15,7 +15,8 @@ import {
   Calendar as CalendarIcon,
   ChevronDown,
   Edit2,
-  Check
+  Check,
+  ClipboardList,
 } from 'lucide-react';
 import { SalesRecord } from '@/lib/mock-data/sales-records';
 import { updateOrderDeliveryFeeAction } from '@/modules/finance/actions/sales-record.action';
@@ -31,17 +32,21 @@ interface SalesRecordClientProps {
   agents?: { id: string; name: string }[];
 }
 
+const PAGE_SIZE = 20;
+
 export function SalesRecordClient({ initialRecords = [], products: productProp, agents: agentProp }: SalesRecordClientProps = {}) {
   const router = useRouter();
   const [records, setRecords] = useState<SalesRecordRow[]>(initialRecords);
   const [search, setSearch] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
 
   // Filter states
   const [productFilter, setProductFilter] = useState('All');
   const [stateFilter, setStateFilter] = useState('All');
   const [agentFilter, setAgentFilter] = useState('All');
   const [statusFilter, setStatusFilter] = useState('All');
+  const [paymentStatusFilter, setPaymentStatusFilter] = useState('All');
   const [dateRange, setDateRange] = useState({ from: '', to: '' });
 
   // UI state for dropdowns
@@ -50,6 +55,8 @@ export function SalesRecordClient({ initialRecords = [], products: productProp, 
   const toggleDropdown = (name: string) => {
     setOpenDropdown(openDropdown === name ? null : name);
   };
+
+  const resetPage = () => setPage(1);
 
   const updateDeliveryFee = (id: string, newNumber: string) => {
     setRecords(prev => prev.map(r => r.id === id ? { ...r, deliveryFee: `₦${newNumber}` } : r));
@@ -72,7 +79,8 @@ export function SalesRecordClient({ initialRecords = [], products: productProp, 
 
   const products = productProp ?? ["Fonio Mill", "Trim & Tone", "Prosxact", "Shred Belly", "Neuro-Vive Balm"];
   const agents = (agentProp ?? []).map(a => a.name);
-  const statuses = ["Pending", "Delivered", "Cancelled", "Failed"];
+  const statuses = ["Pending", "Confirmed", "Delivered", "Cancelled", "Failed"];
+  const paymentStatuses = ["Paid", "Not Paid"];
 
   const filtered = records.filter((r) => {
     const matchSearch = r.customer.toLowerCase().includes(search.toLowerCase()) ||
@@ -81,11 +89,21 @@ export function SalesRecordClient({ initialRecords = [], products: productProp, 
     const matchState = stateFilter === 'All' || r.state === stateFilter;
     const matchAgent = agentFilter === 'All' || r.agent.includes(agentFilter);
     const matchStatus = statusFilter === 'All' || r.orderStatus === statusFilter;
+    const matchPaymentStatus = paymentStatusFilter === 'All' || r.remStatus === paymentStatusFilter;
     const matchDate = (!dateRange.from || r.date >= dateRange.from) &&
       (!dateRange.to || r.date <= dateRange.to);
 
-    return matchSearch && matchProduct && matchState && matchAgent && matchStatus && matchDate;
+    return matchSearch && matchProduct && matchState && matchAgent && matchStatus && matchPaymentStatus && matchDate;
   });
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  const handleFilterChange = (setter: (v: string) => void, value: string) => {
+    setter(value);
+    resetPage();
+    setOpenDropdown(null);
+  };
 
   return (
     <div className="p-8 max-w-[1400px] mx-auto min-h-screen bg-[#F9FAFB]">
@@ -129,7 +147,7 @@ export function SalesRecordClient({ initialRecords = [], products: productProp, 
             <div className="absolute top-full left-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-gray-100 z-50 p-2 py-3">
               <div
                 className="px-3 py-2 text-[13px] text-gray-600 hover:bg-gray-50 rounded-lg cursor-pointer font-medium"
-                onClick={() => { setProductFilter('All'); setOpenDropdown(null); }}
+                onClick={() => handleFilterChange(setProductFilter, 'All')}
               >
                 All Products
               </div>
@@ -137,7 +155,7 @@ export function SalesRecordClient({ initialRecords = [], products: productProp, 
                 <div
                   key={p}
                   className="px-3 py-2 text-[13px] text-gray-600 hover:bg-gray-50 rounded-lg cursor-pointer font-medium"
-                  onClick={() => { setProductFilter(p); setOpenDropdown(null); }}
+                  onClick={() => handleFilterChange(setProductFilter, p)}
                 >
                   {p}
                 </div>
@@ -162,7 +180,7 @@ export function SalesRecordClient({ initialRecords = [], products: productProp, 
             <div className="absolute top-full left-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-gray-100 z-50 p-2 py-3 max-h-[300px] overflow-y-auto custom-scrollbar">
               <div
                 className="px-3 py-2 text-[13px] text-gray-600 hover:bg-gray-50 rounded-lg cursor-pointer font-medium"
-                onClick={() => { setStateFilter('All'); setOpenDropdown(null); }}
+                onClick={() => handleFilterChange(setStateFilter, 'All')}
               >
                 All States
               </div>
@@ -170,7 +188,7 @@ export function SalesRecordClient({ initialRecords = [], products: productProp, 
                 <div
                   key={s}
                   className="px-3 py-2 text-[13px] text-gray-600 hover:bg-gray-50 rounded-lg cursor-pointer font-medium"
-                  onClick={() => { setStateFilter(s); setOpenDropdown(null); }}
+                  onClick={() => handleFilterChange(setStateFilter, s)}
                 >
                   {s}
                 </div>
@@ -195,7 +213,7 @@ export function SalesRecordClient({ initialRecords = [], products: productProp, 
             <div className="absolute top-full left-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-gray-100 z-50 p-2 py-3">
               <div
                 className="px-3 py-2 text-[13px] text-gray-600 hover:bg-gray-50 rounded-lg cursor-pointer font-medium"
-                onClick={() => { setAgentFilter('All'); setOpenDropdown(null); }}
+                onClick={() => handleFilterChange(setAgentFilter, 'All')}
               >
                 All Agents
               </div>
@@ -203,9 +221,42 @@ export function SalesRecordClient({ initialRecords = [], products: productProp, 
                 <div
                   key={a}
                   className="px-3 py-2 text-[13px] text-gray-600 hover:bg-gray-50 rounded-lg cursor-pointer font-medium"
-                  onClick={() => { setAgentFilter(a); setOpenDropdown(null); }}
+                  onClick={() => handleFilterChange(setAgentFilter, a)}
                 >
                   {a}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Status Filter (Order Status) */}
+        <div className="relative">
+          <button
+            onClick={() => toggleDropdown('status')}
+            className="flex items-center gap-3 bg-black text-white px-4 py-3 rounded-xl text-[13px] font-semibold min-w-[130px] justify-between shadow-sm hover:bg-gray-900 transition-colors"
+          >
+            <div className="flex items-center gap-2">
+              <ClipboardList size={16} strokeWidth={2.5} />
+              <span>{statusFilter === 'All' ? 'Status' : statusFilter}</span>
+            </div>
+            <ChevronDown size={14} strokeWidth={3} className={`transition-transform ${openDropdown === 'status' ? 'rotate-180' : ''}`} />
+          </button>
+          {openDropdown === 'status' && (
+            <div className="absolute top-full left-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-gray-100 z-50 p-2 py-3">
+              <div
+                className="px-3 py-2 text-[13px] text-gray-600 hover:bg-gray-50 rounded-lg cursor-pointer font-medium"
+                onClick={() => handleFilterChange(setStatusFilter, 'All')}
+              >
+                All Statuses
+              </div>
+              {statuses.map(s => (
+                <div
+                  key={s}
+                  className="px-3 py-2 text-[13px] text-gray-600 hover:bg-gray-50 rounded-lg cursor-pointer font-medium"
+                  onClick={() => handleFilterChange(setStatusFilter, s)}
+                >
+                  {s}
                 </div>
               ))}
             </div>
@@ -215,28 +266,28 @@ export function SalesRecordClient({ initialRecords = [], products: productProp, 
         {/* Payment Status Filter */}
         <div className="relative">
           <button
-            onClick={() => toggleDropdown('status')}
+            onClick={() => toggleDropdown('paymentStatus')}
             className="flex items-center gap-3 bg-black text-white px-4 py-3 rounded-xl text-[13px] font-semibold min-w-[160px] justify-between shadow-sm hover:bg-gray-900 transition-colors"
           >
             <div className="flex items-center gap-2">
               <CreditCard size={16} strokeWidth={2.5} />
-              <span>{statusFilter === 'All' ? 'Payment Status' : statusFilter}</span>
+              <span>{paymentStatusFilter === 'All' ? 'Payment Status' : paymentStatusFilter}</span>
             </div>
-            <ChevronDown size={14} strokeWidth={3} className={`transition-transform ${openDropdown === 'status' ? 'rotate-180' : ''}`} />
+            <ChevronDown size={14} strokeWidth={3} className={`transition-transform ${openDropdown === 'paymentStatus' ? 'rotate-180' : ''}`} />
           </button>
-          {openDropdown === 'status' && (
+          {openDropdown === 'paymentStatus' && (
             <div className="absolute top-full left-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-gray-100 z-50 p-2 py-3">
               <div
                 className="px-3 py-2 text-[13px] text-gray-600 hover:bg-gray-50 rounded-lg cursor-pointer font-medium"
-                onClick={() => { setStatusFilter('All'); setOpenDropdown(null); }}
+                onClick={() => handleFilterChange(setPaymentStatusFilter, 'All')}
               >
-                All Statuses
+                All
               </div>
-              {statuses.map(s => (
+              {paymentStatuses.map(s => (
                 <div
                   key={s}
                   className="px-3 py-2 text-[13px] text-gray-600 hover:bg-gray-50 rounded-lg cursor-pointer font-medium"
-                  onClick={() => { setStatusFilter(s); setOpenDropdown(null); }}
+                  onClick={() => handleFilterChange(setPaymentStatusFilter, s)}
                 >
                   {s}
                 </div>
@@ -265,7 +316,7 @@ export function SalesRecordClient({ initialRecords = [], products: productProp, 
                   <input
                     type="date"
                     value={dateRange.from}
-                    onChange={(e) => setDateRange(prev => ({ ...prev, from: e.target.value }))}
+                    onChange={(e) => { setDateRange(prev => ({ ...prev, from: e.target.value })); resetPage(); }}
                     className="w-full h-10 border border-gray-200 rounded-lg px-3 text-sm focus:outline-none focus:border-purple-300"
                   />
                 </div>
@@ -274,7 +325,7 @@ export function SalesRecordClient({ initialRecords = [], products: productProp, 
                   <input
                     type="date"
                     value={dateRange.to}
-                    onChange={(e) => setDateRange(prev => ({ ...prev, to: e.target.value }))}
+                    onChange={(e) => { setDateRange(prev => ({ ...prev, to: e.target.value })); resetPage(); }}
                     className="w-full h-10 border border-gray-200 rounded-lg px-3 text-sm focus:outline-none focus:border-purple-300"
                   />
                 </div>
@@ -285,7 +336,7 @@ export function SalesRecordClient({ initialRecords = [], products: productProp, 
                   Apply Filter
                 </button>
                 <button
-                  onClick={() => { setDateRange({ from: '', to: '' }); setOpenDropdown(null); }}
+                  onClick={() => { setDateRange({ from: '', to: '' }); resetPage(); setOpenDropdown(null); }}
                   className="w-full text-gray-400 py-1 text-[12px] font-medium"
                 >
                   Reset
@@ -302,7 +353,7 @@ export function SalesRecordClient({ initialRecords = [], products: productProp, 
             type="text"
             placeholder="search"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => { setSearch(e.target.value); resetPage(); }}
             className="w-full h-[48px] pl-12 pr-4 bg-white  rounded-xl text-[14px] text-gray-600 focus:outline-none focus:ring-1 focus:ring-purple-200"
           />
         </div>
@@ -321,7 +372,7 @@ export function SalesRecordClient({ initialRecords = [], products: productProp, 
                 <th className="px-5 py-4 text-[12px] font-bold text-gray-600 whitespace-nowrap">Qty</th>
                 <th className="px-5 py-4 text-[12px] font-bold text-gray-600 whitespace-nowrap">Total</th>
                 <th className="px-5 py-4 text-[12px] font-bold text-gray-600 whitespace-nowrap">Discount</th>
-                <th className="px-5 py-4 text-[12px] font-bold text-gray-600 whitespace-nowrap">Net AMount</th>
+                <th className="px-5 py-4 text-[12px] font-bold text-gray-600 whitespace-nowrap">Net Amount</th>
                 <th className="px-5 py-4 text-[12px] font-bold text-gray-600 whitespace-nowrap">Delivery Fee</th>
                 <th className="px-5 py-4 text-[12px] font-bold text-gray-600 whitespace-nowrap">Rem. Status</th>
                 <th className="px-5 py-4 text-[12px] font-bold text-gray-600 whitespace-nowrap">Agent</th>
@@ -329,7 +380,7 @@ export function SalesRecordClient({ initialRecords = [], products: productProp, 
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {filtered.map((r) => (
+              {paginated.map((r) => (
                 <tr
                   key={r.id}
                   className="hover:bg-gray-50/50 transition-colors cursor-pointer"
@@ -359,7 +410,7 @@ export function SalesRecordClient({ initialRecords = [], products: productProp, 
                     {editingId === r.id ? (
                       <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                         <span className="text-[13px] text-gray-400 font-bold">₦</span>
-                        <input 
+                        <input
                           type="text"
                           value={r.deliveryFee.replace('₦', '')}
                           autoFocus
@@ -376,7 +427,7 @@ export function SalesRecordClient({ initialRecords = [], products: productProp, 
                     ) : (
                       <div className="flex items-center justify-between group min-w-[80px]">
                         <span className="text-[13px] text-gray-600 font-medium">{r.deliveryFee}</span>
-                        <button 
+                        <button
                           onClick={(e) => { e.stopPropagation(); setEditingId(r.id); }}
                           className="p-1.5 text-gray-300 hover:text-purple-500 hover:bg-purple-50 rounded opacity-0 group-hover:opacity-100 transition-all"
                         >
@@ -398,11 +449,68 @@ export function SalesRecordClient({ initialRecords = [], products: productProp, 
                   <td className="px-5 py-6 text-[13px] text-gray-500 font-medium whitespace-nowrap">{r.date}</td>
                 </tr>
               ))}
+              {paginated.length === 0 && (
+                <tr>
+                  <td colSpan={12} className="px-5 py-16 text-center text-[14px] text-gray-400 font-medium">
+                    No records found
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
       </div>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between mt-6 px-1">
+          <p className="text-[13px] text-gray-500 font-medium">
+            Showing {((page - 1) * PAGE_SIZE) + 1}–{Math.min(page * PAGE_SIZE, filtered.length)} of {filtered.length} records
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPage(p => Math.max(1, p - 1))}
+              disabled={page === 1}
+              className="p-2 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            >
+              <ChevronLeft size={16} />
+            </button>
+            {Array.from({ length: totalPages }, (_, i) => i + 1)
+              .filter(p => p === 1 || p === totalPages || Math.abs(p - page) <= 1)
+              .reduce<(number | '...')[]>((acc, p, idx, arr) => {
+                if (idx > 0 && typeof arr[idx - 1] === 'number' && (p as number) - (arr[idx - 1] as number) > 1) {
+                  acc.push('...');
+                }
+                acc.push(p);
+                return acc;
+              }, [])
+              .map((p, idx) =>
+                p === '...' ? (
+                  <span key={`ellipsis-${idx}`} className="px-2 text-gray-400 text-[13px]">…</span>
+                ) : (
+                  <button
+                    key={p}
+                    onClick={() => setPage(p as number)}
+                    className={`w-9 h-9 rounded-lg text-[13px] font-semibold transition-colors ${
+                      page === p
+                        ? 'bg-[#AE00FF] text-white'
+                        : 'border border-gray-200 text-gray-600 hover:bg-gray-50'
+                    }`}
+                  >
+                    {p}
+                  </button>
+                )
+              )}
+            <button
+              onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+              disabled={page === totalPages}
+              className="p-2 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            >
+              <ChevronRight size={16} />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
-

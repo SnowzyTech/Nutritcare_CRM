@@ -6,11 +6,11 @@ import {
   ChevronRight,
   RotateCcw,
   MessageCircle,
-  ChevronDown,
   Search,
   MapPin,
 } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import type { ProductBreakdownItem } from '@/modules/finance/services/inventory-accounting.service';
 
 const fallbackMainTableData = [
   { name: 'Prosxact', cost: '₦3,500', selling: '₦5,200', total: '1,200', warehouse: '800', agents: '400', value: '₦1,250,000' },
@@ -21,26 +21,6 @@ const fallbackMainTableData = [
   { name: 'Trim & Tone', cost: '₦3,900', selling: '₦5,600', total: '760', warehouse: '480', agents: '280', value: '₦887,900' },
   { name: 'Linix', cost: '₦2,200', selling: '₦3,500', total: '1,350', warehouse: '900', agents: '450', value: '₦1,250,000' },
   { name: 'Vitorep', cost: '₦3,600', selling: '₦5,100', total: '920', warehouse: '570', agents: '350', value: '₦887,900' },
-];
-
-const productCards = [
-  { name: 'Prosxact', stock: '1200' },
-  { name: 'Neuro-Vive Balm', stock: '1200' },
-  { name: 'Shred Belly', stock: '1200' },
-  { name: 'Trim & Tone', stock: '1200' },
-  { name: 'After-Natal', stock: '1200' },
-  { name: 'Fonio Mill', stock: '1200' },
-  { name: 'Vitorep', stock: '1200' },
-  { name: 'Linix', stock: '1200' },
-];
-
-const variants = [
-  { id: 1, name: 'Single Product', qty: 2, price: '₦38,500' },
-  { id: 2, name: 'Regular', qty: 2, price: '₦38,500' },
-  { id: 3, name: 'Standard', qty: 4, price: '₦75,000' },
-  { id: 4, name: 'Premium', qty: 6, price: '₦110,000' },
-  { id: 5, name: 'Platinum', qty: 8, price: '₦145,000' },
-  { id: 6, name: 'Premium', qty: 6, price: '₦110,000' },
 ];
 
 const fallbackProductHeaders = ['Prosxact', 'Neuro-Vive', 'Trim & Tone', 'Shred Belly', 'After-Natal', 'Vitorep', 'Fonio-Mill', 'Linix', 'Total'];
@@ -70,6 +50,7 @@ const fallbackAgentData = [
 interface ProductRow { name: string; cost: string; selling: string; total: string; warehouse: string; agents: string; value: string; }
 interface InventoryClientProps {
   productList?: ProductRow[];
+  productBreakdown?: ProductBreakdownItem[];
   locationView?: {
     productHeaders: string[];
     warehouseRows: { warehouse: string; values: (number | string)[] }[];
@@ -77,9 +58,10 @@ interface InventoryClientProps {
   };
 }
 
-export function InventoryClient({ productList, locationView }: InventoryClientProps = {}) {
+export function InventoryClient({ productList, productBreakdown, locationView }: InventoryClientProps = {}) {
   const [activeTab, setActiveTab] = useState<'product' | 'location'>('product');
   const mainTableData = (productList && productList.length > 0) ? productList : fallbackMainTableData;
+  const cards = productBreakdown ?? [];
 
   return (
     <div className="p-8 max-w-[1600px] mx-auto min-h-screen bg-[#FAFAFA] font-sans">
@@ -159,46 +141,51 @@ export function InventoryClient({ productList, locationView }: InventoryClientPr
           </div>
 
           {/* Product Cards Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-10">
-            {productCards.map((product, idx) => (
-              <div key={idx} className="flex flex-col">
-                {/* Card Header */}
-                <div className="flex items-start justify-between mb-4 px-1">
-                  <div className="flex flex-col">
-                    <h3 className="text-[16px] font-bold text-gray-700 leading-tight mb-0.5">{product.name}</h3>
-                    <span className="text-[10px] font-bold text-gray-400">{product.stock} in stock</span>
+          {cards.length > 0 && (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-10">
+              {cards.map((product) => (
+                <div key={product.id} className="flex flex-col">
+                  {/* Card Header */}
+                  <div className="flex items-start justify-between mb-4 px-1">
+                    <div className="flex flex-col">
+                      <h3 className="text-[16px] font-bold text-gray-700 leading-tight mb-0.5">{product.name}</h3>
+                      <span className="text-[10px] font-bold text-gray-400">{product.stock} in stock</span>
+                    </div>
+                    <div className="w-9 h-9 rounded-lg overflow-hidden bg-gray-100 flex-shrink-0">
+                      <img src="https://images.unsplash.com/photo-1611162458324-aae1eb4129a4?w=100&h=100&fit=crop" alt="product" className="w-full h-full object-cover" />
+                    </div>
                   </div>
-                  <div className="w-9 h-9 rounded-lg overflow-hidden bg-gray-100 flex-shrink-0">
-                    {/* Placeholder for the product image shown in the design */}
-                    <img src="https://images.unsplash.com/photo-1611162458324-aae1eb4129a4?w=100&h=100&fit=crop" alt="product" className="w-full h-full object-cover" />
-                  </div>
-                </div>
 
-                {/* Mini Table */}
-                <div className="bg-white rounded-xl overflow-hidden border border-gray-100 shadow-sm">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="bg-[#4A0A77] text-white text-[10px] font-bold">
-                        <th className="px-4 py-3" colSpan={2}>Name</th>
-                        <th className="px-4 py-3 text-center border-x border-[#5A1A87]/30">Qty</th>
-                        <th className="px-4 py-3 text-right">Price</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {variants.map((variant) => (
-                        <tr key={variant.id} className="bg-white border-b border-gray-100 last:border-b-0">
-                          <td className="pl-4 pr-2 py-3 text-[10px] text-gray-400 w-8">{variant.id}</td>
-                          <td className="pr-4 py-3 text-[11px] text-gray-500">{variant.name}</td>
-                          <td className="px-4 py-3 text-[11px] text-gray-500 text-center border-x border-gray-100">{variant.qty}</td>
-                          <td className="px-4 py-3 text-[11px] text-gray-500 text-right">{variant.price}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                  {/* Mini Table */}
+                  <div className="bg-white rounded-xl overflow-hidden border border-gray-100 shadow-sm">
+                    {product.offers.length > 0 ? (
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-[#4A0A77] text-white text-[10px] font-bold">
+                            <th className="px-4 py-3" colSpan={2}>Name</th>
+                            <th className="px-4 py-3 text-center border-x border-[#5A1A87]/30">Qty</th>
+                            <th className="px-4 py-3 text-right">Price</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {product.offers.map((offer) => (
+                            <tr key={offer.id} className="bg-white border-b border-gray-100 last:border-b-0">
+                              <td className="pl-4 pr-2 py-3 text-[10px] text-gray-400 w-8">{offer.id}</td>
+                              <td className="pr-4 py-3 text-[11px] text-gray-500">{offer.name}</td>
+                              <td className="px-4 py-3 text-[11px] text-gray-500 text-center border-x border-gray-100">{offer.qty}</td>
+                              <td className="px-4 py-3 text-[11px] text-gray-500 text-right">{offer.price}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    ) : (
+                      <p className="px-4 py-6 text-[11px] text-gray-400 text-center">No offers configured</p>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </>
       ) : (
         <InventoryLocationView locationView={locationView} />
@@ -236,7 +223,7 @@ function InventoryLocationView({ locationView }: { locationView?: InventoryClien
     <div className="animate-in fade-in duration-400">
       {/* Filters Row */}
       <div className="flex items-center gap-4 mb-8">
-        <Select value={stateFilter} onValueChange={setStateFilter}>
+        <Select value={stateFilter} onValueChange={(v) => setStateFilter(v ?? 'All')}>
           <SelectTrigger className="w-[180px] rounded-full border-gray-200 bg-white shadow-sm text-[13px] font-bold text-gray-600 h-[42px] px-4 focus:ring-purple-200">
             <div className="flex items-center gap-2">
               <MapPin size={15} className="text-[#AE00FF]" />

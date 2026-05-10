@@ -66,6 +66,59 @@ export async function getInventoryProductList() {
   }));
 }
 
+export type ProductBreakdownItem = {
+  id: string;
+  name: string;
+  stock: string;
+  offers: { id: number; name: string; qty: number; price: string }[];
+};
+
+export async function getInventoryProductBreakdown(): Promise<ProductBreakdownItem[]> {
+  const products = await prisma.product.findMany({
+    where: { deletedAt: null, isActive: true },
+    select: {
+      id: true,
+      name: true,
+      stockMovementItems: {
+        select: {
+          quantity: true,
+          stockMovement: { select: { type: true, status: true } },
+        },
+      },
+      offers: {
+        select: { id: true, offerName: true, offerQuantity: true, sellingPrice: true },
+        orderBy: { offerQuantity: "asc" },
+      },
+    },
+    orderBy: { name: "asc" },
+  });
+
+  return products.map((p) => {
+    let stock = 0;
+    for (const item of p.stockMovementItems) {
+      const { type, status } = item.stockMovement;
+      if (type === "INCOMING" && ["RECORDED", "RECEIVED", "SHELVED"].includes(status)) {
+        stock += item.quantity;
+      } else if (type === "OUTGOING") {
+        stock -= item.quantity;
+      } else if (type === "RETURN") {
+        stock += item.quantity;
+      }
+    }
+    return {
+      id: p.id,
+      name: p.name,
+      stock: Math.max(0, stock).toLocaleString(),
+      offers: p.offers.map((o, i) => ({
+        id: i + 1,
+        name: o.offerName,
+        qty: o.offerQuantity,
+        price: fmt(Number(o.sellingPrice)),
+      })),
+    };
+  });
+}
+
 export async function getInventoryLocationView() {
   const products = await prisma.product.findMany({
     where: { deletedAt: null, isActive: true },

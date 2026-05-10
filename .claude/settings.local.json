@@ -13,7 +13,11 @@
       "Bash(npx next *)",
       "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\emmauel\\\\Desktop\\\\organizations\\\\Nutritcare_CRM\\\\app\\\\\\(accounting\\)\\\\accounting\" -Recurse -File)",
       "Bash(Select-Object FullName)",
-      "Bash(git stash *)"
+      "Bash(git stash *)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\emmauel\\\\Desktop\\\\organizations\\\\Nutritcare_CRM\" -Force)",
+      "Bash(Select-Object Name, PSIsContainer)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\emmauel\\\\Desktop\\\\organizations\\\\Nutritcare_CRM\\\\app\" -Directory)",
+      "Bash(Select-Object Name)"
     ]
   }
 }

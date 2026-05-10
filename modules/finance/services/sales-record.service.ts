@@ -71,6 +71,8 @@ export async function getSalesRecords(filters: {
     const discountPct = Number(o.discountPercent);
     const remStatus: "Paid" | "Not Paid" = o.invoices.some(i => i.status === "PAID") ? "Paid" : "Not Paid";
 
+    const qtyPerItem = o.items.map(it => `${it.quantity} pack${it.quantity === 1 ? "" : "s"}`).join(", ");
+
     return {
       id: o.id,
       orderId: o.orderNumber,
@@ -78,7 +80,7 @@ export async function getSalesRecords(filters: {
       customer: o.customer.name,
       state: o.customer.state,
       products,
-      qty: `${totalQty} pack${totalQty === 1 ? "" : "s"}`,
+      qty: qtyPerItem,
       total: fmt(totalNum),
       discount: discountNum > 0 ? `${fmt(discountNum)} (${discountPct}%)` : "—",
       netAmount: fmt(Number(o.netAmount)),

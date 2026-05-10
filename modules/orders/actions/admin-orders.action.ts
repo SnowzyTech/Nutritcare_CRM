@@ -3,6 +3,7 @@
 import { auth } from "@/lib/auth/auth";
 import { prisma } from "@/lib/db/prisma";
 import { revalidatePath } from "next/cache";
+import { recordDeliveryFeeEntry } from "@/modules/finance/services/agent-settlement.service";
 
 async function checkAdmin() {
   const session = await auth();
@@ -51,6 +52,16 @@ export async function adminDeliverOrderAction(orderId: string) {
   const order = await getOrder(orderId);
   if (!order || order.status !== "CONFIRMED") throw new Error("Cannot mark order as delivered");
   await prisma.order.update({ where: { id: orderId }, data: { status: "DELIVERED" } });
+
+  if (order.agentId) {
+    await recordDeliveryFeeEntry({
+      agentId: order.agentId,
+      netAmount: Number(order.netAmount),
+      orderNumber: order.orderNumber,
+      date: order.date,
+    });
+  }
+
   revalidate(orderId);
 }
 

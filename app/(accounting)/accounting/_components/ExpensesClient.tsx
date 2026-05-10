@@ -27,7 +27,7 @@ import {
   createPaymentAccountAction,
 } from "@/modules/finance/actions/expenses.action";
 import { createSupplierAction } from "@/modules/finance/actions/suppliers.action";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams, usePathname } from "next/navigation";
 
 interface ExpenseHistoryRow {
   id?: string;
@@ -95,11 +95,41 @@ export function ExpensesClient({
   nextRef,
 }: ExpensesClientProps = {}) {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState('new');
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  const validTabs = ['new', 'history', 'supplier'];
+  const tabParam = searchParams.get('tab');
+  const [activeTab, setActiveTabState] = useState<string>(
+    tabParam && validTabs.includes(tabParam) ? tabParam : 'new'
+  );
+
+  const setActiveTab = (tab: string) => {
+    setActiveTabState(tab);
+    if (validTabs.includes(tab)) {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set('tab', tab);
+      router.replace(`${pathname}?${params.toString()}`, { scroll: false } as any);
+    }
+  };
+
   const [date, setDate] = useState<Date | undefined>(new Date());
   const [filterDate, setFilterDate] = useState<Date | undefined>();
   const [selectedExpense, setSelectedExpense] = useState<any>(null);
-  const [historyData] = useState<ExpenseHistoryRow[]>(initialHistory ?? (fallbackHistoryData as any));
+  const historyData: ExpenseHistoryRow[] = initialHistory ?? (fallbackHistoryData as any);
+
+  const [historySearch, setHistorySearch] = useState('');
+  const [filterCategory, setFilterCategory] = useState('');
+
+  const filteredHistory = historyData.filter(row => {
+    const matchesCategory = !filterCategory || row.category === filterCategory;
+    const matchesDate = !filterDate || new Date(row.date) >= filterDate;
+    const matchesSearch =
+      !historySearch ||
+      row.ref.toLowerCase().includes(historySearch.toLowerCase()) ||
+      row.category.toLowerCase().includes(historySearch.toLowerCase());
+    return matchesCategory && matchesDate && matchesSearch;
+  });
 
   const [categories, setCategories] = useState<{ id: string; name: string }[]>(
     initialCategories && initialCategories.length > 0
@@ -216,6 +246,50 @@ export function ExpensesClient({
     if ('error' in res) { alert(res.error); return; }
     router.refresh();
     setActiveTab('history');
+  };
+
+  const resetForm = () => {
+    setSelectedCategoryId('');
+    setSelectedAccountId('');
+    setNotesText('');
+    setDate(new Date());
+    setLineItems([
+      { id: 1, product: '', description: '', qty: '1', amount: '', tax: '' },
+      { id: 2, product: '', description: '', qty: '1', amount: '', tax: '' },
+      { id: 3, product: '', description: '', qty: '1', amount: '', tax: '' },
+    ]);
+  };
+
+  const handleSaveAndAddAnother = async () => {
+    if (!selectedCategoryId || !selectedAccountId) {
+      alert('Select category and account');
+      return;
+    }
+    const items = lineItems
+      .filter(l => parseFloat(l.amount) > 0)
+      .map(l => ({
+        product: l.product,
+        description: l.description,
+        quantity: parseFloat(l.qty) || 1,
+        amount: parseFloat(l.amount) || 0,
+        tax: parseFloat(l.tax) || 0,
+      }));
+    if (items.length === 0) {
+      alert('Add at least one line item with an amount');
+      return;
+    }
+    setSavingExpense(true);
+    const res = await createExpenseAction({
+      expenseCategoryId: selectedCategoryId,
+      paidFromAccountId: selectedAccountId,
+      date: date ?? new Date(),
+      notes: notesText,
+      lineItems: items,
+    });
+    setSavingExpense(false);
+    if ('error' in res) { alert(res.error); return; }
+    resetForm();
+    router.refresh();
   };
 
   const renderAccountIcon = (type: string) => {
@@ -491,7 +565,11 @@ export function ExpensesClient({
                     Cancel
                   </button>
                   <div className="flex gap-4">
-                    <button className="px-6 py-2.5 border border-gray-300 text-gray-600 rounded-lg text-[13px] font-bold hover:bg-gray-50 transition-colors bg-white shadow-sm">
+                    <button
+                      disabled={savingExpense}
+                      onClick={handleSaveAndAddAnother}
+                      className="px-6 py-2.5 border border-gray-300 text-gray-600 rounded-lg text-[13px] font-bold hover:bg-gray-50 transition-colors bg-white shadow-sm disabled:opacity-50"
+                    >
                       Save & Add Another
                     </button>
                     <button
@@ -513,22 +591,36 @@ export function ExpensesClient({
             <div>
               {/* Filters */}
               <div className="flex items-center gap-4 mb-6">
-                <button className="flex items-center justify-between bg-black text-white px-4 py-2.5 rounded-lg text-[12px] font-medium w-44 shadow-sm">
-                  <div className="flex items-center gap-2">
-                    <div className="w-4 h-4 border border-white rounded-[3px] flex items-center justify-center">
-                       <div className="w-2.5 h-px bg-white" />
-                    </div>
-                    <span>Expense Category</span>
-                  </div>
-                  <ChevronDown size={14} className="text-white" />
-                </button>
+                <div className="relative w-44">
+                  <select
+                    value={filterCategory}
+                    onChange={e => setFilterCategory(e.target.value)}
+                    className="w-full appearance-none bg-black text-white px-4 py-2.5 rounded-lg text-[12px] font-medium shadow-sm focus:outline-none cursor-pointer pr-8"
+                  >
+                    <option value="">All Categories</option>
+                    {categories.map(cat => (
+                      <option key={cat.id} value={cat.name}>{cat.name}</option>
+                    ))}
+                  </select>
+                  <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-white pointer-events-none" />
+                </div>
                 <Popover>
-                  <PopoverTrigger className="flex items-center justify-between bg-black text-white px-4 py-2.5 rounded-lg text-[12px] font-medium w-36 shadow-sm">
+                  <PopoverTrigger className="flex items-center justify-between bg-black text-white px-4 py-2.5 rounded-lg text-[12px] font-medium w-44 shadow-sm">
                     <div className="flex items-center gap-2">
                       <CalendarIcon size={14} className="text-white" />
-                      <span>Date Range</span>
+                      <span>{filterDate ? format(filterDate, 'dd/MM/yy') : 'Date From'}</span>
                     </div>
-                    <ChevronDown size={14} className="text-white" />
+                    <div className="flex items-center gap-1">
+                      {filterDate && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setFilterDate(undefined); }}
+                          className="text-white/70 hover:text-white"
+                        >
+                          <X size={12} />
+                        </button>
+                      )}
+                      <ChevronDown size={14} className="text-white" />
+                    </div>
                   </PopoverTrigger>
                   <PopoverContent className="w-auto p-0 rounded-xl shadow-lg border-gray-100" align="start">
                     <Calendar
@@ -546,7 +638,9 @@ export function ExpensesClient({
                   </div>
                   <input
                     type="text"
-                    placeholder="search"
+                    value={historySearch}
+                    onChange={e => setHistorySearch(e.target.value)}
+                    placeholder="Search by ref or category"
                     className="w-full bg-white border border-gray-200 rounded-lg pl-9 pr-4 py-2 text-[13px] focus:outline-none focus:ring-1 focus:ring-[#AE00FF] transition-all text-gray-600 placeholder:text-gray-400"
                   />
                 </div>
@@ -566,7 +660,14 @@ export function ExpensesClient({
                     </tr>
                   </thead>
                   <tbody>
-                    {historyData.map((row: any, idx: number) => (
+                    {filteredHistory.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="px-6 py-10 text-center text-[13px] text-gray-400">
+                          No expenses match your filters.
+                        </td>
+                      </tr>
+                    ) : null}
+                    {filteredHistory.map((row: any, idx: number) => (
                       <tr 
                         key={idx} 
                         onClick={() => {

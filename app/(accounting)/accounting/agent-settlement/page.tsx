@@ -1,19 +1,19 @@
 import { AgentSettlementClient } from "../_components/AgentSettlementClient";
 import {
-  listAgentSettlements,
+  listDeliveryAgentsWithStats,
   listAgentLedger,
   listAgentsForSelect,
 } from "@/modules/finance/services/agent-settlement.service";
 
 export default async function AgentSettlementPage() {
-  const [settlements, ledger, agents] = await Promise.all([
-    listAgentSettlements(),
+  const [deliveryAgents, ledger, agents] = await Promise.all([
+    listDeliveryAgentsWithStats(),
     listAgentLedger(),
     listAgentsForSelect(),
   ]);
   return (
     <AgentSettlementClient
-      initialSettlements={settlements}
+      initialAgents={deliveryAgents}
       initialLedger={ledger}
       agentOptions={agents}
     />
