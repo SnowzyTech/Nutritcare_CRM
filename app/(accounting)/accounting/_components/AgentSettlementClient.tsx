@@ -213,11 +213,15 @@ function SettlementAdjustmentView({ agentOptions }: { agentOptions?: { id: strin
     if (!agentId) { alert('Select agent'); return; }
     if (!amountText) { alert('Enter amount'); return; }
     setSavingAdj(true);
+    const resolvedPaymentType =
+      adjustmentType === 'Correction' ? 'CORRECTION_IN_PLACE' :
+      adjustmentType === 'Balance/Underpayment' ? 'UNDERPAYMENT' :
+      paymentType;
     const res = await createSettlementAdjustmentAction({
       agentId,
       date: date ?? new Date(),
       adjustmentType: adjTypeMap[adjustmentType] ?? 'CORRECTION',
-      paymentType,
+      paymentType: resolvedPaymentType,
       linkedReferenceId: referenceId || `MANUAL-${Date.now()}`,
       amount: parsedAmount,
       note: noteText,
@@ -462,14 +466,32 @@ function SettlementAdjustmentView({ agentOptions }: { agentOptions?: { id: strin
                   <p className="text-[12px] text-gray-400 font-medium mt-1">No ledger entries found for this agent</p>
                 )}
               </div>
-            ) : (adjustmentType === 'Overpayment/Refund' || adjustmentType === 'Balance/Underpayment' || adjustmentType === 'Payment') && (
+            ) : (adjustmentType === 'Overpayment/Refund' || adjustmentType === 'Balance/Underpayment' ||
+                (adjustmentType === 'Payment' && (paymentType === 'Waybill' || paymentType === 'Miscellaneous'))) && (
               <div className="space-y-2">
                 <label className="text-[14px] font-bold text-gray-700">
-                  {adjustmentType === 'Payment' ? 'Transaction ID / Reference' : 'Reference ID'}
+                  {adjustmentType === 'Overpayment/Refund' ? 'Remittance to Refund' :
+                   adjustmentType === 'Balance/Underpayment' ? 'Remittance to Balance' :
+                   `${paymentType} Remittance Reference`}
                 </label>
-                <input type="text" value={referenceId} onChange={e => setReferenceId(e.target.value)}
-                  placeholder={adjustmentType === 'Payment' ? 'Enter transaction reference' : 'e.g. REM-1023'}
-                  className="w-full h-[54px] bg-white border border-gray-100 rounded-2xl px-6 text-[14px] text-gray-800 focus:outline-none focus:ring-1 focus:ring-purple-200 font-medium" />
+                <div className="relative">
+                  <select
+                    value={referenceId}
+                    onChange={e => setReferenceId(e.target.value)}
+                    className="w-full h-[54px] bg-white border border-gray-100 rounded-2xl px-6 text-[14px] text-gray-800 appearance-none focus:outline-none focus:ring-1 focus:ring-purple-200 font-medium"
+                  >
+                    <option value="">— Select a remittance entry —</option>
+                    {recentRemittances.map((r: any) => (
+                      <option key={r.id} value={r.referenceId}>
+                        {r.referenceId} · {r.date} · {r.credit}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown size={18} className="absolute right-5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                </div>
+                {recentRemittances.length === 0 && !loadingOrders && (
+                  <p className="text-[12px] text-gray-400 font-medium mt-1">No remittance entries found for this agent</p>
+                )}
               </div>
             )}
           </div>
@@ -485,16 +507,7 @@ function SettlementAdjustmentView({ agentOptions }: { agentOptions?: { id: strin
                 placeholder="₦0.00"
                 className="w-full h-[54px] bg-white border border-gray-100 rounded-2xl px-6 text-[14px] text-gray-800 focus:outline-none focus:ring-1 focus:ring-purple-200 font-medium" />
             </div>
-            {parsedAmount > 0 && (
-              <div className="flex items-center gap-3 text-[13px] font-medium pt-6">
-                <div className="w-5 h-5 rounded-full bg-purple-500 flex items-center justify-center text-white text-[10px] font-bold">!</div>
-                <span className="text-gray-700">
-                  {adjustmentType === 'Overpayment/Refund'
-                    ? `${fmt(parsedAmount)} will be debited from running balance`
-                    : `${fmt(parsedAmount)} will be credited to running balance`}
-                </span>
-              </div>
-            )}
+            <div />
           </div>
 
           <div className="space-y-2">
@@ -573,60 +586,32 @@ function SettlementAdjustmentView({ agentOptions }: { agentOptions?: { id: strin
         </div>
       </div>
 
-      <div className="flex gap-12 items-start">
-        {/* Bottom Left — Recent Remittances */}
-        <div className="flex-1">
-          <h3 className="text-[18px] font-bold text-gray-500 mb-6">Recent Remittances</h3>
-          <div className="bg-white rounded-2xl overflow-hidden border border-gray-100 shadow-sm">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-[#E5E7EB]/80 text-[12px] font-bold text-gray-600">
-                  <th className="px-6 py-4">Date</th>
-                  <th className="px-6 py-4">Reference ID</th>
-                  <th className="px-6 py-4">Amount</th>
-                  <th className="px-6 py-4">Running Balance</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {recentRemittances.length === 0 && (
-                  <tr><td colSpan={4} className="px-6 py-12 text-center text-[13px] text-gray-400 font-medium">No remittances recorded for this agent yet</td></tr>
-                )}
-                {recentRemittances.map((row: any, idx: number) => (
-                  <tr key={row.id} className={`${idx % 2 === 1 ? 'bg-gray-50/30' : 'bg-white'} hover:bg-gray-50/50 transition-colors`}>
-                    <td className="px-6 py-5 text-[13px] text-gray-400 font-medium">{row.date}</td>
-                    <td className="px-6 py-5 text-[13px] text-gray-800 font-bold tracking-tight">{row.referenceId}</td>
-                    <td className="px-6 py-5 text-[13px] font-bold text-gray-800">{row.credit}</td>
-                    <td className="px-6 py-5 text-[13px] font-bold text-gray-800">{row.runningBalance}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        {/* Bottom Right — Adjustment History */}
-        <div className="w-[420px]">
-          <div className="bg-white rounded-[32px] border border-gray-100 shadow-sm p-8 min-h-[300px]">
-            <h3 className="text-[18px] font-bold text-gray-500 mb-8">Adjustment History</h3>
-            {adjustmentHistory.length === 0 ? (
-              <p className="text-[13px] text-gray-400 font-medium text-center py-8">No adjustments recorded yet</p>
-            ) : (
-              <div className="space-y-12 relative">
-                <div className="absolute left-[11px] top-4 bottom-4 w-[2px] bg-purple-100" />
-                {adjustmentHistory.map((item: any, i: number) => (
-                  <div key={item.id} className="flex gap-6 relative cursor-pointer hover:bg-gray-50 p-2 -ml-2 rounded-xl transition-colors"
+      <div>
+        {/* Adjustment History — Corrections only */}
+        <div className="bg-white rounded-[32px] border border-gray-100 shadow-sm p-8 min-h-[300px]">
+          <h3 className="text-[18px] font-bold text-gray-500 mb-8">Correction History</h3>
+          {adjustmentHistory.filter((item: any) => item.adjustmentType === 'CORRECTION').length === 0 ? (
+            <p className="text-[13px] text-gray-400 font-medium text-center py-8">No corrections recorded yet</p>
+          ) : (
+            <div className="flex gap-8 flex-wrap">
+              {adjustmentHistory
+                .filter((item: any) => item.adjustmentType === 'CORRECTION')
+                .map((item: any) => (
+                  <div key={item.id}
+                    className="flex gap-6 relative cursor-pointer hover:bg-gray-50 p-4 rounded-xl transition-colors border border-gray-100 min-w-[280px]"
                     onClick={() => setSelectedHistory(item)}>
                     <div className="w-6 h-6 rounded-full bg-[#300066] border-4 border-white shadow-sm z-10 flex-shrink-0 mt-1" />
                     <div className="space-y-1">
-                      <p className="text-[16px] font-bold text-gray-800">{titleCaseType(item.adjustmentType)}</p>
-                      <p className="text-[14px] font-bold text-gray-400">{item.linkedReferenceId}</p>
-                      <p className="text-[12px] font-bold text-gray-300">{item.date}</p>
+                      <p className="text-[15px] font-bold text-gray-800">
+                        {item.paymentType === 'CORRECTION_IN_PLACE' ? 'Entry Correction' : 'Balance / Underpayment'}
+                      </p>
+                      <p className="text-[13px] font-bold text-gray-400">{item.linkedReferenceId}</p>
+                      <p className="text-[11px] font-bold text-gray-300">{item.date}</p>
                     </div>
                   </div>
                 ))}
-              </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
