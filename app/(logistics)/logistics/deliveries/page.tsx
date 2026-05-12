@@ -22,7 +22,7 @@ export default function DeliveriesPage() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<DeliveryStatus>("All");
   const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([]);
-  
+
   const [deliveries, setDeliveries] = useState<Delivery[]>([
     { id: "1", orderId: "#ORD-4820", agent: "Clear Path", driver: "-", time: "-", address: "22, Adeola Odeku", status: "Pending" },
     { id: "2", orderId: "#ORD-4821", agent: "Bello & Co", driver: "J.Eze", time: "14:30", address: "14, Broad St. Lagos", status: "In Transit" },
@@ -36,8 +36,8 @@ export default function DeliveriesPage() {
     { id: "10", orderId: "#ORD-4820", agent: "Clear Path", driver: "-", time: "-", address: "22, Adeola Odeku", status: "Pending" },
   ]);
 
-  const filteredDeliveries = activeTab === "All" 
-    ? deliveries 
+  const filteredDeliveries = activeTab === "All"
+    ? deliveries
     : deliveries.filter(d => d.status === activeTab);
 
   const toggleSelectAll = () => {
@@ -49,7 +49,7 @@ export default function DeliveriesPage() {
   };
 
   const toggleSelect = (id: string) => {
-    setSelectedOrderIds(prev => 
+    setSelectedOrderIds(prev =>
       prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
     );
   };
@@ -57,13 +57,13 @@ export default function DeliveriesPage() {
   const [isEditOpen, setIsEditOpen] = useState(false);
 
   const updateStatus = (newStatus: "Delivered" | "Failed") => {
-    setDeliveries(prev => prev.map(d => 
+    setDeliveries(prev => prev.map(d =>
       selectedOrderIds.includes(d.id) ? { ...d, status: newStatus } : d
     ));
     setSelectedOrderIds([]);
     setIsEditOpen(false);
   };
-  
+
   const getTabColor = (tab: DeliveryStatus) => {
     if (activeTab !== tab) return "bg-[#f3f4f6] text-gray-500 hover:bg-gray-200";
     switch (tab) {
@@ -99,38 +99,38 @@ export default function DeliveriesPage() {
       <div className="flex items-center gap-4">
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-          <input 
-            type="text" 
-            placeholder="" 
+          <input
+            type="text"
+            placeholder=""
             className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-[#ad1df4]"
           />
         </div>
         <Button variant="outline" className="text-gray-500 border-gray-200 font-medium px-6 h-10">
           Excel
         </Button>
-        
+
         {/* Edit Dropdown */}
         <div className="relative">
-          <Button 
-            variant="outline" 
+          <Button
+            variant="outline"
             disabled={selectedOrderIds.length === 0}
             onClick={() => setIsEditOpen(!isEditOpen)}
             className={`text-gray-500 border-gray-200 font-medium px-6 h-10 flex items-center gap-2 transition-all ${isEditOpen ? 'bg-gray-100 ring-1 ring-[#ad1df4]' : ''}`}
           >
             Edit
           </Button>
-          
+
           {isEditOpen && (
             <>
               <div className="fixed inset-0 z-10" onClick={() => setIsEditOpen(false)}></div>
               <div className="absolute right-0 top-full mt-1 w-40 bg-white border border-gray-100 rounded-md shadow-xl z-20 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
-                <button 
+                <button
                   onClick={() => updateStatus("Delivered")}
                   className="w-full text-left px-4 py-2 text-xs font-bold text-gray-600 hover:bg-[#faf5ff] hover:text-[#ad1df4]"
                 >
                   Delivered
                 </button>
-                <button 
+                <button
                   onClick={() => updateStatus("Failed")}
                   className="w-full text-left px-4 py-2 text-xs font-bold text-gray-600 hover:bg-red-50 hover:text-red-500"
                 >
@@ -163,8 +163,8 @@ export default function DeliveriesPage() {
             <thead className="bg-[#faf5ff] text-gray-400 uppercase font-semibold">
               <tr>
                 <th className="px-6 py-4 w-10">
-                  <Checkbox 
-                    className="border-gray-300" 
+                  <Checkbox
+                    className="border-gray-300"
                     checked={selectedOrderIds.length === filteredDeliveries.length && filteredDeliveries.length > 0}
                     onCheckedChange={toggleSelectAll}
                   />
@@ -182,8 +182,8 @@ export default function DeliveriesPage() {
               {filteredDeliveries.map((delivery, index) => (
                 <tr key={index} className="hover:bg-gray-50/50 transition-colors">
                   <td className="px-6 py-4">
-                    <Checkbox 
-                      className="border-gray-300" 
+                    <Checkbox
+                      className="border-gray-300"
                       checked={selectedOrderIds.includes(delivery.id)}
                       onCheckedChange={() => toggleSelect(delivery.id)}
                     />
@@ -197,8 +197,8 @@ export default function DeliveriesPage() {
                     {getStatusBadge(delivery.status)}
                   </td>
                   <td className="px-6 py-4 text-center">
-                    <Button 
-                      variant="outline" 
+                    <Button
+                      variant="outline"
                       onClick={() => handleAssign(delivery)}
                       className="h-7 text-[10px] font-bold px-6 rounded-md border border-gray-200 bg-gray-50 text-gray-500 hover:bg-gray-100"
                     >

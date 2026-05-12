@@ -70,8 +70,8 @@ export default function DispatchPage() {
         <div className="grid grid-cols-2 gap-x-12 gap-y-6">
           <div className="space-y-1.5">
             <label className="text-[10px] font-bold text-gray-800 uppercase">ORDER ID</label>
-            <Select 
-              value={formData.orderId} 
+            <Select
+              value={formData.orderId}
               onValueChange={(val) => setFormData(prev => ({ ...prev, orderId: val }))}
             >
               <SelectTrigger className="h-10 text-xs text-gray-500 border-gray-200">
@@ -86,17 +86,17 @@ export default function DispatchPage() {
           </div>
           <div className="space-y-1.5">
             <label className="text-[10px] font-bold text-gray-800 uppercase">DELIVERY ADDRESS</label>
-            <Input 
-              value={formData.address} 
+            <Input
+              value={formData.address}
               onChange={(e) => setFormData(prev => ({ ...prev, address: e.target.value }))}
-              placeholder="3, Marina Road" 
-              className="h-10 text-xs border-gray-200 placeholder:text-gray-300" 
+              placeholder="3, Marina Road"
+              className="h-10 text-xs border-gray-200 placeholder:text-gray-300"
             />
           </div>
           <div className="space-y-1.5">
             <label className="text-[10px] font-bold text-gray-800 uppercase">ASSIGN DRIVER</label>
-            <Select 
-              value={formData.driver} 
+            <Select
+              value={formData.driver}
               onValueChange={(val) => setFormData(prev => ({ ...prev, driver: val }))}
             >
               <SelectTrigger className="h-10 text-xs text-gray-400 border-gray-200">
@@ -110,8 +110,8 @@ export default function DispatchPage() {
           </div>
           <div className="space-y-1.5">
             <label className="text-[10px] font-bold text-gray-800 uppercase">PRIORITY</label>
-            <Select 
-              value={formData.priority} 
+            <Select
+              value={formData.priority}
               onValueChange={(val) => setFormData(prev => ({ ...prev, priority: val }))}
             >
               <SelectTrigger className="h-10 text-xs text-gray-400 border-gray-200">
@@ -126,8 +126,8 @@ export default function DispatchPage() {
           </div>
           <div className="space-y-1.5">
             <label className="text-[10px] font-bold text-gray-800 uppercase">AGENT OR WAREHOUSE</label>
-            <Select 
-              value={formData.agent} 
+            <Select
+              value={formData.agent}
               onValueChange={(val) => setFormData(prev => ({ ...prev, agent: val }))}
             >
               <SelectTrigger className="h-10 text-xs text-gray-500 border-gray-200">
@@ -141,8 +141,8 @@ export default function DispatchPage() {
           </div>
           <div className="space-y-1.5">
             <label className="text-[10px] font-bold text-gray-800 uppercase">SELECT STATE</label>
-            <Select 
-              value={formData.state} 
+            <Select
+              value={formData.state}
               onValueChange={(val) => setFormData(prev => ({ ...prev, state: val }))}
             >
               <SelectTrigger className="h-10 text-xs text-gray-500 border-gray-200">
@@ -180,8 +180,8 @@ export default function DispatchPage() {
                 <td className="px-6 py-4 text-gray-500 font-medium">{driver.vehicle}</td>
                 <td className="px-6 py-4">
                   <span className={`px-8 py-1 rounded-full text-[10px] font-bold ${
-                    driver.status === 'On route' 
-                      ? 'bg-[#faf5ff] text-[#ad1df4] border border-[#f3e8ff]' 
+                    driver.status === 'On route'
+                      ? 'bg-[#faf5ff] text-[#ad1df4] border border-[#f3e8ff]'
                       : 'bg-[#f0fdf4] text-[#22c55e] border border-[#dcfce7]'
                   }`}>
                     {driver.status}
@@ -189,7 +189,7 @@ export default function DispatchPage() {
                 </td>
                 <td className="px-6 py-4 w-72">
                   <div className="w-full bg-gray-100 rounded-full h-1">
-                    <div 
+                    <div
                       className={`h-1 rounded-full ${
                         driver.load < 50 ? 'bg-[#eab308]' : 'bg-[#22c55e]'
                       }`}

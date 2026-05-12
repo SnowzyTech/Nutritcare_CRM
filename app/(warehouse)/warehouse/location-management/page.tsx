@@ -1,19 +1,40 @@
-﻿import type { Metadata } from "next";
-import { locationBins } from "@/lib/mock-data/warehouse";
+import type { Metadata } from "next";
+import { auth } from "@/lib/auth/auth";
+import {
+  getWarehouseLocations,
+  getLocationSummary,
+  getLocationBinDetailMap,
+} from "@/modules/warehouse/services/warehouse.service";
 import LocationManagementClient from "./client";
 
 export const metadata: Metadata = { title: "Location Management" };
 
-const summaryData = [
-  { bin: "A1", product: "Balm", qty: "80" },
-  { bin: "A2", product: "Proxact", qty: "60" },
-  { bin: "A3", product: "Trim & Tone", qty: "120 (Partial)" },
-  { bin: "B3", product: "Balm", qty: "-(Damaged)" },
-  { bin: "C1", product: "Vitorep", qty: "100" },
-];
-
 export default async function LocationManagementPage() {
+  const session = await auth();
+  const warehouseId = session?.user?.warehouseId ?? null;
+
+  if (!warehouseId) {
+    return (
+      <div className="mt-8 rounded-lg bg-amber-50 border border-amber-200 p-6 max-w-lg">
+        <p className="text-amber-800 font-medium">No warehouse assigned to your account.</p>
+        <p className="text-amber-700 text-sm mt-1">
+          Contact your administrator to assign you to a warehouse.
+        </p>
+      </div>
+    );
+  }
+
+  const [bins, summaryData, binDetails] = await Promise.all([
+    getWarehouseLocations(warehouseId),
+    getLocationSummary(warehouseId),
+    getLocationBinDetailMap(warehouseId),
+  ]);
+
   return (
-    <LocationManagementClient initialBins={locationBins} summaryData={summaryData} />
+    <LocationManagementClient
+      initialBins={bins}
+      summaryData={summaryData}
+      binDetails={binDetails}
+    />
   );
 }
