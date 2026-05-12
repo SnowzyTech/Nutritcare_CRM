@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth/auth";
 import { prisma } from "@/lib/db/prisma";
 import { revalidatePath } from "next/cache";
 import type { OrderStatus } from "@prisma/client";
+import { recordDeliveryFeeEntry } from "@/modules/finance/services/agent-settlement.service";
 
 export async function reassignOrdersAction(
   orderIds: string[],
@@ -97,6 +98,16 @@ export async function deliverOrderAction(orderId: string) {
   if (!order || order.status !== "CONFIRMED") throw new Error("Cannot mark order as delivered");
 
   await prisma.order.update({ where: { id: orderId }, data: { status: "DELIVERED" } });
+
+  if (order.agentId) {
+    await recordDeliveryFeeEntry({
+      agentId: order.agentId,
+      netAmount: Number(order.netAmount),
+      orderNumber: order.orderNumber,
+      date: order.date,
+    });
+  }
+
   revalidateOrderPaths(orderId);
 }
 

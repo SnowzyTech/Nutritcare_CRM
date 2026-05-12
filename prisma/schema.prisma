@@ -181,10 +181,12 @@ model User {
   isTeamLead              Boolean                 @default(false)
   accountActivationStatus AccountActivationStatus @default(PENDING)
   agentId                 String?                 @unique
+  warehouseId             String?
   createdAt               DateTime                @default(now())
   updatedAt               DateTime                @updatedAt
 
   team                  Team?                  @relation(fields: [teamId], references: [id])
+  warehouse             Warehouse?             @relation("WarehouseManagers", fields: [warehouseId], references: [id])
   orders                Order[]                @relation("SalesRepOrders")
   agentsAdded           Agent[]                @relation("AgentAddedBy")
   agent                 Agent?                 @relation("UserAgent", fields: [agentId], references: [id])
@@ -200,10 +202,12 @@ model User {
   notifications         Notification[]         @relation("UserNotifications")
   auditLogs             AuditLog[]             @relation("UserAuditLogs")
   damageReports         DamageReport[]         @relation("DamageReportedBy")
+  journalEntries        JournalEntry[]         @relation("JournalEntryCreator")
 
   @@index([email])
   @@index([role])
   @@index([teamId])
+  @@index([warehouseId])
   @@index([accountActivationStatus])
   @@map("users")
 }
@@ -419,6 +423,7 @@ model Warehouse {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
+  managers         User[]              @relation("WarehouseManagers")
   locations        WarehouseLocation[]
   stockMovements   StockMovement[]
   stockAdjustments StockAdjustment[]
@@ -999,9 +1004,9 @@ model StockAdjustment {
   createdAt       DateTime              @default(now())
   updatedAt       DateTime              @updatedAt
 
-  warehouse   Warehouse             @relation(fields: [warehouseId], references: [id])
-  createdBy   User                  @relation("StockAdjustmentCreatedBy", fields: [createdById], references: [id])
-  items       StockAdjustmentItem[]
+  warehouse Warehouse             @relation(fields: [warehouseId], references: [id])
+  createdBy User                  @relation("StockAdjustmentCreatedBy", fields: [createdById], references: [id])
+  items     StockAdjustmentItem[]
 
   @@index([warehouseId])
   @@index([status])
@@ -1024,4 +1029,38 @@ model StockAdjustmentItem {
   @@index([stockAdjustmentId])
   @@index([productId])
   @@map("stock_adjustment_items")
+}
+
+model JournalEntry {
+  id          String            @id @default(cuid())
+  journalNo   String            @unique
+  date        DateTime
+  totalDebit  Decimal           @default(0) @db.Decimal(10, 2)
+  totalCredit Decimal           @default(0) @db.Decimal(10, 2)
+  createdById String
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  createdBy User              @relation("JournalEntryCreator", fields: [createdById], references: [id])
+  rows      JournalEntryRow[]
+
+  @@index([createdById])
+  @@index([date])
+  @@map("journal_entries")
+}
+
+model JournalEntryRow {
+  id             String  @id @default(cuid())
+  journalEntryId String
+  account        String
+  debits         Decimal @default(0) @db.Decimal(10, 2)
+  credits        Decimal @default(0) @db.Decimal(10, 2)
+  description    String?
+  name           String?
+  tax            Decimal @default(0) @db.Decimal(10, 2)
+
+  journalEntry JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+
+  @@index([journalEntryId])
+  @@map("journal_entry_rows")
 }

@@ -1,0 +1,282 @@
+"use server";
+
+import { auth } from "@/lib/auth/auth";
+import { prisma } from "@/lib/db/prisma";
+import { revalidatePath } from "next/cache";
+import { z } from "zod";
+
+const remittanceSchema = z.object({
+  agentId: z.string().min(1),
+  date: z.coerce.date(),
+  orderIds: z.array(z.string()).min(1),
+  amountRemitted: z.coerce.number().min(0),
+  note: z.string().optional(),
+});
+
+async function nextRemittanceRef() {
+  const last = await prisma.agentLedgerEntry.findFirst({
+    where: { referenceType: "REMITTANCE" },
+    orderBy: { createdAt: "desc" },
+    select: { referenceId: true },
+  });
+  const n = last ? parseInt(last.referenceId.replace(/\D/g, ""), 10) : 1000;
+  return `REM-${(isNaN(n) ? 1000 : n) + 1}`;
+}
+
+async function nextAdjustmentRef() {
+  const last = await prisma.agentLedgerEntry.findFirst({
+    where: { referenceType: "ADJUSTMENT" },
+    orderBy: { createdAt: "desc" },
+    select: { referenceId: true },
+  });
+  const n = last ? parseInt(last.referenceId.replace(/\D/g, ""), 10) : 0;
+  return `ADJ-${String((isNaN(n) ? 0 : n) + 1).padStart(4, "0")}`;
+}
+
+async function getRunningBalance(agentId: string): Promise<number> {
+  const last = await prisma.agentLedgerEntry.findFirst({
+    where: { agentId },
+    orderBy: { createdAt: "desc" },
+    select: { runningBalance: true },
+  });
+  return Number(last?.runningBalance ?? 0);
+}
+
+export async function createRemittanceAction(input: z.infer<typeof remittanceSchema>) {
+  const session = await auth();
+  if (!session?.user?.id) return { error: "Unauthorized" };
+  const parsed = remittanceSchema.safeParse(input);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
+
+  const data = parsed.data;
+  const orders = await prisma.order.findMany({
+    where: { id: { in: data.orderIds }, agentId: data.agentId },
+    select: { netAmount: true, deliveryFee: true },
+  });
+  if (orders.length !== data.orderIds.length) return { error: "Some orders not found for agent" };
+
+  const expected = orders.reduce((s, o) => s + Number(o.netAmount), 0);
+  const deliveryFees = orders.reduce((s, o) => s + Number(o.deliveryFee), 0);
+  const balance = expected - data.amountRemitted;
+  const overpayment = data.amountRemitted > expected ? data.amountRemitted - expected : 0;
+  const underpayment = data.amountRemitted < expected ? expected - data.amountRemitted : 0;
+
+  const referenceId = await nextRemittanceRef();
+  const prevBalance = await getRunningBalance(data.agentId);
+  const newRunningBalance = prevBalance - data.amountRemitted;
+
+  const result = await prisma.$transaction(async tx => {
+    const settlement = await tx.agentSettlement.create({
+      data: {
+        agentId: data.agentId,
+        date: data.date,
+        totalSalesValue: expected,
+        deliveryFeesEarned: deliveryFees,
+        totalRemitted: data.amountRemitted,
+        balance,
+        overpayment,
+        underpayment,
+      },
+    });
+    await tx.agentLedgerEntry.create({
+      data: {
+        agentId: data.agentId,
+        settlementId: settlement.id,
+        date: data.date,
+        referenceType: "REMITTANCE",
+        referenceId,
+        debit: 0,
+        credit: data.amountRemitted,
+        runningBalance: newRunningBalance,
+      },
+    });
+    return { settlementId: settlement.id, referenceId };
+  });
+
+  revalidatePath("/accounting/agent-settlement");
+  revalidatePath("/accounting");
+  return result;
+}
+
+const adjustmentSchema = z.object({
+  agentId: z.string().min(1),
+  date: z.coerce.date(),
+  adjustmentType: z.enum(["PAYMENT", "OVERPAYMENT", "CORRECTION"]),
+  paymentType: z.string().optional(),
+  linkedReferenceId: z.string().min(1),
+  amount: z.coerce.number().min(0),
+  note: z.string().optional(),
+  ordersJson: z.any().optional(),
+});
+
+export async function createSettlementAdjustmentAction(input: z.infer<typeof adjustmentSchema>) {
+  const session = await auth();
+  if (!session?.user?.id) return { error: "Unauthorized" };
+
+  const dbUser = await prisma.user.findUnique({ where: { id: session.user.id }, select: { id: true } });
+  if (!dbUser) return { error: "Your session is stale. Please sign out and sign back in." };
+
+  const parsed = adjustmentSchema.safeParse(input);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
+
+  const data = parsed.data;
+  const adjRefId = await nextAdjustmentRef();
+  const prevBalance = await getRunningBalance(data.agentId);
+
+  const isCorrectionInPlace = data.adjustmentType === "CORRECTION" && data.paymentType === "CORRECTION_IN_PLACE";
+
+  const debit = data.adjustmentType === "OVERPAYMENT" ? data.amount : 0;
+  const credit = data.adjustmentType !== "OVERPAYMENT" ? data.amount : 0;
+  // PAYMENT adjustments (delivery fee, waybill, miscellaneous) are physically separate
+  // payments and do not affect the running balance — only OVERPAYMENT and CORRECTION do.
+  const newRunningBalance =
+    data.adjustmentType === "PAYMENT" ? prevBalance : prevBalance - credit + debit;
+
+  await prisma.$transaction(async tx => {
+    if (isCorrectionInPlace) {
+      // ── Correction: update the referenced ledger entry in place, then cascade ──
+      const target = await tx.agentLedgerEntry.findFirst({
+        where: { agentId: data.agentId, referenceId: data.linkedReferenceId },
+        select: { id: true, credit: true, debit: true, runningBalance: true, createdAt: true, settlementId: true },
+      });
+      if (!target) throw new Error(`Ledger entry not found for reference: ${data.linkedReferenceId}`);
+
+      const oldCredit = Number(target.credit);
+      const delta = data.amount - oldCredit; // positive = more credit applied = lower balance
+
+      await tx.agentLedgerEntry.update({
+        where: { id: target.id },
+        data: {
+          credit: data.amount,
+          runningBalance: Number(target.runningBalance) - delta,
+        },
+      });
+
+      // Cascade the delta to every subsequent entry so the running balance chain stays intact
+      const subsequent = await tx.agentLedgerEntry.findMany({
+        where: { agentId: data.agentId, createdAt: { gt: target.createdAt } },
+        orderBy: { createdAt: "asc" },
+        select: { id: true, runningBalance: true },
+      });
+      for (const e of subsequent) {
+        await tx.agentLedgerEntry.update({
+          where: { id: e.id },
+          data: { runningBalance: Number(e.runningBalance) - delta },
+        });
+      }
+
+      // Patch the AgentSettlement so the Agent List columns (balance, underpayment) reflect the correction
+      if (target.settlementId) {
+        const settlement = await tx.agentSettlement.findUnique({
+          where: { id: target.settlementId },
+          select: { totalRemitted: true, balance: true, underpayment: true },
+        });
+        if (settlement) {
+          await tx.agentSettlement.update({
+            where: { id: target.settlementId },
+            data: {
+              totalRemitted: Number(settlement.totalRemitted) + delta,
+              balance: Number(settlement.balance) - delta,
+              underpayment: Math.max(0, Number(settlement.underpayment) - delta),
+            },
+          });
+        }
+      }
+
+      // Audit record only — no new ledger row for in-place corrections
+      await tx.settlementAdjustment.create({
+        data: {
+          agentId: data.agentId,
+          date: data.date,
+          adjustmentType: data.adjustmentType,
+          linkedReferenceId: data.linkedReferenceId,
+          paymentType: data.paymentType ?? "GENERAL",
+          amount: data.amount,
+          note: data.note,
+          ordersJson: data.ordersJson ?? undefined,
+          amountRemitted: data.amount,
+          autoRunningBalance: prevBalance - delta,
+          createdById: dbUser.id,
+        },
+      });
+    } else {
+      // ── All other adjustment types: create a new ledger entry ──
+      await tx.settlementAdjustment.create({
+        data: {
+          agentId: data.agentId,
+          date: data.date,
+          adjustmentType: data.adjustmentType,
+          linkedReferenceId: data.linkedReferenceId,
+          paymentType: data.paymentType ?? "GENERAL",
+          amount: data.amount,
+          note: data.note,
+          ordersJson: data.ordersJson ?? undefined,
+          amountRemitted: credit,
+          autoRunningBalance: newRunningBalance,
+          createdById: dbUser.id,
+        },
+      });
+
+      await tx.agentLedgerEntry.create({
+        data: {
+          agentId: data.agentId,
+          date: data.date,
+          referenceType: "ADJUSTMENT",
+          referenceId: adjRefId,
+          debit,
+          credit,
+          runningBalance: newRunningBalance,
+        },
+      });
+
+      // For underpayment and overpayment adjustments, patch the AgentSettlement record
+      // linked to the chosen remittance so the Agent List columns stay accurate.
+      if (data.adjustmentType === "CORRECTION" || data.adjustmentType === "OVERPAYMENT") {
+        const remittanceLedgerEntry = await tx.agentLedgerEntry.findFirst({
+          where: {
+            agentId: data.agentId,
+            referenceType: "REMITTANCE",
+            referenceId: data.linkedReferenceId,
+          },
+          select: { settlementId: true },
+        });
+
+        if (remittanceLedgerEntry?.settlementId) {
+          const settlement = await tx.agentSettlement.findUnique({
+            where: { id: remittanceLedgerEntry.settlementId },
+            select: { underpayment: true, overpayment: true, balance: true, totalRemitted: true },
+          });
+
+          if (settlement) {
+            if (data.adjustmentType === "CORRECTION") {
+              const newUnderpayment = Math.max(0, Number(settlement.underpayment) - data.amount);
+              const amountApplied = Number(settlement.underpayment) - newUnderpayment;
+              await tx.agentSettlement.update({
+                where: { id: remittanceLedgerEntry.settlementId },
+                data: {
+                  underpayment: newUnderpayment,
+                  totalRemitted: Number(settlement.totalRemitted) + amountApplied,
+                  balance: Number(settlement.balance) - amountApplied,
+                },
+              });
+            } else {
+              const newOverpayment = Math.max(0, Number(settlement.overpayment) - data.amount);
+              const amountRefunded = Number(settlement.overpayment) - newOverpayment;
+              await tx.agentSettlement.update({
+                where: { id: remittanceLedgerEntry.settlementId },
+                data: {
+                  overpayment: newOverpayment,
+                  totalRemitted: Number(settlement.totalRemitted) - amountRefunded,
+                  balance: Number(settlement.balance) + amountRefunded,
+                },
+              });
+            }
+          }
+        }
+      }
+    }
+  });
+
+  revalidatePath("/accounting/agent-settlement");
+  return { referenceId: adjRefId };
+}
