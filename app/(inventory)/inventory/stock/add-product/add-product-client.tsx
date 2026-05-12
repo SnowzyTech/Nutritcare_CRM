@@ -123,11 +123,36 @@ function PricingSectionRow({
   );
 }
 
+const ALL_COUNTRIES = [
+  "Afghanistan","Albania","Algeria","Andorra","Angola","Antigua and Barbuda","Argentina","Armenia","Australia","Austria",
+  "Azerbaijan","Bahamas","Bahrain","Bangladesh","Barbados","Belarus","Belgium","Belize","Benin","Bhutan","Bolivia",
+  "Bosnia and Herzegovina","Botswana","Brazil","Brunei","Bulgaria","Burkina Faso","Burundi","Cabo Verde","Cambodia",
+  "Cameroon","Canada","Central African Republic","Chad","Chile","China","Colombia","Comoros","Congo (Brazzaville)",
+  "Congo (DRC)","Costa Rica","Croatia","Cuba","Cyprus","Czech Republic","Denmark","Djibouti","Dominica",
+  "Dominican Republic","Ecuador","Egypt","El Salvador","Equatorial Guinea","Eritrea","Estonia","Eswatini","Ethiopia",
+  "Fiji","Finland","France","Gabon","Gambia","Georgia","Germany","Ghana","Greece","Grenada","Guatemala","Guinea",
+  "Guinea-Bissau","Guyana","Haiti","Honduras","Hungary","Iceland","India","Indonesia","Iran","Iraq","Ireland",
+  "Israel","Italy","Jamaica","Japan","Jordan","Kazakhstan","Kenya","Kiribati","Kuwait","Kyrgyzstan","Laos","Latvia",
+  "Lebanon","Lesotho","Liberia","Libya","Liechtenstein","Lithuania","Luxembourg","Madagascar","Malawi","Malaysia",
+  "Maldives","Mali","Malta","Marshall Islands","Mauritania","Mauritius","Mexico","Micronesia","Moldova","Monaco",
+  "Mongolia","Montenegro","Morocco","Mozambique","Myanmar","Namibia","Nauru","Nepal","Netherlands","New Zealand",
+  "Nicaragua","Niger","Nigeria","North Korea","North Macedonia","Norway","Oman","Pakistan","Palau","Palestine",
+  "Panama","Papua New Guinea","Paraguay","Peru","Philippines","Poland","Portugal","Qatar","Romania","Russia",
+  "Rwanda","Saint Kitts and Nevis","Saint Lucia","Saint Vincent and the Grenadines","Samoa","San Marino",
+  "Sao Tome and Principe","Saudi Arabia","Senegal","Serbia","Seychelles","Sierra Leone","Singapore","Slovakia",
+  "Slovenia","Solomon Islands","Somalia","South Africa","South Korea","South Sudan","Spain","Sri Lanka","Sudan",
+  "Suriname","Sweden","Switzerland","Syria","Taiwan","Tajikistan","Tanzania","Thailand","Timor-Leste","Togo",
+  "Tonga","Trinidad and Tobago","Tunisia","Turkey","Turkmenistan","Tuvalu","Uganda","Ukraine",
+  "United Arab Emirates","United Kingdom","United States","Uruguay","Uzbekistan","Vanuatu","Vatican City",
+  "Venezuela","Vietnam","Yemen","Zambia","Zimbabwe",
+];
+
 let nextId = 2;
 
 export function AddProductClient({ categories }: { categories: StockCategoryRow[] }) {
   const router = useRouter();
   const [state, formAction, pending] = useActionState(addProductAction, null);
+  const [hasOffer, setHasOffer] = useState(false);
 
   const [sections, setSections] = useState<PricingSection[]>([
     { id: 1, costPrice: "", quantity: "", unit: "", recurring: "", sellingPrice: "" },
@@ -174,27 +199,16 @@ export function AddProductClient({ categories }: { categories: StockCategoryRow[
         )}
 
         <form action={formAction}>
-          {/* Paste Form Link */}
-          <div className="mb-6 pb-6 border-b border-gray-100">
-            <label className={labelClass} htmlFor="pasteFormLink">Paste Form Link Here</label>
-            <input
-              id="pasteFormLink"
-              type="url"
-              name="pasteFormLink"
-              className={inputClass}
-            />
-          </div>
-
           {/* Country / Description / Category */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-5">
             <div>
               <label className={labelClass} htmlFor="country">Country To Sell This Product</label>
               <div className="relative">
                 <select id="country" name="country" className={selectClass}>
-                  <option value=""></option>
-                  <option value="Nigeria">Nigeria</option>
-                  <option value="Ghana">Ghana</option>
-                  <option value="Kenya">Kenya</option>
+                  <option value="">Select a country</option>
+                  {ALL_COUNTRIES.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
                 </select>
                 <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">▾</span>
               </div>
@@ -256,7 +270,13 @@ export function AddProductClient({ categories }: { categories: StockCategoryRow[
               <label className={labelClass} htmlFor="hasOffer">Do you have an offer for this product?</label>
               <p className={subClass}>Select this if you have an offer for this product</p>
               <div className="relative">
-                <select id="hasOffer" name="hasOffer" className={selectClass}>
+                <select
+                  id="hasOffer"
+                  name="hasOffer"
+                  className={selectClass}
+                  value={hasOffer ? "Yes" : "No"}
+                  onChange={(e) => setHasOffer(e.target.value === "Yes")}
+                >
                   <option value="No">No</option>
                   <option value="Yes">Yes</option>
                 </select>
@@ -264,6 +284,54 @@ export function AddProductClient({ categories }: { categories: StockCategoryRow[
               </div>
             </div>
           </div>
+
+          {/* Offer Details — shown only when hasOffer is Yes */}
+          {hasOffer && (
+            <div className="mb-5 p-5 rounded-lg border border-[#9D00FF]/20 bg-[#F6E8FF]/30">
+              <h3 className="text-sm font-semibold text-gray-700 mb-4">Special Offer Details</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-4">
+                <div>
+                  <label className={labelClass} htmlFor="offerName">Offer Name</label>
+                  <p className={subClass}>e.g. Buy 2 Get 1 Free, Summer Promo</p>
+                  <input id="offerName" type="text" name="offerName" className={inputClass} />
+                </div>
+                <div>
+                  <label className={labelClass} htmlFor="offerSellingPrice">Offer Selling Price</label>
+                  <p className={subClass}>Special price when this offer applies</p>
+                  <input id="offerSellingPrice" type="number" step="0.01" min="0" name="offerSellingPrice" className={inputClass} />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-4">
+                <div>
+                  <label className={labelClass} htmlFor="offerQuantity">Offer Quantity</label>
+                  <input id="offerQuantity" type="number" min="1" name="offerQuantity" className={inputClass} />
+                </div>
+                <div>
+                  <label className={labelClass} htmlFor="offerUnit">Offer Unit</label>
+                  <input id="offerUnit" type="text" placeholder="Piece, Pack, Bottle..." name="offerUnit" className={inputClass} />
+                </div>
+                <div>
+                  <label className={labelClass} htmlFor="offerRecurring">Recurring</label>
+                  <div className="relative">
+                    <select id="offerRecurring" name="offerRecurring" className={selectClass}>
+                      <option value=""></option>
+                      <option value="daily">Daily</option>
+                      <option value="weekly">Weekly</option>
+                      <option value="monthly">Monthly</option>
+                      <option value="yearly">Yearly</option>
+                    </select>
+                    <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">▾</span>
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <input id="showQuantityAndUnit" type="checkbox" name="showQuantityAndUnit" value="true" className="accent-[#9D00FF] w-4 h-4" />
+                <label htmlFor="showQuantityAndUnit" className="text-sm text-gray-600 cursor-pointer">
+                  Show quantity and unit to customers
+                </label>
+              </div>
+            </div>
+          )}
 
           {/* Text to show / File download link */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-5">

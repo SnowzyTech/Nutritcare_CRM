@@ -4,7 +4,6 @@ import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Filter,
-  PlusCircle,
   ArrowUpDown,
   Search,
   Package,
@@ -17,7 +16,7 @@ import type { ReturnedMovementRow } from "@/modules/inventory/services/inventory
 const thClass = "text-left text-[11px] font-semibold text-gray-500 py-2.5 pr-4 whitespace-nowrap";
 const tdClass = "text-[12px] text-gray-600 py-2.5 pr-4 whitespace-nowrap";
 
-function EmptyState({ onAdd }: { onAdd: () => void }) {
+function EmptyState() {
   return (
     <div className="flex-1 flex items-center justify-center" style={{ minHeight: "60vh" }}>
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm flex flex-col items-center gap-3 px-20 py-12 min-w-[360px]">
@@ -27,12 +26,6 @@ function EmptyState({ onAdd }: { onAdd: () => void }) {
         </div>
         <h2 className="text-base font-bold text-gray-800">Returned Stock</h2>
         <p className="text-xs text-gray-400">No returned stock movements recorded yet.</p>
-        <button
-          onClick={onAdd}
-          className="mt-1 px-5 py-2 rounded-md text-xs font-semibold text-white bg-[#9D00FF] hover:bg-[#8500d9] transition-colors"
-        >
-          Click to add Stock
-        </button>
       </div>
     </div>
   );
@@ -62,12 +55,6 @@ export function ReturnedClient({ initialRows }: { initialRows: ReturnedMovementR
         <button className="flex items-center gap-1.5 text-sm font-semibold text-gray-700 hover:text-[#9D00FF] transition-colors">
           <Filter className="w-4 h-4" /> Filter
         </button>
-        <button
-          onClick={() => router.push("/inventory/returned/create")}
-          className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-[#9D00FF] transition-colors"
-        >
-          Add New <PlusCircle className="w-4 h-4" />
-        </button>
         <button className="text-gray-400 hover:text-gray-600 transition-colors">
           <ArrowUpDown className="w-4 h-4" />
         </button>
@@ -85,7 +72,7 @@ export function ReturnedClient({ initialRows }: { initialRows: ReturnedMovementR
       </div>
 
       {filtered.length === 0 ? (
-        <EmptyState onAdd={() => router.push("/inventory/returned/create")} />
+        <EmptyState />
       ) : (
         <>
           <div className="flex items-center gap-3 mb-4 mt-6">

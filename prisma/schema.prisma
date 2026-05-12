@@ -285,13 +285,13 @@ model Product {
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 
-  category             ProductCategory       @relation(fields: [categoryId], references: [id])
-  offers               ProductOffer[]
-  combos               ProductCombo[]        @relation("ParentProductCombos")
-  comboOf              ProductCombo[]        @relation("ComboProduct")
-  gifts                ProductGift[]         @relation("ParentProductGifts")
-  giftOf               ProductGift[]         @relation("GiftProduct")
-  orderItems           OrderItem[]
+  category           ProductCategory     @relation(fields: [categoryId], references: [id])
+  offers             ProductOffer[]
+  combos             ProductCombo[]      @relation("ParentProductCombos")
+  comboOf            ProductCombo[]      @relation("ComboProduct")
+  gifts              ProductGift[]       @relation("ParentProductGifts")
+  giftOf             ProductGift[]       @relation("GiftProduct")
+  orderItems         OrderItem[]
   stockMovementItems   StockMovementItem[]
   stockTransferItems   StockTransferItem[]
   stockAdjustmentItems StockAdjustmentItem[]

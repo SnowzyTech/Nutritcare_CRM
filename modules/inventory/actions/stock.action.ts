@@ -8,6 +8,12 @@ import { z } from "zod";
 
 // ── Shared ────────────────────────────────────────────────────────────────────
 
+function generateRefNumber(prefix: string): string {
+  const ts = Date.now().toString(36).toUpperCase();
+  const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
+  return `${prefix}-${ts}-${rand}`;
+}
+
 function generateSku(name: string): string {
   const prefix = name
     .toUpperCase()
@@ -21,7 +27,324 @@ function generateSku(name: string): string {
 async function requireAuth() {
   const session = await auth();
   if (!session?.user?.id) throw new Error("Unauthorized");
+
+  // Verify the session user still exists in the DB (guards against stale JWTs after re-seeding)
+  const dbUser = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { id: true },
+  });
+  if (!dbUser) throw new Error("Session expired — please sign out and sign in again");
+
   return session.user;
+}
+
+// ── Create Incoming Movement ──────────────────────────────────────────────────
+
+const CreateIncomingSchema = z.object({
+  warehouseId: z.string().min(1, "Warehouse is required"),
+  supplierId: z.string().optional(),
+  supplierReference: z.string().optional(),
+  date: z.string().min(1, "Date is required"),
+  notes: z.string().optional(),
+  status: z.enum(["DRAFT", "RECORDED"]),
+  items: z
+    .array(
+      z.object({
+        productId: z.string().min(1, "Product is required"),
+        productCode: z.string().min(1, "Product code is required"),
+        quantity: z.number().int().positive("Quantity must be a positive number"),
+      })
+    )
+    .min(1, "At least one product is required"),
+});
+
+export async function createIncomingMovementAction(
+  data: z.infer<typeof CreateIncomingSchema>
+): Promise<{ error?: string }> {
+  let user: Awaited<ReturnType<typeof requireAuth>>;
+  try {
+    user = await requireAuth();
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Unauthorized" };
+  }
+
+  const parsed = CreateIncomingSchema.safeParse(data);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
+
+  const { warehouseId, supplierId, supplierReference, date, notes, status, items } = parsed.data;
+
+  try {
+    await prisma.stockMovement.create({
+      data: {
+        referenceNumber: generateRefNumber("SI"),
+        type: "INCOMING",
+        status,
+        warehouseId,
+        supplierId: supplierId || null,
+        supplierReference: supplierReference || null,
+        date: new Date(date),
+        notes: notes || null,
+        createdById: user.id,
+        items: {
+          create: items.map((item) => ({
+            productId: item.productId,
+            productCode: item.productCode,
+            quantity: item.quantity,
+          })),
+        },
+      },
+    });
+  } catch (e) {
+    console.error("createIncomingMovementAction error:", e);
+    return { error: "Failed to save — please check your data and try again" };
+  }
+
+  revalidatePath("/inventory/incoming");
+  return {};
+}
+
+// ── Create Outgoing Movement ──────────────────────────────────────────────────
+
+const CreateOutgoingSchema = z.object({
+  state: z.string().min(1, "State is required"),
+  country: z.string().min(1, "Country is required"),
+  date: z.string().min(1, "Date is required"),
+  agentId: z.string().min(1, "Agent is required"),
+  supplierReference: z.string().optional(),
+  isAgentToAgentTransfer: z.boolean().default(false),
+  notes: z.string().optional(),
+  items: z
+    .array(
+      z.object({
+        productId: z.string().min(1, "Product is required"),
+        productCode: z.string(),
+        quantity: z.number().int().positive("Quantity must be a positive number"),
+      })
+    )
+    .min(1, "At least one product is required"),
+});
+
+export async function createOutgoingMovementAction(
+  data: z.infer<typeof CreateOutgoingSchema>
+): Promise<{ error?: string }> {
+  let user: Awaited<ReturnType<typeof requireAuth>>;
+  try {
+    user = await requireAuth();
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Unauthorized" };
+  }
+
+  const parsed = CreateOutgoingSchema.safeParse(data);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
+
+  const { state, country, date, agentId, supplierReference, isAgentToAgentTransfer, notes, items } = parsed.data;
+
+  try {
+    await prisma.stockMovement.create({
+      data: {
+        referenceNumber: generateRefNumber("SO"),
+        type: "OUTGOING",
+        status: "RECORDED",
+        agentId,
+        state,
+        country,
+        supplierReference: supplierReference || null,
+        isAgentToAgentTransfer,
+        date: new Date(date),
+        notes: notes || null,
+        createdById: user.id,
+        items: {
+          create: items.map((item) => ({
+            productId: item.productId,
+            productCode: item.productCode || item.productId,
+            quantity: item.quantity,
+          })),
+        },
+      },
+    });
+  } catch (e) {
+    console.error("createOutgoingMovementAction error:", e);
+    return { error: "Failed to save — please check your data and try again" };
+  }
+
+  revalidatePath("/inventory/outgoing");
+  return {};
+}
+
+// ── Create Stock Transfer ─────────────────────────────────────────────────────
+
+const CreateStockTransferSchema = z.object({
+  sourceType: z.enum(["WAREHOUSE", "AGENT"]),
+  sourceId: z.string().min(1, "Source is required"),
+  targetType: z.enum(["WAREHOUSE", "AGENT"]),
+  targetId: z.string().min(1, "Target is required"),
+  date: z.string().min(1, "Date is required"),
+  notes: z.string().optional(),
+  status: z.enum(["DRAFT", "SUBMITTED"]),
+  items: z
+    .array(
+      z.object({
+        productId: z.string().min(1, "Product is required"),
+        quantity: z.number().int().positive("Quantity must be a positive number"),
+      })
+    )
+    .min(1, "At least one product is required"),
+});
+
+export async function createStockTransferAction(
+  data: z.infer<typeof CreateStockTransferSchema>
+): Promise<{ error?: string }> {
+  let user: Awaited<ReturnType<typeof requireAuth>>;
+  try {
+    user = await requireAuth();
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Unauthorized" };
+  }
+
+  const parsed = CreateStockTransferSchema.safeParse(data);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
+
+  const { sourceType, sourceId, targetType, targetId, date, notes, status, items } = parsed.data;
+
+  if (sourceType === targetType && sourceId === targetId) {
+    return { error: "Source and target cannot be the same" };
+  }
+
+  try {
+    await prisma.stockTransfer.create({
+      data: {
+        referenceNumber: generateRefNumber("TR"),
+        sourceType,
+        sourceId,
+        targetType,
+        targetId,
+        date: new Date(date),
+        status,
+        notes: notes || null,
+        createdById: user.id,
+        items: {
+          create: items.map((item) => ({
+            productId: item.productId,
+            quantity: item.quantity,
+          })),
+        },
+      },
+    });
+  } catch (e) {
+    console.error("createStockTransferAction error:", e);
+    return { error: "Failed to save — please check your data and try again" };
+  }
+
+  revalidatePath("/inventory/transfer");
+  return {};
+}
+
+// ── Create Stock Adjustment ───────────────────────────────────────────────────
+
+const CreateAdjustmentSchema = z.object({
+  warehouseId: z.string().min(1, "Warehouse is required"),
+  reason: z.string().min(1, "Reason is required"),
+  notes: z.string().optional(),
+  date: z.string().min(1, "Date is required"),
+  status: z.enum(["DRAFT", "RECORDED"]),
+  items: z
+    .array(
+      z.object({
+        productId: z.string().min(1, "Product is required"),
+        quantityBefore: z.number().int().min(0, "Expected quantity must be 0 or more"),
+        quantityAfter: z.number().int().min(0, "Actual quantity must be 0 or more"),
+      })
+    )
+    .min(1, "At least one product is required"),
+});
+
+export async function createAdjustmentAction(
+  data: z.infer<typeof CreateAdjustmentSchema>
+): Promise<{ error?: string }> {
+  let user: Awaited<ReturnType<typeof requireAuth>>;
+  try {
+    user = await requireAuth();
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Unauthorized" };
+  }
+
+  const parsed = CreateAdjustmentSchema.safeParse(data);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
+
+  const { warehouseId, reason, notes, date, status, items } = parsed.data;
+
+  try {
+    await prisma.stockAdjustment.create({
+      data: {
+        referenceNumber: generateRefNumber("SA"),
+        warehouseId,
+        reason,
+        notes: notes || null,
+        date: new Date(date),
+        status,
+        createdById: user.id,
+        items: {
+          create: items.map((item) => ({
+            productId: item.productId,
+            quantityBefore: item.quantityBefore,
+            quantityAfter: item.quantityAfter,
+          })),
+        },
+      },
+    });
+  } catch (e) {
+    console.error("createAdjustmentAction error:", e);
+    return { error: "Failed to save — please check your data and try again" };
+  }
+
+  revalidatePath("/inventory/adjustment");
+  return {};
+}
+
+// ── Reverse Stock Adjustment ──────────────────────────────────────────────────
+
+export async function reverseAdjustmentAction(
+  id: string,
+  reason: string
+): Promise<{ error?: string }> {
+  try {
+    await requireAuth();
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Unauthorized" };
+  }
+
+  const adj = await prisma.stockAdjustment.findUnique({ where: { id } });
+  if (!adj) return { error: "Adjustment not found" };
+  if (adj.status === "REVERSED") return { error: "Adjustment is already reversed" };
+
+  await prisma.stockAdjustment.update({
+    where: { id },
+    data: { status: "REVERSED", notes: reason.trim() || null },
+  });
+
+  revalidatePath(`/inventory/adjustment/${id}`);
+  revalidatePath("/inventory/adjustment");
+  return {};
+}
+
+// ── Delete Stock Adjustment ───────────────────────────────────────────────────
+
+export async function deleteAdjustmentAction(
+  id: string
+): Promise<{ error?: string }> {
+  try {
+    await requireAuth();
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Unauthorized" };
+  }
+
+  const adj = await prisma.stockAdjustment.findUnique({ where: { id } });
+  if (!adj) return { error: "Adjustment not found" };
+
+  await prisma.stockAdjustment.delete({ where: { id } });
+
+  revalidatePath("/inventory/adjustment");
+  return {};
 }
 
 // ── Reverse Incoming Movement ─────────────────────────────────────────────────
