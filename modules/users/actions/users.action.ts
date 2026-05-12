@@ -12,6 +12,7 @@ import {
   changeUserTeam,
   approveAccount,
   rejectAccount,
+  assignWarehouseToUser,
 } from "../services/users.service";
 
 type ActionResult = { success: true } | { error: string };
@@ -116,5 +117,17 @@ export async function rejectAccountAction(userId: string): Promise<ActionResult>
     return { success: true };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Failed to reject account" };
+  }
+}
+
+export async function assignWarehouseAction(userId: string, warehouseId: string | null): Promise<ActionResult> {
+  try {
+    await requireAdmin();
+    await assignWarehouseToUser(userId, warehouseId);
+    revalidatePath(`/admin/staff/warehouse-manager/${userId}`);
+    revalidatePath("/admin/staff/warehouse-manager");
+    return { success: true };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Failed to assign warehouse" };
   }
 }

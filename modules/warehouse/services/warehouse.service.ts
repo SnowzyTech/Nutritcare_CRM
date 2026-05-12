@@ -1,0 +1,666 @@
+import { prisma } from "@/lib/db/prisma";
+
+// ── Shared form data types ────────────────────────────────────────────────────
+
+export type FormAgent = {
+  id: string;
+  companyName: string;
+  state: string | null;
+};
+
+export type FormProduct = {
+  id: string;
+  name: string;
+  sku: string;
+};
+
+// Keep old aliases so outgoing pages don't need changes
+export type OutgoingFormAgent = FormAgent;
+export type OutgoingFormProduct = FormProduct;
+
+export async function getAgentsForOutgoingForm(): Promise<FormAgent[]> {
+  return prisma.agent.findMany({
+    where: { deletedAt: null, status: "ACTIVE" },
+    select: { id: true, companyName: true, state: true },
+    orderBy: { companyName: "asc" },
+  });
+}
+
+export async function getProductsForOutgoingForm(): Promise<FormProduct[]> {
+  return prisma.product.findMany({
+    where: { isActive: true, deletedAt: null },
+    select: { id: true, name: true, sku: true },
+    orderBy: { name: "asc" },
+  });
+}
+
+// Shared helpers for returns
+export const getAgentsForReturnForm = getAgentsForOutgoingForm;
+export const getProductsForReturnForm = getProductsForOutgoingForm;
+
+// ── Incoming goods ────────────────────────────────────────────────────────────
+
+export type FormSupplier = {
+  id: string;
+  name: string;
+};
+
+export async function getSuppliersForIncomingForm(): Promise<FormSupplier[]> {
+  return prisma.supplier.findMany({
+    where: { deletedAt: null },
+    select: { id: true, name: true },
+    orderBy: { name: "asc" },
+  });
+}
+
+export type IncomingGoodsRow = {
+  id: string;
+  date: string;
+  siId: string;
+  supplier: string;
+  supplierRef: string;
+  product: string;
+  status: string;
+  createdTime: string;
+  addedBy: string;
+};
+
+export async function getIncomingGoodsForWarehouse(
+  warehouseId: string
+): Promise<IncomingGoodsRow[]> {
+  const movements = await prisma.stockMovement.findMany({
+    where: { type: "INCOMING", warehouseId },
+    include: {
+      supplier: true,
+      createdBy: true,
+      items: { include: { product: true } },
+    },
+    orderBy: { date: "desc" },
+  });
+
+  return movements.map((m) => ({
+    id: m.id,
+    date: formatDate(m.date),
+    siId: m.referenceNumber,
+    supplier: m.supplier?.name ?? "—",
+    supplierRef: m.supplierReference ?? "—",
+    product: m.items.map((i) => i.product.name).join(", ") || "—",
+    status: m.status === "RECORDED" ? "Recorded" : m.status === "DRAFT" ? "Draft" : m.status,
+    createdTime: m.createdAt
+      .toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit", hour12: true })
+      .toLowerCase(),
+    addedBy: m.createdBy.name,
+  }));
+}
+
+export type IncomingGoodDetail = {
+  id: string;
+  siId: string;
+  warehouseName: string;
+  supplier: string;
+  supplierRef: string;
+  recordedBy: string;
+  dateReceived: string;
+  movementStatus: string;
+  statusLabel: string;
+  reversalReason: string | null;
+  dateReversed: string | null;
+  notes: string;
+  products: { id: number; product: string; productCode: string; quantity: number }[];
+};
+
+export async function getIncomingGoodDetail(
+  id: string,
+  warehouseId: string
+): Promise<IncomingGoodDetail | null> {
+  const m = await prisma.stockMovement.findUnique({
+    where: { id },
+    include: {
+      supplier: true,
+      warehouse: true,
+      createdBy: true,
+      items: { include: { product: true } },
+    },
+  });
+  if (!m || m.type !== "INCOMING" || m.warehouseId !== warehouseId) return null;
+
+  const isReversed = m.status === "REVERSED";
+  const statusLabel: Record<string, string> = {
+    DRAFT: "Draft",
+    RECORDED: "Recorded",
+    RECEIVED: "Received",
+    SHELVED: "Shelved",
+    REVERSED: "Reversed",
+  };
+
+  return {
+    id: m.id,
+    siId: m.referenceNumber,
+    warehouseName: m.warehouse?.name ?? "—",
+    supplier: m.supplier?.name ?? "—",
+    supplierRef: m.supplierReference ?? "—",
+    recordedBy: m.createdBy.name,
+    dateReceived: formatDate(m.date),
+    movementStatus: m.status,
+    statusLabel: statusLabel[m.status] ?? m.status,
+    reversalReason: isReversed ? (m.remarks ?? null) : null,
+    dateReversed: isReversed ? formatDate(m.updatedAt) : null,
+    notes: m.notes ?? "",
+    products: m.items.map((item, i) => ({
+      id: i + 1,
+      product: item.product.name,
+      productCode: item.product.sku,
+      quantity: item.quantity,
+    })),
+  };
+}
+
+// ── Pick & Pack ───────────────────────────────────────────────────────────────
+
+export type PickPackRow = {
+  // Delivery.id — the row identifier; also passed to assignPickerAction
+  id: string;
+  orderId: string;
+  orderNumber: string;
+  dispatchAgent: string;
+  itemsCount: number;
+  // PickPack fields — null until a picker is assigned
+  pickPackId: string | null;
+  picker: string;
+  pickerId: string | null;
+  locationCode: string;
+  assignedAt: string | null;
+  // null = not yet assigned (no PickPack record); otherwise QUEUED/PACKING/PACKED/DISPATCHED
+  status: string | null;
+};
+
+export async function getPickPackOrders(): Promise<PickPackRow[]> {
+  // Source of truth: Delivery records that logistics has moved to IN_TRANSIT
+  const deliveries = await prisma.delivery.findMany({
+    where: { status: "IN_TRANSIT" },
+    orderBy: { createdAt: "desc" },
+    include: {
+      agent: { select: { companyName: true } },
+      order: {
+        select: {
+          orderNumber: true,
+          _count: { select: { items: true } },
+          pickPacks: {
+            orderBy: { createdAt: "desc" },
+            take: 1,
+            include: { picker: { select: { name: true } } },
+          },
+        },
+      },
+    },
+  });
+
+  return deliveries.map((d) => {
+    const pp = d.order.pickPacks[0] ?? null;
+    return {
+      id: d.id,
+      orderId: d.orderId,
+      orderNumber: d.order.orderNumber,
+      dispatchAgent: d.agent?.companyName ?? "—",
+      itemsCount: d.order._count.items,
+      pickPackId: pp?.id ?? null,
+      picker: pp?.picker?.name ?? "—",
+      pickerId: pp?.pickerId ?? null,
+      locationCode: pp?.locationCode ?? "",
+      assignedAt: pp?.assignedAt
+        ? pp.assignedAt
+            .toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit", hour12: true })
+            .toLowerCase()
+        : null,
+      status: pp?.status ?? null,
+    };
+  });
+}
+
+export type PickerOption = {
+  id: string;
+  name: string;
+  activeTasks: number;
+};
+
+export async function getAvailablePickers(): Promise<PickerOption[]> {
+  const [pickers, activeCounts] = await Promise.all([
+    prisma.user.findMany({
+      where: { isActive: true, role: "WAREHOUSE_MANAGER" },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    }),
+    prisma.pickPack.groupBy({
+      by: ["pickerId"],
+      where: { status: { in: ["QUEUED", "PACKING"] }, pickerId: { not: null } },
+      _count: { id: true },
+    }),
+  ]);
+
+  const taskMap = new Map(activeCounts.map((t) => [t.pickerId as string, t._count.id]));
+
+  return pickers.map((p) => ({
+    id: p.id,
+    name: p.name,
+    activeTasks: taskMap.get(p.id) ?? 0,
+  }));
+}
+
+// ── Warehouse Locations ───────────────────────────────────────────────────────
+
+export type LocationBinRow = {
+  id: string;
+  locationCode: string;
+  zone: string;
+  col: string;
+  occupancyStatus: string;
+};
+
+export async function getWarehouseLocations(warehouseId: string): Promise<LocationBinRow[]> {
+  const locations = await prisma.warehouseLocation.findMany({
+    where: { warehouseId },
+    orderBy: [{ zone: "asc" }, { locationCode: "asc" }],
+  });
+
+  return locations.map((l) => {
+    const zone = l.zone ?? l.locationCode.charAt(0);
+    const col = l.locationCode.slice(zone.length);
+    return { id: l.id, locationCode: l.locationCode, zone, col, occupancyStatus: l.occupancyStatus };
+  });
+}
+
+export type LocationSummaryRow = {
+  bin: string;
+  product: string;
+  qty: string;
+};
+
+export async function getLocationSummary(warehouseId: string): Promise<LocationSummaryRow[]> {
+  const locations = await prisma.warehouseLocation.findMany({
+    where: { warehouseId, occupancyStatus: { not: "EMPTY" } },
+    orderBy: [{ zone: "asc" }, { locationCode: "asc" }],
+  });
+
+  if (!locations.length) return [];
+
+  const locationCodes = locations.map((l) => l.locationCode);
+
+  const pickPacks = await prisma.pickPack.findMany({
+    where: { locationCode: { in: locationCodes }, status: { not: "DISPATCHED" } },
+    select: {
+      locationCode: true,
+      order: {
+        select: {
+          items: {
+            select: { quantity: true, product: { select: { name: true } } },
+          },
+        },
+      },
+    },
+  });
+
+  const ppMap = new Map<string, { products: string[]; qty: number }>();
+  for (const pp of pickPacks) {
+    const entry = ppMap.get(pp.locationCode) ?? { products: [], qty: 0 };
+    for (const item of pp.order.items) {
+      if (!entry.products.includes(item.product.name)) entry.products.push(item.product.name);
+      entry.qty += item.quantity;
+    }
+    ppMap.set(pp.locationCode, entry);
+  }
+
+  return locations.map((loc) => {
+    const ppData = ppMap.get(loc.locationCode);
+    const suffix =
+      loc.occupancyStatus === "PARTIAL"
+        ? " (Partial)"
+        : loc.occupancyStatus === "DAMAGE"
+          ? " (Damaged)"
+          : "";
+    return {
+      bin: loc.locationCode,
+      product: ppData?.products.join(", ") || "—",
+      qty: ppData ? `${ppData.qty}${suffix}` : `—${suffix}`,
+    };
+  });
+}
+
+export type BinDetailOrder = {
+  orderNumber: string;
+  picker: string;
+  status: string;
+  items: { product: string; productCode: string; quantity: number }[];
+};
+
+export type LocationBinDetailMap = Record<
+  string,
+  { occupancyStatus: string; orders: BinDetailOrder[] }
+>;
+
+export async function getLocationBinDetailMap(warehouseId: string): Promise<LocationBinDetailMap> {
+  const locations = await prisma.warehouseLocation.findMany({ where: { warehouseId } });
+
+  const locationCodes = locations.map((l) => l.locationCode);
+
+  const pickPacks = await prisma.pickPack.findMany({
+    where: { locationCode: { in: locationCodes }, status: { not: "DISPATCHED" } },
+    include: {
+      order: {
+        select: {
+          orderNumber: true,
+          items: { select: { quantity: true, product: { select: { name: true, sku: true } } } },
+        },
+      },
+      picker: { select: { name: true } },
+    },
+  });
+
+  const result: LocationBinDetailMap = {};
+
+  for (const loc of locations) {
+    const orders = pickPacks
+      .filter((pp) => pp.locationCode === loc.locationCode)
+      .map((pp) => ({
+        orderNumber: pp.order.orderNumber,
+        picker: pp.picker?.name ?? "—",
+        status: pp.status,
+        items: pp.order.items.map((i) => ({
+          product: i.product.name,
+          productCode: i.product.sku,
+          quantity: i.quantity,
+        })),
+      }));
+
+    result[loc.locationCode] = { occupancyStatus: loc.occupancyStatus, orders };
+  }
+
+  return result;
+}
+
+// ── Returns detail ────────────────────────────────────────────────────────────
+
+function formatDate(date: Date): string {
+  return date.toLocaleDateString("en-NG", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+export type ReturnProductRow = {
+  id: number;
+  product: string;
+  productCode: string;
+  unit: string;
+  quantity: number;
+};
+
+export type WarehouseReturnDetail = {
+  id: string;
+  rsId: string;
+  agent: string;
+  state: string;
+  qtyReturned: number;
+  damaged: boolean;
+  conditionStatus: string;
+  remarks: string;
+  notes: string;
+  addedBy: string;
+  date: string;
+  movementStatus: string;
+  reversalReason: string | null;
+  dateReversed: string | null;
+  products: ReturnProductRow[];
+};
+
+export async function getReturnMovementDetail(
+  id: string
+): Promise<WarehouseReturnDetail | null> {
+  const m = await prisma.stockMovement.findUnique({
+    where: { id },
+    include: {
+      agent: true,
+      createdBy: true,
+      items: { include: { product: true } },
+    },
+  });
+  if (!m || m.type !== "RETURN") return null;
+
+  const totalQty = m.items.reduce((sum, i) => sum + i.quantity, 0);
+  const isReversed = m.status === "REVERSED";
+
+  return {
+    id: m.id,
+    rsId: m.referenceNumber,
+    agent: m.agent?.companyName ?? "—",
+    state: m.state ?? m.agent?.state ?? "—",
+    qtyReturned: totalQty,
+    damaged: m.damaged ?? false,
+    conditionStatus: m.damaged ? "Damaged" : "Good",
+    remarks: m.remarks ?? "",
+    notes: m.notes ?? "",
+    addedBy: m.createdBy.name,
+    date: formatDate(m.date),
+    movementStatus: m.status,
+    reversalReason: isReversed ? (m.remarks ?? null) : null,
+    dateReversed: isReversed ? formatDate(m.updatedAt) : null,
+    products: m.items.map((item, i) => ({
+      id: i + 1,
+      product: item.product.name,
+      productCode: item.product.sku,
+      unit: "Unit",
+      quantity: item.quantity,
+    })),
+  };
+}
+
+// ── Dashboard ─────────────────────────────────────────────────────────────────
+
+export type DashboardStats = {
+  ordersToPick: number;
+  incomingStocks: number;
+  readyForDispatch: number;
+  damageReports: number;
+};
+
+export type DashboardPickPackRow = {
+  orderNumber: string;
+  itemsCount: number;
+  picker: string;
+  locationCode: string;
+  status: string | null;
+};
+
+export type DashboardGoodsRow = {
+  incId: string;
+  units: number;
+  supplier: string;
+  qcStatus: string;
+  shelvingStatus: string;
+};
+
+export type DashboardAlert = {
+  id: string;
+  message: string;
+  severity: "error" | "warning" | "info";
+  time: string;
+};
+
+export type DashboardLocationBin = {
+  locationCode: string;
+  zone: string;
+  col: string;
+  occupancyStatus: string;
+};
+
+export type WarehouseDashboardData = {
+  stats: DashboardStats;
+  pickPackQueue: DashboardPickPackRow[];
+  locationBins: DashboardLocationBin[];
+  goodsReceiving: DashboardGoodsRow[];
+  alerts: DashboardAlert[];
+};
+
+function timeAgo(date: Date): string {
+  const diffMs = Date.now() - date.getTime();
+  const mins = Math.floor(diffMs / 60_000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins} min${mins !== 1 ? "s" : ""} ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs} hr${hrs !== 1 ? "s" : ""} ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days} day${days !== 1 ? "s" : ""} ago`;
+}
+
+export async function getWarehouseDashboard(
+  warehouseId: string | null,
+): Promise<WarehouseDashboardData> {
+  const [
+    inTransitCount,
+    incomingCount,
+    readyCount,
+    damageCount,
+    deliveries,
+    goodsRows,
+    damageAlerts,
+    qcAlerts,
+    locationRows,
+  ] = await Promise.all([
+    // ordersToPick — IN_TRANSIT deliveries (the pick-and-pack queue size)
+    prisma.delivery.count({ where: { status: "IN_TRANSIT" } }),
+
+    // incomingStocks — active INCOMING movements for this warehouse
+    prisma.stockMovement.count({
+      where: {
+        type: "INCOMING",
+        status: { in: ["RECEIVED", "QC_CHECK"] },
+        ...(warehouseId ? { warehouseId } : {}),
+      },
+    }),
+
+    // readyForDispatch — PickPack records at PACKED stage
+    prisma.pickPack.count({ where: { status: "PACKED" } }),
+
+    // damageReports — open reports for this warehouse
+    prisma.damageReport.count({
+      where: {
+        status: "OPEN",
+        ...(warehouseId
+          ? { warehouseLocation: { warehouseId } }
+          : {}),
+      },
+    }),
+
+    // Pick & Pack queue preview (up to 10 rows)
+    prisma.delivery.findMany({
+      where: { status: "IN_TRANSIT" },
+      orderBy: { createdAt: "desc" },
+      take: 10,
+      include: {
+        order: {
+          select: {
+            orderNumber: true,
+            _count: { select: { items: true } },
+            pickPacks: {
+              orderBy: { createdAt: "desc" },
+              take: 1,
+              include: { picker: { select: { name: true } } },
+            },
+          },
+        },
+      },
+    }),
+
+    // Goods receiving preview (up to 5 rows) scoped to warehouse
+    prisma.goodsReceiving.findMany({
+      where: warehouseId
+        ? { stockMovement: { warehouseId } }
+        : {},
+      orderBy: { createdAt: "desc" },
+      take: 5,
+      include: { supplier: { select: { name: true } } },
+    }),
+
+    // Alerts: open damage reports
+    prisma.damageReport.findMany({
+      where: {
+        status: "OPEN",
+        ...(warehouseId ? { warehouseLocation: { warehouseId } } : {}),
+      },
+      orderBy: { createdAt: "desc" },
+      take: 3,
+      include: { warehouseLocation: { select: { locationCode: true } } },
+    }),
+
+    // Alerts: recent GoodsReceiving needing QC
+    prisma.goodsReceiving.findMany({
+      where: {
+        qcStatus: "PENDING",
+        ...(warehouseId ? { stockMovement: { warehouseId } } : {}),
+      },
+      orderBy: { createdAt: "desc" },
+      take: 3,
+    }),
+
+    // Location bins for this warehouse
+    warehouseId
+      ? prisma.warehouseLocation.findMany({
+          where: { warehouseId },
+          orderBy: [{ zone: "asc" }, { locationCode: "asc" }],
+        })
+      : Promise.resolve([] as Awaited<ReturnType<typeof prisma.warehouseLocation.findMany>>),
+  ]);
+
+  // Build pick-pack queue rows
+  const pickPackQueue: DashboardPickPackRow[] = deliveries.map((d) => {
+    const pp = d.order.pickPacks[0] ?? null;
+    return {
+      orderNumber: d.order.orderNumber,
+      itemsCount: d.order._count.items,
+      picker: pp?.picker?.name ?? "—",
+      locationCode: pp?.locationCode || "—",
+      status: pp?.status ?? null,
+    };
+  });
+
+  // Build goods receiving rows
+  const goodsReceiving: DashboardGoodsRow[] = goodsRows.map((g) => ({
+    incId: g.incId,
+    units: g.units,
+    supplier: g.supplier.name,
+    qcStatus: g.qcStatus,
+    shelvingStatus: g.shelvingStatus,
+  }));
+
+  // Build alerts
+  const alerts: DashboardAlert[] = [
+    ...damageAlerts.map((d) => ({
+      id: d.id,
+      message: `Bin ${d.warehouseLocation?.locationCode ?? "unknown"} flagged — damage reported`,
+      severity: "error" as const,
+      time: timeAgo(d.createdAt),
+    })),
+    ...qcAlerts.map((g) => ({
+      id: g.id,
+      message: `${g.incId} requires QC check before shelving`,
+      severity: "info" as const,
+      time: timeAgo(g.createdAt),
+    })),
+  ].slice(0, 5);
+
+  // Build location bins
+  const locationBins: DashboardLocationBin[] = locationRows.map((l) => {
+    const zone = l.zone ?? l.locationCode.charAt(0);
+    const col = l.locationCode.slice(zone.length);
+    return { locationCode: l.locationCode, zone, col, occupancyStatus: l.occupancyStatus };
+  });
+
+  return {
+    stats: {
+      ordersToPick: inTransitCount,
+      incomingStocks: incomingCount,
+      readyForDispatch: readyCount,
+      damageReports: damageCount,
+    },
+    pickPackQueue,
+    locationBins,
+    goodsReceiving,
+    alerts,
+  };
+}
