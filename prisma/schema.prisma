@@ -202,6 +202,7 @@ model User {
   notifications         Notification[]         @relation("UserNotifications")
   auditLogs             AuditLog[]             @relation("UserAuditLogs")
   damageReports         DamageReport[]         @relation("DamageReportedBy")
+  journalEntries        JournalEntry[]         @relation("JournalEntryCreator")
 
   @@index([email])
   @@index([role])
@@ -284,12 +285,12 @@ model Product {
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 
-  category             ProductCategory       @relation(fields: [categoryId], references: [id])
+  category           ProductCategory     @relation(fields: [categoryId], references: [id])
   offers               ProductOffer[]
-  combos               ProductCombo[]        @relation("ParentProductCombos")
-  comboOf              ProductCombo[]        @relation("ComboProduct")
-  gifts                ProductGift[]         @relation("ParentProductGifts")
-  giftOf               ProductGift[]         @relation("GiftProduct")
+  combos               ProductCombo[]    @relation("ParentProductCombos")
+  comboOf              ProductCombo[]    @relation("ComboProduct")
+  gifts                ProductGift[]     @relation("ParentProductGifts")
+  giftOf               ProductGift[]     @relation("GiftProduct")
   orderItems           OrderItem[]
   stockMovementItems   StockMovementItem[]
   stockTransferItems   StockTransferItem[]
@@ -1028,4 +1029,38 @@ model StockAdjustmentItem {
   @@index([stockAdjustmentId])
   @@index([productId])
   @@map("stock_adjustment_items")
+}
+
+model JournalEntry {
+  id          String            @id @default(cuid())
+  journalNo   String            @unique
+  date        DateTime
+  totalDebit  Decimal           @default(0) @db.Decimal(10, 2)
+  totalCredit Decimal           @default(0) @db.Decimal(10, 2)
+  createdById String
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  createdBy User              @relation("JournalEntryCreator", fields: [createdById], references: [id])
+  rows      JournalEntryRow[]
+
+  @@index([createdById])
+  @@index([date])
+  @@map("journal_entries")
+}
+
+model JournalEntryRow {
+  id             String  @id @default(cuid())
+  journalEntryId String
+  account        String
+  debits         Decimal @default(0) @db.Decimal(10, 2)
+  credits        Decimal @default(0) @db.Decimal(10, 2)
+  description    String?
+  name           String?
+  tax            Decimal @default(0) @db.Decimal(10, 2)
+
+  journalEntry JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+
+  @@index([journalEntryId])
+  @@map("journal_entry_rows")
 }

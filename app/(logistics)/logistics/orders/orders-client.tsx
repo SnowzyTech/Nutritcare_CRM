@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import {
   Filter,
   ChevronDown,
@@ -14,7 +15,7 @@ import { Button } from "@/components/ui/button";
 type OrderRow = {
   id: string;
   status: OrderStatus;
-  date: Date;
+  date: string;
   customer: { name: string; email: string | null };
   agent: { companyName: string; state: string | null } | null;
   items: { quantity: number; product: { name: string } }[];
@@ -52,6 +53,7 @@ export function LogisticsOrdersClient({
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
 
+  const router = useRouter();
   const totalAll = Object.values(statusCounts).reduce((a, b) => a + (b ?? 0), 0);
 
   const filtered = useMemo(() => {
@@ -187,12 +189,20 @@ export function LogisticsOrdersClient({
                   const totalQty = order.items.reduce((sum, i) => sum + i.quantity, 0);
 
                   return (
-                    <tr key={order.id} className="hover:bg-gray-50/50 transition-colors">
+                    <tr
+                      key={order.id}
+                      onClick={() => router.push(`/logistics/orders/${order.id}`)}
+                      className="hover:bg-gray-50/50 transition-colors cursor-pointer"
+                    >
                       <td className="px-6 py-4">
                         <div className={`w-2.5 h-2.5 rounded-full mx-auto ${dot}`} />
                       </td>
-                      <td className="px-6 py-4 text-gray-600">{order.customer.email ?? "—"}</td>
-                      <td className="px-6 py-4 font-bold text-gray-700">{order.customer.name}</td>
+                      <td className="px-6 py-4 text-gray-600">
+                        {order.customer.email ?? "—"}
+                      </td>
+                      <td className="px-6 py-4 font-bold text-gray-700">
+                        {order.customer.name}
+                      </td>
                       <td className="px-6 py-4">
                         {order.agent ? (
                           <div className="flex flex-col">

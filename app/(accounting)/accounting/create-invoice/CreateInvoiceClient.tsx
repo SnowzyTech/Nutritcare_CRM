@@ -4,8 +4,27 @@ import React, { useState } from 'react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { Calendar, ChevronDown, Trash2, ArrowLeft } from 'lucide-react';
+import { createInvoiceAction } from '@/modules/finance/actions/invoices.action';
 
-export function CreateInvoiceClient({ title = "Invoice" }: { title?: string }) {
+interface CreateInvoiceClientProps {
+  title?: string;
+  invoiceType?: 'INVOICE' | 'SALES_RECEIPT' | 'REFUND_RECEIPT';
+  customers?: { id: string; name: string; email: string | null; phone: string; deliveryAddress: string; state: string }[];
+  products?: { id: string; name: string; sellingPrice: number }[];
+  invoiceNumber?: string;
+}
+
+interface InvoiceRow {
+  id: number;
+  serviceDate?: string;
+  productId?: string;
+  description?: string;
+  quantity?: string;
+  rate?: string;
+  vatRate?: string;
+}
+
+export function CreateInvoiceClient({ title = "Invoice", invoiceType = 'INVOICE', customers, products, invoiceNumber }: CreateInvoiceClientProps) {
   const router = useRouter();
   const [toggles, setToggles] = useState({
     logo: true,
@@ -17,7 +36,19 @@ export function CreateInvoiceClient({ title = "Invoice" }: { title?: string }) {
     terms: true,
   });
 
-  const [rows, setRows] = useState([{ id: 1 }, { id: 2 }, { id: 3 }]);
+  const [customerId, setCustomerId] = useState('');
+  const [shipToAddress, setShipToAddress] = useState('');
+  const [terms, setTerms] = useState('Net 30');
+  const [invoiceDate, setInvoiceDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [dueDate, setDueDate] = useState('');
+  const [discountPercent, setDiscountPercent] = useState('0');
+  const [shipping, setShipping] = useState('0');
+  const [saving, setSaving] = useState(false);
+
+  const [rows, setRows] = useState<InvoiceRow[]>([{ id: 1 }, { id: 2 }, { id: 3 }]);
+
+  const updateRow = (id: number, field: keyof InvoiceRow, value: string) =>
+    setRows(prev => prev.map(r => (r.id === id ? { ...r, [field]: value } : r)));
 
   const addRow = () => {
     const newId = rows.length > 0 ? Math.max(...rows.map(r => r.id)) + 1 : 1;
@@ -26,6 +57,48 @@ export function CreateInvoiceClient({ title = "Invoice" }: { title?: string }) {
 
   const deleteRow = (id: number) => {
     setRows(rows.filter(r => r.id !== id));
+  };
+
+  const subtotal = rows.reduce((s, r) => s + (parseFloat(r.quantity ?? '0') || 0) * (parseFloat(r.rate ?? '0') || 0), 0);
+  const discountAmount = (subtotal * (parseFloat(discountPercent) || 0)) / 100;
+  const shippingNum = parseFloat(shipping) || 0;
+  const invoiceTotal = subtotal - discountAmount + shippingNum;
+
+  const handleSave = async (status: 'DRAFT' | 'SENT') => {
+    if (!customerId) { alert('Select a customer'); return; }
+    const items = rows
+      .filter(r => parseFloat(r.quantity ?? '0') > 0 && parseFloat(r.rate ?? '0') > 0)
+      .map(r => ({
+        serviceDate: r.serviceDate ? new Date(r.serviceDate) : undefined,
+        productId: r.productId || undefined,
+        description: r.description || (products?.find(p => p.id === r.productId)?.name ?? 'Item'),
+        quantity: parseFloat(r.quantity ?? '0'),
+        rate: parseFloat(r.rate ?? '0'),
+        vatRate: r.vatRate ? parseFloat(r.vatRate) : undefined,
+      }));
+    if (items.length === 0) { alert('Add at least one item with quantity and rate'); return; }
+    setSaving(true);
+    const res = await createInvoiceAction({
+      customerId,
+      invoiceDate: new Date(invoiceDate),
+      dueDate: dueDate ? new Date(dueDate) : undefined,
+      terms,
+      shipping: shippingNum,
+      discountPercent: parseFloat(discountPercent) || 0,
+      type: invoiceType,
+      status,
+      showLogo: toggles.logo,
+      showShipTo: toggles.shipTo,
+      showInvoiceNo: toggles.invoiceNo,
+      showInvoiceDate: toggles.invoiceDate,
+      showDueDate: toggles.dueDate,
+      showDiscount: toggles.discount,
+      showTerms: toggles.terms,
+      items,
+    });
+    setSaving(false);
+    if ('error' in res) { alert(res.error); return; }
+    router.push('/accounting');
   };
 
   const handleToggle = (key: keyof typeof toggles) => {
@@ -84,19 +157,26 @@ export function CreateInvoiceClient({ title = "Invoice" }: { title?: string }) {
           <div className="flex-1 flex flex-col gap-4">
             <div className="w-72">
               <div className="relative">
-                <input 
-                  type="email" 
-                  placeholder="Add Customer Email" 
-                  className="w-full h-11 px-4 bg-white border border-gray-200 rounded-lg text-[13px] text-gray-700 focus:outline-none focus:border-purple-300 shadow-sm" 
-                />
-                <ChevronDown size={16} className="absolute right-4 top-3.5 text-gray-400" />
+                <select
+                  value={customerId}
+                  onChange={e => setCustomerId(e.target.value)}
+                  className="w-full h-11 px-4 bg-white border border-gray-200 rounded-lg text-[13px] text-gray-700 focus:outline-none focus:border-purple-300 shadow-sm appearance-none"
+                >
+                  <option value="">Select Customer</option>
+                  {(customers ?? []).map(c => (
+                    <option key={c.id} value={c.id}>{c.name}{c.email ? ` (${c.email})` : ''}</option>
+                  ))}
+                </select>
+                <ChevronDown size={16} className="absolute right-4 top-3.5 text-gray-400 pointer-events-none" />
               </div>
             </div>
             {toggles.shipTo && (
               <div className="w-72">
-                <textarea 
-                  placeholder="Ship To Address" 
-                  className="w-full h-24 p-4 bg-white border border-gray-200 rounded-lg text-[13px] text-gray-700 focus:outline-none focus:border-purple-300 shadow-sm resize-none" 
+                <textarea
+                  value={shipToAddress}
+                  onChange={e => setShipToAddress(e.target.value)}
+                  placeholder="Ship To Address"
+                  className="w-full h-24 p-4 bg-white border border-gray-200 rounded-lg text-[13px] text-gray-700 focus:outline-none focus:border-purple-300 shadow-sm resize-none"
                 />
               </div>
             )}
@@ -106,14 +186,14 @@ export function CreateInvoiceClient({ title = "Invoice" }: { title?: string }) {
             {toggles.invoiceNo && (
               <div className="flex items-center justify-between gap-4">
                 <span className="text-[13px] text-gray-500 font-medium">Invoice No.</span>
-                <input type="text" defaultValue="1001" className="w-36 h-9 px-3 bg-white border border-gray-200 rounded text-[13px] text-gray-700 focus:outline-none shadow-sm" />
+                <input type="text" value={invoiceNumber ?? '1001'} readOnly className="w-36 h-9 px-3 bg-white border border-gray-200 rounded text-[13px] text-gray-700 focus:outline-none shadow-sm" />
               </div>
             )}
             {toggles.terms && (
               <div className="flex items-center justify-between gap-4">
                 <span className="text-[13px] text-gray-500 font-medium">Terms</span>
                 <div className="relative w-36 h-9">
-                  <input type="text" defaultValue="1001" className="w-full h-full px-3 bg-white border border-gray-200 rounded text-[13px] text-gray-700 focus:outline-none shadow-sm cursor-pointer" />
+                  <input type="text" value={terms} onChange={e => setTerms(e.target.value)} className="w-full h-full px-3 bg-white border border-gray-200 rounded text-[13px] text-gray-700 focus:outline-none shadow-sm cursor-pointer" />
                   <ChevronDown size={14} className="absolute right-3 top-2.5 text-gray-400 pointer-events-none" />
                 </div>
               </div>
@@ -122,7 +202,7 @@ export function CreateInvoiceClient({ title = "Invoice" }: { title?: string }) {
               <div className="flex items-center justify-between gap-4">
                 <span className="text-[13px] text-gray-500 font-medium">Invoice Date</span>
                 <div className="relative w-36 h-9">
-                  <input type="text" defaultValue="1001" className="w-full h-full px-3 pr-8 bg-white border border-gray-200 rounded text-[13px] text-gray-700 focus:outline-none shadow-sm cursor-pointer" />
+                  <input type="date" value={invoiceDate} onChange={e => setInvoiceDate(e.target.value)} className="w-full h-full px-3 pr-8 bg-white border border-gray-200 rounded text-[13px] text-gray-700 focus:outline-none shadow-sm cursor-pointer" />
                   <Calendar size={12} className="absolute right-3 top-3 text-gray-400 pointer-events-none" />
                 </div>
               </div>
@@ -131,7 +211,7 @@ export function CreateInvoiceClient({ title = "Invoice" }: { title?: string }) {
               <div className="flex items-center justify-between gap-4">
                 <span className="text-[13px] text-gray-500 font-medium">Due Date</span>
                 <div className="relative w-36 h-9">
-                  <input type="text" defaultValue="1001" className="w-full h-full px-3 pr-8 bg-white border border-gray-200 rounded text-[13px] text-gray-700 focus:outline-none shadow-sm cursor-pointer" />
+                  <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} className="w-full h-full px-3 pr-8 bg-white border border-gray-200 rounded text-[13px] text-gray-700 focus:outline-none shadow-sm cursor-pointer" />
                   <Calendar size={12} className="absolute right-3 top-3 text-gray-400 pointer-events-none" />
                 </div>
               </div>
@@ -161,28 +241,40 @@ export function CreateInvoiceClient({ title = "Invoice" }: { title?: string }) {
               <div key={row.id} className="grid grid-cols-[40px_1fr_2fr_2fr_80px_100px_100px_80px_40px] py-3 px-5 gap-3 border-t border-gray-100 bg-white items-center">
                 <div className="text-[13px] font-bold text-gray-700 pl-1">{index + 1}</div>
                 <div className="relative">
-                  <input type="text" placeholder="Date" className="w-full h-9 px-3 text-[11px] border border-gray-200 rounded-md outline-none focus:border-purple-300" />
-                  <Calendar size={12} className="absolute right-2.5 top-3 text-gray-400" />
+                  <input type="date" value={row.serviceDate ?? ''} onChange={e => updateRow(row.id, 'serviceDate', e.target.value)} className="w-full h-9 px-3 text-[11px] border border-gray-200 rounded-md outline-none focus:border-purple-300" />
                 </div>
                 <div className="relative">
-                  <input type="text" placeholder="Product/service" className="w-full h-9 px-3 text-[11px] border border-gray-200 rounded-md outline-none focus:border-purple-300" />
-                  <ChevronDown size={12} className="absolute right-2.5 top-3 text-gray-400" />
+                  <select
+                    value={row.productId ?? ''}
+                    onChange={e => {
+                      const p = (products ?? []).find(x => x.id === e.target.value);
+                      updateRow(row.id, 'productId', e.target.value);
+                      if (p) {
+                        updateRow(row.id, 'rate', String(p.sellingPrice));
+                        updateRow(row.id, 'description', p.name);
+                      }
+                    }}
+                    className="w-full h-9 px-3 text-[11px] border border-gray-200 rounded-md outline-none focus:border-purple-300 appearance-none"
+                  >
+                    <option value="">Product/service</option>
+                    {(products ?? []).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                  <ChevronDown size={12} className="absolute right-2.5 top-3 text-gray-400 pointer-events-none" />
                 </div>
                 <div>
-                  <input type="text" placeholder="Description" className="w-full h-9 px-3 text-[11px] border border-gray-200 rounded-md outline-none focus:border-purple-300" />
+                  <input type="text" placeholder="Description" value={row.description ?? ''} onChange={e => updateRow(row.id, 'description', e.target.value)} className="w-full h-9 px-3 text-[11px] border border-gray-200 rounded-md outline-none focus:border-purple-300" />
                 </div>
                 <div>
-                  <input type="text" placeholder="Qty" className="w-full h-9 px-3 text-[11px] border border-gray-200 rounded-md outline-none focus:border-purple-300" />
+                  <input type="number" placeholder="Qty" value={row.quantity ?? ''} onChange={e => updateRow(row.id, 'quantity', e.target.value)} className="w-full h-9 px-3 text-[11px] border border-gray-200 rounded-md outline-none focus:border-purple-300" />
                 </div>
                 <div>
-                  <input type="text" placeholder="Rate" className="w-full h-9 px-3 text-[11px] border border-gray-200 rounded-md outline-none focus:border-purple-300" />
+                  <input type="number" placeholder="Rate" value={row.rate ?? ''} onChange={e => updateRow(row.id, 'rate', e.target.value)} className="w-full h-9 px-3 text-[11px] border border-gray-200 rounded-md outline-none focus:border-purple-300" />
                 </div>
                 <div>
-                  <input type="text" placeholder="Amount" className="w-full h-9 px-3 text-[11px] border border-gray-200 rounded-md outline-none bg-gray-50/50" />
+                  <input type="text" readOnly value={((parseFloat(row.quantity ?? '0') || 0) * (parseFloat(row.rate ?? '0') || 0)).toFixed(2)} className="w-full h-9 px-3 text-[11px] border border-gray-200 rounded-md outline-none bg-gray-50/50" />
                 </div>
                 <div className="relative">
-                  <input type="text" placeholder="Vat" className="w-full h-9 px-3 text-[11px] border border-gray-200 rounded-md outline-none focus:border-purple-300" />
-                  <ChevronDown size={12} className="absolute right-2.5 top-3 text-gray-400" />
+                  <input type="number" placeholder="Vat" value={row.vatRate ?? ''} onChange={e => updateRow(row.id, 'vatRate', e.target.value)} className="w-full h-9 px-3 text-[11px] border border-gray-200 rounded-md outline-none focus:border-purple-300" />
                 </div>
                 <div 
                   className="flex justify-center text-gray-400 hover:text-red-500 cursor-pointer transition-colors"
@@ -214,34 +306,42 @@ export function CreateInvoiceClient({ title = "Invoice" }: { title?: string }) {
           <div className="w-72 pt-2">
             <div className="flex justify-between items-center mb-3.5">
               <span className="text-[13px] font-medium text-gray-600">Subtotal</span>
-              <span className="text-[14px] font-bold text-gray-900">₦0.00</span>
+              <span className="text-[14px] font-bold text-gray-900">₦{subtotal.toFixed(2)}</span>
             </div>
             {toggles.discount && (
               <div className="flex justify-between items-center mb-3.5">
                 <div className="flex items-center gap-3">
                   <span className="text-[13px] font-medium text-gray-600">Discount</span>
-                  <span className="text-[11px] font-bold bg-gray-200 text-gray-600 px-2.5 py-0.5 rounded-full">12%</span>
+                  <input type="number" value={discountPercent} onChange={e => setDiscountPercent(e.target.value)} className="w-12 text-[11px] font-bold bg-gray-200 text-gray-600 px-2 py-0.5 rounded-full text-center outline-none" />
                 </div>
-                <span className="text-[14px] font-bold text-gray-900">₦0.00</span>
+                <span className="text-[14px] font-bold text-gray-900">₦{discountAmount.toFixed(2)}</span>
               </div>
             )}
             <div className="flex justify-between items-center mb-3.5">
               <span className="text-[13px] font-medium text-gray-600">Shipping</span>
-              <span className="text-[14px] font-bold text-gray-900">₦0.00</span>
+              <input type="number" value={shipping} onChange={e => setShipping(e.target.value)} className="w-24 h-7 px-2 text-right text-[14px] font-bold text-gray-900 border border-gray-200 rounded outline-none" />
             </div>
             <div className="flex justify-between items-center mt-5 pt-5 border-t border-gray-100">
               <span className="text-[14px] font-bold text-gray-900">Invoice Total</span>
-              <span className="text-[15px] font-black text-gray-900">₦0.00</span>
+              <span className="text-[15px] font-black text-gray-900">₦{invoiceTotal.toFixed(2)}</span>
             </div>
           </div>
         </div>
 
         {/* Action Buttons */}
         <div className="mt-8 flex justify-end gap-4 pt-8 border-t border-gray-50">
-          <button className="px-10 py-3 rounded-lg border border-[#A800FF] text-[#A800FF] text-[13px] font-bold hover:bg-purple-50 transition-colors bg-white shadow-sm">
-            Save
+          <button
+            disabled={saving}
+            onClick={() => handleSave('DRAFT')}
+            className="px-10 py-3 rounded-lg border border-[#A800FF] text-[#A800FF] text-[13px] font-bold hover:bg-purple-50 transition-colors bg-white shadow-sm disabled:opacity-50"
+          >
+            {saving ? 'Saving…' : 'Save'}
           </button>
-          <button className="px-10 py-3 rounded-lg bg-[#A800FF] text-white text-[13px] font-bold hover:bg-[#9100D6] transition-colors shadow-sm shadow-purple-200">
+          <button
+            disabled={saving}
+            onClick={() => handleSave('SENT')}
+            className="px-10 py-3 rounded-lg bg-[#A800FF] text-white text-[13px] font-bold hover:bg-[#9100D6] transition-colors shadow-sm shadow-purple-200 disabled:opacity-50"
+          >
             Review and Send
           </button>
         </div>

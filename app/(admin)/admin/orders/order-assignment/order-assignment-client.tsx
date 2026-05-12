@@ -16,7 +16,6 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select";
 import type { OrderStatus } from "@prisma/client";
 import { adminReassignOrdersAction } from "@/modules/orders/actions/admin-orders.action";
@@ -257,7 +256,9 @@ export function OrderAssignmentClient({
 
         <Select value={selectedProduct} onValueChange={(v) => setSelectedProduct(v ?? "__all__")}>
           <SelectTrigger className="w-[130px] h-[32px] border-black rounded-lg bg-white text-[0.75rem] font-black shadow-sm px-2">
-            <SelectValue placeholder="Product" />
+            <span className="flex-1 text-left truncate">
+              {selectedProduct === "__all__" ? "All Products" : selectedProduct}
+            </span>
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="__all__">All Products</SelectItem>
@@ -271,7 +272,9 @@ export function OrderAssignmentClient({
 
         <Select value={selectedState} onValueChange={(v) => setSelectedState(v ?? "__all__")}>
           <SelectTrigger className="w-[110px] h-[32px] border-black rounded-lg bg-white text-[0.75rem] font-black shadow-sm px-2">
-            <SelectValue placeholder="State" />
+            <span className="flex-1 text-left truncate">
+              {selectedState === "__all__" ? "All States" : selectedState}
+            </span>
           </SelectTrigger>
           <SelectContent className="max-h-[300px]">
             <SelectItem value="__all__">All States</SelectItem>

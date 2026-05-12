@@ -69,6 +69,7 @@ export type ReturnedMovementRow = {
   qtyReturned: number;
   damaged: "Yes" | "No";
   remarks: string;
+  warehouse: string;
   addedBy: string;
 };
 
@@ -302,6 +303,7 @@ export async function getReturnedMovements(): Promise<ReturnedMovementRow[]> {
     where: { type: "RETURN" },
     include: {
       agent: true,
+      warehouse: true,
       createdBy: true,
       items: { include: { product: true } },
     },
@@ -319,6 +321,7 @@ export async function getReturnedMovements(): Promise<ReturnedMovementRow[]> {
       qtyReturned: totalQty,
       damaged: m.damaged ? "Yes" : "No",
       remarks: m.remarks ?? "—",
+      warehouse: m.warehouse?.name ?? "—",
       addedBy: m.createdBy.name,
     };
   });
@@ -868,4 +871,160 @@ export async function getStockLeftWithAgents(): Promise<AgentStockRow[]> {
       };
     })
     .filter((r) => r.qtySent > 0 || r.qtyLeft > 0);
+}
+
+// ── Adjustments ──────────────────────────────────────────────────────────────
+
+export type AdjustmentRow = {
+  id: string;
+  referenceNumber: string;
+  date: string;
+  warehouse: string;
+  warehouseManager: string;
+  products: string;
+  status: string;
+  addedBy: string;
+};
+
+export type AdjustmentDetail = {
+  id: string;
+  saId: string;
+  warehouse: string;
+  warehouseManager: string;
+  reason: string;
+  recordedBy: string;
+  date: string;
+  status: string;
+  notes: string;
+  reversalReason: string | null;
+  dateReversed: string | null;
+  items: {
+    id: number;
+    product: string;
+    productCode: string;
+    quantityBefore: number;
+    quantityAfter: number;
+    variance: number;
+  }[];
+};
+
+export async function getAdjustments(): Promise<AdjustmentRow[]> {
+  const adjustments = await prisma.stockAdjustment.findMany({
+    include: {
+      warehouse: true,
+      createdBy: true,
+      items: { include: { product: true } },
+    },
+    orderBy: { date: "desc" },
+  });
+
+  const statusLabel: Record<string, string> = {
+    DRAFT: "Draft",
+    RECORDED: "Recorded",
+    REVERSED: "Reversed",
+  };
+
+  return adjustments.map((a) => ({
+    id: a.id,
+    referenceNumber: a.referenceNumber,
+    date: formatMovementDate(a.date),
+    warehouse: a.warehouse.name,
+    warehouseManager: a.warehouse.managerName ?? "—",
+    products: a.items.map((i) => i.product.name).join(", ") || "—",
+    status: statusLabel[a.status] ?? a.status,
+    addedBy: a.createdBy.name,
+  }));
+}
+
+export async function getAdjustmentById(id: string): Promise<AdjustmentDetail | null> {
+  const a = await prisma.stockAdjustment.findUnique({
+    where: { id },
+    include: {
+      warehouse: true,
+      createdBy: true,
+      items: { include: { product: true } },
+    },
+  });
+  if (!a) return null;
+
+  const statusLabel: Record<string, string> = {
+    DRAFT: "Draft",
+    RECORDED: "Recorded",
+    REVERSED: "Reversed",
+  };
+
+  return {
+    id: a.id,
+    saId: a.referenceNumber,
+    warehouse: a.warehouse.name,
+    warehouseManager: a.warehouse.managerName ?? "—",
+    reason: a.reason ?? "—",
+    recordedBy: a.createdBy.name,
+    date: formatMovementDate(a.date),
+    status: statusLabel[a.status] ?? a.status,
+    notes: a.notes ?? "",
+    reversalReason: a.status === "REVERSED" ? (a.notes ?? null) : null,
+    dateReversed: a.status === "REVERSED" ? formatMovementDate(a.updatedAt) : null,
+    items: a.items.map((item, i) => ({
+      id: i + 1,
+      product: item.product.name,
+      productCode: item.product.sku,
+      quantityBefore: item.quantityBefore,
+      quantityAfter: item.quantityAfter,
+      variance: item.quantityAfter - item.quantityBefore,
+    })),
+  };
+}
+
+// ── Dropdown Helpers ──────────────────────────────────────────────────────────
+
+export type DropdownOption = { id: string; name: string };
+export type ProductDropdownOption = { id: string; name: string; sku: string };
+export type TransferNodeOption = { id: string; name: string; type: "WAREHOUSE" | "AGENT" };
+
+export async function getWarehousesForDropdown(): Promise<DropdownOption[]> {
+  return prisma.warehouse.findMany({
+    select: { id: true, name: true },
+    orderBy: { name: "asc" },
+  });
+}
+
+export async function getSuppliersForDropdown(): Promise<DropdownOption[]> {
+  return prisma.supplier.findMany({
+    where: { deletedAt: null },
+    select: { id: true, name: true },
+    orderBy: { name: "asc" },
+  });
+}
+
+export async function getAgentsForDropdown(): Promise<DropdownOption[]> {
+  const rows = await prisma.agent.findMany({
+    where: { deletedAt: null, status: "ACTIVE" },
+    select: { id: true, companyName: true },
+    orderBy: { companyName: "asc" },
+  });
+  return rows.map((a) => ({ id: a.id, name: a.companyName }));
+}
+
+export async function getProductsForDropdown(): Promise<ProductDropdownOption[]> {
+  return prisma.product.findMany({
+    where: { isActive: true, deletedAt: null },
+    select: { id: true, name: true, sku: true },
+    orderBy: { name: "asc" },
+  });
+}
+
+export async function getTransferNodesForDropdown(): Promise<TransferNodeOption[]> {
+  const [warehouses, agents] = await Promise.all([
+    prisma.warehouse.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    prisma.agent.findMany({
+      where: { deletedAt: null, status: "ACTIVE" },
+      select: { id: true, companyName: true },
+      orderBy: { companyName: "asc" },
+    }),
+  ]);
+  return [
+    ...warehouses.map((w) => ({ id: w.id, name: w.name, type: "WAREHOUSE" as const })),
+    ...agents.map((a) => ({ id: a.id, name: a.companyName, type: "AGENT" as const })),
+  ];
 }

@@ -259,6 +259,23 @@ export async function getPendingActivationRequests() {
   });
 }
 
+export async function getPendingRequestById(id: string) {
+  return prisma.user.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      phone: true,
+      whatsappNumber: true,
+      avatarUrl: true,
+      role: true,
+      createdAt: true,
+      accountActivationStatus: true,
+    },
+  });
+}
+
 export async function getTeamLeads() {
   return prisma.user.findMany({
     where: { isTeamLead: true, accountActivationStatus: "APPROVED", isActive: true },

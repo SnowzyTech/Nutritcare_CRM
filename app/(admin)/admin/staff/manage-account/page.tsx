@@ -1,24 +1,29 @@
 import type { Metadata } from "next";
-import {
-  Search,
-  SlidersHorizontal,
-  ArrowUpDown,
-} from "lucide-react";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Suspense } from "react";
 import {
   getPendingActivationRequests,
   getTeamLeads,
+  getAllTeams,
 } from "@/modules/users/services/users.service";
-import { ActivationRequestsSection } from "./manage-account-client";
+import {
+  ActivationRequestsSection,
+  ManageAccountToolbar,
+} from "./manage-account-client";
 import type { Department } from "@prisma/client";
 
 export const metadata: Metadata = { title: "Manage Account" };
+
+// Maps each user role to its department for filtering
+const ROLE_TO_DEPT: Record<string, Department> = {
+  SALES_REP: "SALES",
+  SALES_REP_MANAGER: "SALES",
+  INVENTORY_MANAGER: "INVENTORY_LOGISTICS",
+  WAREHOUSE_MANAGER: "INVENTORY_LOGISTICS",
+  LOGISTICS_MANAGER: "INVENTORY_LOGISTICS",
+  DELIVERY_AGENT: "INVENTORY_LOGISTICS",
+  ACCOUNTANT: "ACCOUNTING",
+  DATA_ANALYST: "DATA",
+};
 
 const DEPT_LABELS: Record<Department, string> = {
   SALES: "Sales",
@@ -96,95 +101,111 @@ function TeamLeadCard({
   );
 }
 
-export default async function ManageAccountPage() {
-  const [pendingRequests, allTeamLeads] = await Promise.all([
+type PageProps = {
+  searchParams: Promise<{
+    dept?: string;
+    team?: string;
+    sort?: string;
+    q?: string;
+  }>;
+};
+
+export default async function ManageAccountPage({ searchParams }: PageProps) {
+  const params = await searchParams;
+  const dept = params.dept as Department | undefined;
+  const teamId = params.team;
+  const sort = params.sort ?? "desc";
+  const q = params.q?.toLowerCase().trim();
+
+  const [allRequests, allTeamLeads, allTeams] = await Promise.all([
     getPendingActivationRequests(),
     getTeamLeads(),
+    getAllTeams(),
   ]);
 
-  // Group team leads by department
-  const leadsByDept: Partial<
-    Record<Department, { id: string; name: string; teamName: string }[]>
-  > = {};
+  // ── Filter activation requests ──────────────────────────────────────────────
+  let filteredRequests = allRequests;
+
+  if (dept) {
+    filteredRequests = filteredRequests.filter(
+      (r) => ROLE_TO_DEPT[r.role] === dept
+    );
+  }
+  if (q) {
+    filteredRequests = filteredRequests.filter((r) =>
+      r.name.toLowerCase().includes(q)
+    );
+  }
+  if (sort === "asc") {
+    filteredRequests = [...filteredRequests].sort(
+      (a, b) =>
+        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    );
+  }
+
+  // ── Group and filter team leads ─────────────────────────────────────────────
+  type LeadEntry = {
+    id: string;
+    name: string;
+    teamName: string;
+    teamId: string | undefined;
+  };
+
+  const leadsByDept: Partial<Record<Department, LeadEntry[]>> = {};
   for (const lead of allTeamLeads) {
-    const dept = lead.team?.department ?? ("SALES" as Department);
-    if (!leadsByDept[dept]) leadsByDept[dept] = [];
-    leadsByDept[dept]!.push({
+    const d = lead.team?.department ?? ("SALES" as Department);
+    if (!leadsByDept[d]) leadsByDept[d] = [];
+    leadsByDept[d]!.push({
       id: lead.id,
       name: lead.name,
       teamName: lead.team?.name ?? "—",
+      teamId: lead.team?.id,
     });
   }
 
+  // Apply dept / team / search filters to team leads
+  const filteredLeadsByDept: Partial<Record<Department, LeadEntry[]>> = {};
+  for (const d of DEPT_ORDER) {
+    if (dept && d !== dept) continue;
+    let leads = leadsByDept[d] ?? [];
+    if (teamId) leads = leads.filter((l) => l.teamId === teamId);
+    if (q) leads = leads.filter((l) => l.name.toLowerCase().includes(q));
+    if (leads.length > 0) filteredLeadsByDept[d] = leads;
+  }
+
   const activeDepts = DEPT_ORDER.filter(
-    (d) => leadsByDept[d] && leadsByDept[d]!.length > 0
+    (d) => filteredLeadsByDept[d] && filteredLeadsByDept[d]!.length > 0
   );
+
+  // Total pending count (unfiltered) for the badge
+  const totalPending = allRequests.length;
 
   return (
     <div className="max-w-[1200px] mx-auto font-inter text-slate-900 pb-20">
       {/* ── Toolbar ── */}
-      <div className="flex flex-wrap items-center gap-3 mb-8">
-        <button className="flex items-center gap-2 px-4 py-2 border border-slate-200 rounded-lg bg-white text-[0.85rem] font-bold text-slate-700 hover:bg-slate-50 transition-all shadow-sm">
-          <SlidersHorizontal size={15} />
-          Filter
-        </button>
-
-        <Select defaultValue="dept">
-          <SelectTrigger className="w-[110px] h-[38px] border-slate-200 rounded-lg bg-white text-[0.85rem] font-bold text-slate-700 shadow-sm">
-            <SelectValue placeholder="Dept." />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="sales">Sales</SelectItem>
-            <SelectItem value="inventory">Inventory</SelectItem>
-            <SelectItem value="data">Data</SelectItem>
-          </SelectContent>
-        </Select>
-
-        <Select defaultValue="team-2">
-          <SelectTrigger className="w-[110px] h-[38px] border-slate-200 rounded-lg bg-white text-[0.85rem] font-bold text-slate-700 shadow-sm">
-            <SelectValue placeholder="Team" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="team-1">Team 1</SelectItem>
-            <SelectItem value="team-2">Team 2</SelectItem>
-          </SelectContent>
-        </Select>
-
-        <button className="flex items-center gap-1 px-2.5 py-2 border border-slate-200 rounded-lg bg-white text-slate-400 hover:bg-slate-50 transition-all shadow-sm">
-          <ArrowUpDown size={15} />
-        </button>
-
-        <button className="bg-purple-600 hover:bg-purple-700 text-white px-5 py-2 rounded-lg text-[0.82rem] font-black uppercase tracking-wider transition-all shadow-md shadow-purple-200">
-          See all Staffs
-        </button>
-
-        <div className="flex-1" />
-
-        <div className="flex items-center gap-2 border border-slate-200 rounded-lg px-4 py-2 bg-white min-w-[280px] shadow-sm">
-          <Search size={15} className="text-slate-400" />
-          <input
-            type="text"
-            placeholder="search"
-            className="border-none outline-none text-[0.85rem] text-slate-700 bg-transparent w-full placeholder:text-slate-400"
-          />
-        </div>
-      </div>
+      <Suspense fallback={<div className="h-[52px] mb-8" />}>
+        <ManageAccountToolbar teams={allTeams} />
+      </Suspense>
 
       {/* ── Account Activation Requests ── */}
       <section className="bg-white rounded-[24px] p-8 shadow-[0_4px_24px_rgba(0,0,0,0.03)] border border-slate-50 mb-8">
         <h2 className="text-[1.1rem] font-black text-slate-900 mb-6 flex items-center gap-2">
           Account Activation Requests
-          {pendingRequests.length > 0 && (
+          {totalPending > 0 && (
             <span className="w-2 h-2 rounded-full bg-purple-600 animate-pulse" />
           )}
-          {pendingRequests.length > 0 && (
+          {totalPending > 0 && (
             <span className="ml-1 text-[0.75rem] font-bold text-purple-600 bg-purple-50 px-2 py-0.5 rounded-full">
-              {pendingRequests.length}
+              {totalPending}
             </span>
           )}
         </h2>
 
-        <ActivationRequestsSection requests={pendingRequests} />
+        {/* key resets internal visible-state when filters change */}
+        <ActivationRequestsSection
+          key={`${dept ?? ""}-${sort}-${q ?? ""}`}
+          requests={filteredRequests}
+        />
       </section>
 
       {/* ── Team Leads ── */}
@@ -195,18 +216,18 @@ export default async function ManageAccountPage() {
 
         {activeDepts.length === 0 ? (
           <p className="text-slate-400 text-[0.875rem]">
-            No team leads assigned yet.
+            No team leads match the current filters.
           </p>
         ) : (
           <div className="space-y-10">
             {/* Sales — full width */}
-            {leadsByDept.SALES && leadsByDept.SALES.length > 0 && (
+            {filteredLeadsByDept.SALES && filteredLeadsByDept.SALES.length > 0 && (
               <div>
                 <p className="text-[0.8rem] font-black text-slate-400 uppercase tracking-widest mb-4">
-                  Sales
+                  {DEPT_LABELS.SALES}
                 </p>
                 <div className="bg-slate-50/50 rounded-2xl p-6 flex flex-wrap gap-12 border border-slate-50">
-                  {leadsByDept.SALES.map((lead, i) => (
+                  {filteredLeadsByDept.SALES.map((lead, i) => (
                     <TeamLeadCard
                       key={lead.id}
                       label={lead.teamName}
@@ -219,56 +240,59 @@ export default async function ManageAccountPage() {
             )}
 
             {/* Inventory/Logistics + Accounting side by side */}
-            {(leadsByDept.INVENTORY_LOGISTICS?.length ||
-              leadsByDept.ACCOUNTING?.length) && (
+            {(filteredLeadsByDept.INVENTORY_LOGISTICS?.length ||
+              filteredLeadsByDept.ACCOUNTING?.length) && (
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                {leadsByDept.INVENTORY_LOGISTICS &&
-                  leadsByDept.INVENTORY_LOGISTICS.length > 0 && (
+                {filteredLeadsByDept.INVENTORY_LOGISTICS &&
+                  filteredLeadsByDept.INVENTORY_LOGISTICS.length > 0 && (
                     <div className="lg:col-span-2">
                       <p className="text-[0.8rem] font-black text-slate-400 uppercase tracking-widest mb-4">
-                        Inventory / Logistics
+                        {DEPT_LABELS.INVENTORY_LOGISTICS}
                       </p>
                       <div className="bg-slate-50/50 rounded-2xl p-6 flex flex-wrap gap-12 border border-slate-50 h-[calc(100%-36px)]">
-                        {leadsByDept.INVENTORY_LOGISTICS.map((lead, i) => (
+                        {filteredLeadsByDept.INVENTORY_LOGISTICS.map(
+                          (lead, i) => (
+                            <TeamLeadCard
+                              key={lead.id}
+                              label={lead.teamName}
+                              name={lead.name}
+                              colorIndex={i + 2}
+                            />
+                          )
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                {filteredLeadsByDept.ACCOUNTING &&
+                  filteredLeadsByDept.ACCOUNTING.length > 0 && (
+                    <div>
+                      <p className="text-[0.8rem] font-black text-slate-400 uppercase tracking-widest mb-4">
+                        {DEPT_LABELS.ACCOUNTING}
+                      </p>
+                      <div className="bg-slate-50/50 rounded-2xl p-6 flex flex-col gap-6 border border-slate-50 h-[calc(100%-36px)]">
+                        {filteredLeadsByDept.ACCOUNTING.map((lead, i) => (
                           <TeamLeadCard
                             key={lead.id}
                             label={lead.teamName}
                             name={lead.name}
-                            colorIndex={i + 2}
+                            colorIndex={i + 1}
                           />
                         ))}
                       </div>
                     </div>
                   )}
-
-                {leadsByDept.ACCOUNTING && leadsByDept.ACCOUNTING.length > 0 && (
-                  <div>
-                    <p className="text-[0.8rem] font-black text-slate-400 uppercase tracking-widest mb-4">
-                      Accounting
-                    </p>
-                    <div className="bg-slate-50/50 rounded-2xl p-6 flex flex-col gap-6 border border-slate-50 h-[calc(100%-36px)]">
-                      {leadsByDept.ACCOUNTING.map((lead, i) => (
-                        <TeamLeadCard
-                          key={lead.id}
-                          label={lead.teamName}
-                          name={lead.name}
-                          colorIndex={i + 1}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                )}
               </div>
             )}
 
             {/* Data — full width */}
-            {leadsByDept.DATA && leadsByDept.DATA.length > 0 && (
+            {filteredLeadsByDept.DATA && filteredLeadsByDept.DATA.length > 0 && (
               <div>
                 <p className="text-[0.8rem] font-black text-slate-400 uppercase tracking-widest mb-4">
-                  Data
+                  {DEPT_LABELS.DATA}
                 </p>
                 <div className="bg-slate-50/50 rounded-2xl p-6 flex flex-wrap gap-12 border border-slate-50">
-                  {leadsByDept.DATA.map((lead, i) => (
+                  {filteredLeadsByDept.DATA.map((lead, i) => (
                     <TeamLeadCard
                       key={lead.id}
                       label={lead.teamName}
