@@ -280,6 +280,8 @@ model Product {
   lowStockAlertQtyTotal Int?
   alertEmails           String?
   sku                   String    @unique
+  imageUrl              String?
+  quantity              Int       @default(0)
   isActive              Boolean   @default(true)
   deletedAt             DateTime?
   createdAt             DateTime  @default(now())
@@ -386,6 +388,7 @@ model Agent {
   picksFromOfficeStock Boolean     @default(false)
   country              String?
   vehicleNo            String?
+  deliveryFee          Decimal?    @db.Decimal(10, 2)
   reviewStatus         String?
   addedById            String
   deletedAt            DateTime?
@@ -412,6 +415,7 @@ model Agent {
 model Warehouse {
   id             String   @id @default(cuid())
   name           String
+  referenceCode  String?  @unique
   address        String?
   phone          String?
   email          String?
@@ -437,11 +441,14 @@ model WarehouseLocation {
   locationCode    String
   occupancyStatus OccupancyStatus @default(EMPTY)
   zone            String?
+  currentStock    Int             @default(0)
+  maxCapacity     Int?
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
 
-  warehouse     Warehouse      @relation(fields: [warehouseId], references: [id])
-  damageReports DamageReport[]
+  warehouse      Warehouse       @relation(fields: [warehouseId], references: [id])
+  damageReports  DamageReport[]
+  stockMovements StockMovement[] @relation("StockMovementShelfLocation")
 
   @@index([warehouseId])
   @@index([occupancyStatus])
@@ -522,6 +529,10 @@ model StockMovement {
   toAgentId              String?
   driverAgentId          String?
   scheduledTime          DateTime?
+  shelfLocationId        String?
+  shelfQuantity          Int?
+  isReserved             Boolean             @default(false)
+  isDamaged              Boolean             @default(false)
   createdById            String
   createdAt              DateTime            @default(now())
   updatedAt              DateTime            @updatedAt
@@ -532,6 +543,7 @@ model StockMovement {
   toAgent         Agent?              @relation("StockMovementToAgent", fields: [toAgentId], references: [id])
   driverAgent     Agent?              @relation("StockMovementDriver", fields: [driverAgentId], references: [id])
   createdBy       User                @relation("StockMovementCreatedBy", fields: [createdById], references: [id])
+  shelfLocation   WarehouseLocation?  @relation("StockMovementShelfLocation", fields: [shelfLocationId], references: [id])
   items           StockMovementItem[]
   goodsReceivings GoodsReceiving[]
 
@@ -543,6 +555,7 @@ model StockMovement {
   @@index([createdById])
   @@index([referenceNumber])
   @@index([createdAt])
+  @@index([shelfLocationId])
   @@map("stock_movements")
 }
 
