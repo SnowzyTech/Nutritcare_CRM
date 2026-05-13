@@ -27,7 +27,14 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         const { email, password } = parsed.data;
 
         // 2. Fetch user from DB
-        const user = await prisma.user.findUnique({ where: { email } });
+        const user = await prisma.user.findUnique({
+          where: { email },
+          select: {
+            id: true, name: true, email: true, role: true,
+            password: true, accountActivationStatus: true,
+            warehouseId: true,
+          },
+        });
         if (!user) return null;
 
         // 3. Verify password
@@ -43,6 +50,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           name: user.name,
           email: user.email,
           role: user.role,
+          warehouseId: user.warehouseId ?? null,
         };
       },
     }),

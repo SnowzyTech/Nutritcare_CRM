@@ -82,6 +82,7 @@ export const authConfig: NextAuthConfig = {
       if (user) {
         token.id = user.id;
         token.role = user.role;
+        token.warehouseId = (user as { warehouseId?: string | null }).warehouseId ?? null;
       }
       return token;
     },
@@ -89,6 +90,7 @@ export const authConfig: NextAuthConfig = {
       if (token && session.user) {
         session.user.id = token.id as string;
         session.user.role = token.role as string;
+        session.user.warehouseId = (token.warehouseId as string | null) ?? null;
       }
       return session;
     },

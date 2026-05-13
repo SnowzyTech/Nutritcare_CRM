@@ -15,6 +15,7 @@ async function main() {
     update: {
       password: hashedPassword,
       role: "ADMIN",
+      accountActivationStatus: "APPROVED"
     },
     create: {
       name: "Super Admin",

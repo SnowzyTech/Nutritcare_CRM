@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ChevronRight, UserCircle } from "lucide-react";
-import { getStaffMemberById } from "@/modules/users/services/users.service";
+import { getStaffMemberById, getWarehousesList } from "@/modules/users/services/users.service";
 import { formatDate } from "@/lib/utils";
 import StaffDetailAdvancedClient from "./staff-detail-advanced-client";
 
@@ -24,7 +24,10 @@ type Props = {
 };
 
 export default async function StaffDetailPage({ id, roleLabel, basePath }: Props) {
-  const member = await getStaffMemberById(id);
+  const [member, warehouses] = await Promise.all([
+    getStaffMemberById(id),
+    getWarehousesList(),
+  ]);
   if (!member) notFound();
 
   const initials = member.name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase();
@@ -133,6 +136,9 @@ export default async function StaffDetailPage({ id, roleLabel, basePath }: Props
         staffId={id}
         isActive={member.isActive}
         backPath={basePath}
+        role={member.role}
+        warehouses={member.role === "WAREHOUSE_MANAGER" ? warehouses : undefined}
+        currentWarehouseId={member.warehouse?.id ?? null}
       />
     </div>
   );
