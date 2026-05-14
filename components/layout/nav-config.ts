@@ -35,6 +35,7 @@ export const allNavItems: NavItem[] = [
       { label: "Data Analyst", href: "/admin/staff/data-analyst" },
       { label: "Logistics Manager", href: "/admin/staff/logistics-manager" },
       { label: "Manage Account", href: "/admin/staff/manage-account" },
+      { label: "Teams", href: "/admin/staff/teams" },
     ],
   },
   { label: "Forms", href: "/admin/forms", icon: "forms" },

@@ -161,8 +161,11 @@ const CreateOutgoingSchema = z.object({
   country: z.string().min(1, "Country is required"),
   date: z.string().min(1, "Date is required"),
   agentId: z.string().min(1, "Agent is required"),
+  fromAgentId: z.string().optional(),
   supplierReference: z.string().optional(),
   isAgentToAgentTransfer: z.boolean().default(false),
+  warehouseId: z.string().optional(),
+  shelfLocationId: z.string().optional(),
   notes: z.string().optional(),
   items: z
     .array(
@@ -188,34 +191,59 @@ export async function createOutgoingMovementAction(
   const parsed = CreateOutgoingSchema.safeParse(data);
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
 
-  const { state, country, date, agentId, supplierReference, isAgentToAgentTransfer, notes, items } = parsed.data;
+  const {
+    state, country, date, agentId, fromAgentId, supplierReference,
+    isAgentToAgentTransfer, warehouseId, shelfLocationId, notes, items,
+  } = parsed.data;
+
+  const totalQty = items.reduce((sum, item) => sum + item.quantity, 0);
 
   try {
-    await prisma.stockMovement.create({
-      data: {
-        referenceNumber: generateRefNumber("SO"),
-        type: "OUTGOING",
-        status: "RECORDED",
-        agentId,
-        state,
-        country,
-        supplierReference: supplierReference || null,
-        isAgentToAgentTransfer,
-        date: new Date(date),
-        notes: notes || null,
-        createdById: user.id,
-        items: {
-          create: items.map((item) => ({
-            productId: item.productId,
-            productCode: item.productCode || item.productId,
-            quantity: item.quantity,
-          })),
+    await prisma.$transaction(async (tx) => {
+      if (!isAgentToAgentTransfer && shelfLocationId) {
+        const shelf = await tx.warehouseLocation.findUnique({ where: { id: shelfLocationId } });
+        if (!shelf) throw new Error("Shelf location not found");
+        if (shelf.currentStock < totalQty) {
+          throw new Error(
+            `Insufficient stock on shelf "${shelf.locationCode}" (${shelf.currentStock} available, ${totalQty} required)`
+          );
+        }
+        await tx.warehouseLocation.update({
+          where: { id: shelfLocationId },
+          data: { currentStock: { decrement: totalQty } },
+        });
+      }
+
+      await tx.stockMovement.create({
+        data: {
+          referenceNumber: generateRefNumber("SO"),
+          type: "OUTGOING",
+          status: "RECORDED",
+          agentId: isAgentToAgentTransfer ? (fromAgentId || null) : null,
+          toAgentId: agentId,
+          warehouseId: (!isAgentToAgentTransfer && warehouseId) ? warehouseId : null,
+          shelfLocationId: (!isAgentToAgentTransfer && shelfLocationId) ? shelfLocationId : null,
+          state,
+          country,
+          supplierReference: supplierReference || null,
+          isAgentToAgentTransfer,
+          date: new Date(date),
+          notes: notes || null,
+          createdById: user.id,
+          items: {
+            create: items.map((item) => ({
+              productId: item.productId,
+              productCode: item.productCode || item.productId,
+              quantity: item.quantity,
+            })),
+          },
         },
-      },
+      });
     });
   } catch (e) {
     console.error("createOutgoingMovementAction error:", e);
-    return { error: "Failed to save — please check your data and try again" };
+    const msg = e instanceof Error ? e.message : "Failed to save — please check your data and try again";
+    return { error: msg };
   }
 
   revalidatePath("/inventory/outgoing");
@@ -262,28 +290,71 @@ export async function createStockTransferAction(
   }
 
   try {
-    await prisma.stockTransfer.create({
-      data: {
-        referenceNumber: generateRefNumber("TR"),
-        sourceType,
-        sourceId,
-        targetType,
-        targetId,
-        date: new Date(date),
-        status,
-        notes: notes || null,
-        createdById: user.id,
-        items: {
-          create: items.map((item) => ({
-            productId: item.productId,
-            quantity: item.quantity,
-          })),
+    await prisma.$transaction(async (tx) => {
+      await tx.stockTransfer.create({
+        data: {
+          referenceNumber: generateRefNumber("TR"),
+          sourceType,
+          sourceId,
+          targetType,
+          targetId,
+          date: new Date(date),
+          status,
+          notes: notes || null,
+          createdById: user.id,
+          items: {
+            create: items.map((item) => ({
+              productId: item.productId,
+              quantity: item.quantity,
+            })),
+          },
         },
-      },
+      });
+
+      if (status === "SUBMITTED") {
+        const totalQty = items.reduce((sum, item) => sum + item.quantity, 0);
+
+        if (sourceType === "WAREHOUSE") {
+          const locations = await tx.warehouseLocation.findMany({
+            where: { warehouseId: sourceId },
+            orderBy: { currentStock: "desc" },
+          });
+          const totalAvailable = locations.reduce((sum, loc) => sum + loc.currentStock, 0);
+          if (totalAvailable < totalQty) {
+            throw new Error(
+              `Insufficient stock at source warehouse (${totalAvailable} available, ${totalQty} required)`
+            );
+          }
+          let remaining = totalQty;
+          for (const loc of locations) {
+            if (remaining <= 0) break;
+            const deduct = Math.min(loc.currentStock, remaining);
+            await tx.warehouseLocation.update({
+              where: { id: loc.id },
+              data: { currentStock: { decrement: deduct } },
+            });
+            remaining -= deduct;
+          }
+        }
+
+        if (targetType === "WAREHOUSE") {
+          const targetLoc = await tx.warehouseLocation.findFirst({
+            where: { warehouseId: targetId },
+            orderBy: { currentStock: "desc" },
+          });
+          if (targetLoc) {
+            await tx.warehouseLocation.update({
+              where: { id: targetLoc.id },
+              data: { currentStock: { increment: totalQty } },
+            });
+          }
+        }
+      }
     });
   } catch (e) {
     console.error("createStockTransferAction error:", e);
-    return { error: "Failed to save — please check your data and try again" };
+    const msg = e instanceof Error ? e.message : "Failed to save — please check your data and try again";
+    return { error: msg };
   }
 
   revalidatePath("/inventory/transfer");
@@ -767,6 +838,13 @@ const AddProductSchema = z.object({
   sellingPrice: z.string().min(1, "Selling price is required"),
   imageUrl: z.string().optional(),
   quantity: z.string().optional(),
+  // Offer fields
+  offerName: z.string().optional(),
+  offerSellingPrice: z.string().optional(),
+  offerQuantity: z.string().optional(),
+  offerUnit: z.string().optional(),
+  offerRecurring: z.string().optional(),
+  showQuantityAndUnit: z.string().optional(),
 });
 
 export async function addProductAction(
@@ -791,6 +869,13 @@ export async function addProductAction(
     sellingPrice: formData.get("sellingPrice") as string,
     imageUrl: (formData.get("imageUrl") as string) || undefined,
     quantity: (formData.get("quantity") as string) || undefined,
+    // Offer fields
+    offerName: (formData.get("offerName") as string) || undefined,
+    offerSellingPrice: (formData.get("offerSellingPrice") as string) || undefined,
+    offerQuantity: (formData.get("offerQuantity") as string) || undefined,
+    offerUnit: (formData.get("offerUnit") as string) || undefined,
+    offerRecurring: (formData.get("offerRecurring") as string) || undefined,
+    showQuantityAndUnit: (formData.get("showQuantityAndUnit") as string) || undefined,
   };
 
   const parsed = AddProductSchema.safeParse(raw);
@@ -801,7 +886,7 @@ export async function addProductAction(
 
   const sku = generateSku(parsed.data.productName);
 
-  await prisma.product.create({
+  const product = await prisma.product.create({
     data: {
       name: parsed.data.productName,
       description: parsed.data.productDescription ?? null,
@@ -822,8 +907,126 @@ export async function addProductAction(
     },
   });
 
+  if (parsed.data.hasOffer === "Yes" && parsed.data.offerName) {
+    await prisma.productOffer.create({
+      data: {
+        productId: product.id,
+        offerName: parsed.data.offerName,
+        offerQuantity: parseInt(parsed.data.offerQuantity || "0", 10),
+        offerUnit: parsed.data.offerUnit || "Unit",
+        recurring: parsed.data.offerRecurring || null,
+        sellingPrice: parseFloat(parsed.data.offerSellingPrice || "0"),
+        showQuantityAndUnit: parsed.data.showQuantityAndUnit === "true",
+      },
+    });
+  }
+
   revalidatePath("/inventory/stock");
   redirect("/inventory/stock");
+}
+
+export async function updateProductAction(
+  _prev: { error?: string } | null,
+  formData: FormData
+): Promise<{ error?: string }> {
+  await requireAuth();
+
+  const id = formData.get("id") as string;
+  if (!id) return { error: "Product ID is required" };
+
+  const raw = {
+    productName: formData.get("productName") as string,
+    productDescription: (formData.get("productDescription") as string) || undefined,
+    categoryId: formData.get("categoryId") as string,
+    country: (formData.get("country") as string) || undefined,
+    hasVariations: ((formData.get("hasVariations") as string) || "No") as "Yes" | "No",
+    hasOffer: ((formData.get("hasOffer") as string) || "No") as "Yes" | "No",
+    displayText: (formData.get("displayText") as string) || undefined,
+    fileDownloadLink: (formData.get("fileDownloadLink") as string) || "",
+    lowStockAgents: (formData.get("lowStockAgents") as string) || undefined,
+    lowStockTotal: (formData.get("lowStockTotal") as string) || undefined,
+    alertEmails: (formData.get("alertEmails") as string) || undefined,
+    costPrice: formData.get("costPrice") as string,
+    sellingPrice: formData.get("sellingPrice") as string,
+    imageUrl: (formData.get("imageUrl") as string) || undefined,
+    quantity: (formData.get("quantity") as string) || undefined,
+    // Offer fields
+    offerName: (formData.get("offerName") as string) || undefined,
+    offerSellingPrice: (formData.get("offerSellingPrice") as string) || undefined,
+    offerQuantity: (formData.get("offerQuantity") as string) || undefined,
+    offerUnit: (formData.get("offerUnit") as string) || undefined,
+    offerRecurring: (formData.get("offerRecurring") as string) || undefined,
+    showQuantityAndUnit: (formData.get("showQuantityAndUnit") as string) || undefined,
+  };
+
+  const parsed = AddProductSchema.safeParse(raw);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
+
+  const categoryExists = await prisma.productCategory.findUnique({ where: { id: parsed.data.categoryId } });
+  if (!categoryExists) return { error: "Selected category does not exist" };
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.product.update({
+        where: { id },
+        data: {
+          name: parsed.data.productName,
+          description: parsed.data.productDescription ?? null,
+          categoryId: parsed.data.categoryId,
+          country: parsed.data.country ?? null,
+          hasVariations: parsed.data.hasVariations === "Yes",
+          hasOffer: parsed.data.hasOffer === "Yes",
+          displayText: parsed.data.displayText ?? null,
+          fileDownloadLink: parsed.data.fileDownloadLink || null,
+          lowStockAlertQtyAgent: parsed.data.lowStockAgents ? parseInt(parsed.data.lowStockAgents, 10) : null,
+          lowStockAlertQtyTotal: parsed.data.lowStockTotal ? parseInt(parsed.data.lowStockTotal, 10) : null,
+          alertEmails: parsed.data.alertEmails ?? null,
+          costPrice: parseFloat(parsed.data.costPrice),
+          sellingPrice: parseFloat(parsed.data.sellingPrice),
+          imageUrl: parsed.data.imageUrl ?? null,
+          quantity: parsed.data.quantity ? parseInt(parsed.data.quantity, 10) : 0,
+        },
+      });
+
+      // Handle offer update
+      if (parsed.data.hasOffer === "Yes" && parsed.data.offerName) {
+        const offerData = {
+          offerName: parsed.data.offerName,
+          offerQuantity: parseInt(parsed.data.offerQuantity || "0", 10),
+          offerUnit: parsed.data.offerUnit || "Unit",
+          recurring: parsed.data.offerRecurring || null,
+          sellingPrice: parseFloat(parsed.data.offerSellingPrice || "0"),
+          showQuantityAndUnit: parsed.data.showQuantityAndUnit === "true",
+        };
+
+        const existingOffer = await tx.productOffer.findFirst({ where: { productId: id } });
+        if (existingOffer) {
+          await tx.productOffer.update({
+            where: { id: existingOffer.id },
+            data: offerData,
+          });
+        } else {
+          await tx.productOffer.create({
+            data: {
+              ...offerData,
+              productId: id,
+            },
+          });
+        }
+      } else {
+        // If hasOffer is No, delete any existing offer
+        await tx.productOffer.deleteMany({ where: { productId: id } });
+      }
+    });
+
+    revalidatePath("/inventory/stock");
+    revalidatePath(`/inventory/stock/product/${id}`);
+    redirect("/inventory/stock");
+  } catch (e) {
+    if (e instanceof Error && e.message === "NEXT_REDIRECT") throw e;
+    console.error("updateProductAction error:", e);
+    return { error: "Failed to update product" };
+  }
 }
 
 // ── Soft Deletes ──────────────────────────────────────────────────────────────

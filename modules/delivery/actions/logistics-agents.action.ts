@@ -2,8 +2,10 @@
 
 import { auth } from "@/lib/auth/auth";
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { createDeliveryAgentWithUser } from "../services/create-delivery-agent.service";
 import { createDriver } from "../services/create-driver.service";
+import { softDeleteAgent } from "../services/agents.service";
 
 type AgentResult =
   | { success: true; data: { agentId: string; userId: string; name: string; email: string; tempPassword: string } }
@@ -42,6 +44,17 @@ export async function createAgentAction(input: {
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Failed to create agent" };
   }
+}
+
+export async function deleteAgentLogisticsAction(agentId: string): Promise<{ error: string } | never> {
+  try {
+    await requireLogisticsAuth();
+    await softDeleteAgent(agentId);
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Failed to delete agent" };
+  }
+  revalidatePath("/logistics/agents");
+  redirect("/logistics/agents");
 }
 
 export async function createDriverAction(input: {

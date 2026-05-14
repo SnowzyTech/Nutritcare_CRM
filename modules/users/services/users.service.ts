@@ -251,6 +251,29 @@ export async function getAllTeams() {
   });
 }
 
+export async function getTeamsWithMemberCount() {
+  return prisma.team.findMany({
+    select: {
+      id: true,
+      name: true,
+      department: true,
+      createdAt: true,
+      _count: { select: { members: true } },
+    },
+    orderBy: { name: "asc" },
+  });
+}
+
+export async function createTeam(name: string, department: import("@prisma/client").Department) {
+  return prisma.team.create({ data: { name: name.trim(), department } });
+}
+
+export async function deleteTeam(id: string) {
+  // Unlink members first so the delete doesn't cascade-block on FK
+  await prisma.user.updateMany({ where: { teamId: id }, data: { teamId: null } });
+  return prisma.team.delete({ where: { id } });
+}
+
 export async function getPendingActivationRequests() {
   return prisma.user.findMany({
     where: { accountActivationStatus: "PENDING" },

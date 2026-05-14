@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { Filter, ArrowUpDown, ChevronDown, ArrowLeft, Plus, MessageCircle, Check, Trash2 } from "lucide-react";
 import { createOutgoingMovementAction } from "@/modules/inventory/actions/stock.action";
@@ -9,6 +9,8 @@ const inputClass =
   "w-full border border-gray-200 rounded-md px-3 py-2.5 text-sm text-gray-700 placeholder:text-gray-300 outline-none focus:border-[#9D00FF] focus:ring-1 focus:ring-[#9D00FF]/20 transition-all bg-white";
 const selectClass =
   "w-full border border-gray-200 rounded-md px-3 py-2.5 text-sm text-gray-400 outline-none focus:border-[#9D00FF] focus:ring-1 focus:ring-[#9D00FF]/20 transition-all bg-white appearance-none cursor-pointer";
+const readonlyClass =
+  "w-full border border-gray-100 rounded-md px-3 py-2.5 text-sm text-gray-500 bg-gray-50 cursor-not-allowed";
 
 const NIGERIA_STATES = [
   "Abia","Adamawa","Akwa Ibom","Anambra","Bauchi","Bayelsa","Benue","Borno","Cross River",
@@ -26,9 +28,11 @@ interface BulkItem {
 interface Props {
   agents: { id: string; name: string }[];
   products: { id: string; name: string; sku: string }[];
+  warehouses: { id: string; name: string }[];
+  locations: { id: string; warehouseId: string; locationCode: string; currentStock: number; zone: string | null }[];
 }
 
-export default function OutgoingCreateClient({ agents, products }: Props) {
+export default function OutgoingCreateClient({ agents, products, warehouses, locations }: Props) {
   const router = useRouter();
 
   const [form, setForm] = useState({
@@ -38,7 +42,10 @@ export default function OutgoingCreateClient({ agents, products }: Props) {
     productId: "",
     supplierReference: "",
     agentId: "",
+    fromAgentId: "",
     quantityToSend: "",
+    warehouseId: "",
+    shelfLocationId: "",
     notes: "",
   });
 
@@ -49,7 +56,24 @@ export default function OutgoingCreateClient({ agents, products }: Props) {
 
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
-  ) => setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
+  ) => {
+    const { name, value } = e.target;
+    setForm((prev) => {
+      const next = { ...prev, [name]: value };
+      if (name === "warehouseId") next.shelfLocationId = "";
+      return next;
+    });
+  };
+
+  const shelfOptions = useMemo(
+    () => locations.filter((l) => l.warehouseId === form.warehouseId),
+    [locations, form.warehouseId]
+  );
+
+  const selectedShelf = useMemo(
+    () => locations.find((l) => l.id === form.shelfLocationId),
+    [locations, form.shelfLocationId]
+  );
 
   const handleAddBulk = () => {
     setBulks((prev) => [...prev, { id: Date.now(), productId: "", quantity: "" }]);
@@ -71,29 +95,48 @@ export default function OutgoingCreateClient({ agents, products }: Props) {
     if (!form.date) { setError("Date is required"); return; }
     if (!form.productId) { setError("Product is required"); return; }
     if (!form.agentId) { setError("Agent is required"); return; }
+    if (isAgentToAgent && !form.fromAgentId) { setError("Source agent is required"); return; }
+    if (isAgentToAgent && form.fromAgentId === form.agentId) {
+      setError("Source and target agents cannot be the same");
+      return;
+    }
+    if (!isAgentToAgent && !form.warehouseId) { setError("Warehouse is required"); return; }
+    if (!isAgentToAgent && !form.shelfLocationId) { setError("Shelf location is required"); return; }
     if (!form.quantityToSend || parseInt(form.quantityToSend, 10) <= 0) {
       setError("Quantity must be greater than 0");
       return;
     }
 
     const primaryProduct = products.find((p) => p.id === form.productId);
+    const mainQty = parseInt(form.quantityToSend, 10);
+    const bulkItems = bulks
+      .filter((b) => b.productId && b.quantity)
+      .map((b) => {
+        const found = products.find((p) => p.id === b.productId);
+        return {
+          productId: b.productId,
+          productCode: found?.sku ?? b.productId,
+          quantity: parseInt(b.quantity, 10),
+        };
+      });
     const items = [
       {
         productId: form.productId,
         productCode: primaryProduct?.sku ?? form.productId,
-        quantity: parseInt(form.quantityToSend, 10),
+        quantity: mainQty,
       },
-      ...bulks
-        .filter((b) => b.productId && b.quantity)
-        .map((b) => {
-          const found = products.find((p) => p.id === b.productId);
-          return {
-            productId: b.productId,
-            productCode: found?.sku ?? b.productId,
-            quantity: parseInt(b.quantity, 10),
-          };
-        }),
+      ...bulkItems,
     ];
+
+    if (!isAgentToAgent && selectedShelf) {
+      const totalQty = items.reduce((sum, i) => sum + i.quantity, 0);
+      if (totalQty > selectedShelf.currentStock) {
+        setError(
+          `Total quantity (${totalQty}) exceeds shelf stock (${selectedShelf.currentStock})`
+        );
+        return;
+      }
+    }
 
     setLoading(true);
     const result = await createOutgoingMovementAction({
@@ -101,8 +144,11 @@ export default function OutgoingCreateClient({ agents, products }: Props) {
       country: form.country,
       date: form.date,
       agentId: form.agentId,
+      fromAgentId: isAgentToAgent ? form.fromAgentId : undefined,
       supplierReference: form.supplierReference || undefined,
       isAgentToAgentTransfer: isAgentToAgent,
+      warehouseId: !isAgentToAgent ? form.warehouseId : undefined,
+      shelfLocationId: !isAgentToAgent ? form.shelfLocationId : undefined,
       notes: form.notes || undefined,
       items,
     });
@@ -214,6 +260,52 @@ export default function OutgoingCreateClient({ agents, products }: Props) {
             </span>
           </div>
 
+          {/* Warehouse (non agent-to-agent only) */}
+          {!isAgentToAgent && (
+            <div className="flex items-center gap-4">
+              <label className="text-sm font-semibold text-amber-500 w-48 shrink-0">Warehouse*</label>
+              <div className="relative flex-1">
+                <select name="warehouseId" value={form.warehouseId} onChange={handleChange} className={selectClass}>
+                  <option value="" disabled>Select a Warehouse</option>
+                  {warehouses.map((w) => (
+                    <option key={w.id} value={w.id}>{w.name}</option>
+                  ))}
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              </div>
+            </div>
+          )}
+
+          {/* Shelf Location (non agent-to-agent, warehouse selected) */}
+          {!isAgentToAgent && form.warehouseId && (
+            <div className="flex items-center gap-4">
+              <label className="text-sm font-semibold text-amber-500 w-48 shrink-0">Shelf Location*</label>
+              <div className="relative flex-1">
+                <select name="shelfLocationId" value={form.shelfLocationId} onChange={handleChange} className={selectClass}>
+                  <option value="" disabled>Select a Shelf</option>
+                  {shelfOptions.map((l) => (
+                    <option key={l.id} value={l.id}>
+                      {l.locationCode}{l.zone ? ` — ${l.zone}` : ""}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              </div>
+            </div>
+          )}
+
+          {/* Shelf current stock (read-only) */}
+          {!isAgentToAgent && selectedShelf && (
+            <div className="flex items-center gap-4">
+              <label className="text-sm font-semibold text-gray-500 w-48 shrink-0">Current Shelf Stock</label>
+              <div className="flex-1">
+                <div className={readonlyClass}>
+                  {selectedShelf.currentStock} units
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Supplier Reference */}
           <div className="flex items-center gap-4">
             <label className="text-sm font-bold text-gray-800 w-48 shrink-0">Supplier Reference</label>
@@ -226,6 +318,22 @@ export default function OutgoingCreateClient({ agents, products }: Props) {
               className={`${inputClass} flex-1`}
             />
           </div>
+
+          {/* From Agent (only for Agent to Agent) */}
+          {isAgentToAgent && (
+            <div className="flex items-center gap-4">
+              <label className="text-sm font-bold text-[#9D00FF] w-48 shrink-0">From Agent*</label>
+              <div className="relative flex-1">
+                <select name="fromAgentId" value={form.fromAgentId} onChange={handleChange} className={selectClass}>
+                  <option value="" disabled>Select Source Agent</option>
+                  {agents.map((a) => (
+                    <option key={a.id} value={a.id}>{a.name}</option>
+                  ))}
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              </div>
+            </div>
+          )}
 
           {/* To Agent */}
           <div className="flex items-center gap-4">

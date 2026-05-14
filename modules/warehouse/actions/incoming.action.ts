@@ -30,6 +30,10 @@ const CreateIncomingSchema = z.object({
   supplierReference: z.string().optional(),
   date: z.string().min(1, "Date is required"),
   notes: z.string().optional(),
+  shelfLocationId: z.string().optional(),
+  shelfQuantity: z.coerce.number().int().min(0).optional(),
+  isReserved: z.boolean().default(false),
+  isDamaged: z.boolean().default(false),
   items: z.array(ProductItemSchema).min(1, "At least one product is required"),
 });
 
@@ -58,6 +62,10 @@ export async function createIncomingMovementAction(
     supplierReference: (formData.get("supplierReference") as string) || undefined,
     date: formData.get("date") as string,
     notes: (formData.get("notes") as string) || undefined,
+    shelfLocationId: (formData.get("shelfLocationId") as string) || undefined,
+    shelfQuantity: (formData.get("shelfQuantity") as string) || undefined,
+    isReserved: formData.get("isReserved") === "true",
+    isDamaged: formData.get("isDamaged") === "true",
     items,
   };
 
@@ -67,6 +75,11 @@ export async function createIncomingMovementAction(
   if (parsed.data.supplierId) {
     const supplier = await prisma.supplier.findUnique({ where: { id: parsed.data.supplierId } });
     if (!supplier) return { error: "Selected supplier not found" };
+  }
+
+  if (parsed.data.shelfLocationId) {
+    const loc = await prisma.warehouseLocation.findUnique({ where: { id: parsed.data.shelfLocationId } });
+    if (!loc || loc.warehouseId !== warehouseId) return { error: "Selected shelf location not found" };
   }
 
   const productIds = parsed.data.items.map((i) => i.productId);
@@ -88,6 +101,10 @@ export async function createIncomingMovementAction(
       supplierReference: parsed.data.supplierReference ?? null,
       date: new Date(parsed.data.date),
       notes: parsed.data.notes ?? null,
+      shelfLocationId: parsed.data.shelfLocationId ?? null,
+      shelfQuantity: parsed.data.shelfQuantity ?? null,
+      isReserved: parsed.data.isReserved,
+      isDamaged: parsed.data.isDamaged,
       createdById: userId,
       items: {
         create: parsed.data.items.map((item) => ({

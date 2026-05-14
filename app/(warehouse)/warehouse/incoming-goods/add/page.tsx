@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import {
   getSuppliersForIncomingForm,
   getProductsForReturnForm,
+  getWarehouseLocations,
 } from "@/modules/warehouse/services/warehouse.service";
 import { prisma } from "@/lib/db/prisma";
 import AddIncomingGoodsClient from "./client";
@@ -16,20 +17,24 @@ export default async function AddIncomingGoodsPage() {
 
   if (!warehouseId) redirect("/warehouse/incoming-goods");
 
-  const [suppliers, products, warehouse] = await Promise.all([
+  const [suppliers, products, warehouse, locationRows] = await Promise.all([
     getSuppliersForIncomingForm(),
     getProductsForReturnForm(),
     prisma.warehouse.findUnique({
       where: { id: warehouseId },
       select: { id: true, name: true },
     }),
+    getWarehouseLocations(warehouseId),
   ]);
+
+  const shelfLocations = locationRows.map((l) => ({ id: l.id, locationCode: l.locationCode }));
 
   return (
     <AddIncomingGoodsClient
       suppliers={suppliers}
       products={products}
       warehouseName={warehouse?.name ?? "Your Warehouse"}
+      shelfLocations={shelfLocations}
     />
   );
 }

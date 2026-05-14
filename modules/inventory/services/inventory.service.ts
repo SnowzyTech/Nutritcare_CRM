@@ -269,6 +269,7 @@ export async function getOutgoingMovements(): Promise<OutgoingMovementRow[]> {
     where: { type: "OUTGOING" },
     include: {
       agent: true,
+      toAgent: true,
       createdBy: true,
       items: { include: { product: true } },
     },
@@ -287,8 +288,10 @@ export async function getOutgoingMovements(): Promise<OutgoingMovementRow[]> {
       date: formatMovementDate(m.date),
       productName: m.items.map((i) => i.product.name).join(", ") || "—",
       state: m.state ?? "—",
-      agent: m.agent?.companyName ?? "—",
-      otherInfo: m.agent?.phone1 ?? "—",
+      agent: m.isAgentToAgentTransfer 
+        ? `${m.agent?.companyName ?? "Unknown"} → ${m.toAgent?.companyName ?? "Unknown"}`
+        : (m.toAgent?.companyName ?? m.agent?.companyName ?? "—"),
+      otherInfo: m.toAgent?.phone1 ?? m.agent?.phone1 ?? "—",
       qtySent: totalQty,
       status: statusMap[m.status] ?? m.status,
       addedBy: m.createdBy.name,
@@ -717,6 +720,7 @@ export async function getOutgoingMovementById(id: string): Promise<OutgoingMovem
     where: { id },
     include: {
       agent: true,
+      toAgent: true,
       createdBy: true,
       items: { include: { product: true } },
     },
@@ -730,9 +734,11 @@ export async function getOutgoingMovementById(id: string): Promise<OutgoingMovem
   return {
     id: m.id,
     soId: m.referenceNumber,
-    state: m.state ?? m.agent?.state ?? "—",
-    country: m.agent?.country ?? "Nigeria",
-    agent: m.agent?.companyName ?? "—",
+    state: m.state ?? m.agent?.state ?? m.toAgent?.state ?? "—",
+    country: m.agent?.country ?? m.toAgent?.country ?? "Nigeria",
+    agent: m.isAgentToAgentTransfer 
+      ? `${m.agent?.companyName ?? "Unknown"} → ${m.toAgent?.companyName ?? "Unknown"}`
+      : (m.toAgent?.companyName ?? m.agent?.companyName ?? "—"),
     supplierReference: m.supplierReference ?? "—",
     addedBy: m.createdBy.name,
     date: formatMovementDate(m.date),
@@ -753,6 +759,7 @@ export async function getReturnedMovementById(id: string): Promise<ReturnedMovem
     where: { id },
     include: {
       agent: true,
+      toAgent: true,
       createdBy: true,
       items: { include: { product: true } },
     },
@@ -843,9 +850,14 @@ export async function getStockTransferById(id: string): Promise<StockTransferDet
 export async function getStockLeftWithAgents(): Promise<AgentStockRow[]> {
   const [outgoing, returned, agents] = await Promise.all([
     prisma.stockMovementItem.findMany({
-      where: { stockMovement: { type: "OUTGOING", agentId: { not: null } } },
+      where: { 
+        stockMovement: { 
+          type: "OUTGOING", 
+          OR: [{ agentId: { not: null } }, { toAgentId: { not: null } }] 
+        } 
+      },
       include: {
-        stockMovement: { select: { agentId: true } },
+        stockMovement: { select: { agentId: true, toAgentId: true, isAgentToAgentTransfer: true } },
         product: true,
       },
     }),
@@ -865,13 +877,28 @@ export async function getStockLeftWithAgents(): Promise<AgentStockRow[]> {
   const map = new Map<Key, { productName: string; agentName: string; state: string; sent: number; returned: number }>();
 
   for (const item of outgoing) {
-    const agentId = item.stockMovement.agentId!;
-    const key: Key = `${agentId}::${item.productId}`;
-    if (!map.has(key)) {
-      const agent = agentMap.get(agentId);
-      map.set(key, { productName: item.product.name, agentName: agent?.companyName ?? "—", state: agent?.state ?? "—", sent: 0, returned: 0 });
+    const { agentId, toAgentId, isAgentToAgentTransfer } = item.stockMovement;
+    
+    // 1. Stock sent TO an agent (either from warehouse or another agent)
+    if (toAgentId) {
+      const key: Key = `${toAgentId}::${item.productId}`;
+      if (!map.has(key)) {
+        const agent = agentMap.get(toAgentId);
+        map.set(key, { productName: item.product.name, agentName: agent?.companyName ?? "—", state: agent?.state ?? "—", sent: 0, returned: 0 });
+      }
+      map.get(key)!.sent += item.quantity;
     }
-    map.get(key)!.sent += item.quantity;
+
+    // 2. Stock sent FROM an agent (agent-to-agent transfer)
+    // We treat this as a "return" from the source agent's perspective for stock calculation purposes
+    if (isAgentToAgentTransfer && agentId) {
+      const key: Key = `${agentId}::${item.productId}`;
+      if (!map.has(key)) {
+        const agent = agentMap.get(agentId);
+        map.set(key, { productName: item.product.name, agentName: agent?.companyName ?? "—", state: agent?.state ?? "—", sent: 0, returned: 0 });
+      }
+      map.get(key)!.returned += item.quantity;
+    }
   }
 
   for (const item of returned) {
@@ -1071,26 +1098,63 @@ export async function getTransferNodesForDropdown(): Promise<TransferNodeOption[
 }
 
 export async function getProductById(id: string) {
-  return prisma.product.findUnique({
+  return prisma.product.findFirst({
     where: { id, deletedAt: null },
     include: { category: true },
   });
 }
 
+export type WarehouseLocationOption = {
+  id: string;
+  warehouseId: string;
+  locationCode: string;
+  currentStock: number;
+  zone: string | null;
+};
+
+export async function getAllWarehouseLocations(): Promise<WarehouseLocationOption[]> {
+  return prisma.warehouseLocation.findMany({
+    select: { id: true, warehouseId: true, locationCode: true, currentStock: true, zone: true },
+    orderBy: [{ warehouseId: "asc" }, { locationCode: "asc" }],
+  });
+}
+
+export async function getProductStockMap(): Promise<Record<string, number>> {
+  const items = await prisma.stockMovementItem.findMany({
+    include: { stockMovement: { select: { type: true, status: true } } },
+  });
+  const map: Record<string, number> = {};
+  for (const item of items) {
+    const { type, status } = item.stockMovement;
+    map[item.productId] ??= 0;
+    if (type === "INCOMING" && ["RECORDED", "RECEIVED", "SHELVED"].includes(status)) {
+      map[item.productId] += item.quantity;
+    } else if (type === "OUTGOING") {
+      map[item.productId] -= item.quantity;
+    } else if (type === "RETURN") {
+      map[item.productId] += item.quantity;
+    }
+  }
+  for (const id of Object.keys(map)) {
+    map[id] = Math.max(0, map[id]);
+  }
+  return map;
+}
+
 export async function getWarehouseById(id: string) {
-  return prisma.warehouse.findUnique({
+  return prisma.warehouse.findFirst({
     where: { id, deletedAt: null },
   });
 }
 
 export async function getSupplierById(id: string) {
-  return prisma.supplier.findUnique({
+  return prisma.supplier.findFirst({
     where: { id, deletedAt: null },
   });
 }
 
 export async function getCategoryById(id: string) {
-  return prisma.productCategory.findUnique({
+  return prisma.productCategory.findFirst({
     where: { id, deletedAt: null },
   });
 }

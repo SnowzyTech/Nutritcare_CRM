@@ -22,13 +22,16 @@ type ProductRow = {
   quantity: string;
 };
 
+type ShelfLocation = { id: string; locationCode: string };
+
 interface Props {
   suppliers: FormSupplier[];
   products: FormProduct[];
   warehouseName: string;
+  shelfLocations: ShelfLocation[];
 }
 
-export default function AddIncomingGoodsClient({ suppliers, products, warehouseName }: Props) {
+export default function AddIncomingGoodsClient({ suppliers, products, warehouseName, shelfLocations }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -37,6 +40,11 @@ export default function AddIncomingGoodsClient({ suppliers, products, warehouseN
   const [supplierRef, setSupplierRef] = useState("");
   const [date, setDate] = useState<Date | undefined>(undefined);
   const [notes, setNotes] = useState("");
+
+  const [shelfLocationId, setShelfLocationId] = useState("");
+  const [shelfQuantity, setShelfQuantity] = useState("");
+  const [isReserved, setIsReserved] = useState(false);
+  const [isDamaged, setIsDamaged] = useState(false);
 
   const [productRows, setProductRows] = useState<ProductRow[]>([
     { rowId: 1, productId: "", productName: "", productCode: "", quantity: "" },
@@ -93,6 +101,10 @@ export default function AddIncomingGoodsClient({ suppliers, products, warehouseN
     fd.set("supplierReference", supplierRef);
     fd.set("date", date.toISOString());
     fd.set("notes", notes);
+    if (shelfLocationId) fd.set("shelfLocationId", shelfLocationId);
+    if (shelfQuantity) fd.set("shelfQuantity", shelfQuantity);
+    fd.set("isReserved", isReserved ? "true" : "false");
+    fd.set("isDamaged", isDamaged ? "true" : "false");
     fd.set(
       "items",
       JSON.stringify(validItems.map((r) => ({ productId: r.productId, quantity: parseInt(r.quantity) })))
@@ -211,6 +223,110 @@ export default function AddIncomingGoodsClient({ suppliers, products, warehouseN
                   />
                 </PopoverContent>
               </Popover>
+            </div>
+
+            {/* Shelf Location */}
+            <div className="flex items-center gap-6">
+              <label className="text-[12px] font-medium text-gray-500 w-[160px] text-right">
+                Shelf Location
+              </label>
+              <Select value={shelfLocationId} onValueChange={(v) => v && setShelfLocationId(v)}>
+                <SelectTrigger className="w-full max-w-[320px] h-[36px] border-gray-200 text-[13px] text-gray-400 focus:ring-[#9747FF] focus:border-[#9747FF]">
+                  <SelectValue placeholder="Select a shelf location" />
+                </SelectTrigger>
+                <SelectContent className="max-h-[240px]">
+                  {shelfLocations.length === 0 ? (
+                    <div className="px-3 py-2 text-[13px] text-gray-400">No locations found</div>
+                  ) : (
+                    shelfLocations.map((loc) => (
+                      <SelectItem key={loc.id} value={loc.id} className="text-[13px]">
+                        {loc.locationCode}
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Shelf Quantity */}
+            <div className="flex items-center gap-6">
+              <label className="text-[12px] font-medium text-gray-700 w-[160px] text-right">
+                Shelf Quantity
+              </label>
+              <input
+                type="number"
+                min="0"
+                value={shelfQuantity}
+                onChange={(e) => setShelfQuantity(e.target.value)}
+                placeholder="0"
+                className="w-full max-w-[320px] h-[36px] border border-gray-200 rounded-md px-3 text-[13px] text-gray-500 placeholder:text-gray-300 focus:outline-none focus:ring-1 focus:ring-[#9747FF] focus:border-[#9747FF] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+              />
+            </div>
+
+            {/* Reserved */}
+            <div className="flex items-center gap-6">
+              <label className="text-[12px] font-medium text-gray-700 w-[160px] text-right">
+                Reserved
+              </label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsReserved(true)}
+                  className={cn(
+                    "px-5 h-[36px] rounded-md text-[12px] font-medium border transition-colors",
+                    isReserved
+                      ? "bg-[#9747FF] text-white border-[#9747FF]"
+                      : "bg-white text-gray-500 border-gray-200 hover:border-[#9747FF]"
+                  )}
+                >
+                  Yes
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsReserved(false)}
+                  className={cn(
+                    "px-5 h-[36px] rounded-md text-[12px] font-medium border transition-colors",
+                    !isReserved
+                      ? "bg-[#9747FF] text-white border-[#9747FF]"
+                      : "bg-white text-gray-500 border-gray-200 hover:border-[#9747FF]"
+                  )}
+                >
+                  No
+                </button>
+              </div>
+            </div>
+
+            {/* Damaged */}
+            <div className="flex items-center gap-6">
+              <label className="text-[12px] font-medium text-gray-700 w-[160px] text-right">
+                Damaged
+              </label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsDamaged(true)}
+                  className={cn(
+                    "px-5 h-[36px] rounded-md text-[12px] font-medium border transition-colors",
+                    isDamaged
+                      ? "bg-red-500 text-white border-red-500"
+                      : "bg-white text-gray-500 border-gray-200 hover:border-red-400"
+                  )}
+                >
+                  Yes
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsDamaged(false)}
+                  className={cn(
+                    "px-5 h-[36px] rounded-md text-[12px] font-medium border transition-colors",
+                    !isDamaged
+                      ? "bg-[#9747FF] text-white border-[#9747FF]"
+                      : "bg-white text-gray-500 border-gray-200 hover:border-[#9747FF]"
+                  )}
+                >
+                  No
+                </button>
+              </div>
             </div>
           </div>
         </div>

@@ -17,7 +17,7 @@ export async function reassignOrdersAction(
   await prisma.$transaction(
     orderIds.map((orderId, idx) => {
       const repId = repIds[idx % repIds.length];
-      return prisma.order.update({
+      return prisma.order.updateMany({
         where: { id: orderId, deletedAt: null },
         data: { salesRepId: repId },
       });
@@ -31,7 +31,7 @@ export async function reassignOrdersAction(
 }
 
 async function getOwnedOrder(orderId: string, salesRepId: string) {
-  return prisma.order.findUnique({
+  return prisma.order.findFirst({
     where: { id: orderId, salesRepId, deletedAt: null },
   });
 }

@@ -3,7 +3,7 @@
 import React, { useActionState, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Trash2 } from "lucide-react";
-import { addProductAction } from "@/modules/inventory/actions/stock.action";
+import { addProductAction, updateProductAction } from "@/modules/inventory/actions/stock.action";
 import type { StockCategoryRow } from "@/modules/inventory/services/inventory.service";
 
 const inputClass =
@@ -149,14 +149,37 @@ const ALL_COUNTRIES = [
 
 let nextId = 2;
 
-export function AddProductClient({ categories }: { categories: StockCategoryRow[] }) {
+export function AddProductClient({
+  categories,
+  product,
+}: {
+  categories: StockCategoryRow[];
+  product?: any;
+}) {
+  const isEdit = !!product;
   const router = useRouter();
-  const [state, formAction, pending] = useActionState(addProductAction, null);
-  const [hasOffer, setHasOffer] = useState(false);
+  const [state, formAction, pending] = useActionState(
+    isEdit ? updateProductAction : addProductAction,
+    null
+  );
+  const [hasOffer, setHasOffer] = useState(product?.hasOffer || false);
 
-  const [sections, setSections] = useState<PricingSection[]>([
-    { id: 1, costPrice: "", quantity: "", unit: "", recurring: "", sellingPrice: "" },
-  ]);
+  const initialSections: PricingSection[] = product
+    ? [
+        {
+          id: 1,
+          costPrice: product.costPrice.toString(),
+          quantity: product.quantity.toString(),
+          unit: "Unit", // Standard unit
+          recurring: "",
+          sellingPrice: product.sellingPrice.toString(),
+        },
+      ]
+    : [{ id: 1, costPrice: "", quantity: "", unit: "", recurring: "", sellingPrice: "" }];
+
+  const [sections, setSections] = useState<PricingSection[]>(initialSections);
+
+  const offer = product?.offers?.[0];
 
   const handleSectionChange = (id: number, field: keyof PricingSection, value: string) => {
     setSections((prev) => prev.map((s) => (s.id === id ? { ...s, [field]: value } : s)));
@@ -187,8 +210,12 @@ export function AddProductClient({ categories }: { categories: StockCategoryRow[
       <div className="bg-white rounded-xl border border-gray-200 p-8">
         <div className="flex items-start justify-between mb-8">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Add Product</h1>
-            <p className="text-xs text-gray-400 mt-0.5 uppercase tracking-wide">New</p>
+            <h1 className="text-2xl font-bold text-gray-900">
+              {isEdit ? "Edit Product" : "Add Product"}
+            </h1>
+            <p className="text-xs text-gray-400 mt-0.5 uppercase tracking-wide">
+              {isEdit ? "Update Existing" : "New"}
+            </p>
           </div>
         </div>
 
@@ -199,15 +226,23 @@ export function AddProductClient({ categories }: { categories: StockCategoryRow[
         )}
 
         <form action={formAction}>
+          {isEdit && <input type="hidden" name="id" value={product.id} />}
           {/* Country / Description / Category */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-5">
             <div>
               <label className={labelClass} htmlFor="country">Country To Sell This Product</label>
               <div className="relative">
-                <select id="country" name="country" className={selectClass}>
+                <select
+                  id="country"
+                  name="country"
+                  className={selectClass}
+                  defaultValue={product?.country || ""}
+                >
                   <option value="">Select a country</option>
                   {ALL_COUNTRIES.map((c) => (
-                    <option key={c} value={c}>{c}</option>
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
                   ))}
                 </select>
                 <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">▾</span>
@@ -223,6 +258,7 @@ export function AddProductClient({ categories }: { categories: StockCategoryRow[
                 name="imageUrl"
                 placeholder="https://example.com/image.jpg"
                 className={inputClass}
+                defaultValue={product?.imageUrl || ""}
               />
             </div>
 
@@ -236,6 +272,7 @@ export function AddProductClient({ categories }: { categories: StockCategoryRow[
                 placeholder="0"
                 min="0"
                 className={inputClass}
+                defaultValue={product?.quantity || ""}
               />
             </div>
           </div>
@@ -249,6 +286,7 @@ export function AddProductClient({ categories }: { categories: StockCategoryRow[
                 type="text"
                 name="productDescription"
                 className={inputClass}
+                defaultValue={product?.description || ""}
               />
             </div>
 
@@ -256,10 +294,18 @@ export function AddProductClient({ categories }: { categories: StockCategoryRow[
               <label className={labelClass} htmlFor="categoryId">Product Category</label>
               <p className={subClass}>All products under this category will carry this brand phone number</p>
               <div className="relative">
-                <select id="categoryId" name="categoryId" className={selectClass} required>
+                <select
+                  id="categoryId"
+                  name="categoryId"
+                  className={selectClass}
+                  required
+                  defaultValue={product?.categoryId || ""}
+                >
                   <option value="">Select a category</option>
                   {categories.map((cat) => (
-                    <option key={cat.id} value={cat.id}>{cat.categoryName}</option>
+                    <option key={cat.id} value={cat.id}>
+                      {cat.categoryName}
+                    </option>
                   ))}
                 </select>
                 <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">▾</span>
@@ -278,6 +324,7 @@ export function AddProductClient({ categories }: { categories: StockCategoryRow[
                 placeholder="Enter product name"
                 className={inputClass}
                 required
+                defaultValue={product?.name || ""}
               />
             </div>
 
@@ -285,7 +332,12 @@ export function AddProductClient({ categories }: { categories: StockCategoryRow[
               <label className={labelClass} htmlFor="hasVariations">Does this product have variations?</label>
               <p className={subClass}>Colours, sizes, Batches, etc?</p>
               <div className="relative">
-                <select id="hasVariations" name="hasVariations" className={selectClass}>
+                <select
+                  id="hasVariations"
+                  name="hasVariations"
+                  className={selectClass}
+                  defaultValue={product?.hasVariations ? "Yes" : "No"}
+                >
                   <option value="Yes">Yes</option>
                   <option value="No">No</option>
                 </select>
@@ -320,27 +372,60 @@ export function AddProductClient({ categories }: { categories: StockCategoryRow[
                 <div>
                   <label className={labelClass} htmlFor="offerName">Offer Name</label>
                   <p className={subClass}>e.g. Buy 2 Get 1 Free, Summer Promo</p>
-                  <input id="offerName" type="text" name="offerName" className={inputClass} />
+                  <input
+                    id="offerName"
+                    type="text"
+                    name="offerName"
+                    className={inputClass}
+                    defaultValue={offer?.offerName || ""}
+                  />
                 </div>
                 <div>
                   <label className={labelClass} htmlFor="offerSellingPrice">Offer Selling Price</label>
                   <p className={subClass}>Special price when this offer applies</p>
-                  <input id="offerSellingPrice" type="number" step="0.01" min="0" name="offerSellingPrice" className={inputClass} />
+                  <input
+                    id="offerSellingPrice"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    name="offerSellingPrice"
+                    className={inputClass}
+                    defaultValue={offer?.sellingPrice?.toString() || ""}
+                  />
                 </div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-4">
                 <div>
                   <label className={labelClass} htmlFor="offerQuantity">Offer Quantity</label>
-                  <input id="offerQuantity" type="number" min="1" name="offerQuantity" className={inputClass} />
+                  <input
+                    id="offerQuantity"
+                    type="number"
+                    min="1"
+                    name="offerQuantity"
+                    className={inputClass}
+                    defaultValue={offer?.offerQuantity || ""}
+                  />
                 </div>
                 <div>
                   <label className={labelClass} htmlFor="offerUnit">Offer Unit</label>
-                  <input id="offerUnit" type="text" placeholder="Piece, Pack, Bottle..." name="offerUnit" className={inputClass} />
+                  <input
+                    id="offerUnit"
+                    type="text"
+                    placeholder="Piece, Pack, Bottle..."
+                    name="offerUnit"
+                    className={inputClass}
+                    defaultValue={offer?.offerUnit || ""}
+                  />
                 </div>
                 <div>
                   <label className={labelClass} htmlFor="offerRecurring">Recurring</label>
                   <div className="relative">
-                    <select id="offerRecurring" name="offerRecurring" className={selectClass}>
+                    <select
+                      id="offerRecurring"
+                      name="offerRecurring"
+                      className={selectClass}
+                      defaultValue={offer?.recurring || ""}
+                    >
                       <option value=""></option>
                       <option value="daily">Daily</option>
                       <option value="weekly">Weekly</option>
@@ -352,7 +437,14 @@ export function AddProductClient({ categories }: { categories: StockCategoryRow[
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <input id="showQuantityAndUnit" type="checkbox" name="showQuantityAndUnit" value="true" className="accent-[#9D00FF] w-4 h-4" />
+                <input
+                  id="showQuantityAndUnit"
+                  type="checkbox"
+                  name="showQuantityAndUnit"
+                  value="true"
+                  className="accent-[#9D00FF] w-4 h-4"
+                  defaultChecked={offer?.showQuantityAndUnit}
+                />
                 <label htmlFor="showQuantityAndUnit" className="text-sm text-gray-600 cursor-pointer">
                   Show quantity and unit to customers
                 </label>
@@ -370,6 +462,7 @@ export function AddProductClient({ categories }: { categories: StockCategoryRow[
                 type="text"
                 name="displayText"
                 className={inputClass}
+                defaultValue={product?.displayText || ""}
               />
             </div>
             <div>
@@ -382,6 +475,7 @@ export function AddProductClient({ categories }: { categories: StockCategoryRow[
                 type="url"
                 name="fileDownloadLink"
                 className={inputClass}
+                defaultValue={product?.fileDownloadLink || ""}
               />
             </div>
           </div>
@@ -397,6 +491,7 @@ export function AddProductClient({ categories }: { categories: StockCategoryRow[
                 name="lowStockAgents"
                 min="0"
                 className={inputClass}
+                defaultValue={product?.lowStockAlertQtyAgent || ""}
               />
             </div>
 
@@ -404,7 +499,12 @@ export function AddProductClient({ categories }: { categories: StockCategoryRow[
               <label className={labelClass} htmlFor="lowStockTotal">Low Stock Alert Quantity (Total)</label>
               <p className={subClass}>Set Low Stock Quantity Alert</p>
               <div className="relative">
-                <select id="lowStockTotal" name="lowStockTotal" className={selectClass}>
+                <select
+                  id="lowStockTotal"
+                  name="lowStockTotal"
+                  className={selectClass}
+                  defaultValue={product?.lowStockAlertQtyTotal?.toString() || ""}
+                >
                   <option value=""></option>
                   <option value="10">10</option>
                   <option value="20">20</option>
@@ -424,6 +524,7 @@ export function AddProductClient({ categories }: { categories: StockCategoryRow[
                 name="alertEmails"
                 placeholder="e.g. admin@example.com, manager@example.com"
                 className={inputClass}
+                defaultValue={product?.alertEmails || ""}
               />
             </div>
           </div>

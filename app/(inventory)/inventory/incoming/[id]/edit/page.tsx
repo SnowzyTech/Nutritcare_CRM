@@ -7,8 +7,8 @@ import {
 } from "@/modules/inventory/services/inventory.service";
 import IncomingEditClient from "./incoming-edit-client";
 
-export default async function EditIncomingPage({ params }: { params: { id: string } }) {
-  const { id } = params;
+export default async function EditIncomingPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
 
   const [movement, warehouses, suppliers, products] = await Promise.all([
     getIncomingMovementForEdit(id),

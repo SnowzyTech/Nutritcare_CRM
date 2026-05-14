@@ -48,7 +48,7 @@ export default function ProductDetailClient({ product }: { product: any }) {
             </div>
             <div className="flex items-center gap-3">
               <button
-                onClick={() => router.push(`/inventory/stock/add-product`)} // Reuse add form for edit or create a specific one
+                onClick={() => router.push(`/inventory/stock/product/${product.id}/edit`)}
                 className="flex items-center gap-2 bg-white/10 hover:bg-white/20 px-4 py-2 rounded-lg text-sm font-semibold transition-colors backdrop-blur-sm"
               >
                 <Edit2 className="w-4 h-4" />

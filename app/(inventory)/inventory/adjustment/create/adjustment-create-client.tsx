@@ -13,18 +13,18 @@ const selectClass =
 interface ItemRow {
   id: number;
   productId: string;
-  quantityBefore: string;
   quantityAfter: string;
 }
 
 interface Props {
   warehouses: { id: string; name: string }[];
   products: { id: string; name: string; sku: string }[];
+  productStockMap: Record<string, number>;
 }
 
 let rowId = 2;
 
-export default function AdjustmentCreateClient({ warehouses, products }: Props) {
+export default function AdjustmentCreateClient({ warehouses, products, productStockMap }: Props) {
   const router = useRouter();
 
   const [form, setForm] = useState({
@@ -35,7 +35,7 @@ export default function AdjustmentCreateClient({ warehouses, products }: Props) 
   });
 
   const [rows, setRows] = useState<ItemRow[]>([
-    { id: 1, productId: "", quantityBefore: "", quantityAfter: "" },
+    { id: 1, productId: "", quantityAfter: "" },
   ]);
 
   const [loading, setLoading] = useState(false);
@@ -50,7 +50,7 @@ export default function AdjustmentCreateClient({ warehouses, products }: Props) 
   };
 
   const handleAddRow = () => {
-    setRows((prev) => [...prev, { id: rowId++, productId: "", quantityBefore: "", quantityAfter: "" }]);
+    setRows((prev) => [...prev, { id: rowId++, productId: "", quantityAfter: "" }]);
   };
 
   const handleDuplicateRow = (id: number) => {
@@ -62,19 +62,22 @@ export default function AdjustmentCreateClient({ warehouses, products }: Props) 
     setRows((prev) => prev.filter((r) => r.id !== id));
   };
 
+  const getCurrentQty = (productId: string) => productStockMap[productId] ?? 0;
+
   const getVariance = (row: ItemRow) => {
-    const before = parseInt(row.quantityBefore, 10);
+    if (!row.productId) return null;
+    const before = getCurrentQty(row.productId);
     const after = parseInt(row.quantityAfter, 10);
-    if (isNaN(before) || isNaN(after)) return null;
+    if (isNaN(after)) return null;
     return after - before;
   };
 
   const buildItems = () =>
     rows
-      .filter((r) => r.productId && r.quantityBefore !== "" && r.quantityAfter !== "")
+      .filter((r) => r.productId && r.quantityAfter !== "")
       .map((r) => ({
         productId: r.productId,
-        quantityBefore: parseInt(r.quantityBefore, 10),
+        quantityBefore: getCurrentQty(r.productId),
         quantityAfter: parseInt(r.quantityAfter, 10),
       }));
 
@@ -90,7 +93,7 @@ export default function AdjustmentCreateClient({ warehouses, products }: Props) 
 
     const items = buildItems();
     if (items.length === 0) {
-      setError("Add at least one product with expected and actual quantities");
+      setError("Add at least one product with an actual quantity");
       return;
     }
 
@@ -189,14 +192,14 @@ export default function AdjustmentCreateClient({ warehouses, products }: Props) 
       {/* Product Adjustment Table */}
       <div className="border border-gray-200 rounded-lg overflow-hidden mb-8">
         <div className="px-4 py-2 bg-white">
-          <span className="text-xs text-gray-400">Products — Expected vs Actual count</span>
+          <span className="text-xs text-gray-400">Products — Current vs Actual count</span>
         </div>
         <table className="w-full">
           <thead>
             <tr style={{ backgroundColor: "#3D0066" }}>
               <th className="text-left text-xs font-semibold text-white py-3 px-4 w-10">#</th>
               <th className="text-left text-xs font-semibold text-white py-3 px-4">Product</th>
-              <th className="text-center text-xs font-semibold text-white py-3 px-4 w-36">Expected Qty</th>
+              <th className="text-center text-xs font-semibold text-white py-3 px-4 w-36">Current Qty</th>
               <th className="text-center text-xs font-semibold text-white py-3 px-4 w-36">Actual Qty</th>
               <th className="text-center text-xs font-semibold text-white py-3 px-4 w-28">Variance</th>
               <th className="py-3 px-3 w-20" />
@@ -204,6 +207,7 @@ export default function AdjustmentCreateClient({ warehouses, products }: Props) 
           </thead>
           <tbody>
             {rows.map((row, idx) => {
+              const currentQty = row.productId ? getCurrentQty(row.productId) : null;
               const variance = getVariance(row);
               return (
                 <tr key={row.id} className="border-t border-gray-100">
@@ -226,19 +230,14 @@ export default function AdjustmentCreateClient({ warehouses, products }: Props) 
                     </div>
                   </td>
 
-                  {/* Expected Qty */}
+                  {/* Current Qty (read-only, auto-fetched) */}
                   <td className="py-3 px-4">
-                    <input
-                      type="number"
-                      value={row.quantityBefore}
-                      onChange={(e) => handleRowField(row.id, "quantityBefore", e.target.value)}
-                      placeholder="0"
-                      min={0}
-                      className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm text-gray-600 placeholder:text-gray-300 outline-none focus:border-[#9D00FF] bg-white text-center"
-                    />
+                    <div className="w-full border border-gray-100 rounded-md px-3 py-2 text-sm text-gray-500 bg-gray-50 text-center min-h-[36px]">
+                      {currentQty !== null ? currentQty : "—"}
+                    </div>
                   </td>
 
-                  {/* Actual Qty */}
+                  {/* Actual Qty (user input) */}
                   <td className="py-3 px-4">
                     <input
                       type="number"
