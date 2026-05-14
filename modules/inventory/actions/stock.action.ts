@@ -60,7 +60,7 @@ const CreateIncomingSchema = z.object({
 
 export async function createIncomingMovementAction(
   data: z.infer<typeof CreateIncomingSchema>
-): Promise<{ error?: string }> {
+): Promise<{ id?: string; error?: string }> {
   let user: Awaited<ReturnType<typeof requireAuth>>;
   try {
     user = await requireAuth();
@@ -74,7 +74,7 @@ export async function createIncomingMovementAction(
   const { warehouseId, supplierId, supplierReference, date, notes, status, items } = parsed.data;
 
   try {
-    await prisma.stockMovement.create({
+    const movement = await prisma.stockMovement.create({
       data: {
         referenceNumber: generateRefNumber("SI"),
         type: "INCOMING",
@@ -94,12 +94,63 @@ export async function createIncomingMovementAction(
         },
       },
     });
+
+    revalidatePath("/inventory/incoming");
+    return { id: movement.id };
   } catch (e) {
     console.error("createIncomingMovementAction error:", e);
     return { error: "Failed to save — please check your data and try again" };
   }
 
+}
+
+const UpdateIncomingSchema = CreateIncomingSchema.extend({
+  id: z.string().min(1, "ID is required"),
+});
+
+export async function updateIncomingMovementAction(
+  data: z.infer<typeof UpdateIncomingSchema>
+): Promise<{ error?: string }> {
+  try {
+    await requireAuth();
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Unauthorized" };
+  }
+
+  const parsed = UpdateIncomingSchema.safeParse(data);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
+
+  const { id, warehouseId, supplierId, supplierReference, date, notes, status, items } = parsed.data;
+
+  try {
+    await prisma.$transaction([
+      prisma.stockMovementItem.deleteMany({ where: { stockMovementId: id } }),
+      prisma.stockMovement.update({
+        where: { id },
+        data: {
+          status,
+          warehouseId,
+          supplierId: supplierId || null,
+          supplierReference: supplierReference || null,
+          date: new Date(date),
+          notes: notes || null,
+          items: {
+            create: items.map((item) => ({
+              productId: item.productId,
+              productCode: item.productCode,
+              quantity: item.quantity,
+            })),
+          },
+        },
+      }),
+    ]);
+  } catch (e) {
+    console.error("updateIncomingMovementAction error:", e);
+    return { error: "Failed to update — please check your data and try again" };
+  }
+
   revalidatePath("/inventory/incoming");
+  revalidatePath(`/inventory/incoming/${id}`);
   return {};
 }
 
@@ -558,6 +609,7 @@ const AddAgentSchema = z.object({
   picksFromOffice: z.enum(["yes", "no"]).default("no"),
   country: z.string().optional(),
   statesCovered: z.string().optional(),
+  deliveryFee: z.string().optional(),
 });
 
 export async function addAgentAction(
@@ -576,6 +628,7 @@ export async function addAgentAction(
     picksFromOffice: ((formData.get("picksFromOffice") as string) || "no") as "yes" | "no",
     country: (formData.get("country") as string) || undefined,
     statesCovered: (formData.get("statesCovered") as string) || undefined,
+    deliveryFee: (formData.get("deliveryFee") as string) || undefined,
   };
 
   const parsed = AddAgentSchema.safeParse(raw);
@@ -599,6 +652,7 @@ export async function addAgentAction(
       picksFromOfficeStock: parsed.data.picksFromOffice === "yes",
       country: parsed.data.country ?? null,
       statesCovered: statesArray.length > 0 ? statesArray : undefined,
+      deliveryFee: parsed.data.deliveryFee ? parseFloat(parsed.data.deliveryFee) : null,
       addedById: user.id,
     },
   });
@@ -614,7 +668,7 @@ const AddWarehouseSchema = z.object({
   warehouseAddress: z.string().optional(),
   warehousePhone: z.string().optional(),
   warehouseEmail: z.string().email("Invalid email").or(z.literal("")).optional(),
-  moreInformation: z.string().optional(),
+  referenceCode: z.string().optional(),
   country: z.string().optional(),
 });
 
@@ -629,7 +683,7 @@ export async function addWarehouseAction(
     warehouseAddress: (formData.get("warehouseAddress") as string) || undefined,
     warehousePhone: (formData.get("warehousePhone") as string) || undefined,
     warehouseEmail: (formData.get("warehouseEmail") as string) || "",
-    moreInformation: (formData.get("moreInformation") as string) || undefined,
+    referenceCode: (formData.get("referenceCode") as string) || undefined,
     country: (formData.get("country") as string) || undefined,
   };
 
@@ -642,7 +696,7 @@ export async function addWarehouseAction(
       address: parsed.data.warehouseAddress ?? null,
       phone: parsed.data.warehousePhone ?? null,
       email: parsed.data.warehouseEmail || null,
-      additionalInfo: parsed.data.moreInformation ?? null,
+      referenceCode: parsed.data.referenceCode ?? null,
       country: parsed.data.country ?? null,
     },
   });
@@ -711,6 +765,8 @@ const AddProductSchema = z.object({
   alertEmails: z.string().optional(),
   costPrice: z.string().min(1, "Cost price is required"),
   sellingPrice: z.string().min(1, "Selling price is required"),
+  imageUrl: z.string().optional(),
+  quantity: z.string().optional(),
 });
 
 export async function addProductAction(
@@ -733,6 +789,8 @@ export async function addProductAction(
     alertEmails: (formData.get("alertEmails") as string) || undefined,
     costPrice: formData.get("costPrice") as string,
     sellingPrice: formData.get("sellingPrice") as string,
+    imageUrl: (formData.get("imageUrl") as string) || undefined,
+    quantity: (formData.get("quantity") as string) || undefined,
   };
 
   const parsed = AddProductSchema.safeParse(raw);
@@ -758,10 +816,84 @@ export async function addProductAction(
       alertEmails: parsed.data.alertEmails ?? null,
       costPrice: parseFloat(parsed.data.costPrice),
       sellingPrice: parseFloat(parsed.data.sellingPrice),
+      imageUrl: parsed.data.imageUrl ?? null,
+      quantity: parsed.data.quantity ? parseInt(parsed.data.quantity, 10) : 0,
       sku,
     },
   });
 
   revalidatePath("/inventory/stock");
   redirect("/inventory/stock");
+}
+
+// ── Soft Deletes ──────────────────────────────────────────────────────────────
+
+export async function deleteWarehouseAction(id: string): Promise<{ error?: string }> {
+  await requireAuth();
+  try {
+    await prisma.warehouse.update({
+      where: { id },
+      data: { deletedAt: new Date() },
+    });
+  } catch (e) {
+    return { error: "Failed to delete warehouse" };
+  }
+  revalidatePath("/inventory/stock");
+  return {};
+}
+
+export async function deleteProductCategoryAction(id: string): Promise<{ error?: string }> {
+  await requireAuth();
+  try {
+    await prisma.productCategory.update({
+      where: { id },
+      data: { deletedAt: new Date() },
+    });
+  } catch (e) {
+    return { error: "Failed to delete category" };
+  }
+  revalidatePath("/inventory/stock");
+  return {};
+}
+
+export async function deleteProductAction(id: string): Promise<{ error?: string }> {
+  await requireAuth();
+  try {
+    await prisma.product.update({
+      where: { id },
+      data: { deletedAt: new Date() },
+    });
+  } catch (e) {
+    return { error: "Failed to delete product" };
+  }
+  revalidatePath("/inventory/stock");
+  return {};
+}
+
+export async function deleteSupplierAction(id: string): Promise<{ error?: string }> {
+  await requireAuth();
+  try {
+    await prisma.supplier.update({
+      where: { id },
+      data: { deletedAt: new Date() },
+    });
+  } catch (e) {
+    return { error: "Failed to delete supplier" };
+  }
+  revalidatePath("/inventory/stock");
+  return {};
+}
+
+export async function deleteAgentAction(id: string): Promise<{ error?: string }> {
+  await requireAuth();
+  try {
+    await prisma.agent.update({
+      where: { id },
+      data: { deletedAt: new Date() },
+    });
+  } catch (e) {
+    return { error: "Failed to delete agent" };
+  }
+  revalidatePath("/inventory/stock");
+  return {};
 }

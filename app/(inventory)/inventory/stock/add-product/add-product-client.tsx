@@ -215,6 +215,33 @@ export function AddProductClient({ categories }: { categories: StockCategoryRow[
             </div>
 
             <div>
+              <label className={labelClass} htmlFor="imageUrl">Product Image URL</label>
+              <p className={subClass}>Paste an image URL or upload (Cloudinary)</p>
+              <input
+                id="imageUrl"
+                type="text"
+                name="imageUrl"
+                placeholder="https://example.com/image.jpg"
+                className={inputClass}
+              />
+            </div>
+
+            <div>
+              <label className={labelClass} htmlFor="quantity">Initial Stock Quantity</label>
+              <p className={subClass}>Starting stock level for this product</p>
+              <input
+                id="quantity"
+                type="number"
+                name="quantity"
+                placeholder="0"
+                min="0"
+                className={inputClass}
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-5">
+            <div>
               <label className={labelClass} htmlFor="productDescription">Product Description</label>
               <p className={subClass}>For your view only</p>
               <input

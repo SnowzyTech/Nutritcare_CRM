@@ -148,6 +148,20 @@ export default function AddAgentPage() {
                 />
               </div>
             </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div>
+                <label className={labelClass} htmlFor="deliveryFee">Delivery Fee (₦)</label>
+                <input
+                  id="deliveryFee"
+                  type="number"
+                  name="deliveryFee"
+                  step="0.01"
+                  placeholder="0.00"
+                  className={inputClass}
+                />
+              </div>
+            </div>
           </div>
 
           <div className="flex items-center gap-3 mt-8">

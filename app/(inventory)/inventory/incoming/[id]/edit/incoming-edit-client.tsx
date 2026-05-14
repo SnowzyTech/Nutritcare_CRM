@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Filter, ArrowUpDown, ChevronDown, Trash2, Plus, Copy, ArrowLeft } from "lucide-react";
-import { createIncomingMovementAction } from "@/modules/inventory/actions/stock.action";
+import { updateIncomingMovementAction } from "@/modules/inventory/actions/stock.action";
 
 const inputClass =
   "w-full border border-gray-200 rounded-md px-3 py-2.5 text-sm text-gray-700 placeholder:text-gray-300 outline-none focus:border-[#9D00FF] focus:ring-1 focus:ring-[#9D00FF]/20 transition-all bg-white";
@@ -11,34 +11,38 @@ const selectClass =
   "w-full border border-gray-200 rounded-md px-3 py-2.5 text-sm text-gray-400 outline-none focus:border-[#9D00FF] focus:ring-1 focus:ring-[#9D00FF]/20 transition-all bg-white appearance-none cursor-pointer";
 
 interface ProductRow {
-  id: number;
+  id: string | number;
   productId: string;
   productCode: string;
   quantity: string;
 }
 
 interface Props {
+  movement: any;
   warehouses: { id: string; name: string }[];
   suppliers: { id: string; name: string }[];
   products: { id: string; name: string; sku: string }[];
 }
 
-let rowId = 2;
-
-export default function IncomingCreateClient({ warehouses, suppliers, products }: Props) {
+export default function IncomingEditClient({ movement, warehouses, suppliers, products }: Props) {
   const router = useRouter();
 
   const [form, setForm] = useState({
-    warehouseId: "",
-    supplierId: "",
-    supplierReference: "",
-    date: "",
-    notes: "",
+    warehouseId: movement.warehouseId || "",
+    supplierId: movement.supplierId || "",
+    supplierReference: movement.supplierReference || "",
+    date: movement.date || "",
+    notes: movement.notes || "",
   });
 
-  const [rows, setRows] = useState<ProductRow[]>([
-    { id: 1, productId: "", productCode: "", quantity: "" },
-  ]);
+  const [rows, setRows] = useState<ProductRow[]>(
+    movement.items.map((item: any) => ({
+      id: item.id,
+      productId: item.productId,
+      productCode: item.productCode,
+      quantity: String(item.quantity),
+    }))
+  );
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -47,7 +51,7 @@ export default function IncomingCreateClient({ warehouses, suppliers, products }
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
   ) => setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
 
-  const handleRowField = (id: number, field: keyof ProductRow, value: string) => {
+  const handleRowField = (id: string | number, field: keyof ProductRow, value: string) => {
     setRows((prev) =>
       prev.map((p) => {
         if (p.id !== id) return p;
@@ -61,15 +65,15 @@ export default function IncomingCreateClient({ warehouses, suppliers, products }
   };
 
   const handleAddRow = () => {
-    setRows((prev) => [...prev, { id: rowId++, productId: "", productCode: "", quantity: "" }]);
+    setRows((prev) => [...prev, { id: Date.now(), productId: "", productCode: "", quantity: "" }]);
   };
 
-  const handleDuplicateRow = (id: number) => {
+  const handleDuplicateRow = (id: string | number) => {
     const row = rows.find((p) => p.id === id);
-    if (row) setRows((prev) => [...prev, { ...row, id: rowId++ }]);
+    if (row) setRows((prev) => [...prev, { ...row, id: Date.now() }]);
   };
 
-  const handleDeleteRow = (id: number) => {
+  const handleDeleteRow = (id: string | number) => {
     setRows((prev) => prev.filter((p) => p.id !== id));
   };
 
@@ -91,7 +95,8 @@ export default function IncomingCreateClient({ warehouses, suppliers, products }
     if (items.length === 0) { setError("Add at least one product with a quantity"); return; }
 
     setLoading(true);
-    const result = await createIncomingMovementAction({
+    const result = await updateIncomingMovementAction({
+      id: movement.id,
       warehouseId: form.warehouseId,
       supplierId: form.supplierId || undefined,
       supplierReference: form.supplierReference || undefined,
@@ -105,11 +110,7 @@ export default function IncomingCreateClient({ warehouses, suppliers, products }
       setError(result.error);
       setLoading(false);
     } else {
-      if (status === "DRAFT" && result.id) {
-        router.push(`/inventory/incoming/${result.id}/edit`);
-      } else {
-        router.push("/inventory/incoming");
-      }
+      router.push("/inventory/incoming");
     }
   };
 
@@ -120,26 +121,25 @@ export default function IncomingCreateClient({ warehouses, suppliers, products }
         className="flex items-center gap-2 text-sm text-gray-500 hover:text-[#9D00FF] transition-colors mb-5 group"
       >
         <ArrowLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" />
-        Back to Incoming Stock
+        Back
       </button>
 
-      <div className="flex items-center gap-5 mb-8">
-        <button className="flex items-center gap-1.5 text-sm font-semibold text-gray-700 hover:text-[#9D00FF] transition-colors">
-          <Filter className="w-4 h-4" />
-          Filter
-        </button>
-        <button className="text-gray-400 hover:text-gray-600 transition-colors">
-          <ArrowUpDown className="w-4 h-4" />
-        </button>
+      <div className="flex items-center justify-between mb-8">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Edit Stock In</h1>
+          <p className="text-sm text-gray-400 mt-0.5">Voucher: {movement.referenceNumber}</p>
+        </div>
+        <div className="flex items-center gap-3">
+           <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
+             movement.status === 'DRAFT' ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'
+           }`}>
+             {movement.status}
+           </span>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Stock In</h1>
-          <p className="text-sm text-gray-400 mt-0.5">Voucher</p>
-        </div>
-
-        <div className="space-y-4">
+        <div className="space-y-4 md:col-start-2">
           {/* Warehouse */}
           <div className="flex items-center gap-4">
             <label className="text-sm font-semibold text-amber-500 w-40 shrink-0">Warehouse*</label>

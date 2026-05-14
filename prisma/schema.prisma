@@ -258,6 +258,7 @@ model ProductCategory {
   smsSenderId         String?
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
+  deletedAt           DateTime?
 
   products Product[]
 
@@ -426,6 +427,7 @@ model Warehouse {
   managerEmail   String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
+  deletedAt      DateTime?
 
   managers         User[]              @relation("WarehouseManagers")
   locations        WarehouseLocation[]

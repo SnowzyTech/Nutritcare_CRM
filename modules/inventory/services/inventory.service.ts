@@ -529,7 +529,10 @@ export async function getStockSuppliers(): Promise<StockSupplierRow[]> {
 }
 
 export async function getStockWarehouses(): Promise<StockWarehouseRow[]> {
-  const warehouses = await prisma.warehouse.findMany({ orderBy: { createdAt: "desc" } });
+  const warehouses = await prisma.warehouse.findMany({
+    where: { deletedAt: null },
+    orderBy: { createdAt: "desc" },
+  });
   return warehouses.map((w) => ({
     id: w.id,
     name: w.name,
@@ -577,7 +580,10 @@ export async function getStockProducts(): Promise<StockProductRow[]> {
 }
 
 export async function getStockCategories(): Promise<StockCategoryRow[]> {
-  const cats = await prisma.productCategory.findMany({ orderBy: { createdAt: "desc" } });
+  const cats = await prisma.productCategory.findMany({
+    where: { deletedAt: null },
+    orderBy: { createdAt: "desc" },
+  });
   return cats.map((c) => ({
     id: c.id,
     categoryName: c.categoryName,
@@ -680,6 +686,27 @@ export async function getIncomingMovementById(id: string): Promise<IncomingMovem
       id: i + 1,
       product: item.product.name,
       productCode: item.product.sku,
+      quantity: item.quantity,
+    })),
+  };
+}
+
+export async function getIncomingMovementForEdit(id: string) {
+  const m = await prisma.stockMovement.findUnique({
+    where: { id },
+    include: {
+      items: true,
+    },
+  });
+  if (!m || m.type !== "INCOMING") return null;
+
+  return {
+    ...m,
+    date: m.date.toISOString().split("T")[0],
+    items: m.items.map((item) => ({
+      id: item.id,
+      productId: item.productId,
+      productCode: item.productCode,
       quantity: item.quantity,
     })),
   };
@@ -999,7 +1026,14 @@ export async function getSuppliersForDropdown(): Promise<DropdownOption[]> {
 
 export async function getAgentsForDropdown(): Promise<DropdownOption[]> {
   const rows = await prisma.agent.findMany({
-    where: { deletedAt: null, status: "ACTIVE" },
+    where: {
+      deletedAt: null,
+      status: "ACTIVE",
+      OR: [
+        { user: null },
+        { user: { role: "DELIVERY_AGENT" } },
+      ],
+    },
     select: { id: true, companyName: true },
     orderBy: { companyName: "asc" },
   });
@@ -1018,7 +1052,14 @@ export async function getTransferNodesForDropdown(): Promise<TransferNodeOption[
   const [warehouses, agents] = await Promise.all([
     prisma.warehouse.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
     prisma.agent.findMany({
-      where: { deletedAt: null, status: "ACTIVE" },
+      where: {
+        deletedAt: null,
+        status: "ACTIVE",
+        OR: [
+          { user: null },
+          { user: { role: "DELIVERY_AGENT" } },
+        ],
+      },
       select: { id: true, companyName: true },
       orderBy: { companyName: "asc" },
     }),
@@ -1027,4 +1068,29 @@ export async function getTransferNodesForDropdown(): Promise<TransferNodeOption[
     ...warehouses.map((w) => ({ id: w.id, name: w.name, type: "WAREHOUSE" as const })),
     ...agents.map((a) => ({ id: a.id, name: a.companyName, type: "AGENT" as const })),
   ];
+}
+
+export async function getProductById(id: string) {
+  return prisma.product.findUnique({
+    where: { id, deletedAt: null },
+    include: { category: true },
+  });
+}
+
+export async function getWarehouseById(id: string) {
+  return prisma.warehouse.findUnique({
+    where: { id, deletedAt: null },
+  });
+}
+
+export async function getSupplierById(id: string) {
+  return prisma.supplier.findUnique({
+    where: { id, deletedAt: null },
+  });
+}
+
+export async function getCategoryById(id: string) {
+  return prisma.productCategory.findUnique({
+    where: { id, deletedAt: null },
+  });
 }
