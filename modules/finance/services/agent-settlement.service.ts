@@ -221,21 +221,33 @@ export async function listDeliveryAgentsWithStats(filters: {
 }
 
 export async function listDeliveredOrdersForAgent(agentId: string) {
+  // Collect order IDs already included in past settlements to prevent duplicates
+  const settlements = await prisma.agentSettlement.findMany({
+    where: { agentId },
+    select: { ordersJson: true },
+  });
+  const remittedIds = new Set<string>(
+    settlements.flatMap(s => (Array.isArray(s.ordersJson) ? (s.ordersJson as string[]) : []))
+  );
+
   const orders = await prisma.order.findMany({
     where: { agentId, status: "DELIVERED", deletedAt: null },
     include: { customer: { select: { name: true, state: true } } },
     orderBy: { date: "desc" },
-    take: 50,
+    take: 200,
   });
-  return orders.map(o => ({
-    id: o.id,
-    orderId: o.orderNumber,
-    customer: o.customer.name,
-    state: o.customer.state,
-    netAmount: fmt(Number(o.netAmount)),
-    netAmountNum: Number(o.netAmount),
-    date: o.date.toISOString().slice(0, 10),
-  }));
+
+  return orders
+    .filter(o => !remittedIds.has(o.id))
+    .map(o => ({
+      id: o.id,
+      orderId: o.orderNumber,
+      customer: o.customer.name,
+      state: o.customer.state,
+      netAmount: fmt(Number(o.netAmount)),
+      netAmountNum: Number(o.netAmount),
+      date: o.date.toISOString().slice(0, 10),
+    }));
 }
 
 export async function getCurrentAgentBalance(agentId: string): Promise<number> {

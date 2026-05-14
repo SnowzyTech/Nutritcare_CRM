@@ -19,7 +19,8 @@
       "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\emmauel\\\\Desktop\\\\organizations\\\\Nutritcare_CRM\\\\app\" -Directory)",
       "Bash(Select-Object Name)",
       "Bash(grep -E \"\\\\.\\(tsx?|jsx?\\)$\")",
-      "Bash(wmic logicaldisk *)"
+      "Bash(wmic logicaldisk *)",
+      "Bash(Select-String -Pattern \"report-buttons|profile-client|settings|analytics\\\\.service|orders\\\\.action|settlements\\\\.action|agent-settlement\\\\.service|users\\\\.action|users\\\\.service\")"
     ]
   }
 }

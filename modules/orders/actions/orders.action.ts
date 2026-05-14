@@ -5,6 +5,18 @@ import { prisma } from "@/lib/db/prisma";
 import { revalidatePath } from "next/cache";
 import type { OrderStatus } from "@prisma/client";
 import { recordDeliveryFeeEntry } from "@/modules/finance/services/agent-settlement.service";
+import { getSalesRepWeeklyAnalytics } from "@/modules/orders/services/analytics.service";
+import type { MonthMetrics } from "@/modules/orders/services/analytics.service";
+
+export async function getWeeklyAnalyticsAction(): Promise<MonthMetrics | { error: string }> {
+  const session = await auth();
+  if (!session?.user?.id) return { error: "Unauthorized" };
+  try {
+    return await getSalesRepWeeklyAnalytics(session.user.id);
+  } catch {
+    return { error: "Failed to generate weekly report" };
+  }
+}
 
 export async function reassignOrdersAction(
   orderIds: string[],

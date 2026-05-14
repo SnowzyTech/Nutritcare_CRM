@@ -861,6 +861,7 @@ model AgentSettlement {
   balance            Decimal  @db.Decimal(10, 2)
   overpayment        Decimal  @default(0) @db.Decimal(10, 2)
   underpayment       Decimal  @default(0) @db.Decimal(10, 2)
+  ordersJson         Json?
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 

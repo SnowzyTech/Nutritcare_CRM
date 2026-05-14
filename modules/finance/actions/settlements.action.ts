@@ -76,6 +76,7 @@ export async function createRemittanceAction(input: z.infer<typeof remittanceSch
         balance,
         overpayment,
         underpayment,
+        ordersJson: data.orderIds,
       },
     });
     await tx.agentLedgerEntry.create({

@@ -15,6 +15,7 @@ import {
   assignWarehouseToUser,
   createTeam,
   deleteTeam,
+  updateSelfProfile,
 } from "../services/users.service";
 import type { Department } from "@prisma/client";
 
@@ -25,6 +26,23 @@ async function requireAdmin() {
   const session = await auth();
   if (!session?.user?.id || session.user.role !== "ADMIN") {
     throw new Error("Unauthorized");
+  }
+}
+
+export async function updateProfileAction(input: {
+  name: string;
+  phone?: string;
+  whatsappNumber?: string;
+}): Promise<ActionResult> {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) return { error: "Unauthorized" };
+    if (!input.name.trim()) return { error: "Name is required" };
+    await updateSelfProfile(session.user.id, input);
+    revalidatePath("/sales-rep/settings");
+    return { success: true };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Failed to update profile" };
   }
 }
 
