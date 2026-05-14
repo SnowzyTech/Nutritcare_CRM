@@ -253,32 +253,42 @@ export function AccountingLedgerClient({
                   <X size={16} />
                 </button>
               </div>
-              <div className="grid grid-cols-3 gap-4 mb-4">
+              <div className="grid grid-cols-2 gap-4 mb-4">
                 <div className="space-y-1">
-                  <label className="text-[13px] font-bold text-gray-500">Type</label>
-                  <input
-                    value={newType}
-                    onChange={e => setNewType(e.target.value)}
-                    placeholder="e.g. Asset"
-                    className="w-full px-4 py-3 border border-gray-200 rounded-xl text-[14px] text-gray-700 focus:outline-none focus:ring-1 focus:ring-purple-200"
-                  />
+                  <label className="text-[13px] font-bold text-gray-500">Account Type</label>
+                  <div className="relative">
+                    <input
+                      list="ledger-type-options"
+                      value={newType}
+                      onChange={e => setNewType(e.target.value)}
+                      placeholder="Select or type new..."
+                      className="w-full px-4 py-3 border border-gray-200 rounded-xl text-[14px] text-gray-700 bg-white focus:outline-none focus:ring-1 focus:ring-purple-200 h-[46px]"
+                    />
+                    <datalist id="ledger-type-options">
+                      <option value="Asset" />
+                      <option value="Liability" />
+                      <option value="Equity" />
+                      <option value="Revenue" />
+                      <option value="Expense" />
+                    </datalist>
+                  </div>
                 </div>
                 <div className="space-y-1">
+                  <label className="text-[13px] font-bold text-gray-500">Instance of {newType || 'Type'}</label>
+                  <input
+                    value={newInstances}
+                    onChange={e => setNewInstances(e.target.value)}
+                    placeholder="e.g. Cash, Bank"
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl text-[14px] text-gray-700 focus:outline-none focus:ring-1 focus:ring-purple-200 h-[46px]"
+                  />
+                </div>
+                <div className="space-y-1 col-span-2">
                   <label className="text-[13px] font-bold text-gray-500">Description</label>
                   <input
                     value={newDesc}
                     onChange={e => setNewDesc(e.target.value)}
                     placeholder="e.g. What the business owns"
-                    className="w-full px-4 py-3 border border-gray-200 rounded-xl text-[14px] text-gray-700 focus:outline-none focus:ring-1 focus:ring-purple-200"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[13px] font-bold text-gray-500">Instances</label>
-                  <input
-                    value={newInstances}
-                    onChange={e => setNewInstances(e.target.value)}
-                    placeholder="e.g. Cash, Bank"
-                    className="w-full px-4 py-3 border border-gray-200 rounded-xl text-[14px] text-gray-700 focus:outline-none focus:ring-1 focus:ring-purple-200"
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl text-[14px] text-gray-700 focus:outline-none focus:ring-1 focus:ring-purple-200 h-[46px]"
                   />
                 </div>
               </div>

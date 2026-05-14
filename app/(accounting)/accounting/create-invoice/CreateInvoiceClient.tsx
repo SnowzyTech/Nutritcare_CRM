@@ -21,6 +21,7 @@ interface InvoiceRow {
   description?: string;
   quantity?: string;
   rate?: string;
+  amount?: string;
   vatRate?: string;
 }
 
@@ -43,12 +44,42 @@ export function CreateInvoiceClient({ title = "Invoice", invoiceType = 'INVOICE'
   const [dueDate, setDueDate] = useState('');
   const [discountPercent, setDiscountPercent] = useState('0');
   const [shipping, setShipping] = useState('0');
+  const [paymentMethod, setPaymentMethod] = useState('');
+  const [referenceNo, setReferenceNo] = useState('');
+  const [refundFrom, setRefundFrom] = useState('');
   const [saving, setSaving] = useState(false);
+
+  const isReceipt = invoiceType === 'SALES_RECEIPT' || invoiceType === 'REFUND_RECEIPT';
+  const isRefund = invoiceType === 'REFUND_RECEIPT';
 
   const [rows, setRows] = useState<InvoiceRow[]>([{ id: 1 }, { id: 2 }, { id: 3 }]);
 
-  const updateRow = (id: number, field: keyof InvoiceRow, value: string) =>
-    setRows(prev => prev.map(r => (r.id === id ? { ...r, [field]: value } : r)));
+  const updateRow = (id: number, field: keyof InvoiceRow, value: string) => {
+    setRows(prev => prev.map(r => {
+      if (r.id !== id) return r;
+      const newRow = { ...r, [field]: value };
+      
+      if (field === 'quantity' || field === 'rate') {
+        const q = parseFloat(newRow.quantity || '0');
+        const rt = parseFloat(newRow.rate || '0');
+        if (!isNaN(q) && !isNaN(rt)) {
+          newRow.amount = (q * rt).toFixed(2);
+        }
+      } else if (field === 'amount') {
+        const amt = parseFloat(value || '0');
+        const q = parseFloat(newRow.quantity || '0');
+        if (!isNaN(amt)) {
+          if (q > 0) {
+            newRow.rate = (amt / q).toFixed(2);
+          } else {
+            newRow.quantity = '1';
+            newRow.rate = amt.toFixed(2);
+          }
+        }
+      }
+      return newRow;
+    }));
+  };
 
   const addRow = () => {
     const newId = rows.length > 0 ? Math.max(...rows.map(r => r.id)) + 1 : 1;
@@ -59,7 +90,7 @@ export function CreateInvoiceClient({ title = "Invoice", invoiceType = 'INVOICE'
     setRows(rows.filter(r => r.id !== id));
   };
 
-  const subtotal = rows.reduce((s, r) => s + (parseFloat(r.quantity ?? '0') || 0) * (parseFloat(r.rate ?? '0') || 0), 0);
+  const subtotal = rows.reduce((s, r) => s + (parseFloat(r.amount ?? '0') || 0), 0);
   const discountAmount = (subtotal * (parseFloat(discountPercent) || 0)) / 100;
   const shippingNum = parseFloat(shipping) || 0;
   const invoiceTotal = subtotal - discountAmount + shippingNum;
@@ -95,6 +126,8 @@ export function CreateInvoiceClient({ title = "Invoice", invoiceType = 'INVOICE'
       showDiscount: toggles.discount,
       showTerms: toggles.terms,
       items,
+      paymentMethod: isReceipt ? paymentMethod : undefined,
+      referenceNo: isReceipt ? referenceNo : undefined,
     });
     setSaving(false);
     if ('error' in res) { alert(res.error); return; }
@@ -185,11 +218,11 @@ export function CreateInvoiceClient({ title = "Invoice", invoiceType = 'INVOICE'
           <div className="flex flex-col gap-4 w-72 shrink-0">
             {toggles.invoiceNo && (
               <div className="flex items-center justify-between gap-4">
-                <span className="text-[13px] text-gray-500 font-medium">Invoice No.</span>
+                <span className="text-[13px] text-gray-500 font-medium">{isRefund ? 'Refund No.' : isReceipt ? 'Receipt No.' : 'Invoice No.'}</span>
                 <input type="text" value={invoiceNumber ?? '1001'} readOnly className="w-36 h-9 px-3 bg-white border border-gray-200 rounded text-[13px] text-gray-700 focus:outline-none shadow-sm" />
               </div>
             )}
-            {toggles.terms && (
+            {!isReceipt && toggles.terms && (
               <div className="flex items-center justify-between gap-4">
                 <span className="text-[13px] text-gray-500 font-medium">Terms</span>
                 <div className="relative w-36 h-9">
@@ -200,20 +233,54 @@ export function CreateInvoiceClient({ title = "Invoice", invoiceType = 'INVOICE'
             )}
             {toggles.invoiceDate && (
               <div className="flex items-center justify-between gap-4">
-                <span className="text-[13px] text-gray-500 font-medium">Invoice Date</span>
+                <span className="text-[13px] text-gray-500 font-medium">{isRefund ? 'Refund Date' : isReceipt ? 'Receipt Date' : 'Invoice Date'}</span>
                 <div className="relative w-36 h-9">
                   <input type="date" value={invoiceDate} onChange={e => setInvoiceDate(e.target.value)} className="w-full h-full px-3 pr-8 bg-white border border-gray-200 rounded text-[13px] text-gray-700 focus:outline-none shadow-sm cursor-pointer" />
                   <Calendar size={12} className="absolute right-3 top-3 text-gray-400 pointer-events-none" />
                 </div>
               </div>
             )}
-            {toggles.dueDate && (
+            {!isReceipt && toggles.dueDate && (
               <div className="flex items-center justify-between gap-4">
                 <span className="text-[13px] text-gray-500 font-medium">Due Date</span>
                 <div className="relative w-36 h-9">
                   <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} className="w-full h-full px-3 pr-8 bg-white border border-gray-200 rounded text-[13px] text-gray-700 focus:outline-none shadow-sm cursor-pointer" />
                   <Calendar size={12} className="absolute right-3 top-3 text-gray-400 pointer-events-none" />
                 </div>
+              </div>
+            )}
+            {isReceipt && (
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-[13px] text-gray-500 font-medium">{isRefund ? 'Refund Method' : 'Payment Method'}</span>
+                <div className="relative w-36 h-9">
+                  <select value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)} className="w-full h-full px-3 bg-white border border-gray-200 rounded text-[13px] text-gray-700 focus:outline-none shadow-sm appearance-none cursor-pointer">
+                    <option value="">Select...</option>
+                    <option value="Cash">Cash</option>
+                    <option value="Card">Card</option>
+                    <option value="Bank Transfer">Bank Transfer</option>
+                  </select>
+                  <ChevronDown size={14} className="absolute right-3 top-2.5 text-gray-400 pointer-events-none" />
+                </div>
+              </div>
+            )}
+            {isRefund && (
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-[13px] text-gray-500 font-medium">Refund From</span>
+                <div className="relative w-36 h-9">
+                  <select value={refundFrom} onChange={e => setRefundFrom(e.target.value)} className="w-full h-full px-3 bg-white border border-gray-200 rounded text-[13px] text-gray-700 focus:outline-none shadow-sm appearance-none cursor-pointer">
+                    <option value="">Select Account...</option>
+                    <option value="Checking">Checking Account</option>
+                    <option value="Savings">Savings Account</option>
+                    <option value="Petty Cash">Petty Cash</option>
+                  </select>
+                  <ChevronDown size={14} className="absolute right-3 top-2.5 text-gray-400 pointer-events-none" />
+                </div>
+              </div>
+            )}
+            {isReceipt && (
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-[13px] text-gray-500 font-medium">Reference No.</span>
+                <input type="text" placeholder="e.g. Transaction ID" value={referenceNo} onChange={e => setReferenceNo(e.target.value)} className="w-36 h-9 px-3 bg-white border border-gray-200 rounded text-[13px] text-gray-700 focus:outline-none shadow-sm" />
               </div>
             )}
           </div>
@@ -250,7 +317,8 @@ export function CreateInvoiceClient({ title = "Invoice", invoiceType = 'INVOICE'
                       const p = (products ?? []).find(x => x.id === e.target.value);
                       updateRow(row.id, 'productId', e.target.value);
                       if (p) {
-                        updateRow(row.id, 'rate', String(p.sellingPrice));
+                        const newRate = String(p.sellingPrice);
+                        updateRow(row.id, 'rate', newRate);
                         updateRow(row.id, 'description', p.name);
                       }
                     }}
@@ -271,7 +339,7 @@ export function CreateInvoiceClient({ title = "Invoice", invoiceType = 'INVOICE'
                   <input type="number" placeholder="Rate" value={row.rate ?? ''} onChange={e => updateRow(row.id, 'rate', e.target.value)} className="w-full h-9 px-3 text-[11px] border border-gray-200 rounded-md outline-none focus:border-purple-300" />
                 </div>
                 <div>
-                  <input type="text" readOnly value={((parseFloat(row.quantity ?? '0') || 0) * (parseFloat(row.rate ?? '0') || 0)).toFixed(2)} className="w-full h-9 px-3 text-[11px] border border-gray-200 rounded-md outline-none bg-gray-50/50" />
+                  <input type="number" placeholder="Amount" value={row.amount ?? ''} onChange={e => updateRow(row.id, 'amount', e.target.value)} className="w-full h-9 px-3 text-[11px] border border-gray-200 rounded-md outline-none focus:border-purple-300" />
                 </div>
                 <div className="relative">
                   <input type="number" placeholder="Vat" value={row.vatRate ?? ''} onChange={e => updateRow(row.id, 'vatRate', e.target.value)} className="w-full h-9 px-3 text-[11px] border border-gray-200 rounded-md outline-none focus:border-purple-300" />
@@ -322,7 +390,7 @@ export function CreateInvoiceClient({ title = "Invoice", invoiceType = 'INVOICE'
               <input type="number" value={shipping} onChange={e => setShipping(e.target.value)} className="w-24 h-7 px-2 text-right text-[14px] font-bold text-gray-900 border border-gray-200 rounded outline-none" />
             </div>
             <div className="flex justify-between items-center mt-5 pt-5 border-t border-gray-100">
-              <span className="text-[14px] font-bold text-gray-900">Invoice Total</span>
+              <span className="text-[14px] font-bold text-gray-900">{isRefund ? 'Refund Total' : isReceipt ? 'Receipt Total' : 'Invoice Total'}</span>
               <span className="text-[15px] font-black text-gray-900">₦{invoiceTotal.toFixed(2)}</span>
             </div>
           </div>
@@ -355,11 +423,11 @@ export function CreateInvoiceClient({ title = "Invoice", invoiceType = 'INVOICE'
         <div className="flex flex-col gap-1">
           <ToggleSwitch label="Logo" stateKey="logo" />
           <ToggleSwitch label="Ship to" stateKey="shipTo" />
-          <ToggleSwitch label="Invoice No" stateKey="invoiceNo" />
-          <ToggleSwitch label="Invoice Date" stateKey="invoiceDate" />
-          <ToggleSwitch label="Due date" stateKey="dueDate" />
+          <ToggleSwitch label={isRefund ? "Refund No" : isReceipt ? "Receipt No" : "Invoice No"} stateKey="invoiceNo" />
+          <ToggleSwitch label={isRefund ? "Refund Date" : isReceipt ? "Receipt Date" : "Invoice Date"} stateKey="invoiceDate" />
+          {!isReceipt && <ToggleSwitch label="Due date" stateKey="dueDate" />}
           <ToggleSwitch label="Discount" stateKey="discount" />
-          <ToggleSwitch label="Terms" stateKey="terms" />
+          {!isReceipt && <ToggleSwitch label="Terms" stateKey="terms" />}
         </div>
 
         <div className="h-px bg-gray-100 my-7" />
@@ -368,10 +436,10 @@ export function CreateInvoiceClient({ title = "Invoice", invoiceType = 'INVOICE'
         <div className="flex flex-col gap-1">
           <ToggleSwitch label="Logo" stateKey="logo" />
           <ToggleSwitch label="Ship to" stateKey="shipTo" />
-          <ToggleSwitch label="Invoice No" stateKey="invoiceNo" />
-          <ToggleSwitch label="Invoice Date" stateKey="invoiceDate" />
-          <ToggleSwitch label="Due date" stateKey="dueDate" />
-          <ToggleSwitch label="Terms" stateKey="terms" />
+          <ToggleSwitch label={isRefund ? "Refund No" : isReceipt ? "Receipt No" : "Invoice No"} stateKey="invoiceNo" />
+          <ToggleSwitch label={isRefund ? "Refund Date" : isReceipt ? "Receipt Date" : "Invoice Date"} stateKey="invoiceDate" />
+          {!isReceipt && <ToggleSwitch label="Due date" stateKey="dueDate" />}
+          {!isReceipt && <ToggleSwitch label="Terms" stateKey="terms" />}
         </div>
       </div>
     </div>

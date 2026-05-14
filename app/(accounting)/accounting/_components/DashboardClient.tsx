@@ -264,9 +264,8 @@ export function DashboardClient({
                   <div className="mb-7">
                     <h3 className="text-[15px] font-medium text-gray-900 mb-4">Suppliers</h3>
                     <div className="flex flex-col gap-3.5 ml-1">
-                      <button className="text-left text-[14px] text-gray-400 hover:text-gray-800 transition-colors">Expense</button>
-                      <button className="text-left text-[14px] text-gray-400 hover:text-gray-800 transition-colors">Purchase</button>
-                      <button className="text-left text-[14px] text-gray-400 hover:text-gray-800 transition-colors">Add Supplier</button>
+                      <Link href="/accounting/expenses" className="text-left text-[14px] text-gray-400 hover:text-gray-800 transition-colors block">Expense</Link>
+                      <Link href="/accounting/expenses?tab=supplier" className="text-left text-[14px] text-gray-400 hover:text-gray-800 transition-colors block">Add Supplier</Link>
                     </div>
                   </div>
 
@@ -274,8 +273,7 @@ export function DashboardClient({
                   <div>
                     <h3 className="text-[15px] font-medium text-gray-900 mb-4">Other</h3>
                     <div className="flex flex-col gap-3.5 ml-1">
-                      <button className="text-left text-[14px] text-gray-400 hover:text-gray-800 transition-colors">Journal Entry</button>
-                      <button className="text-left text-[14px] text-gray-400 hover:text-gray-800 transition-colors">Tax</button>
+                      <Link href="/accounting/accounting-ledger?tab=Journal+Entry" className="text-left text-[14px] text-gray-400 hover:text-gray-800 transition-colors block">Journal Entry</Link>
                     </div>
                   </div>
                 </div>

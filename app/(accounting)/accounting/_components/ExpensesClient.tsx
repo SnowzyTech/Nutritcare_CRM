@@ -911,16 +911,30 @@ export function ExpensesClient({
             </div>
             <div className="space-y-4">
               <div>
-                <label className="text-[12px] font-bold text-gray-600 mb-1.5 block">Type</label>
-                <input type="text" placeholder="e.g. Operating Expense" value={newCategory.type} onChange={e => setNewCategory({...newCategory, type: e.target.value})} className="w-full h-11 border border-gray-200 rounded-lg px-4 text-[13px] text-gray-700 focus:outline-none focus:border-purple-400" />
+                <label className="text-[12px] font-bold text-gray-600 mb-1.5 block">Category Type</label>
+                <div className="relative">
+                  <input 
+                    list="expense-type-options"
+                    value={newCategory.type} 
+                    onChange={e => setNewCategory({...newCategory, type: e.target.value})} 
+                    placeholder="Select or type new..."
+                    className="w-full h-11 bg-white border border-gray-200 rounded-lg px-4 text-[13px] text-gray-700 focus:outline-none focus:border-purple-400"
+                  />
+                  <datalist id="expense-type-options">
+                    <option value="Operating Expense" />
+                    <option value="Cost of Goods Sold" />
+                    <option value="Administrative Expense" />
+                    <option value="Other" />
+                  </datalist>
+                </div>
+              </div>
+              <div>
+                <label className="text-[12px] font-bold text-gray-600 mb-1.5 block">Instance of {newCategory.type || 'Type'}</label>
+                <input type="text" placeholder="e.g. Salaries, Rent" value={newCategory.instances} onChange={e => setNewCategory({...newCategory, instances: e.target.value})} className="w-full h-11 border border-gray-200 rounded-lg px-4 text-[13px] text-gray-700 focus:outline-none focus:border-purple-400" />
               </div>
               <div>
                 <label className="text-[12px] font-bold text-gray-600 mb-1.5 block">Description</label>
                 <input type="text" placeholder="Short description" value={newCategory.description} onChange={e => setNewCategory({...newCategory, description: e.target.value})} className="w-full h-11 border border-gray-200 rounded-lg px-4 text-[13px] text-gray-700 focus:outline-none focus:border-purple-400" />
-              </div>
-              <div>
-                <label className="text-[12px] font-bold text-gray-600 mb-1.5 block">Instances</label>
-                <input type="text" placeholder="e.g. Monthly" value={newCategory.instances} onChange={e => setNewCategory({...newCategory, instances: e.target.value})} className="w-full h-11 border border-gray-200 rounded-lg px-4 text-[13px] text-gray-700 focus:outline-none focus:border-purple-400" />
               </div>
               <button onClick={handleAddCategory} className="w-full py-3.5 bg-[#AE00FF] text-white rounded-xl text-[13px] font-bold mt-4 hover:bg-[#9900E6] transition-colors shadow-md shadow-purple-100">
                 Add Category
