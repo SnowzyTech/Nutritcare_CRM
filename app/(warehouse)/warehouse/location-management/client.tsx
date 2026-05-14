@@ -258,6 +258,12 @@ export default function LocationManagementClient({ initialBins, summaryData, bin
                     </span>
                   </div>
                   <div className="flex justify-between items-center">
+                    <span className="text-gray-600 font-bold text-[15px]">Stock Items:</span>
+                    <span className="text-gray-700 text-[15px]">
+                      {selectedBinDetail?.stockItems.reduce((s, i) => s + i.quantity, 0) ?? 0}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
                     <span className="text-gray-600 font-bold text-[15px]">Active Orders:</span>
                     <span className="text-gray-700 text-[15px]">
                       {selectedBinDetail?.orders.length ?? 0}
@@ -282,48 +288,85 @@ export default function LocationManagementClient({ initialBins, summaryData, bin
               </div>
             </div>
 
-            {selectedBinDetail && selectedBinDetail.orders.length > 0 ? (
-              <div className="border border-gray-200 shadow-sm rounded-lg p-0.5 bg-white overflow-hidden">
-                <table className="w-full text-sm border-collapse">
-                  <thead className="bg-[#4a0b79] text-white">
-                    <tr>
-                      <th className="px-5 py-3.5 text-left font-normal text-[13px]">#</th>
-                      <th className="px-5 py-3.5 text-left font-normal text-[13px]">Order</th>
-                      <th className="px-5 py-3.5 text-left font-normal text-[13px]">Product</th>
-                      <th className="px-5 py-3.5 text-left font-normal text-[13px]">Code</th>
-                      <th className="px-5 py-3.5 text-left font-normal text-[13px]">Picker</th>
-                      <th className="px-5 py-3.5 text-right font-normal text-[13px]">Qty</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {selectedBinDetail.orders.flatMap((order, oi) =>
-                      order.items.map((item, ii) => (
-                        <tr key={`${oi}-${ii}`} className="hover:bg-gray-50/50 transition-colors">
-                          <td className="px-5 py-4 text-gray-400 text-[13px]">
-                            {oi * 100 + ii + 1}
-                          </td>
-                          <td className="px-5 py-4 text-gray-500 text-[13px]">
-                            {order.orderNumber}
-                          </td>
-                          <td className="px-5 py-4 text-gray-500 text-[13px]">{item.product}</td>
-                          <td className="px-5 py-4 text-gray-400 text-[13px]">
-                            {item.productCode}
-                          </td>
-                          <td className="px-5 py-4 text-gray-500 text-[13px]">{order.picker}</td>
-                          <td className="px-5 py-4 text-gray-500 text-[13px] text-right">
-                            {item.quantity}
-                          </td>
+            <div className="space-y-6">
+              {/* Shelf stock from incoming goods */}
+              <div>
+                <h3 className="text-[12px] font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                  Shelf Stock
+                </h3>
+                {selectedBinDetail && selectedBinDetail.stockItems.length > 0 ? (
+                  <div className="border border-gray-200 shadow-sm rounded-lg p-0.5 bg-white overflow-hidden">
+                    <table className="w-full text-sm border-collapse">
+                      <thead className="bg-[#059669] text-white">
+                        <tr>
+                          <th className="px-5 py-3.5 text-left font-normal text-[13px]">#</th>
+                          <th className="px-5 py-3.5 text-left font-normal text-[13px]">Reference</th>
+                          <th className="px-5 py-3.5 text-left font-normal text-[13px]">Product</th>
+                          <th className="px-5 py-3.5 text-left font-normal text-[13px]">Code</th>
+                          <th className="px-5 py-3.5 text-right font-normal text-[13px]">Qty</th>
                         </tr>
-                      )),
-                    )}
-                  </tbody>
-                </table>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {selectedBinDetail.stockItems.map((item, i) => (
+                          <tr key={i} className="hover:bg-gray-50/50 transition-colors">
+                            <td className="px-5 py-4 text-gray-400 text-[13px]">{i + 1}</td>
+                            <td className="px-5 py-4 text-gray-500 text-[13px]">{item.referenceNumber}</td>
+                            <td className="px-5 py-4 text-gray-500 text-[13px]">{item.product}</td>
+                            <td className="px-5 py-4 text-gray-400 text-[13px]">{item.productCode}</td>
+                            <td className="px-5 py-4 text-gray-700 font-medium text-[13px] text-right">{item.quantity}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="border border-gray-100 rounded-lg p-5 text-center text-gray-400 text-sm">
+                    No incoming stock assigned to this shelf.
+                  </div>
+                )}
               </div>
-            ) : (
-              <div className="border border-gray-100 rounded-lg p-8 text-center text-gray-400 text-sm">
-                No active pick &amp; pack orders at this location.
+
+              {/* Active pick & pack orders */}
+              <div>
+                <h3 className="text-[12px] font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                  Active Orders
+                </h3>
+                {selectedBinDetail && selectedBinDetail.orders.length > 0 ? (
+                  <div className="border border-gray-200 shadow-sm rounded-lg p-0.5 bg-white overflow-hidden">
+                    <table className="w-full text-sm border-collapse">
+                      <thead className="bg-[#4a0b79] text-white">
+                        <tr>
+                          <th className="px-5 py-3.5 text-left font-normal text-[13px]">#</th>
+                          <th className="px-5 py-3.5 text-left font-normal text-[13px]">Order</th>
+                          <th className="px-5 py-3.5 text-left font-normal text-[13px]">Product</th>
+                          <th className="px-5 py-3.5 text-left font-normal text-[13px]">Code</th>
+                          <th className="px-5 py-3.5 text-left font-normal text-[13px]">Picker</th>
+                          <th className="px-5 py-3.5 text-right font-normal text-[13px]">Qty</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {selectedBinDetail.orders.flatMap((order, oi) =>
+                          order.items.map((item, ii) => (
+                            <tr key={`${oi}-${ii}`} className="hover:bg-gray-50/50 transition-colors">
+                              <td className="px-5 py-4 text-gray-400 text-[13px]">{oi * 100 + ii + 1}</td>
+                              <td className="px-5 py-4 text-gray-500 text-[13px]">{order.orderNumber}</td>
+                              <td className="px-5 py-4 text-gray-500 text-[13px]">{item.product}</td>
+                              <td className="px-5 py-4 text-gray-400 text-[13px]">{item.productCode}</td>
+                              <td className="px-5 py-4 text-gray-500 text-[13px]">{order.picker}</td>
+                              <td className="px-5 py-4 text-gray-500 text-[13px] text-right">{item.quantity}</td>
+                            </tr>
+                          )),
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="border border-gray-100 rounded-lg p-5 text-center text-gray-400 text-sm">
+                    No active pick &amp; pack orders at this location.
+                  </div>
+                )}
               </div>
-            )}
+            </div>
           </div>
         </div>
       )}

@@ -548,6 +548,7 @@ model StockMovement {
   shelfLocation   WarehouseLocation?  @relation("StockMovementShelfLocation", fields: [shelfLocationId], references: [id])
   items           StockMovementItem[]
   goodsReceivings GoodsReceiving[]
+  pickPacks       PickPack[]          @relation("PickPackStockMovement")
 
   @@index([type])
   @@index([status])
@@ -659,21 +660,24 @@ model PurchaseOrderItem {
 }
 
 model PickPack {
-  id           String         @id @default(cuid())
-  orderId      String
-  pickerId     String?
-  locationCode String
-  itemsCount   Int
-  status       PickPackStatus @default(QUEUED)
-  assignedAt   DateTime?
-  completedAt  DateTime?
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
+  id              String         @id @default(cuid())
+  orderId         String?
+  stockMovementId String?
+  pickerId        String?
+  locationCode    String         @default("")
+  itemsCount      Int
+  status          PickPackStatus @default(QUEUED)
+  assignedAt      DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
 
-  order  Order @relation(fields: [orderId], references: [id])
-  picker User? @relation("PickerAssignments", fields: [pickerId], references: [id])
+  order         Order?         @relation(fields: [orderId], references: [id])
+  stockMovement StockMovement? @relation("PickPackStockMovement", fields: [stockMovementId], references: [id])
+  picker        User?          @relation("PickerAssignments", fields: [pickerId], references: [id])
 
   @@index([orderId])
+  @@index([stockMovementId])
   @@index([pickerId])
   @@index([status])
   @@map("pick_packs")

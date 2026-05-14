@@ -91,29 +91,47 @@ export async function createIncomingMovementAction(
 
   const skuMap = new Map(products.map((p) => [p.id, p.sku]));
 
-  await prisma.stockMovement.create({
-    data: {
-      referenceNumber: generateReferenceNumber(),
-      type: "INCOMING",
-      status: "RECORDED",
-      warehouseId,
-      supplierId: parsed.data.supplierId ?? null,
-      supplierReference: parsed.data.supplierReference ?? null,
-      date: new Date(parsed.data.date),
-      notes: parsed.data.notes ?? null,
-      shelfLocationId: parsed.data.shelfLocationId ?? null,
-      shelfQuantity: parsed.data.shelfQuantity ?? null,
-      isReserved: parsed.data.isReserved,
-      isDamaged: parsed.data.isDamaged,
-      createdById: userId,
-      items: {
-        create: parsed.data.items.map((item) => ({
-          productId: item.productId,
-          productCode: skuMap.get(item.productId) ?? "",
-          quantity: item.quantity,
-        })),
+  const totalQty = parsed.data.items.reduce((sum, i) => sum + i.quantity, 0);
+
+  await prisma.$transaction(async (tx) => {
+    await tx.stockMovement.create({
+      data: {
+        referenceNumber: generateReferenceNumber(),
+        type: "INCOMING",
+        status: "RECORDED",
+        warehouseId,
+        supplierId: parsed.data.supplierId ?? null,
+        supplierReference: parsed.data.supplierReference ?? null,
+        date: new Date(parsed.data.date),
+        notes: parsed.data.notes ?? null,
+        shelfLocationId: parsed.data.shelfLocationId ?? null,
+        shelfQuantity: parsed.data.shelfQuantity ?? null,
+        isReserved: parsed.data.isReserved,
+        isDamaged: parsed.data.isDamaged,
+        createdById: userId,
+        items: {
+          create: parsed.data.items.map((item) => ({
+            productId: item.productId,
+            productCode: skuMap.get(item.productId) ?? "",
+            quantity: item.quantity,
+          })),
+        },
       },
-    },
+    });
+
+    if (parsed.data.shelfLocationId) {
+      const shelfLoc = await tx.warehouseLocation.findUnique({
+        where: { id: parsed.data.shelfLocationId },
+        select: { occupancyStatus: true },
+      });
+      await tx.warehouseLocation.update({
+        where: { id: parsed.data.shelfLocationId },
+        data: {
+          currentStock: { increment: totalQty },
+          ...(shelfLoc?.occupancyStatus === "EMPTY" ? { occupancyStatus: "PARTIAL" } : {}),
+        },
+      });
+    }
   });
 
   revalidatePath("/warehouse/incoming-goods");
@@ -132,11 +150,32 @@ export async function deleteIncomingMovementAction(
     return { error: (e as Error).message };
   }
 
-  const movement = await prisma.stockMovement.findUnique({ where: { id } });
+  const movement = await prisma.stockMovement.findUnique({
+    where: { id },
+    include: { items: { select: { quantity: true } } },
+  });
   if (!movement || movement.type !== "INCOMING") return { error: "Movement not found" };
   if (movement.warehouseId !== warehouseId) return { error: "Access denied" };
 
-  await prisma.stockMovement.delete({ where: { id } });
+  const totalQty = movement.items.reduce((sum, i) => sum + i.quantity, 0);
+
+  await prisma.$transaction(async (tx) => {
+    if (movement.shelfLocationId && movement.status !== "REVERSED") {
+      const shelfLoc = await tx.warehouseLocation.findUnique({
+        where: { id: movement.shelfLocationId },
+        select: { currentStock: true },
+      });
+      const newStock = Math.max(0, (shelfLoc?.currentStock ?? 0) - totalQty);
+      await tx.warehouseLocation.update({
+        where: { id: movement.shelfLocationId },
+        data: {
+          currentStock: newStock,
+          ...(newStock === 0 ? { occupancyStatus: "EMPTY" } : {}),
+        },
+      });
+    }
+    await tx.stockMovement.delete({ where: { id } });
+  });
 
   revalidatePath("/warehouse/incoming-goods");
   redirect("/warehouse/incoming-goods");
@@ -155,14 +194,36 @@ export async function reverseIncomingMovementWarehouseAction(
     return { error: (e as Error).message };
   }
 
-  const movement = await prisma.stockMovement.findUnique({ where: { id } });
+  const movement = await prisma.stockMovement.findUnique({
+    where: { id },
+    include: { items: { select: { quantity: true } } },
+  });
   if (!movement || movement.type !== "INCOMING") return { error: "Movement not found" };
   if (movement.warehouseId !== warehouseId) return { error: "Access denied" };
   if (movement.status === "REVERSED") return { error: "Movement is already reversed" };
 
-  await prisma.stockMovement.update({
-    where: { id },
-    data: { status: "REVERSED", remarks: reason.trim() || null },
+  const totalQty = movement.items.reduce((sum, i) => sum + i.quantity, 0);
+
+  await prisma.$transaction(async (tx) => {
+    await tx.stockMovement.update({
+      where: { id },
+      data: { status: "REVERSED", remarks: reason.trim() || null },
+    });
+
+    if (movement.shelfLocationId) {
+      const shelfLoc = await tx.warehouseLocation.findUnique({
+        where: { id: movement.shelfLocationId },
+        select: { currentStock: true },
+      });
+      const newStock = Math.max(0, (shelfLoc?.currentStock ?? 0) - totalQty);
+      await tx.warehouseLocation.update({
+        where: { id: movement.shelfLocationId },
+        data: {
+          currentStock: newStock,
+          ...(newStock === 0 ? { occupancyStatus: "EMPTY" } : {}),
+        },
+      });
+    }
   });
 
   revalidatePath(`/warehouse/incoming-goods/${id}`);

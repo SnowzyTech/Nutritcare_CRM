@@ -158,63 +158,51 @@ export async function getIncomingGoodDetail(
 // ── Pick & Pack ───────────────────────────────────────────────────────────────
 
 export type PickPackRow = {
-  // Delivery.id — the row identifier; also passed to assignPickerAction
+  // PickPack.id — the row identifier, passed directly to assignPickerAction
   id: string;
-  orderId: string;
-  orderNumber: string;
+  referenceNumber: string;
   dispatchAgent: string;
   itemsCount: number;
-  // PickPack fields — null until a picker is assigned
-  pickPackId: string | null;
   picker: string;
   pickerId: string | null;
   locationCode: string;
   assignedAt: string | null;
-  // null = not yet assigned (no PickPack record); otherwise QUEUED/PACKING/PACKED/DISPATCHED
-  status: string | null;
+  status: "QUEUED" | "PACKED";
 };
 
 export async function getPickPackOrders(): Promise<PickPackRow[]> {
-  // Source of truth: Delivery records that logistics has moved to IN_TRANSIT
-  const deliveries = await prisma.delivery.findMany({
-    where: { status: "IN_TRANSIT" },
+  const pickPacks = await prisma.pickPack.findMany({
+    where: {
+      stockMovementId: { not: null },
+      status: { in: ["QUEUED", "PACKED"] },
+    },
     orderBy: { createdAt: "desc" },
     include: {
-      agent: { select: { companyName: true } },
-      order: {
+      stockMovement: {
         select: {
-          orderNumber: true,
-          _count: { select: { items: true } },
-          pickPacks: {
-            orderBy: { createdAt: "desc" },
-            take: 1,
-            include: { picker: { select: { name: true } } },
-          },
+          referenceNumber: true,
+          driverAgent: { select: { companyName: true } },
         },
       },
+      picker: { select: { name: true } },
     },
   });
 
-  return deliveries.map((d) => {
-    const pp = d.order.pickPacks[0] ?? null;
-    return {
-      id: d.id,
-      orderId: d.orderId,
-      orderNumber: d.order.orderNumber,
-      dispatchAgent: d.agent?.companyName ?? "—",
-      itemsCount: d.order._count.items,
-      pickPackId: pp?.id ?? null,
-      picker: pp?.picker?.name ?? "—",
-      pickerId: pp?.pickerId ?? null,
-      locationCode: pp?.locationCode ?? "",
-      assignedAt: pp?.assignedAt
-        ? pp.assignedAt
-            .toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit", hour12: true })
-            .toLowerCase()
-        : null,
-      status: pp?.status ?? null,
-    };
-  });
+  return pickPacks.map((pp) => ({
+    id: pp.id,
+    referenceNumber: pp.stockMovement?.referenceNumber ?? "—",
+    dispatchAgent: pp.stockMovement?.driverAgent?.companyName ?? "—",
+    itemsCount: pp.itemsCount,
+    picker: pp.picker?.name ?? "—",
+    pickerId: pp.pickerId,
+    locationCode: pp.locationCode || "—",
+    assignedAt: pp.assignedAt
+      ? pp.assignedAt
+          .toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit", hour12: true })
+          .toLowerCase()
+      : null,
+    status: pp.status as "QUEUED" | "PACKED",
+  }));
 }
 
 export type PickerOption = {
@@ -232,7 +220,7 @@ export async function getAvailablePickers(): Promise<PickerOption[]> {
     }),
     prisma.pickPack.groupBy({
       by: ["pickerId"],
-      where: { status: { in: ["QUEUED", "PACKING"] }, pickerId: { not: null } },
+      where: { status: "PACKED", pickerId: { not: null } },
       _count: { id: true },
     }),
   ]);
@@ -277,30 +265,43 @@ export type LocationSummaryRow = {
 
 export async function getLocationSummary(warehouseId: string): Promise<LocationSummaryRow[]> {
   const locations = await prisma.warehouseLocation.findMany({
-    where: { warehouseId, occupancyStatus: { not: "EMPTY" } },
+    where: {
+      warehouseId,
+      OR: [{ occupancyStatus: { not: "EMPTY" } }, { currentStock: { gt: 0 } }],
+    },
     orderBy: [{ zone: "asc" }, { locationCode: "asc" }],
   });
 
   if (!locations.length) return [];
 
+  const locationIds = locations.map((l) => l.id);
   const locationCodes = locations.map((l) => l.locationCode);
+  const idToCode = new Map(locations.map((l) => [l.id, l.locationCode]));
 
-  const pickPacks = await prisma.pickPack.findMany({
-    where: { locationCode: { in: locationCodes }, status: { not: "DISPATCHED" } },
-    select: {
-      locationCode: true,
-      order: {
-        select: {
-          items: {
-            select: { quantity: true, product: { select: { name: true } } },
+  const [pickPacks, incomingMovements] = await Promise.all([
+    prisma.pickPack.findMany({
+      where: { locationCode: { in: locationCodes }, status: { not: "DISPATCHED" } },
+      select: {
+        locationCode: true,
+        order: {
+          select: {
+            items: { select: { quantity: true, product: { select: { name: true } } } },
           },
         },
       },
-    },
-  });
+    }),
+    prisma.stockMovement.findMany({
+      where: { shelfLocationId: { in: locationIds }, type: "INCOMING", status: { not: "REVERSED" } },
+      select: {
+        shelfLocationId: true,
+        items: { select: { quantity: true, product: { select: { name: true } } } },
+      },
+    }),
+  ]);
 
   const ppMap = new Map<string, { products: string[]; qty: number }>();
   for (const pp of pickPacks) {
+    if (!pp.order) continue;
     const entry = ppMap.get(pp.locationCode) ?? { products: [], qty: 0 };
     for (const item of pp.order.items) {
       if (!entry.products.includes(item.product.name)) entry.products.push(item.product.name);
@@ -309,18 +310,34 @@ export async function getLocationSummary(warehouseId: string): Promise<LocationS
     ppMap.set(pp.locationCode, entry);
   }
 
+  const incomingMap = new Map<string, { products: string[]; qty: number }>();
+  for (const mv of incomingMovements) {
+    if (!mv.shelfLocationId) continue;
+    const code = idToCode.get(mv.shelfLocationId);
+    if (!code) continue;
+    const entry = incomingMap.get(code) ?? { products: [], qty: 0 };
+    for (const item of mv.items) {
+      if (!entry.products.includes(item.product.name)) entry.products.push(item.product.name);
+      entry.qty += item.quantity;
+    }
+    incomingMap.set(code, entry);
+  }
+
   return locations.map((loc) => {
     const ppData = ppMap.get(loc.locationCode);
+    const inData = incomingMap.get(loc.locationCode);
     const suffix =
       loc.occupancyStatus === "PARTIAL"
         ? " (Partial)"
         : loc.occupancyStatus === "DAMAGE"
           ? " (Damaged)"
           : "";
+    const allProducts = [...new Set([...(ppData?.products ?? []), ...(inData?.products ?? [])])];
+    const totalQty = (ppData?.qty ?? 0) + (inData?.qty ?? 0);
     return {
       bin: loc.locationCode,
-      product: ppData?.products.join(", ") || "—",
-      qty: ppData ? `${ppData.qty}${suffix}` : `—${suffix}`,
+      product: allProducts.join(", ") || "—",
+      qty: totalQty > 0 ? `${totalQty}${suffix}` : `—${suffix}`,
     };
   });
 }
@@ -332,46 +349,86 @@ export type BinDetailOrder = {
   items: { product: string; productCode: string; quantity: number }[];
 };
 
+export type BinStockItem = {
+  referenceNumber: string;
+  product: string;
+  productCode: string;
+  quantity: number;
+};
+
 export type LocationBinDetailMap = Record<
   string,
-  { occupancyStatus: string; orders: BinDetailOrder[] }
+  { occupancyStatus: string; stockItems: BinStockItem[]; orders: BinDetailOrder[] }
 >;
 
 export async function getLocationBinDetailMap(warehouseId: string): Promise<LocationBinDetailMap> {
   const locations = await prisma.warehouseLocation.findMany({ where: { warehouseId } });
 
+  const locationIds = locations.map((l) => l.id);
   const locationCodes = locations.map((l) => l.locationCode);
+  const idToCode = new Map(locations.map((l) => [l.id, l.locationCode]));
 
-  const pickPacks = await prisma.pickPack.findMany({
-    where: { locationCode: { in: locationCodes }, status: { not: "DISPATCHED" } },
-    include: {
-      order: {
-        select: {
-          orderNumber: true,
-          items: { select: { quantity: true, product: { select: { name: true, sku: true } } } },
+  const [pickPacks, incomingMovements] = await Promise.all([
+    prisma.pickPack.findMany({
+      where: { locationCode: { in: locationCodes }, status: { not: "DISPATCHED" } },
+      include: {
+        order: {
+          select: {
+            orderNumber: true,
+            items: { select: { quantity: true, product: { select: { name: true, sku: true } } } },
+          },
         },
+        picker: { select: { name: true } },
       },
-      picker: { select: { name: true } },
-    },
-  });
+    }),
+    prisma.stockMovement.findMany({
+      where: { shelfLocationId: { in: locationIds }, type: "INCOMING", status: { not: "REVERSED" } },
+      select: {
+        referenceNumber: true,
+        shelfLocationId: true,
+        status: true,
+        items: { select: { quantity: true, product: { select: { name: true, sku: true } } } },
+      },
+    }),
+  ]);
+
+  // Group incoming movements by locationCode
+  const incomingByCode = new Map<string, typeof incomingMovements>();
+  for (const mv of incomingMovements) {
+    if (!mv.shelfLocationId) continue;
+    const code = idToCode.get(mv.shelfLocationId);
+    if (!code) continue;
+    const list = incomingByCode.get(code) ?? [];
+    list.push(mv);
+    incomingByCode.set(code, list);
+  }
 
   const result: LocationBinDetailMap = {};
 
   for (const loc of locations) {
-    const orders = pickPacks
-      .filter((pp) => pp.locationCode === loc.locationCode)
+    const orders: BinDetailOrder[] = pickPacks
+      .filter((pp) => pp.locationCode === loc.locationCode && pp.order != null)
       .map((pp) => ({
-        orderNumber: pp.order.orderNumber,
+        orderNumber: pp.order!.orderNumber,
         picker: pp.picker?.name ?? "—",
         status: pp.status,
-        items: pp.order.items.map((i) => ({
+        items: pp.order!.items.map((i) => ({
           product: i.product.name,
           productCode: i.product.sku,
           quantity: i.quantity,
         })),
       }));
 
-    result[loc.locationCode] = { occupancyStatus: loc.occupancyStatus, orders };
+    const stockItems: BinStockItem[] = (incomingByCode.get(loc.locationCode) ?? []).flatMap((mv) =>
+      mv.items.map((i) => ({
+        referenceNumber: mv.referenceNumber,
+        product: i.product.name,
+        productCode: i.product.sku,
+        quantity: i.quantity,
+      })),
+    );
+
+    result[loc.locationCode] = { occupancyStatus: loc.occupancyStatus, stockItems, orders };
   }
 
   return result;
@@ -460,11 +517,11 @@ export type DashboardStats = {
 };
 
 export type DashboardPickPackRow = {
-  orderNumber: string;
+  referenceNumber: string;
   itemsCount: number;
   picker: string;
   locationCode: string;
-  status: string | null;
+  status: "QUEUED" | "PACKED";
 };
 
 export type DashboardGoodsRow = {
@@ -512,18 +569,18 @@ export async function getWarehouseDashboard(
   warehouseId: string | null,
 ): Promise<WarehouseDashboardData> {
   const [
-    inTransitCount,
+    queuedCount,
     incomingCount,
     readyCount,
     damageCount,
-    deliveries,
+    pickPacks,
     goodsRows,
     damageAlerts,
     qcAlerts,
     locationRows,
   ] = await Promise.all([
-    // ordersToPick — IN_TRANSIT deliveries (the pick-and-pack queue size)
-    prisma.delivery.count({ where: { status: "IN_TRANSIT" } }),
+    // ordersToPick — QUEUED PickPack records linked to stock movements
+    prisma.pickPack.count({ where: { stockMovementId: { not: null }, status: "QUEUED" } }),
 
     // incomingStocks — active INCOMING movements for this warehouse
     prisma.stockMovement.count({
@@ -535,43 +592,32 @@ export async function getWarehouseDashboard(
     }),
 
     // readyForDispatch — PickPack records at PACKED stage
-    prisma.pickPack.count({ where: { status: "PACKED" } }),
+    prisma.pickPack.count({ where: { stockMovementId: { not: null }, status: "PACKED" } }),
 
     // damageReports — open reports for this warehouse
     prisma.damageReport.count({
       where: {
         status: "OPEN",
-        ...(warehouseId
-          ? { warehouseLocation: { warehouseId } }
-          : {}),
+        ...(warehouseId ? { warehouseLocation: { warehouseId } } : {}),
       },
     }),
 
-    // Pick & Pack queue preview (up to 10 rows)
-    prisma.delivery.findMany({
-      where: { status: "IN_TRANSIT" },
+    // Pick & Pack queue preview (up to 10 rows) — stock-movement-based PickPacks
+    prisma.pickPack.findMany({
+      where: { stockMovementId: { not: null }, status: { in: ["QUEUED", "PACKED"] } },
       orderBy: { createdAt: "desc" },
       take: 10,
       include: {
-        order: {
-          select: {
-            orderNumber: true,
-            _count: { select: { items: true } },
-            pickPacks: {
-              orderBy: { createdAt: "desc" },
-              take: 1,
-              include: { picker: { select: { name: true } } },
-            },
-          },
+        stockMovement: {
+          select: { referenceNumber: true },
         },
+        picker: { select: { name: true } },
       },
     }),
 
     // Goods receiving preview (up to 5 rows) scoped to warehouse
     prisma.goodsReceiving.findMany({
-      where: warehouseId
-        ? { stockMovement: { warehouseId } }
-        : {},
+      where: warehouseId ? { stockMovement: { warehouseId } } : {},
       orderBy: { createdAt: "desc" },
       take: 5,
       include: { supplier: { select: { name: true } } },
@@ -608,16 +654,13 @@ export async function getWarehouseDashboard(
   ]);
 
   // Build pick-pack queue rows
-  const pickPackQueue: DashboardPickPackRow[] = deliveries.map((d) => {
-    const pp = d.order.pickPacks[0] ?? null;
-    return {
-      orderNumber: d.order.orderNumber,
-      itemsCount: d.order._count.items,
-      picker: pp?.picker?.name ?? "—",
-      locationCode: pp?.locationCode || "—",
-      status: pp?.status ?? null,
-    };
-  });
+  const pickPackQueue: DashboardPickPackRow[] = pickPacks.map((pp) => ({
+    referenceNumber: pp.stockMovement?.referenceNumber ?? "—",
+    itemsCount: pp.itemsCount,
+    picker: pp.picker?.name ?? "—",
+    locationCode: pp.locationCode || "—",
+    status: pp.status as "QUEUED" | "PACKED",
+  }));
 
   // Build goods receiving rows
   const goodsReceiving: DashboardGoodsRow[] = goodsRows.map((g) => ({
@@ -653,7 +696,7 @@ export async function getWarehouseDashboard(
 
   return {
     stats: {
-      ordersToPick: inTransitCount,
+      ordersToPick: queuedCount,
       incomingStocks: incomingCount,
       readyForDispatch: readyCount,
       damageReports: damageCount,

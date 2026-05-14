@@ -4,25 +4,18 @@ import React, { useState, useRef, useEffect, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Checkbox } from "@/components/ui/checkbox";
 import type { PickPackRow, PickerOption } from "@/modules/warehouse/services/warehouse.service";
-import {
-  assignPickerAction,
-  updatePickPackStatusAction,
-} from "@/modules/warehouse/actions/pick-pack.action";
+import { assignPickerAction } from "@/modules/warehouse/actions/pick-pack.action";
 
-type TabFilter = "All" | "QUEUED" | "PACKING" | "PACKED" | "DISPATCHED";
+type TabFilter = "All" | "QUEUED" | "PACKED";
 
 const statusBg: Record<string, string> = {
   QUEUED: "bg-[#F59E0B] text-white",
-  PACKING: "bg-[#3B82F6] text-white",
   PACKED: "bg-[#059669] text-white",
-  DISPATCHED: "bg-[#6B7280] text-white",
 };
 
 const statusLabel: Record<string, string> = {
   QUEUED: "Queued",
-  PACKING: "Packing",
   PACKED: "Packed",
-  DISPATCHED: "Dispatched",
 };
 
 interface Props {
@@ -35,7 +28,6 @@ export default function PickAndPackClient({ initialOrders, pickers, locationCode
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [activeTab, setActiveTab] = useState<TabFilter>("All");
-  // selectedIds holds Delivery.id values
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
   const [selectedLocation, setSelectedLocation] = useState<string>(locationCodes[0] ?? "");
@@ -61,7 +53,6 @@ export default function PickAndPackClient({ initialOrders, pickers, locationCode
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // "All" shows every IN_TRANSIT delivery; other tabs filter by PickPack status
   const filteredOrders = initialOrders.filter((order) => {
     if (activeTab === "All") return true;
     return order.status === activeTab;
@@ -73,7 +64,9 @@ export default function PickAndPackClient({ initialOrders, pickers, locationCode
       : "bg-[#f3f4f6] text-gray-500 text-[13px] font-medium px-4 py-1.5 rounded-md hover:bg-gray-200 transition-colors";
 
   const handleSelectAll = (checked: boolean) => {
-    setSelectedIds(checked ? filteredOrders.map((o) => o.id) : []);
+    // Only allow selecting QUEUED items (PACKED items can't be reassigned)
+    const queued = filteredOrders.filter((o) => o.status === "QUEUED").map((o) => o.id);
+    setSelectedIds(checked ? queued : []);
   };
 
   const selectedPicker = pickers.find((p) => p.id === selectedPickerId);
@@ -85,7 +78,6 @@ export default function PickAndPackClient({ initialOrders, pickers, locationCode
     }
     setActionError(null);
     startTransition(async () => {
-      // Pass Delivery IDs; the action resolves orderIds and creates/updates PickPack records
       const result = await assignPickerAction(selectedIds, selectedPickerId, selectedLocation);
       if (result.success) {
         setIsAssignModalOpen(false);
@@ -99,21 +91,13 @@ export default function PickAndPackClient({ initialOrders, pickers, locationCode
     });
   };
 
-  // Only callable once a PickPack record exists (pickPackId is not null)
-  const handleStatusChange = (pickPackId: string, status: "QUEUED" | "PACKING" | "PACKED" | "DISPATCHED") => {
-    startTransition(async () => {
-      await updatePickPackStatusAction(pickPackId, status);
-      router.refresh();
-    });
-  };
-
   return (
     <>
       <div className="space-y-6 mt-4 max-w-6xl">
         {/* Top Controls */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 flex-wrap">
-            {(["All", "QUEUED", "PACKING", "PACKED", "DISPATCHED"] as TabFilter[]).map((tab) => (
+            {(["All", "QUEUED", "PACKED"] as TabFilter[]).map((tab) => (
               <button key={tab} onClick={() => setActiveTab(tab)} className={getTabClass(tab)}>
                 {tab === "All" ? "All" : statusLabel[tab]}
               </button>
@@ -153,17 +137,20 @@ export default function PickAndPackClient({ initialOrders, pickers, locationCode
                   <th className="px-5 py-4 w-12 font-medium">
                     <Checkbox
                       className="border-gray-300"
-                      checked={filteredOrders.length > 0 && selectedIds.length === filteredOrders.length}
+                      checked={
+                        filteredOrders.filter((o) => o.status === "QUEUED").length > 0 &&
+                        selectedIds.length === filteredOrders.filter((o) => o.status === "QUEUED").length
+                      }
                       onCheckedChange={handleSelectAll}
                     />
                   </th>
-                  <th className="px-4 py-4 font-medium">Order ID</th>
+                  <th className="px-4 py-4 font-medium">Reference</th>
                   <th className="px-4 py-4 font-medium">Dispatch Agent</th>
                   <th className="px-4 py-4 font-medium">Items</th>
                   <th className="px-4 py-4 font-medium">Picker</th>
                   <th className="px-4 py-4 font-medium">BIN Location</th>
                   <th className="px-4 py-4 font-medium">Assigned At</th>
-                  <th className="px-4 py-4 font-medium w-32 text-center">Status</th>
+                  <th className="px-4 py-4 font-medium w-28 text-center">Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white border-t border-white">
@@ -174,50 +161,36 @@ export default function PickAndPackClient({ initialOrders, pickers, locationCode
                         <Checkbox
                           className="border-gray-300"
                           checked={selectedIds.includes(order.id)}
+                          disabled={order.status === "PACKED"}
                           onCheckedChange={(checked) => {
+                            if (order.status === "PACKED") return;
                             setSelectedIds((prev) =>
                               checked ? [...prev, order.id] : prev.filter((id) => id !== order.id),
                             );
                           }}
                         />
                       </td>
-                      <td className="px-4 py-4 text-gray-500">{order.orderNumber}</td>
+                      <td className="px-4 py-4 text-gray-500">{order.referenceNumber}</td>
                       <td className="px-4 py-4 text-gray-500">{order.dispatchAgent}</td>
                       <td className="px-4 py-4 text-gray-500">{order.itemsCount}</td>
                       <td className="px-4 py-4 text-gray-500">
-                        {order.status === null ? "—" : order.picker}
+                        {order.status === "QUEUED" ? "—" : order.picker}
                       </td>
-                      <td className="px-4 py-4 text-gray-500">{order.locationCode || "—"}</td>
+                      <td className="px-4 py-4 text-gray-500">{order.locationCode}</td>
                       <td className="px-4 py-4 text-gray-500">{order.assignedAt ?? "—"}</td>
                       <td className="px-4 py-4 text-center">
-                        {order.pickPackId ? (
-                          <select
-                            value={order.status ?? ""}
-                            onChange={(e) =>
-                              handleStatusChange(
-                                order.pickPackId!,
-                                e.target.value as "QUEUED" | "PACKING" | "PACKED" | "DISPATCHED",
-                              )
-                            }
-                            className={`${statusBg[order.status ?? ""] ?? ""} text-[12px] font-medium rounded px-2 py-1 border-0 cursor-pointer`}
-                            disabled={isPending}
-                          >
-                            {(["QUEUED", "PACKING", "PACKED", "DISPATCHED"] as const).map((s) => (
-                              <option key={s} value={s} className="bg-white text-gray-800">
-                                {statusLabel[s]}
-                              </option>
-                            ))}
-                          </select>
-                        ) : (
-                          <span className="text-[11px] text-gray-400 italic">Unassigned</span>
-                        )}
+                        <span
+                          className={`inline-block text-[12px] font-medium rounded px-3 py-1 ${statusBg[order.status] ?? ""}`}
+                        >
+                          {statusLabel[order.status] ?? order.status}
+                        </span>
                       </td>
                     </tr>
                   ))
                 ) : (
                   <tr>
                     <td colSpan={8} className="px-5 py-8 text-center text-gray-500">
-                      No orders found.
+                      No dispatched stock movements found.
                     </td>
                   </tr>
                 )}
@@ -233,11 +206,11 @@ export default function PickAndPackClient({ initialOrders, pickers, locationCode
           <div className="bg-white rounded-xl w-full max-w-[480px] p-8 shadow-2xl relative">
             <h2 className="text-3xl font-bold text-black mb-1">Assign Orders</h2>
             <p className="text-gray-600 mb-8">
-              You have selected {selectedIds.length} order
+              You have selected {selectedIds.length} item
               {selectedIds.length !== 1 ? "s" : ""} for assignment
             </p>
 
-            <h3 className="text-[17px] font-bold text-black mb-4">Selected Orders</h3>
+            <h3 className="text-[17px] font-bold text-black mb-4">Selected Items</h3>
 
             <div className="flex justify-between items-center mb-3">
               <span className="text-gray-500 text-sm">Select pickup bin location</span>
@@ -275,7 +248,7 @@ export default function PickAndPackClient({ initialOrders, pickers, locationCode
             <div className="border border-gray-300 rounded overflow-y-auto h-28 p-2 mb-8 text-gray-700 font-mono text-sm leading-relaxed">
               {selectedIds.map((id) => {
                 const order = initialOrders.find((o) => o.id === id);
-                return <div key={id}>{order?.orderNumber ?? id}</div>;
+                return <div key={id}>{order?.referenceNumber ?? id}</div>;
               })}
             </div>
 
