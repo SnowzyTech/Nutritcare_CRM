@@ -19,24 +19,22 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { ProfitAndLossView } from './ProfitAndLossView';
-import { BalanceSheetView } from './BalanceSheetView';
-import { CashFlowView } from './CashFlowView';
+import { BalanceSheetView as StatementOfFinancialPosition } from './BalanceSheetView';
+import { CashFlowView as StatementOfCashFlow } from './CashFlowView';
 import { RevenueByProductView } from './RevenueByProductView';
 import { InventoryValuationView } from './InventoryValuationView';
 import { ExpenseLedgerView } from './ExpenseLedgerView';
 import { DeliveryTrackerView } from './DeliveryTrackerView';
-import { AdSpendTrackerView } from './AdSpendTrackerView';
 import { TrialBalanceView } from './TrialBalanceView';
 
 const reportTypes = [
   "Profit & Loss",
-  "Balance Sheet",
-  "Cash Flow",
+  "STATEMENT OF FINANCIAL POSITION",
+  "STATEMENT OF CASH FLOW",
   "Revenue By Product",
   "Inventory Valuation",
   "Expense Ledger",
   "Delivery Tracker",
-  "Ad Spent Tracker",
   "Trial Balance"
 ];
 
@@ -150,12 +148,17 @@ export function ReportsClient({ initialTab }: ReportsClientProps = {}) {
               Show Menu
             </button>
           )}
+
+          <div className="mb-8">
+            <h2 className="text-[28px] font-bold text-gray-800 tracking-tight">{activeReport}</h2>
+            <p className="text-gray-400 text-[14px]">Financial reporting for the selected period</p>
+          </div>
           {activeReport === "Profit & Loss" ? (
             <ProfitAndLossView />
-          ) : activeReport === "Balance Sheet" ? (
-            <BalanceSheetView />
-          ) : activeReport === "Cash Flow" ? (
-            <CashFlowView />
+          ) : activeReport === "STATEMENT OF FINANCIAL POSITION" ? (
+            <StatementOfFinancialPosition />
+          ) : activeReport === "STATEMENT OF CASH FLOW" ? (
+            <StatementOfCashFlow />
           ) : activeReport === "Revenue By Product" ? (
             <RevenueByProductView />
           ) : activeReport === "Inventory Valuation" ? (
@@ -164,8 +167,6 @@ export function ReportsClient({ initialTab }: ReportsClientProps = {}) {
             <ExpenseLedgerView />
           ) : activeReport === "Delivery Tracker" ? (
             <DeliveryTrackerView />
-          ) : activeReport === "Ad Spent Tracker" ? (
-            <AdSpendTrackerView />
           ) : activeReport === "Trial Balance" ? (
             <TrialBalanceView />
           ) : null}

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
@@ -28,6 +28,7 @@ import {
 } from "@/modules/finance/actions/expenses.action";
 import { createSupplierAction } from "@/modules/finance/actions/suppliers.action";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 interface ExpenseHistoryRow {
   id?: string;
@@ -165,8 +166,21 @@ export function ExpensesClient({
   const updateLine = (id: number, field: keyof LineRow, value: string) =>
     setLineItems(prev => prev.map(l => (l.id === id ? { ...l, [field]: value } : l)));
 
-  const [isCategoryModalOpen, setCategoryModalOpen] = useState(false);
-  const [newCategory, setNewCategory] = useState({ type: '', description: '', instances: '' });
+  const [attachment, setAttachment] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      setAttachment(e.target.files[0]);
+    }
+  };
+
+  const [showCategoryAdd, setShowCategoryAdd] = useState(false);
+  const [isAddingNewCategory, setIsAddingNewCategory] = useState(false);
+  const [selectedCategoryType, setSelectedCategoryType] = useState('');
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [newCategoryDesc, setNewCategoryDesc] = useState('');
+  const [subCategoryInputs, setSubCategoryInputs] = useState<string[]>(['']);
 
   const [isAccountModalOpen, setAccountModalOpen] = useState(false);
   const [newAccount, setNewAccount] = useState({ accountNumber: '', bankName: '' });
@@ -175,12 +189,48 @@ export function ExpensesClient({
   const [newSupplier, setNewSupplier] = useState({ name: '', contact: '', balance: '' });
 
   const handleAddCategory = async () => {
-    if (!newCategory.type) return;
-    const res = await createExpenseCategoryAction(newCategory.type);
+    const finalName = isAddingNewCategory ? newCategoryName : selectedCategoryType;
+    if (!finalName.trim()) return;
+
+    const validSubs = subCategoryInputs.filter(s => s.trim());
+    
+    // In this app, categories are stored as {id, name}. 
+    // If appending to existing, we find the old names first.
+    let displayName = finalName.trim();
+    if (validSubs.length > 0) {
+      if (!isAddingNewCategory) {
+        const existingCat = categories.find(c => c.name.toLowerCase().startsWith(finalName.toLowerCase()));
+        if (existingCat) {
+          // Extract names from brackets if they exist
+          const match = existingCat.name.match(/\((.*)\)/);
+          const oldNames = match ? match[1] : "";
+          const allNames = oldNames ? `${oldNames}, ${validSubs.join(', ')}` : validSubs.join(', ');
+          displayName = `${finalName.trim()} (${allNames})`;
+          
+          // Update local state if it's existing
+          setCategories(prev => prev.map(c => c.id === existingCat.id ? { ...c, name: displayName } : c));
+        } else {
+          displayName = `${finalName.trim()} (${validSubs.join(', ')})`;
+        }
+      } else {
+        displayName = `${finalName.trim()} (${validSubs.join(', ')})`;
+      }
+    }
+
+    const res = await createExpenseCategoryAction(displayName);
     if ('error' in res) { alert(res.error); return; }
-    setCategories(prev => [...prev, { id: res.id!, name: res.name! }]);
-    setCategoryModalOpen(false);
-    setNewCategory({ type: '', description: '', instances: '' });
+    
+    // If it was new, add to state
+    if (isAddingNewCategory || !categories.find(c => c.name.toLowerCase().startsWith(finalName.toLowerCase()))) {
+       setCategories(prev => [...prev, { id: res.id!, name: res.name! }]);
+    }
+    
+    setIsAddingNewCategory(false);
+    setSelectedCategoryType('');
+    setNewCategoryName('');
+    setNewCategoryDesc('');
+    setSubCategoryInputs(['']);
+    setShowCategoryAdd(false);
   };
 
   const handleAddAccount = async () => {
@@ -253,6 +303,7 @@ export function ExpensesClient({
     setSelectedAccountId('');
     setNotesText('');
     setDate(new Date());
+    setAttachment(null);
     setLineItems([
       { id: 1, product: '', description: '', qty: '1', amount: '', tax: '' },
       { id: 2, product: '', description: '', qty: '1', amount: '', tax: '' },
@@ -393,30 +444,166 @@ export function ExpensesClient({
 
               <div className="space-y-8">
                 {/* Expense Category */}
-                <div className="grid grid-cols-5 gap-6 items-end">
-                  <div className="col-span-4 space-y-2">
-                    <label className="text-[13px] font-bold text-gray-600">Expense Category</label>
-                    <div className="relative">
-                      <select
-                        value={selectedCategoryId}
-                        onChange={e => setSelectedCategoryId(e.target.value)}
-                        className="w-full h-12 bg-white border border-gray-200 rounded-lg px-4 text-[14px] text-gray-600 appearance-none focus:outline-none focus:ring-1 focus:ring-purple-400"
-                      >
-                        <option value="">Please Select</option>
-                        {categories.map(cat => (
-                          <option key={cat.id} value={cat.id}>{cat.name}</option>
-                        ))}
-                      </select>
-                      <ChevronDown size={18} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-300 pointer-events-none" />
+                <div className="space-y-6">
+                  <div className="grid grid-cols-5 gap-6 items-end">
+                    <div className="col-span-4 space-y-2">
+                      <label className="text-[13px] font-bold text-gray-600 uppercase tracking-wider">Expense Category</label>
+                      <div className="relative">
+                        <select
+                          value={selectedCategoryId}
+                          onChange={e => setSelectedCategoryId(e.target.value)}
+                          className="w-full h-12 bg-gray-50 border-0 rounded-xl px-5 text-[14px] text-gray-700 appearance-none focus:outline-none focus:ring-2 focus:ring-purple-200 font-medium"
+                        >
+                          <option value="">Please Select</option>
+                          {categories.map(cat => (
+                            <option key={cat.id} value={cat.id}>{cat.name}</option>
+                          ))}
+                        </select>
+                        <ChevronDown size={18} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                      </div>
                     </div>
+                    <button 
+                      onClick={() => setShowCategoryAdd(!showCategoryAdd)}
+                      className={`h-12 border border-[#AE00FF] text-[#AE00FF] rounded-xl flex items-center justify-center gap-2 hover:bg-purple-50 transition-all text-[13px] font-bold ${showCategoryAdd ? 'bg-purple-50' : 'bg-white'}`}
+                    >
+                      <Plus size={16} />
+                      Add New Category
+                    </button>
                   </div>
-                  <button 
-                    onClick={() => setCategoryModalOpen(true)}
-                    className="h-12 bg-white border border-gray-200 rounded-lg flex items-center justify-center gap-2 text-gray-500 hover:border-gray-300 transition-all text-[13px] font-medium"
-                  >
-                    <Plus size={16} />
-                    Add New Category
-                  </button>
+
+                  {showCategoryAdd && (
+                    <div className="bg-white rounded-[32px] p-8 border border-purple-100 animate-in fade-in slide-in-from-top-2 duration-300 shadow-xl shadow-purple-50/50">
+                      <div className="flex justify-between items-center mb-8">
+                        <h3 className="text-[18px] font-bold text-gray-700">Add Account Entry</h3>
+                        <button onClick={() => setShowCategoryAdd(false)} className="text-gray-400 hover:text-gray-600 bg-gray-50 p-2 rounded-full transition-colors">
+                          <X size={18} />
+                        </button>
+                      </div>
+
+                      <div className="space-y-6">
+                        <div className="grid grid-cols-2 gap-8">
+                          <div className="space-y-2">
+                            <label className="text-[13px] font-bold text-gray-500 uppercase tracking-wider">Category Type</label>
+                            <Select 
+                              value={isAddingNewCategory ? "ADD_NEW" : selectedCategoryType} 
+                              onValueChange={(val) => {
+                                if (val === "ADD_NEW") {
+                                  setIsAddingNewCategory(true);
+                                  setSelectedCategoryType('');
+                                } else {
+                                  setIsAddingNewCategory(false);
+                                  setSelectedCategoryType(val);
+                                }
+                              }}
+                            >
+                              <SelectTrigger className="w-full h-[52px] px-5 bg-gray-50 border-0 rounded-2xl text-[14px] font-medium text-gray-700 focus:ring-2 focus:ring-purple-200">
+                                <SelectValue placeholder="Select existing type..." />
+                              </SelectTrigger>
+                              <SelectContent className="rounded-2xl border-purple-50 shadow-xl z-[150]">
+                                <SelectItem value="Operating Expense" className="rounded-xl py-3 px-4 focus:bg-purple-50">Operating Expense</SelectItem>
+                                <SelectItem value="Cost of Goods Sold" className="rounded-xl py-3 px-4 focus:bg-purple-50">Cost of Goods Sold</SelectItem>
+                                <SelectItem value="Administrative Expense" className="rounded-xl py-3 px-4 focus:bg-purple-50">Administrative Expense</SelectItem>
+                                {categories.map(c => (
+                                  <SelectItem key={c.id} value={c.name} className="rounded-xl py-3 px-4 focus:bg-purple-50">
+                                    {c.name}
+                                  </SelectItem>
+                                ))}
+                                <div className="h-px bg-gray-100 my-1" />
+                                <SelectItem value="ADD_NEW" className="rounded-xl py-3 px-4 text-purple-600 font-bold focus:bg-purple-50">
+                                  + Add New Category Type
+                                </SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+
+                          {isAddingNewCategory && (
+                            <div className="space-y-2 animate-in slide-in-from-left-2 duration-300">
+                              <label className="text-[13px] font-bold text-gray-500 uppercase tracking-wider">New Type Name</label>
+                              <input
+                                value={newCategoryName}
+                                onChange={e => setNewCategoryName(e.target.value)}
+                                placeholder="e.g. Marketing & Ads"
+                                className="w-full h-[52px] px-5 bg-gray-50 border-0 rounded-2xl text-[14px] font-medium text-gray-700 focus:ring-2 focus:ring-purple-200"
+                              />
+                            </div>
+                          )}
+                        </div>
+
+                        {isAddingNewCategory && (
+                          <div className="space-y-2 animate-in slide-in-from-top-2 duration-300">
+                            <label className="text-[13px] font-bold text-gray-500 uppercase tracking-wider">Description</label>
+                            <input
+                              value={newCategoryDesc}
+                              onChange={e => setNewCategoryDesc(e.target.value)}
+                              placeholder="e.g. Office rent, utilities, etc."
+                              className="w-full h-[52px] px-5 bg-gray-50 border-0 rounded-2xl text-[14px] font-medium text-gray-700 focus:ring-2 focus:ring-purple-200"
+                            />
+                          </div>
+                        )}
+
+                        {!isAddingNewCategory && selectedCategoryType && (
+                          <div className="p-4 bg-purple-50 rounded-2xl border border-purple-100 animate-in fade-in duration-300">
+                            <p className="text-[12px] font-bold text-purple-700 uppercase tracking-tight mb-1">Existing Account Names:</p>
+                            <p className="text-[14px] text-purple-900 font-medium italic">
+                              {categories.find(c => c.name.toLowerCase().startsWith(selectedCategoryType.toLowerCase()))?.name.match(/\((.*)\)/)?.[1] || "No names added yet"}
+                            </p>
+                            <p className="text-[11px] text-purple-400 mt-2">Add more below to append to this category.</p>
+                          </div>
+                        )}
+
+                        <div className="space-y-3">
+                          <label className="text-[13px] font-bold text-gray-500 uppercase tracking-wider">Account Name(s)</label>
+                          <div className="space-y-3">
+                            {subCategoryInputs.map((input, idx) => (
+                              <div key={idx} className="flex gap-3 animate-in fade-in duration-200">
+                                <input
+                                  value={input}
+                                  onChange={e => {
+                                    const next = [...subCategoryInputs];
+                                    next[idx] = e.target.value;
+                                    setSubCategoryInputs(next);
+                                  }}
+                                  placeholder="Enter name..."
+                                  className="flex-1 h-[52px] px-5 bg-gray-50 border-0 rounded-2xl text-[14px] font-medium text-gray-700 focus:ring-2 focus:ring-purple-200"
+                                />
+                                {idx === subCategoryInputs.length - 1 && (
+                                  <button
+                                    onClick={() => setSubCategoryInputs([...subCategoryInputs, ''])}
+                                    className="w-[52px] h-[52px] flex items-center justify-center bg-purple-50 text-purple-600 rounded-2xl hover:bg-purple-100 transition-colors"
+                                  >
+                                    <span className="font-bold text-[24px]">+</span>
+                                  </button>
+                                )}
+                                {subCategoryInputs.length > 1 && (
+                                  <button
+                                    onClick={() => setSubCategoryInputs(subCategoryInputs.filter((_, i) => i !== idx))}
+                                    className="w-[52px] h-[52px] flex items-center justify-center bg-red-50 text-red-400 rounded-2xl hover:bg-red-100 transition-colors"
+                                  >
+                                    <X size={20} />
+                                  </button>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-4 pt-4 border-t border-gray-50">
+                          <button
+                            onClick={handleAddCategory}
+                            className="flex-1 py-4 bg-[#AE00FF] text-white rounded-2xl text-[15px] font-bold hover:bg-[#8B00CC] transition-all shadow-lg shadow-purple-100 active:scale-[0.98]"
+                          >
+                            Save Category
+                          </button>
+                          <button
+                            onClick={() => { setShowCategoryAdd(false); setSubCategoryInputs(['']); }}
+                            className="px-10 py-4 border border-gray-200 text-gray-400 rounded-2xl text-[15px] font-bold hover:bg-gray-50 transition-all"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Date */}
@@ -554,9 +741,28 @@ export function ExpensesClient({
                 </div>
 
                 {/* Attachment */}
-                <div className="border border-dashed border-gray-300 rounded-lg h-32 flex flex-col items-center justify-center gap-1 bg-white hover:bg-gray-50 transition-all cursor-pointer">
-                  <p className="text-[10px] font-bold text-[#AE00FF]">Add Attachment</p>
-                  <p className="text-[9px] text-gray-400">Max file size: 20 MB</p>
+                <div 
+                  onClick={() => fileInputRef.current?.click()}
+                  className="border border-dashed border-gray-300 rounded-lg h-32 flex flex-col items-center justify-center gap-1 bg-white hover:bg-gray-50 transition-all cursor-pointer overflow-hidden px-4"
+                >
+                  <input 
+                    type="file" 
+                    ref={fileInputRef} 
+                    onChange={handleFileChange} 
+                    className="hidden" 
+                  />
+                  <p className="text-[11px] font-bold text-[#AE00FF] text-center line-clamp-1">
+                    {attachment ? `Selected: ${attachment.name}` : 'Add Attachment'}
+                  </p>
+                  <p className="text-[10px] text-gray-400">Max file size: 20 MB</p>
+                  {attachment && (
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); setAttachment(null); }}
+                      className="mt-2 text-[10px] text-red-400 hover:text-red-500 font-bold"
+                    >
+                      Remove
+                    </button>
+                  )}
                 </div>
 
                 {/* Actions */}
@@ -901,48 +1107,7 @@ export function ExpensesClient({
         </div>
       </div>
 
-      {/* --- MODALS --- */}
-      {isCategoryModalOpen && (
-        <div className="fixed inset-0 bg-black/30 z-[100] flex items-center justify-center backdrop-blur-sm">
-          <div className="bg-white rounded-2xl p-8 w-[400px] shadow-2xl">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-lg font-bold text-gray-800">Add New Category</h3>
-              <button onClick={() => setCategoryModalOpen(false)} className="text-gray-400 hover:text-gray-600 bg-gray-100 p-1.5 rounded-full"><X size={18} /></button>
-            </div>
-            <div className="space-y-4">
-              <div>
-                <label className="text-[12px] font-bold text-gray-600 mb-1.5 block">Category Type</label>
-                <div className="relative">
-                  <input 
-                    list="expense-type-options"
-                    value={newCategory.type} 
-                    onChange={e => setNewCategory({...newCategory, type: e.target.value})} 
-                    placeholder="Select or type new..."
-                    className="w-full h-11 bg-white border border-gray-200 rounded-lg px-4 text-[13px] text-gray-700 focus:outline-none focus:border-purple-400"
-                  />
-                  <datalist id="expense-type-options">
-                    <option value="Operating Expense" />
-                    <option value="Cost of Goods Sold" />
-                    <option value="Administrative Expense" />
-                    <option value="Other" />
-                  </datalist>
-                </div>
-              </div>
-              <div>
-                <label className="text-[12px] font-bold text-gray-600 mb-1.5 block">Instance of {newCategory.type || 'Type'}</label>
-                <input type="text" placeholder="e.g. Salaries, Rent" value={newCategory.instances} onChange={e => setNewCategory({...newCategory, instances: e.target.value})} className="w-full h-11 border border-gray-200 rounded-lg px-4 text-[13px] text-gray-700 focus:outline-none focus:border-purple-400" />
-              </div>
-              <div>
-                <label className="text-[12px] font-bold text-gray-600 mb-1.5 block">Description</label>
-                <input type="text" placeholder="Short description" value={newCategory.description} onChange={e => setNewCategory({...newCategory, description: e.target.value})} className="w-full h-11 border border-gray-200 rounded-lg px-4 text-[13px] text-gray-700 focus:outline-none focus:border-purple-400" />
-              </div>
-              <button onClick={handleAddCategory} className="w-full py-3.5 bg-[#AE00FF] text-white rounded-xl text-[13px] font-bold mt-4 hover:bg-[#9900E6] transition-colors shadow-md shadow-purple-100">
-                Add Category
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+
 
       {isAccountModalOpen && (
         <div className="fixed inset-0 bg-black/30 z-[100] flex items-center justify-center backdrop-blur-sm">
