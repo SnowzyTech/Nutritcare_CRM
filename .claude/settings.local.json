@@ -20,7 +20,9 @@
       "Bash(Select-Object Name)",
       "Bash(grep -E \"\\\\.\\(tsx?|jsx?\\)$\")",
       "Bash(wmic logicaldisk *)",
-      "Bash(Select-String -Pattern \"report-buttons|profile-client|settings|analytics\\\\.service|orders\\\\.action|settlements\\\\.action|agent-settlement\\\\.service|users\\\\.action|users\\\\.service\")"
+      "Bash(Select-String -Pattern \"report-buttons|profile-client|settings|analytics\\\\.service|orders\\\\.action|settlements\\\\.action|agent-settlement\\\\.service|users\\\\.action|users\\\\.service\")",
+      "Bash(grep -r \"cloudinary\\\\|CLOUDINARY\\\\|CLOUD_NAME\\\\|CLOUD\" .env* --include=\"*.env*\" -i)",
+      "Bash(grep -r \"cloudinary\" package.json next.config* -i)"
     ]
   }
 }

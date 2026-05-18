@@ -200,18 +200,56 @@ export async function createOutgoingMovementAction(
 
   try {
     await prisma.$transaction(async (tx) => {
-      if (!isAgentToAgentTransfer && shelfLocationId) {
-        const shelf = await tx.warehouseLocation.findUnique({ where: { id: shelfLocationId } });
-        if (!shelf) throw new Error("Shelf location not found");
-        if (shelf.currentStock < totalQty) {
-          throw new Error(
-            `Insufficient stock on shelf "${shelf.locationCode}" (${shelf.currentStock} available, ${totalQty} required)`
-          );
+      if (!isAgentToAgentTransfer && warehouseId) {
+        for (const item of items) {
+          const movItems = await tx.stockMovementItem.findMany({
+            where: { productId: item.productId, stockMovement: { warehouseId } },
+            include: { stockMovement: { select: { type: true, status: true } } },
+          });
+          let available = 0;
+          for (const mi of movItems) {
+            const { type, status } = mi.stockMovement;
+            if (type === "INCOMING" && ["RECEIVED", "SHELVED"].includes(status)) available += mi.quantity;
+            else if (type === "OUTGOING") available -= mi.quantity;
+            else if (type === "RETURN") available += mi.quantity;
+          }
+          available = Math.max(0, available);
+          if (available < item.quantity) {
+            const prod = await tx.product.findUnique({ where: { id: item.productId }, select: { name: true } });
+            throw new Error(
+              `Insufficient stock in warehouse for "${prod?.name ?? item.productCode}" (${available} available, ${item.quantity} required)`
+            );
+          }
         }
-        await tx.warehouseLocation.update({
-          where: { id: shelfLocationId },
-          data: { currentStock: { decrement: totalQty } },
-        });
+      }
+
+      if (isAgentToAgentTransfer && fromAgentId) {
+        for (const item of items) {
+          const [sentToAgent, sentFromAgent, returnedFromAgent] = await Promise.all([
+            tx.stockMovementItem.aggregate({
+              where: { productId: item.productId, stockMovement: { toAgentId: fromAgentId } },
+              _sum: { quantity: true },
+            }),
+            tx.stockMovementItem.aggregate({
+              where: { productId: item.productId, stockMovement: { agentId: fromAgentId, isAgentToAgentTransfer: true } },
+              _sum: { quantity: true },
+            }),
+            tx.stockMovementItem.aggregate({
+              where: { productId: item.productId, stockMovement: { type: "RETURN", agentId: fromAgentId } },
+              _sum: { quantity: true },
+            }),
+          ]);
+          const available = Math.max(
+            0,
+            (sentToAgent._sum.quantity ?? 0) - (sentFromAgent._sum.quantity ?? 0) - (returnedFromAgent._sum.quantity ?? 0)
+          );
+          if (available < item.quantity) {
+            const prod = await tx.product.findUnique({ where: { id: item.productId }, select: { name: true } });
+            throw new Error(
+              `Insufficient stock with agent for "${prod?.name ?? item.productCode}" (${available} available, ${item.quantity} required)`
+            );
+          }
+        }
       }
 
       await tx.stockMovement.create({
@@ -222,7 +260,7 @@ export async function createOutgoingMovementAction(
           agentId: isAgentToAgentTransfer ? (fromAgentId || null) : null,
           toAgentId: agentId,
           warehouseId: (!isAgentToAgentTransfer && warehouseId) ? warehouseId : null,
-          shelfLocationId: (!isAgentToAgentTransfer && shelfLocationId) ? shelfLocationId : null,
+          shelfLocationId: null,
           state,
           country,
           supplierReference: supplierReference || null,
@@ -253,10 +291,10 @@ export async function createOutgoingMovementAction(
 // ── Create Stock Transfer ─────────────────────────────────────────────────────
 
 const CreateStockTransferSchema = z.object({
-  sourceType: z.enum(["WAREHOUSE", "AGENT"]),
-  sourceId: z.string().min(1, "Source is required"),
-  targetType: z.enum(["WAREHOUSE", "AGENT"]),
-  targetId: z.string().min(1, "Target is required"),
+  sourceType: z.literal("WAREHOUSE"),
+  sourceId: z.string().min(1, "Source warehouse is required"),
+  targetType: z.literal("WAREHOUSE"),
+  targetId: z.string().min(1, "Target warehouse is required"),
   date: z.string().min(1, "Date is required"),
   notes: z.string().optional(),
   status: z.enum(["DRAFT", "SUBMITTED"]),
@@ -285,8 +323,49 @@ export async function createStockTransferAction(
 
   const { sourceType, sourceId, targetType, targetId, date, notes, status, items } = parsed.data;
 
-  if (sourceType === targetType && sourceId === targetId) {
-    return { error: "Source and target cannot be the same" };
+  if (sourceId === targetId) {
+    return { error: "Source and target warehouse cannot be the same" };
+  }
+
+  // Check per-product availability in the source warehouse before creating
+  if (status === "SUBMITTED") {
+    const [movementItems, completedTransferItems] = await Promise.all([
+      prisma.stockMovementItem.findMany({
+        where: { stockMovement: { warehouseId: sourceId } },
+        include: { stockMovement: { select: { type: true, status: true } } },
+      }),
+      prisma.stockTransferItem.findMany({
+        where: { stockTransfer: { status: "COMPLETED", OR: [{ sourceId }, { targetId: sourceId }] } },
+        include: { stockTransfer: { select: { sourceType: true, sourceId: true, targetType: true, targetId: true } } },
+      }),
+    ]);
+
+    const stockMap: Record<string, number> = {};
+    for (const item of movementItems) {
+      const { type, status: ms } = item.stockMovement;
+      stockMap[item.productId] ??= 0;
+      if (type === "INCOMING" && ["RECEIVED", "SHELVED"].includes(ms)) {
+        stockMap[item.productId] += item.quantity;
+      } else if (type === "RETURN") {
+        stockMap[item.productId] += item.quantity;
+      }
+    }
+    for (const item of completedTransferItems) {
+      const { sourceType: st, sourceId: sid, targetType: tt, targetId: tid } = item.stockTransfer;
+      stockMap[item.productId] ??= 0;
+      if (st === "WAREHOUSE" && sid === sourceId) stockMap[item.productId] -= item.quantity;
+      if (tt === "WAREHOUSE" && tid === sourceId) stockMap[item.productId] += item.quantity;
+    }
+
+    for (const item of items) {
+      const available = Math.max(0, stockMap[item.productId] ?? 0);
+      if (available < item.quantity) {
+        const product = await prisma.product.findUnique({ where: { id: item.productId }, select: { name: true } });
+        return {
+          error: `Insufficient stock for "${product?.name ?? item.productId}" — ${available} available, ${item.quantity} requested`,
+        };
+      }
+    }
   }
 
   try {
@@ -311,45 +390,7 @@ export async function createStockTransferAction(
         },
       });
 
-      if (status === "SUBMITTED") {
-        const totalQty = items.reduce((sum, item) => sum + item.quantity, 0);
-
-        if (sourceType === "WAREHOUSE") {
-          const locations = await tx.warehouseLocation.findMany({
-            where: { warehouseId: sourceId },
-            orderBy: { currentStock: "desc" },
-          });
-          const totalAvailable = locations.reduce((sum, loc) => sum + loc.currentStock, 0);
-          if (totalAvailable < totalQty) {
-            throw new Error(
-              `Insufficient stock at source warehouse (${totalAvailable} available, ${totalQty} required)`
-            );
-          }
-          let remaining = totalQty;
-          for (const loc of locations) {
-            if (remaining <= 0) break;
-            const deduct = Math.min(loc.currentStock, remaining);
-            await tx.warehouseLocation.update({
-              where: { id: loc.id },
-              data: { currentStock: { decrement: deduct } },
-            });
-            remaining -= deduct;
-          }
-        }
-
-        if (targetType === "WAREHOUSE") {
-          const targetLoc = await tx.warehouseLocation.findFirst({
-            where: { warehouseId: targetId },
-            orderBy: { currentStock: "desc" },
-          });
-          if (targetLoc) {
-            await tx.warehouseLocation.update({
-              where: { id: targetLoc.id },
-              data: { currentStock: { increment: totalQty } },
-            });
-          }
-        }
-      }
+      // WarehouseLocation.currentStock is adjusted at PACKED time (pick-pack flow), not here.
     });
   } catch (e) {
     console.error("createStockTransferAction error:", e);
@@ -761,13 +802,24 @@ export async function addWarehouseAction(
   const parsed = AddWarehouseSchema.safeParse(raw);
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
 
+  // Resolve reference code: use provided value or auto-generate a guaranteed-unique one.
+  // A null unique index on Postgres 15+ (NULLS NOT DISTINCT) treats multiple NULLs as duplicates,
+  // so we must never store null here.
+  let referenceCode = parsed.data.referenceCode?.trim() || null;
+  if (referenceCode) {
+    const existing = await prisma.warehouse.findUnique({ where: { referenceCode } });
+    if (existing) return { error: "A warehouse with this reference code already exists" };
+  } else {
+    referenceCode = generateRefNumber("WH");
+  }
+
   await prisma.warehouse.create({
     data: {
       name: parsed.data.warehouseName,
       address: parsed.data.warehouseAddress ?? null,
       phone: parsed.data.warehousePhone ?? null,
       email: parsed.data.warehouseEmail || null,
-      referenceCode: parsed.data.referenceCode ?? null,
+      referenceCode,
       country: parsed.data.country ?? null,
     },
   });
@@ -836,6 +888,7 @@ const AddProductSchema = z.object({
   alertEmails: z.string().optional(),
   costPrice: z.string().min(1, "Cost price is required"),
   sellingPrice: z.string().min(1, "Selling price is required"),
+  unit: z.string().optional(),
   imageUrl: z.string().optional(),
   quantity: z.string().optional(),
   // Offer fields
@@ -846,6 +899,23 @@ const AddProductSchema = z.object({
   offerRecurring: z.string().optional(),
   showQuantityAndUnit: z.string().optional(),
 });
+
+function extractCombosAndGifts(formData: FormData) {
+  const comboProductIds = formData.getAll("comboProductId") as string[];
+  const comboQuantities = formData.getAll("comboQuantity") as string[];
+  const giftProductIds = formData.getAll("giftProductId") as string[];
+  const giftQuantities = formData.getAll("giftQuantity") as string[];
+
+  const validCombos = comboProductIds
+    .map((pid, i) => ({ productId: pid, quantity: parseInt(comboQuantities[i] || "0", 10) }))
+    .filter((c) => c.productId && c.quantity > 0);
+
+  const validGifts = giftProductIds
+    .map((pid, i) => ({ productId: pid, quantity: parseInt(giftQuantities[i] || "0", 10) }))
+    .filter((g) => g.productId && g.quantity > 0);
+
+  return { validCombos, validGifts };
+}
 
 export async function addProductAction(
   _prev: { error?: string } | null,
@@ -867,6 +937,7 @@ export async function addProductAction(
     alertEmails: (formData.get("alertEmails") as string) || undefined,
     costPrice: formData.get("costPrice") as string,
     sellingPrice: formData.get("sellingPrice") as string,
+    unit: (formData.get("unit") as string) || undefined,
     imageUrl: (formData.get("imageUrl") as string) || undefined,
     quantity: (formData.get("quantity") as string) || undefined,
     // Offer fields
@@ -885,6 +956,7 @@ export async function addProductAction(
   if (!categoryExists) return { error: "Selected category does not exist" };
 
   const sku = generateSku(parsed.data.productName);
+  const { validCombos, validGifts } = extractCombosAndGifts(formData);
 
   const product = await prisma.product.create({
     data: {
@@ -901,7 +973,8 @@ export async function addProductAction(
       alertEmails: parsed.data.alertEmails ?? null,
       costPrice: parseFloat(parsed.data.costPrice),
       sellingPrice: parseFloat(parsed.data.sellingPrice),
-      imageUrl: parsed.data.imageUrl ?? null,
+      unit: parsed.data.unit ?? null,
+      imageUrl: parsed.data.imageUrl || null,
       quantity: parsed.data.quantity ? parseInt(parsed.data.quantity, 10) : 0,
       sku,
     },
@@ -919,6 +992,26 @@ export async function addProductAction(
         showQuantityAndUnit: parsed.data.showQuantityAndUnit === "true",
       },
     });
+
+    if (validCombos.length > 0) {
+      await prisma.productCombo.createMany({
+        data: validCombos.map((c) => ({
+          productId: product.id,
+          comboProductId: c.productId,
+          quantity: c.quantity,
+        })),
+      });
+    }
+
+    if (validGifts.length > 0) {
+      await prisma.productGift.createMany({
+        data: validGifts.map((g) => ({
+          productId: product.id,
+          giftProductId: g.productId,
+          quantity: g.quantity,
+        })),
+      });
+    }
   }
 
   revalidatePath("/inventory/stock");
@@ -948,6 +1041,7 @@ export async function updateProductAction(
     alertEmails: (formData.get("alertEmails") as string) || undefined,
     costPrice: formData.get("costPrice") as string,
     sellingPrice: formData.get("sellingPrice") as string,
+    unit: (formData.get("unit") as string) || undefined,
     imageUrl: (formData.get("imageUrl") as string) || undefined,
     quantity: (formData.get("quantity") as string) || undefined,
     // Offer fields
@@ -983,7 +1077,8 @@ export async function updateProductAction(
           alertEmails: parsed.data.alertEmails ?? null,
           costPrice: parseFloat(parsed.data.costPrice),
           sellingPrice: parseFloat(parsed.data.sellingPrice),
-          imageUrl: parsed.data.imageUrl ?? null,
+          unit: parsed.data.unit ?? null,
+          imageUrl: parsed.data.imageUrl || null,
           quantity: parsed.data.quantity ? parseInt(parsed.data.quantity, 10) : 0,
         },
       });
@@ -1001,21 +1096,40 @@ export async function updateProductAction(
 
         const existingOffer = await tx.productOffer.findFirst({ where: { productId: id } });
         if (existingOffer) {
-          await tx.productOffer.update({
-            where: { id: existingOffer.id },
-            data: offerData,
-          });
+          await tx.productOffer.update({ where: { id: existingOffer.id }, data: offerData });
         } else {
-          await tx.productOffer.create({
-            data: {
-              ...offerData,
+          await tx.productOffer.create({ data: { ...offerData, productId: id } });
+        }
+
+        // Replace combo products
+        const { validCombos, validGifts } = extractCombosAndGifts(formData);
+        await tx.productCombo.deleteMany({ where: { productId: id } });
+        if (validCombos.length > 0) {
+          await tx.productCombo.createMany({
+            data: validCombos.map((c) => ({
               productId: id,
-            },
+              comboProductId: c.productId,
+              quantity: c.quantity,
+            })),
+          });
+        }
+
+        // Replace gift products
+        await tx.productGift.deleteMany({ where: { productId: id } });
+        if (validGifts.length > 0) {
+          await tx.productGift.createMany({
+            data: validGifts.map((g) => ({
+              productId: id,
+              giftProductId: g.productId,
+              quantity: g.quantity,
+            })),
           });
         }
       } else {
-        // If hasOffer is No, delete any existing offer
+        // hasOffer is No — clear everything
         await tx.productOffer.deleteMany({ where: { productId: id } });
+        await tx.productCombo.deleteMany({ where: { productId: id } });
+        await tx.productGift.deleteMany({ where: { productId: id } });
       }
     });
 
@@ -1027,6 +1141,187 @@ export async function updateProductAction(
     console.error("updateProductAction error:", e);
     return { error: "Failed to update product" };
   }
+}
+
+// ── Update Warehouse ──────────────────────────────────────────────────────────
+
+const UpdateWarehouseSchema = z.object({
+  warehouseName: z.string().min(1, "Warehouse name is required"),
+  warehouseAddress: z.string().optional(),
+  warehousePhone: z.string().optional(),
+  warehouseEmail: z.string().email("Invalid email").or(z.literal("")).optional(),
+  referenceCode: z.string().optional(),
+  country: z.string().optional(),
+});
+
+export async function updateWarehouseAction(
+  _prev: { error?: string } | null,
+  formData: FormData
+): Promise<{ error?: string }> {
+  await requireAuth();
+
+  const id = formData.get("id") as string;
+  if (!id) return { error: "Warehouse ID is required" };
+
+  const raw = {
+    warehouseName: formData.get("warehouseName") as string,
+    warehouseAddress: (formData.get("warehouseAddress") as string) || undefined,
+    warehousePhone: (formData.get("warehousePhone") as string) || undefined,
+    warehouseEmail: (formData.get("warehouseEmail") as string) || "",
+    referenceCode: (formData.get("referenceCode") as string) || undefined,
+    country: (formData.get("country") as string) || undefined,
+  };
+
+  const parsed = UpdateWarehouseSchema.safeParse(raw);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
+
+  // Resolve reference code — never store null (Postgres 15 NULLS NOT DISTINCT)
+  let referenceCode = parsed.data.referenceCode?.trim() || null;
+  if (referenceCode) {
+    const conflict = await prisma.warehouse.findFirst({
+      where: { referenceCode, NOT: { id } },
+    });
+    if (conflict) return { error: "A warehouse with this reference code already exists" };
+  } else {
+    // Keep the existing code rather than auto-generating a new one on update
+    const existing = await prisma.warehouse.findUnique({ where: { id }, select: { referenceCode: true } });
+    referenceCode = existing?.referenceCode ?? generateRefNumber("WH");
+  }
+
+  try {
+    await prisma.warehouse.update({
+      where: { id },
+      data: {
+        name: parsed.data.warehouseName,
+        address: parsed.data.warehouseAddress ?? null,
+        phone: parsed.data.warehousePhone ?? null,
+        email: parsed.data.warehouseEmail || null,
+        referenceCode,
+        country: parsed.data.country ?? null,
+      },
+    });
+  } catch (e) {
+    console.error("updateWarehouseAction error:", e);
+    return { error: "Failed to update warehouse" };
+  }
+
+  revalidatePath("/inventory/stock");
+  revalidatePath(`/inventory/stock/warehouse/${id}`);
+  redirect(`/inventory/stock/warehouse/${id}`);
+}
+
+// ── Update Supplier ───────────────────────────────────────────────────────────
+
+const UpdateSupplierSchema = z.object({
+  supplierName: z.string().min(1, "Supplier name is required"),
+  phone1: z.string().min(5, "Phone number is required"),
+  phone2: z.string().optional(),
+  state: z.string().optional(),
+  address: z.string().optional(),
+  country: z.string().optional(),
+});
+
+export async function updateSupplierAction(
+  _prev: { error?: string } | null,
+  formData: FormData
+): Promise<{ error?: string }> {
+  await requireAuth();
+
+  const id = formData.get("id") as string;
+  if (!id) return { error: "Supplier ID is required" };
+
+  const raw = {
+    supplierName: formData.get("supplierName") as string,
+    phone1: formData.get("phone1") as string,
+    phone2: (formData.get("phone2") as string) || undefined,
+    state: (formData.get("state") as string) || undefined,
+    address: (formData.get("address") as string) || undefined,
+    country: (formData.get("country") as string) || undefined,
+  };
+
+  const parsed = UpdateSupplierSchema.safeParse(raw);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
+
+  // Check phone uniqueness excluding this record
+  const conflict = await prisma.supplier.findFirst({
+    where: { phone1: parsed.data.phone1, NOT: { id } },
+  });
+  if (conflict) return { error: "Another supplier already uses this phone number" };
+
+  try {
+    await prisma.supplier.update({
+      where: { id },
+      data: {
+        name: parsed.data.supplierName,
+        phone1: parsed.data.phone1,
+        phone2: parsed.data.phone2 ?? null,
+        state: parsed.data.state ?? null,
+        address: parsed.data.address ?? null,
+        country: parsed.data.country ?? null,
+      },
+    });
+  } catch (e) {
+    console.error("updateSupplierAction error:", e);
+    return { error: "Failed to update supplier" };
+  }
+
+  revalidatePath("/inventory/stock");
+  revalidatePath(`/inventory/stock/supplier/${id}`);
+  redirect(`/inventory/stock/supplier/${id}`);
+}
+
+// ── Update Product Category ───────────────────────────────────────────────────
+
+const UpdateProductCategorySchema = z.object({
+  categoryName: z.string().min(1, "Category name is required"),
+  brandName: z.string().min(1, "Brand name is required"),
+  brandPhoneNumber: z.string().optional(),
+  brandWhatsappNumber: z.string().optional(),
+  brandEmail: z.string().email("Invalid brand email").or(z.literal("")).optional(),
+  smsSenderId: z.string().optional(),
+});
+
+export async function updateProductCategoryAction(
+  _prev: { error?: string } | null,
+  formData: FormData
+): Promise<{ error?: string }> {
+  await requireAuth();
+
+  const id = formData.get("id") as string;
+  if (!id) return { error: "Category ID is required" };
+
+  const raw = {
+    categoryName: formData.get("categoryName") as string,
+    brandName: formData.get("brandName") as string,
+    brandPhoneNumber: (formData.get("brandPhoneNumber") as string) || undefined,
+    brandWhatsappNumber: (formData.get("brandWhatsappNumber") as string) || undefined,
+    brandEmail: (formData.get("brandEmail") as string) || "",
+    smsSenderId: (formData.get("smsSenderId") as string) || undefined,
+  };
+
+  const parsed = UpdateProductCategorySchema.safeParse(raw);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
+
+  try {
+    await prisma.productCategory.update({
+      where: { id },
+      data: {
+        categoryName: parsed.data.categoryName,
+        brandName: parsed.data.brandName,
+        brandPhone: parsed.data.brandPhoneNumber ?? null,
+        brandWhatsappNumber: parsed.data.brandWhatsappNumber ?? null,
+        brandEmail: parsed.data.brandEmail || null,
+        smsSenderId: parsed.data.smsSenderId ?? null,
+      },
+    });
+  } catch (e) {
+    console.error("updateProductCategoryAction error:", e);
+    return { error: "Failed to update category" };
+  }
+
+  revalidatePath("/inventory/stock");
+  revalidatePath(`/inventory/stock/category/${id}`);
+  redirect(`/inventory/stock/category/${id}`);
 }
 
 // ── Soft Deletes ──────────────────────────────────────────────────────────────

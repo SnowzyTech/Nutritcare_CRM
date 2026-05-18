@@ -281,6 +281,7 @@ model Product {
   lowStockAlertQtyTotal Int?
   alertEmails           String?
   sku                   String    @unique
+  unit                  String?
   imageUrl              String?
   quantity              Int       @default(0)
   isActive              Boolean   @default(true)
@@ -598,6 +599,7 @@ model StockTransfer {
   createdBy   User                @relation("StockTransferCreatedBy", fields: [createdById], references: [id])
   driverAgent Agent?              @relation("StockTransferDriver", fields: [driverAgentId], references: [id])
   items       StockTransferItem[]
+  pickPacks   PickPack[]          @relation("PickPackStockTransfer")
 
   @@index([status])
   @@index([createdById])
@@ -663,6 +665,7 @@ model PickPack {
   id              String         @id @default(cuid())
   orderId         String?
   stockMovementId String?
+  stockTransferId String?
   pickerId        String?
   locationCode    String         @default("")
   itemsCount      Int
@@ -674,10 +677,12 @@ model PickPack {
 
   order         Order?         @relation(fields: [orderId], references: [id])
   stockMovement StockMovement? @relation("PickPackStockMovement", fields: [stockMovementId], references: [id])
+  stockTransfer StockTransfer? @relation("PickPackStockTransfer", fields: [stockTransferId], references: [id])
   picker        User?          @relation("PickerAssignments", fields: [pickerId], references: [id])
 
   @@index([orderId])
   @@index([stockMovementId])
+  @@index([stockTransferId])
   @@index([pickerId])
   @@index([status])
   @@map("pick_packs")

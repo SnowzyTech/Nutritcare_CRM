@@ -155,6 +155,54 @@ export async function getIncomingGoodDetail(
   };
 }
 
+// ── Recorded inventory vouchers for warehouse receipt confirmation ─────────────
+
+export type RecordedVoucherItem = {
+  productId: string;
+  productName: string;
+  productCode: string;
+  quantity: number;
+};
+
+export type RecordedVoucher = {
+  id: string;
+  referenceNumber: string;
+  warehouseName: string;
+  supplierId: string | null;
+  supplierName: string | null;
+  supplierReference: string | null;
+  items: RecordedVoucherItem[];
+};
+
+export async function getRecordedIncomingVouchers(
+  warehouseId: string
+): Promise<RecordedVoucher[]> {
+  const movements = await prisma.stockMovement.findMany({
+    where: { type: "INCOMING", status: "RECORDED", warehouseId },
+    include: {
+      warehouse: { select: { name: true } },
+      supplier: { select: { id: true, name: true } },
+      items: { include: { product: { select: { id: true, name: true, sku: true } } } },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  return movements.map((m) => ({
+    id: m.id,
+    referenceNumber: m.referenceNumber,
+    warehouseName: m.warehouse?.name ?? "—",
+    supplierId: m.supplier?.id ?? null,
+    supplierName: m.supplier?.name ?? null,
+    supplierReference: m.supplierReference ?? null,
+    items: m.items.map((item) => ({
+      productId: item.product.id,
+      productName: item.product.name,
+      productCode: item.product.sku,
+      quantity: item.quantity,
+    })),
+  }));
+}
+
 // ── Pick & Pack ───────────────────────────────────────────────────────────────
 
 export type PickPackRow = {
@@ -170,15 +218,32 @@ export type PickPackRow = {
   status: "QUEUED" | "PACKED";
 };
 
-export async function getPickPackOrders(): Promise<PickPackRow[]> {
+export async function getPickPackOrders(warehouseId: string | null): Promise<PickPackRow[]> {
   const pickPacks = await prisma.pickPack.findMany({
     where: {
-      stockMovementId: { not: null },
       status: { in: ["QUEUED", "PACKED"] },
+      OR: [
+        {
+          stockMovementId: { not: null },
+          ...(warehouseId ? { stockMovement: { warehouseId } } : {}),
+        },
+        {
+          stockTransferId: { not: null },
+          ...(warehouseId
+            ? { stockTransfer: { sourceType: "WAREHOUSE", sourceId: warehouseId } }
+            : {}),
+        },
+      ],
     },
     orderBy: { createdAt: "desc" },
     include: {
       stockMovement: {
+        select: {
+          referenceNumber: true,
+          driverAgent: { select: { companyName: true } },
+        },
+      },
+      stockTransfer: {
         select: {
           referenceNumber: true,
           driverAgent: { select: { companyName: true } },
@@ -190,8 +255,12 @@ export async function getPickPackOrders(): Promise<PickPackRow[]> {
 
   return pickPacks.map((pp) => ({
     id: pp.id,
-    referenceNumber: pp.stockMovement?.referenceNumber ?? "—",
-    dispatchAgent: pp.stockMovement?.driverAgent?.companyName ?? "—",
+    referenceNumber:
+      pp.stockMovement?.referenceNumber ?? pp.stockTransfer?.referenceNumber ?? "—",
+    dispatchAgent:
+      pp.stockMovement?.driverAgent?.companyName ??
+      pp.stockTransfer?.driverAgent?.companyName ??
+      "—",
     itemsCount: pp.itemsCount,
     picker: pp.picker?.name ?? "—",
     pickerId: pp.pickerId,
@@ -242,6 +311,8 @@ export type LocationBinRow = {
   zone: string;
   col: string;
   occupancyStatus: string;
+  currentStock: number;
+  maxCapacity: number | null;
 };
 
 export async function getWarehouseLocations(warehouseId: string): Promise<LocationBinRow[]> {
@@ -253,7 +324,15 @@ export async function getWarehouseLocations(warehouseId: string): Promise<Locati
   return locations.map((l) => {
     const zone = l.zone ?? l.locationCode.charAt(0);
     const col = l.locationCode.slice(zone.length);
-    return { id: l.id, locationCode: l.locationCode, zone, col, occupancyStatus: l.occupancyStatus };
+    return {
+      id: l.id,
+      locationCode: l.locationCode,
+      zone,
+      col,
+      occupancyStatus: l.occupancyStatus,
+      currentStock: l.currentStock,
+      maxCapacity: l.maxCapacity ?? null,
+    };
   });
 }
 
@@ -582,11 +661,11 @@ export async function getWarehouseDashboard(
     // ordersToPick — QUEUED PickPack records linked to stock movements
     prisma.pickPack.count({ where: { stockMovementId: { not: null }, status: "QUEUED" } }),
 
-    // incomingStocks — active INCOMING movements for this warehouse
+    // incomingStocks — INCOMING movements still awaiting receipt confirmation
     prisma.stockMovement.count({
       where: {
         type: "INCOMING",
-        status: { in: ["RECEIVED", "QC_CHECK"] },
+        status: "RECORDED",
         ...(warehouseId ? { warehouseId } : {}),
       },
     }),

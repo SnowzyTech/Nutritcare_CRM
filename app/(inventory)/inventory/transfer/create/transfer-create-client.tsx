@@ -21,6 +21,8 @@ interface Props {
   products: { id: string; name: string; sku: string }[];
 }
 
+type WarehouseNode = { id: string; name: string };
+
 let rowId = 2;
 
 export default function TransferCreateClient({ nodes, products }: Props) {
@@ -40,8 +42,7 @@ export default function TransferCreateClient({ nodes, products }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const warehouses = nodes.filter((n) => n.type === "WAREHOUSE");
-  const agents = nodes.filter((n) => n.type === "AGENT");
+  const warehouses: WarehouseNode[] = nodes.filter((n) => n.type === "WAREHOUSE");
 
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
@@ -75,8 +76,8 @@ export default function TransferCreateClient({ nodes, products }: Props) {
     const source = resolveNode(form.sourceNodeId);
     const target = resolveNode(form.targetNodeId);
 
-    if (!source) { setError("Source Warehouse/Agent is required"); return; }
-    if (!target) { setError("Target Warehouse/Agent is required"); return; }
+    if (!source) { setError("Source warehouse is required"); return; }
+    if (!target) { setError("Target warehouse is required"); return; }
     if (!form.date) { setError("Date is required"); return; }
 
     const items = rows
@@ -138,24 +139,13 @@ export default function TransferCreateClient({ nodes, products }: Props) {
         <div className="space-y-4">
           {/* Source */}
           <div className="flex items-center gap-4">
-            <label className="text-sm font-semibold text-amber-500 w-56 shrink-0">Source Warehouse/Agent *</label>
+            <label className="text-sm font-semibold text-amber-500 w-56 shrink-0">Source Warehouse *</label>
             <div className="relative flex-1">
               <select name="sourceNodeId" value={form.sourceNodeId} onChange={handleChange} className={selectClass}>
-                <option value="" disabled>Select an Option</option>
-                {warehouses.length > 0 && (
-                  <optgroup label="Warehouses">
-                    {warehouses.map((n) => (
-                      <option key={n.id} value={n.id}>{n.name}</option>
-                    ))}
-                  </optgroup>
-                )}
-                {agents.length > 0 && (
-                  <optgroup label="Agents">
-                    {agents.map((n) => (
-                      <option key={n.id} value={n.id}>{n.name}</option>
-                    ))}
-                  </optgroup>
-                )}
+                <option value="" disabled>Select a Warehouse</option>
+                {warehouses.map((n) => (
+                  <option key={n.id} value={n.id}>{n.name}</option>
+                ))}
               </select>
               <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             </div>
@@ -163,24 +153,15 @@ export default function TransferCreateClient({ nodes, products }: Props) {
 
           {/* Target */}
           <div className="flex items-center gap-4">
-            <label className="text-sm font-semibold text-amber-500 w-56 shrink-0">Target Warehouse/Agent *</label>
+            <label className="text-sm font-semibold text-amber-500 w-56 shrink-0">Target Warehouse *</label>
             <div className="relative flex-1">
               <select name="targetNodeId" value={form.targetNodeId} onChange={handleChange} className={selectClass}>
-                <option value="" disabled>Select an Option</option>
-                {warehouses.length > 0 && (
-                  <optgroup label="Warehouses">
-                    {warehouses.map((n) => (
-                      <option key={n.id} value={n.id}>{n.name}</option>
-                    ))}
-                  </optgroup>
-                )}
-                {agents.length > 0 && (
-                  <optgroup label="Agents">
-                    {agents.map((n) => (
-                      <option key={n.id} value={n.id}>{n.name}</option>
-                    ))}
-                  </optgroup>
-                )}
+                <option value="" disabled>Select a Warehouse</option>
+                {warehouses
+                  .filter((n) => n.id !== form.sourceNodeId)
+                  .map((n) => (
+                    <option key={n.id} value={n.id}>{n.name}</option>
+                  ))}
               </select>
               <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             </div>

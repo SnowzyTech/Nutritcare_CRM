@@ -101,12 +101,28 @@ export async function dispatchOrderAction(
     // stockTransfer
     const transfer = await prisma.stockTransfer.findUnique({
       where: { id: itemId },
-      select: { id: true, status: true },
+      include: { items: { select: { quantity: true } } },
     });
 
     if (!transfer) return { success: false, error: "Stock transfer not found" };
     if (transfer.status !== "SUBMITTED")
       return { success: false, error: "Transfer is not in a dispatchable state" };
+
+    const alreadyQueued = await prisma.pickPack.findFirst({
+      where: { stockTransferId: itemId },
+      select: { id: true },
+    });
+
+    if (!alreadyQueued) {
+      const itemsCount = transfer.items.reduce((sum, i) => sum + i.quantity, 0);
+      await prisma.pickPack.create({
+        data: {
+          stockTransferId: itemId,
+          itemsCount,
+          status: "QUEUED",
+        },
+      });
+    }
 
     await prisma.stockTransfer.update({
       where: { id: itemId },

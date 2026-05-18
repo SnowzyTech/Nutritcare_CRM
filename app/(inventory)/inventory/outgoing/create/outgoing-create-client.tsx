@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Filter, ArrowUpDown, ChevronDown, ArrowLeft, Plus, MessageCircle, Check, Trash2 } from "lucide-react";
 import { createOutgoingMovementAction } from "@/modules/inventory/actions/stock.action";
@@ -29,10 +29,11 @@ interface Props {
   agents: { id: string; name: string }[];
   products: { id: string; name: string; sku: string }[];
   warehouses: { id: string; name: string }[];
-  locations: { id: string; warehouseId: string; locationCode: string; currentStock: number; zone: string | null }[];
+  warehouseProductStock: Record<string, Record<string, number>>;
+  agentProductStock: Record<string, Record<string, number>>;
 }
 
-export default function OutgoingCreateClient({ agents, products, warehouses, locations }: Props) {
+export default function OutgoingCreateClient({ agents, products, warehouses, warehouseProductStock, agentProductStock }: Props) {
   const router = useRouter();
 
   const [form, setForm] = useState({
@@ -45,7 +46,6 @@ export default function OutgoingCreateClient({ agents, products, warehouses, loc
     fromAgentId: "",
     quantityToSend: "",
     warehouseId: "",
-    shelfLocationId: "",
     notes: "",
   });
 
@@ -58,22 +58,18 @@ export default function OutgoingCreateClient({ agents, products, warehouses, loc
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
   ) => {
     const { name, value } = e.target;
-    setForm((prev) => {
-      const next = { ...prev, [name]: value };
-      if (name === "warehouseId") next.shelfLocationId = "";
-      return next;
-    });
+    setForm((prev) => ({ ...prev, [name]: value }));
   };
 
-  const shelfOptions = useMemo(
-    () => locations.filter((l) => l.warehouseId === form.warehouseId),
-    [locations, form.warehouseId]
-  );
+  const availableInWarehouse =
+    !isAgentToAgent && form.warehouseId && form.productId
+      ? (warehouseProductStock[form.warehouseId]?.[form.productId] ?? 0)
+      : null;
 
-  const selectedShelf = useMemo(
-    () => locations.find((l) => l.id === form.shelfLocationId),
-    [locations, form.shelfLocationId]
-  );
+  const availableWithFromAgent =
+    isAgentToAgent && form.fromAgentId && form.productId
+      ? (agentProductStock[form.fromAgentId]?.[form.productId] ?? 0)
+      : null;
 
   const handleAddBulk = () => {
     setBulks((prev) => [...prev, { id: Date.now(), productId: "", quantity: "" }]);
@@ -101,14 +97,34 @@ export default function OutgoingCreateClient({ agents, products, warehouses, loc
       return;
     }
     if (!isAgentToAgent && !form.warehouseId) { setError("Warehouse is required"); return; }
-    if (!isAgentToAgent && !form.shelfLocationId) { setError("Shelf location is required"); return; }
     if (!form.quantityToSend || parseInt(form.quantityToSend, 10) <= 0) {
       setError("Quantity must be greater than 0");
       return;
     }
 
-    const primaryProduct = products.find((p) => p.id === form.productId);
     const mainQty = parseInt(form.quantityToSend, 10);
+
+    // Validate main product quantity against warehouse stock
+    if (!isAgentToAgent && form.warehouseId && availableInWarehouse !== null) {
+      if (mainQty > availableInWarehouse) {
+        setError(
+          `Quantity (${mainQty}) exceeds available stock in warehouse (${availableInWarehouse} units)`
+        );
+        return;
+      }
+    }
+
+    // Validate main product quantity against from-agent stock
+    if (isAgentToAgent && form.fromAgentId && availableWithFromAgent !== null) {
+      if (mainQty > availableWithFromAgent) {
+        setError(
+          `Quantity (${mainQty}) exceeds available stock with this agent (${availableWithFromAgent} units)`
+        );
+        return;
+      }
+    }
+
+    const primaryProduct = products.find((p) => p.id === form.productId);
     const bulkItems = bulks
       .filter((b) => b.productId && b.quantity)
       .map((b) => {
@@ -128,16 +144,6 @@ export default function OutgoingCreateClient({ agents, products, warehouses, loc
       ...bulkItems,
     ];
 
-    if (!isAgentToAgent && selectedShelf) {
-      const totalQty = items.reduce((sum, i) => sum + i.quantity, 0);
-      if (totalQty > selectedShelf.currentStock) {
-        setError(
-          `Total quantity (${totalQty}) exceeds shelf stock (${selectedShelf.currentStock})`
-        );
-        return;
-      }
-    }
-
     setLoading(true);
     const result = await createOutgoingMovementAction({
       state: form.state,
@@ -148,7 +154,6 @@ export default function OutgoingCreateClient({ agents, products, warehouses, loc
       supplierReference: form.supplierReference || undefined,
       isAgentToAgentTransfer: isAgentToAgent,
       warehouseId: !isAgentToAgent ? form.warehouseId : undefined,
-      shelfLocationId: !isAgentToAgent ? form.shelfLocationId : undefined,
       notes: form.notes || undefined,
       items,
     });
@@ -276,31 +281,13 @@ export default function OutgoingCreateClient({ agents, products, warehouses, loc
             </div>
           )}
 
-          {/* Shelf Location (non agent-to-agent, warehouse selected) */}
-          {!isAgentToAgent && form.warehouseId && (
+          {/* Available warehouse stock (shown when both warehouse and product are selected) */}
+          {availableInWarehouse !== null && (
             <div className="flex items-center gap-4">
-              <label className="text-sm font-semibold text-amber-500 w-48 shrink-0">Shelf Location*</label>
-              <div className="relative flex-1">
-                <select name="shelfLocationId" value={form.shelfLocationId} onChange={handleChange} className={selectClass}>
-                  <option value="" disabled>Select a Shelf</option>
-                  {shelfOptions.map((l) => (
-                    <option key={l.id} value={l.id}>
-                      {l.locationCode}{l.zone ? ` — ${l.zone}` : ""}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-              </div>
-            </div>
-          )}
-
-          {/* Shelf current stock (read-only) */}
-          {!isAgentToAgent && selectedShelf && (
-            <div className="flex items-center gap-4">
-              <label className="text-sm font-semibold text-gray-500 w-48 shrink-0">Current Shelf Stock</label>
+              <label className="text-sm font-semibold text-gray-500 w-48 shrink-0">Available in Warehouse</label>
               <div className="flex-1">
                 <div className={readonlyClass}>
-                  {selectedShelf.currentStock} units
+                  {availableInWarehouse} units
                 </div>
               </div>
             </div>
@@ -331,6 +318,18 @@ export default function OutgoingCreateClient({ agents, products, warehouses, loc
                   ))}
                 </select>
                 <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              </div>
+            </div>
+          )}
+
+          {/* Available stock with from-agent */}
+          {availableWithFromAgent !== null && (
+            <div className="flex items-center gap-4">
+              <label className="text-sm font-semibold text-gray-500 w-48 shrink-0">Available with Agent</label>
+              <div className="flex-1">
+                <div className={readonlyClass}>
+                  {availableWithFromAgent} units
+                </div>
               </div>
             </div>
           )}

@@ -18,6 +18,97 @@ async function requireWarehouseManager() {
   return { userId: session.user.id, warehouseId: session.user.warehouseId };
 }
 
+// ── Confirm Inventory Voucher Receipt ─────────────────────────────────────────
+
+const OccupancyStatusSchema = z.enum(["FULL", "PARTIAL", "EMPTY"]).optional();
+
+const ConfirmReceiptSchema = z.object({
+  stockMovementId: z.string().min(1, "Voucher is required"),
+  date: z.string().min(1, "Date is required"),
+  notes: z.string().optional(),
+  shelfLocationId: z.string().optional(),
+  shelfQuantity: z.coerce.number().int().min(0).optional(),
+  occupancyStatus: OccupancyStatusSchema,
+  isReserved: z.boolean().default(false),
+  isDamaged: z.boolean().default(false),
+});
+
+export async function confirmIncomingReceiptAction(
+  _prev: { error?: string } | null,
+  formData: FormData
+): Promise<{ error?: string }> {
+  let warehouseId: string;
+  try {
+    ({ warehouseId } = await requireWarehouseManager());
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
+
+  const raw = {
+    stockMovementId: formData.get("stockMovementId") as string,
+    date: formData.get("date") as string,
+    notes: (formData.get("notes") as string) || undefined,
+    shelfLocationId: (formData.get("shelfLocationId") as string) || undefined,
+    shelfQuantity: (formData.get("shelfQuantity") as string) || undefined,
+    occupancyStatus: (formData.get("occupancyStatus") as string) || undefined,
+    isReserved: formData.get("isReserved") === "true",
+    isDamaged: formData.get("isDamaged") === "true",
+  };
+
+  const parsed = ConfirmReceiptSchema.safeParse(raw);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
+
+  const movement = await prisma.stockMovement.findUnique({
+    where: { id: parsed.data.stockMovementId },
+    include: { items: { select: { quantity: true } } },
+  });
+  if (!movement || movement.type !== "INCOMING") return { error: "Voucher not found" };
+  if (movement.warehouseId !== warehouseId) return { error: "This voucher belongs to a different warehouse" };
+  if (movement.status !== "RECORDED") return { error: "This voucher has already been processed or is not in Recorded status" };
+
+  if (parsed.data.shelfLocationId) {
+    const loc = await prisma.warehouseLocation.findUnique({ where: { id: parsed.data.shelfLocationId } });
+    if (!loc || loc.warehouseId !== warehouseId) return { error: "Selected shelf location not found" };
+  }
+
+  const totalQty = movement.items.reduce((sum, i) => sum + i.quantity, 0);
+
+  await prisma.$transaction(async (tx) => {
+    await tx.stockMovement.update({
+      where: { id: parsed.data.stockMovementId },
+      data: {
+        status: "RECEIVED",
+        date: new Date(parsed.data.date),
+        notes: parsed.data.notes ?? movement.notes,
+        shelfLocationId: parsed.data.shelfLocationId ?? null,
+        shelfQuantity: parsed.data.shelfQuantity ?? null,
+        isReserved: parsed.data.isReserved,
+        isDamaged: parsed.data.isDamaged,
+      },
+    });
+
+    if (parsed.data.shelfLocationId) {
+      const shelfLoc = await tx.warehouseLocation.findUnique({
+        where: { id: parsed.data.shelfLocationId },
+        select: { occupancyStatus: true },
+      });
+      const newOccupancy =
+        parsed.data.occupancyStatus ??
+        (shelfLoc?.occupancyStatus === "EMPTY" ? "PARTIAL" : shelfLoc?.occupancyStatus ?? "PARTIAL");
+      await tx.warehouseLocation.update({
+        where: { id: parsed.data.shelfLocationId },
+        data: {
+          currentStock: { increment: totalQty },
+          occupancyStatus: newOccupancy,
+        },
+      });
+    }
+  });
+
+  revalidatePath("/warehouse/incoming-goods");
+  redirect("/warehouse/incoming-goods");
+}
+
 // ── Create Incoming ───────────────────────────────────────────────────────────
 
 const ProductItemSchema = z.object({

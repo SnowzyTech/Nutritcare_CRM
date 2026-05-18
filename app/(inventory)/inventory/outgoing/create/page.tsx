@@ -2,16 +2,18 @@ import {
   getAgentsForDropdown,
   getProductsForDropdown,
   getWarehousesForDropdown,
-  getAllWarehouseLocations,
+  getWarehouseProductStockMap,
+  getAgentProductStockMap,
 } from "@/modules/inventory/services/inventory.service";
 import OutgoingCreateClient from "./outgoing-create-client";
 
 export default async function CreateOutgoingPage() {
-  const [agents, products, warehouses, locations] = await Promise.all([
+  const [agents, products, warehouses, warehouseProductStock, agentProductStock] = await Promise.all([
     getAgentsForDropdown(),
     getProductsForDropdown(),
     getWarehousesForDropdown(),
-    getAllWarehouseLocations(),
+    getWarehouseProductStockMap(),
+    getAgentProductStockMap(),
   ]);
 
   return (
@@ -19,7 +21,8 @@ export default async function CreateOutgoingPage() {
       agents={agents}
       products={products}
       warehouses={warehouses}
-      locations={locations}
+      warehouseProductStock={warehouseProductStock}
+      agentProductStock={agentProductStock}
     />
   );
 }
