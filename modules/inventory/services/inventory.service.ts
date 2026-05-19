@@ -863,6 +863,217 @@ export async function getStockTransferById(id: string): Promise<StockTransferDet
   };
 }
 
+// ── Stock in Warehouse (grouped by warehouse) ─────────────────────────────────
+
+export type WarehouseStockItem = {
+  productId: string;
+  productName: string;
+  qtyRecorded: number;
+  qtyLeft: number;
+};
+
+export type WarehouseSummary = {
+  id: string;
+  name: string;
+  managerName: string;
+  totalProducts: number;
+  totalQty: number;
+  items: WarehouseStockItem[];
+};
+
+export async function getWarehousesWithStock(): Promise<WarehouseSummary[]> {
+  const [items, transferItems, warehouses, products] = await Promise.all([
+    prisma.stockMovementItem.findMany({
+      include: {
+        stockMovement: { select: { type: true, status: true, warehouseId: true } },
+      },
+      where: { stockMovement: { warehouseId: { not: null } } },
+    }),
+    prisma.stockTransferItem.findMany({
+      include: {
+        stockTransfer: { select: { sourceType: true, sourceId: true, targetType: true, targetId: true } },
+      },
+      where: { stockTransfer: { status: "COMPLETED" } },
+    }),
+    prisma.warehouse.findMany({
+      where: { deletedAt: null },
+      select: { id: true, name: true, managerName: true },
+      orderBy: { name: "asc" },
+    }),
+    prisma.product.findMany({
+      where: { isActive: true, deletedAt: null },
+      select: { id: true, name: true },
+    }),
+  ]);
+
+  const productNameMap = new Map(products.map((p) => [p.id, p.name]));
+
+  // warehouseId → productId → { recorded, left }
+  const stockMap = new Map<string, Map<string, { recorded: number; left: number }>>();
+
+  function getEntry(warehouseId: string, productId: string) {
+    if (!stockMap.has(warehouseId)) stockMap.set(warehouseId, new Map());
+    const wMap = stockMap.get(warehouseId)!;
+    if (!wMap.has(productId)) wMap.set(productId, { recorded: 0, left: 0 });
+    return wMap.get(productId)!;
+  }
+
+  for (const item of items) {
+    const { type, status, warehouseId } = item.stockMovement;
+    if (!warehouseId) continue;
+    const entry = getEntry(warehouseId, item.productId);
+    if (type === "INCOMING" && ["RECEIVED", "SHELVED"].includes(status)) {
+      entry.recorded += item.quantity;
+      entry.left += item.quantity;
+    } else if (type === "RETURN") {
+      entry.left += item.quantity;
+    } else if (type === "OUTGOING" && status === "SHELVED") {
+      entry.left -= item.quantity;
+    }
+  }
+
+  for (const item of transferItems) {
+    const { sourceType, sourceId, targetType, targetId } = item.stockTransfer;
+    if (sourceType === "WAREHOUSE") {
+      getEntry(sourceId, item.productId).left -= item.quantity;
+    }
+    if (targetType === "WAREHOUSE") {
+      const entry = getEntry(targetId, item.productId);
+      entry.recorded += item.quantity;
+      entry.left += item.quantity;
+    }
+  }
+
+  return warehouses.map((w) => {
+    const wMap = stockMap.get(w.id) ?? new Map();
+    const stockItems: WarehouseStockItem[] = Array.from(wMap.entries())
+      .map(([productId, vals]) => ({
+        productId,
+        productName: productNameMap.get(productId) ?? productId,
+        qtyRecorded: vals.recorded,
+        qtyLeft: Math.max(0, vals.left),
+      }))
+      .filter((i) => i.qtyLeft > 0)
+      .sort((a, b) => a.productName.localeCompare(b.productName));
+
+    return {
+      id: w.id,
+      name: w.name,
+      managerName: w.managerName ?? "—",
+      totalProducts: stockItems.length,
+      totalQty: stockItems.reduce((s, i) => s + i.qtyLeft, 0),
+      items: stockItems,
+    };
+  });
+}
+
+// ── Stock Left with Agents (grouped by agent) ─────────────────────────────────
+
+export type AgentStockItem = {
+  productId: string;
+  productName: string;
+  qtySent: number;
+  qtyLeft: number;
+};
+
+export type AgentStockSummary = {
+  id: string;
+  name: string;
+  state: string;
+  totalProducts: number;
+  totalQty: number;
+  items: AgentStockItem[];
+};
+
+export async function getAgentsWithStock(): Promise<AgentStockSummary[]> {
+  const packedPicks = await prisma.pickPack.findMany({
+    where: { stockMovementId: { not: null }, status: { in: ["PACKED", "DISPATCHED"] } },
+    select: { stockMovementId: true },
+  });
+  const packedMovementIds = new Set(packedPicks.map((p) => p.stockMovementId!));
+
+  const [outgoing, returned, agents, products] = await Promise.all([
+    prisma.stockMovementItem.findMany({
+      where: {
+        stockMovement: {
+          type: "OUTGOING",
+          OR: [{ agentId: { not: null } }, { toAgentId: { not: null } }],
+        },
+      },
+      include: {
+        stockMovement: { select: { id: true, agentId: true, toAgentId: true, isAgentToAgentTransfer: true } },
+      },
+    }),
+    prisma.stockMovementItem.findMany({
+      where: { stockMovement: { type: "RETURN", agentId: { not: null } } },
+      include: { stockMovement: { select: { agentId: true } } },
+    }),
+    prisma.agent.findMany({
+      where: { deletedAt: null },
+      select: { id: true, companyName: true, state: true },
+      orderBy: { companyName: "asc" },
+    }),
+    prisma.product.findMany({
+      where: { isActive: true, deletedAt: null },
+      select: { id: true, name: true },
+    }),
+  ]);
+
+  const productNameMap = new Map(products.map((p) => [p.id, p.name]));
+
+  // agentId → productId → { sent, returned }
+  const stockMap = new Map<string, Map<string, { sent: number; returned: number }>>();
+
+  function getEntry(agentId: string, productId: string) {
+    if (!stockMap.has(agentId)) stockMap.set(agentId, new Map());
+    const aMap = stockMap.get(agentId)!;
+    if (!aMap.has(productId)) aMap.set(productId, { sent: 0, returned: 0 });
+    return aMap.get(productId)!;
+  }
+
+  for (const item of outgoing) {
+    const { id: movementId, agentId, toAgentId, isAgentToAgentTransfer } = item.stockMovement;
+
+    if (toAgentId) {
+      const isPacked = isAgentToAgentTransfer || packedMovementIds.has(movementId);
+      if (!isPacked) continue;
+      getEntry(toAgentId, item.productId).sent += item.quantity;
+    }
+    if (isAgentToAgentTransfer && agentId) {
+      getEntry(agentId, item.productId).returned += item.quantity;
+    }
+  }
+
+  for (const item of returned) {
+    const agentId = item.stockMovement.agentId!;
+    if (stockMap.has(agentId)) getEntry(agentId, item.productId).returned += item.quantity;
+  }
+
+  return agents
+    .map((agent) => {
+      const aMap = stockMap.get(agent.id) ?? new Map();
+      const stockItems: AgentStockItem[] = Array.from(aMap.entries())
+        .map(([productId, vals]) => ({
+          productId,
+          productName: productNameMap.get(productId) ?? productId,
+          qtySent: vals.sent,
+          qtyLeft: Math.max(0, vals.sent - vals.returned),
+        }))
+        .filter((i) => i.qtySent > 0)
+        .sort((a, b) => a.productName.localeCompare(b.productName));
+
+      return {
+        id: agent.id,
+        name: agent.companyName,
+        state: agent.state ?? "—",
+        totalProducts: stockItems.filter((i) => i.qtyLeft > 0).length,
+        totalQty: stockItems.reduce((s, i) => s + i.qtyLeft, 0),
+        items: stockItems,
+      };
+    })
+    .filter((a) => a.items.length > 0);
+}
+
 // ── Stock Left with Agents ────────────────────────────────────────────────────
 
 export async function getStockLeftWithAgents(): Promise<AgentStockRow[]> {

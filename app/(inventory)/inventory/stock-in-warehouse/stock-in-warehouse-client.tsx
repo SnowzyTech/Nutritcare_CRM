@@ -1,120 +1,156 @@
 "use client";
 
 import React, { useState } from "react";
-import { Filter, Search, MessageCircle, ChevronDown } from "lucide-react";
-import type { WarehouseStockRow } from "@/modules/inventory/services/inventory.service";
+import { Search, X, Package, Warehouse } from "lucide-react";
+import type { WarehouseSummary } from "@/modules/inventory/services/inventory.service";
 
-const thClass = "text-center text-[11px] font-semibold text-gray-500 py-3 px-4 whitespace-nowrap";
-const tdClass = "text-center text-[12px] text-gray-600 py-3 px-4 whitespace-nowrap";
-
-export function StockInWarehouseClient({ initialRows }: { initialRows: WarehouseStockRow[] }) {
+export function StockInWarehouseClient({ warehouses }: { warehouses: WarehouseSummary[] }) {
   const [search, setSearch] = useState("");
-  const [actionLabel, setActionLabel] = useState("");
+  const [selected, setSelected] = useState<WarehouseSummary | null>(null);
 
-  const filtered = initialRows.filter(
-    (r) =>
-      r.productName.toLowerCase().includes(search.toLowerCase()) ||
-      r.warehouse.toLowerCase().includes(search.toLowerCase())
+  const filtered = warehouses.filter(
+    (w) =>
+      w.name.toLowerCase().includes(search.toLowerCase()) ||
+      w.managerName.toLowerCase().includes(search.toLowerCase())
   );
 
   return (
     <div className="max-w-[1400px] mx-auto flex flex-col relative pb-10">
-      <button className="absolute -top-4 right-0 w-12 h-12 bg-[#F6E8FF] rounded-full flex items-center justify-center text-[#9D00FF] shadow-sm hover:bg-[#ebd5fa] transition-colors z-50">
-        <MessageCircle className="w-6 h-6 fill-current" />
-      </button>
-
-      {/* Toolbar */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <div className="relative w-36">
-            <select
-              value={actionLabel}
-              onChange={(e) => setActionLabel(e.target.value)}
-              className="w-full border border-gray-200 rounded-md px-3 py-1.5 text-[13px] text-gray-400 appearance-none bg-white outline-none focus:border-[#9D00FF] cursor-pointer"
-            >
-              <option value="" disabled>Select Action</option>
-              <option value="export">Export</option>
-              <option value="delete">Delete</option>
-            </select>
-            <ChevronDown className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-          </div>
-          <button className="px-5 py-1.5 rounded-md text-[13px] font-semibold text-white bg-[#9D00FF] hover:bg-[#8500d9] transition-colors">
-            Go
-          </button>
+      {/* Search */}
+      <div className="flex items-center gap-3 mb-6">
+        <div className="flex items-center gap-2 border border-gray-200 rounded-md px-3 py-2 bg-white w-72">
+          <Search className="w-4 h-4 text-gray-400 shrink-0" />
+          <input
+            type="text"
+            placeholder="Search warehouse or manager..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="outline-none text-sm text-gray-600 bg-transparent w-full"
+          />
         </div>
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 border border-gray-200 rounded-md px-3 py-1.5 bg-white w-64">
-            <Search className="w-4 h-4 text-gray-400 shrink-0" />
-            <input
-              type="text"
-              placeholder="Search product or warehouse..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="outline-none text-sm text-gray-600 bg-transparent w-full"
-            />
-          </div>
+        {search && (
           <button
             onClick={() => setSearch("")}
-            className="px-6 py-1.5 rounded-md text-[13px] font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors"
+            className="px-4 py-2 rounded-md text-sm font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors"
           >
             Clear
           </button>
-          <button className="flex items-center gap-1.5 text-sm font-semibold text-gray-600 hover:text-[#9D00FF] transition-colors ml-2">
-            <Filter className="w-4 h-4" /> Filter
-          </button>
+        )}
+        <span className="ml-auto text-sm text-gray-400">{filtered.length} warehouse{filtered.length !== 1 ? "s" : ""}</span>
+      </div>
+
+      {/* Warehouse list */}
+      {filtered.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-20 text-gray-400">
+          <Warehouse className="w-12 h-12 mb-3 opacity-30" />
+          <p className="text-sm">No warehouses found</p>
         </div>
-      </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          {filtered.map((w) => (
+            <button
+              key={w.id}
+              onClick={() => setSelected(w)}
+              className="text-left bg-white border border-gray-100 rounded-xl p-5 shadow-sm hover:shadow-md hover:border-[#9D00FF]/30 transition-all group"
+            >
+              <div className="flex items-start justify-between mb-4">
+                <div className="w-10 h-10 rounded-lg bg-[#F6E8FF] flex items-center justify-center">
+                  <Warehouse className="w-5 h-5 text-[#9D00FF]" />
+                </div>
+                <span className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-[#F6E8FF] text-[#9D00FF]">
+                  {w.totalProducts} SKU{w.totalProducts !== 1 ? "s" : ""}
+                </span>
+              </div>
+              <p className="font-bold text-gray-800 text-sm mb-1 group-hover:text-[#9D00FF] transition-colors">
+                {w.name}
+              </p>
+              <p className="text-xs text-gray-400 mb-4">{w.managerName}</p>
+              <div className="flex items-center justify-between pt-3 border-t border-gray-100">
+                <span className="text-xs text-gray-500">Total qty</span>
+                <span className="text-sm font-bold text-gray-700">{w.totalQty.toLocaleString()}</span>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
 
-      {/* Table */}
-      <div className="w-full border border-gray-100 rounded-md overflow-x-auto bg-white shadow-sm mb-6">
-        <table className="w-full min-w-[800px] border-collapse">
-          <thead>
-            <tr style={{ backgroundColor: "#F9F6FC" }}>
-              <th className="py-3 pl-4 pr-2 w-10 text-left">
-                <input type="checkbox" className="accent-[#9D00FF]" />
-              </th>
-              <th className={thClass}>Product Name</th>
-              <th className={thClass}>Warehouse</th>
-              <th className={thClass}>Quantity Recorded</th>
-              <th className={thClass}>Qty Left</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.length === 0 ? (
-              <tr>
-                <td colSpan={5} className="text-center py-12 text-sm text-gray-400">
-                  No stock in warehouse data found.
-                </td>
-              </tr>
-            ) : (
-              filtered.map((row, i) => (
-                <tr key={i} className="border-b border-gray-100 last:border-b-0 hover:bg-gray-50/60 transition-colors">
-                  <td className="py-3 pl-4 pr-2 w-10 text-left">
-                    <input type="checkbox" className="accent-[#9D00FF]" />
-                  </td>
-                  <td className={tdClass}>{row.productName}</td>
-                  <td className={tdClass}>{row.warehouse}</td>
-                  <td className={tdClass}>{row.qtyRecorded}</td>
-                  <td className={tdClass}>{row.qtyLeft}</td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+      {/* Modal */}
+      {selected && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+          onClick={() => setSelected(null)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-lg bg-[#F6E8FF] flex items-center justify-center">
+                  <Warehouse className="w-4 h-4 text-[#9D00FF]" />
+                </div>
+                <div>
+                  <h2 className="font-bold text-gray-800 text-sm">{selected.name}</h2>
+                  <p className="text-xs text-gray-400">Manager: {selected.managerName}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setSelected(null)}
+                className="w-8 h-8 rounded-full flex items-center justify-center text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
 
-      {/* Pagination */}
-      <div className="flex justify-end items-center gap-2">
-        <button className="px-4 py-1.5 rounded-md text-[13px] font-semibold text-white bg-gray-300 cursor-not-allowed">
-          Previous
-        </button>
-        <button className="px-4 py-1.5 rounded-md text-[13px] font-semibold text-white bg-[#9D00FF]">
-          1
-        </button>
-        <button className="px-6 py-1.5 rounded-md text-[13px] font-semibold text-white bg-gray-300 cursor-not-allowed">
-          Next
-        </button>
-      </div>
+            {/* Summary bar */}
+            <div className="flex items-center gap-6 px-6 py-3 bg-[#F9F6FC]">
+              <div>
+                <p className="text-[10px] text-gray-500 uppercase font-semibold">Products</p>
+                <p className="text-lg font-bold text-gray-800">{selected.totalProducts}</p>
+              </div>
+              <div className="w-px h-8 bg-gray-200" />
+              <div>
+                <p className="text-[10px] text-gray-500 uppercase font-semibold">Total Qty Left</p>
+                <p className="text-lg font-bold text-[#9D00FF]">{selected.totalQty.toLocaleString()}</p>
+              </div>
+            </div>
+
+            {/* Items table */}
+            <div className="overflow-y-auto flex-1">
+              {selected.items.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 text-gray-400">
+                  <Package className="w-8 h-8 mb-2 opacity-30" />
+                  <p className="text-sm">No stock items found</p>
+                </div>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-[#F9F6FC]">
+                    <tr>
+                      <th className="text-left text-[11px] font-semibold text-gray-500 px-6 py-3">#</th>
+                      <th className="text-left text-[11px] font-semibold text-gray-500 px-6 py-3">Product</th>
+                      <th className="text-center text-[11px] font-semibold text-gray-500 px-6 py-3">Qty Recorded</th>
+                      <th className="text-center text-[11px] font-semibold text-gray-500 px-6 py-3">Qty Left</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {selected.items.map((item, i) => (
+                      <tr key={item.productId} className="hover:bg-gray-50/60 transition-colors">
+                        <td className="px-6 py-3.5 text-gray-400 text-xs">{i + 1}</td>
+                        <td className="px-6 py-3.5 font-medium text-gray-700">{item.productName}</td>
+                        <td className="px-6 py-3.5 text-center text-gray-500">{item.qtyRecorded.toLocaleString()}</td>
+                        <td className="px-6 py-3.5 text-center">
+                          <span className="font-bold text-[#9D00FF]">{item.qtyLeft.toLocaleString()}</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

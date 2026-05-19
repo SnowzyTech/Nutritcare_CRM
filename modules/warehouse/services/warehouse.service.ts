@@ -786,3 +786,59 @@ export async function getWarehouseDashboard(
     alerts,
   };
 }
+
+// ── Outgoing movements scoped to a warehouse ──────────────────────────────────
+
+export type WarehouseOutgoingRow = {
+  id: string;
+  date: string;
+  productName: string;
+  state: string;
+  agent: string;
+  otherInfo: string;
+  qtySent: number;
+  status: string;
+  addedBy: string;
+};
+
+export async function getOutgoingMovementsForWarehouse(
+  warehouseId: string
+): Promise<WarehouseOutgoingRow[]> {
+  const movements = await prisma.stockMovement.findMany({
+    where: { type: "OUTGOING", warehouseId },
+    include: {
+      agent: true,
+      toAgent: true,
+      createdBy: true,
+      items: { include: { product: true } },
+    },
+    orderBy: { date: "desc" },
+  });
+
+  const statusMap: Record<string, string> = {
+    NOT_RECEIVED: "Not Received",
+    RECEIVED: "Received",
+    DRAFT: "Draft",
+    SHELVED: "Shelved",
+    QC_CHECK: "QC Check",
+    RECORDED: "Recorded",
+    REVERSED: "Reversed",
+  };
+
+  return movements.map((m) => {
+    const totalQty = m.items.reduce((sum, i) => sum + i.quantity, 0);
+    return {
+      id: m.id,
+      date: m.date.toLocaleDateString("en-NG", { day: "2-digit", month: "short", year: "numeric" }),
+      productName: m.items.map((i) => i.product.name).join(", ") || "—",
+      state: m.state ?? "—",
+      agent: m.isAgentToAgentTransfer
+        ? `${m.agent?.companyName ?? "Unknown"} → ${m.toAgent?.companyName ?? "Unknown"}`
+        : (m.toAgent?.companyName ?? m.agent?.companyName ?? "—"),
+      otherInfo: m.toAgent?.phone1 ?? m.agent?.phone1 ?? "—",
+      qtySent: totalQty,
+      status: statusMap[m.status] ?? m.status,
+      addedBy: m.createdBy.name,
+    };
+  });
+}
