@@ -196,7 +196,12 @@ export async function createOutgoingMovementAction(
     isAgentToAgentTransfer, warehouseId, shelfLocationId, notes, items,
   } = parsed.data;
 
-  const totalQty = items.reduce((sum, item) => sum + item.quantity, 0);
+  if (isAgentToAgentTransfer) {
+    if (!fromAgentId) return { error: "Source agent is required for agent-to-agent transfers" };
+    if (fromAgentId === agentId) return { error: "Source and destination agent cannot be the same" };
+  } else {
+    if (!warehouseId) return { error: "Source warehouse is required for warehouse-to-agent movements" };
+  }
 
   try {
     await prisma.$transaction(async (tx) => {

@@ -161,12 +161,14 @@ export async function getInventoryDashboardData() {
       entry.incoming += item.quantity;
     } else if (type === "RETURN") {
       entry.returned += item.quantity;
+    } else if (type === "OUTGOING" && status === "SHELVED") {
+      entry.outgoing += item.quantity;
     }
   }
 
   const stockLevels: StockLevelRow[] = products.map((p) => {
     const s = stockMap.get(p.id) ?? { incoming: 0, outgoing: 0, returned: 0 };
-    const qty = Math.max(0, s.incoming + s.returned);
+    const qty = Math.max(0, s.incoming + s.returned - s.outgoing);
     const min = p.lowStockAlertQtyTotal ?? 50;
     const status: "OK" | "Low" | "Watch" =
       qty < min ? "Low" : qty < min * 1.5 ? "Watch" : "OK";
@@ -440,6 +442,8 @@ export async function getStockInWarehouse(): Promise<WarehouseStockRow[]> {
       entry.left += item.quantity;
     } else if (type === "RETURN") {
       entry.left += item.quantity;
+    } else if (type === "OUTGOING" && status === "SHELVED") {
+      entry.left -= item.quantity;
     }
   }
 
@@ -579,6 +583,8 @@ export async function getStockProducts(): Promise<StockProductRow[]> {
       stockMap.set(item.productId, cur + item.quantity);
     } else if (type === "RETURN") {
       stockMap.set(item.productId, cur + item.quantity);
+    } else if (type === "OUTGOING" && status === "SHELVED") {
+      stockMap.set(item.productId, cur - item.quantity);
     }
   }
 
@@ -1062,6 +1068,7 @@ export type TransferNodeOption = { id: string; name: string; type: "WAREHOUSE" |
 
 export async function getWarehousesForDropdown(): Promise<DropdownOption[]> {
   return prisma.warehouse.findMany({
+    where: { deletedAt: null },
     select: { id: true, name: true },
     orderBy: { name: "asc" },
   });
@@ -1191,6 +1198,8 @@ export async function getWarehouseProductStockMap(): Promise<Record<string, Reco
       map[warehouseId][item.productId] += item.quantity;
     } else if (type === "RETURN") {
       map[warehouseId][item.productId] += item.quantity;
+    } else if (type === "OUTGOING" && status === "SHELVED") {
+      map[warehouseId][item.productId] -= item.quantity;
     }
   }
 
@@ -1250,6 +1259,8 @@ export async function getProductStockMap(): Promise<Record<string, number>> {
       map[item.productId] += item.quantity;
     } else if (type === "RETURN") {
       map[item.productId] += item.quantity;
+    } else if (type === "OUTGOING" && status === "SHELVED") {
+      map[item.productId] -= item.quantity;
     }
   }
   for (const id of Object.keys(map)) {
