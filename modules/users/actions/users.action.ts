@@ -40,6 +40,7 @@ export async function updateProfileAction(input: {
     if (!input.name.trim()) return { error: "Name is required" };
     await updateSelfProfile(session.user.id, input);
     revalidatePath("/sales-rep/settings");
+    revalidatePath("/warehouse/settings");
     return { success: true };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Failed to update profile" };

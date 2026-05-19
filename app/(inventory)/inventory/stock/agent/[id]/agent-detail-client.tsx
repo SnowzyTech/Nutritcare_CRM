@@ -45,22 +45,7 @@ export default function AgentDetailClient({ agent }: { agent: any }) {
                 <p className="text-white/60 text-sm mt-1">Status: {agent.status}</p>
               </div>
             </div>
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => router.push(`/inventory/stock/add-agent`)}
-                className="flex items-center gap-2 bg-white/10 hover:bg-white/20 px-4 py-2 rounded-lg text-sm font-semibold transition-colors backdrop-blur-sm"
-              >
-                <Edit2 className="w-4 h-4" />
-                Edit
-              </button>
-              <button
-                onClick={() => setShowConfirm(true)}
-                className="flex items-center gap-2 bg-red-500/80 hover:bg-red-500 px-4 py-2 rounded-lg text-sm font-semibold transition-colors"
-              >
-                <Trash2 className="w-4 h-4" />
-                Delete
-              </button>
-            </div>
+            
           </div>
         </div>
 

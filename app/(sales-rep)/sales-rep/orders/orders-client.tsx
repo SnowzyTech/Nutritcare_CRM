@@ -9,6 +9,12 @@ import {
   Search,
   SlidersHorizontal,
   ArrowUpDown,
+  Plus,
+  MessageSquare,
+  X,
+  ChevronDown,
+  Trash2,
+  CheckCircle2
 } from 'lucide-react';
 import type { OrderStatus } from '@prisma/client';
 
@@ -54,14 +60,57 @@ const TABS: Array<{ label: string; key: OrderStatus | null; countKey: keyof Orde
   { label: 'Failed',    key: 'FAILED',    countKey: 'failed' },
 ];
 
+// List of all 36 States in Nigeria + Federal Capital Territory (FCT)
+const NIGERIAN_STATES = [
+  "Abia", "Adamawa", "Akwa Ibom", "Anambra", "Bauchi", "Bayelsa", "Benue", "Borno", 
+  "Cross River", "Delta", "Ebonyi", "Edo", "Ekiti", "Enugu", "Gombe", "Imo", "Jigawa", 
+  "Kaduna", "Kano", "Katsina", "Kebbi", "Kogi", "Kwara", "Lagos", "Nasarawa", "Niger", 
+  "Ogun", "Ondo", "Osun", "Oyo", "Plateau", "Rivers", "Sokoto", "Taraba", "Yobe", 
+  "Zamfara", "Federal Capital Territory (FCT)"
+];
+
 export function OrdersClient({ orders, counts, userName }: OrdersClientProps) {
   const router = useRouter();
+  
+  // Interactive Local Orders state
+  const [localOrders, setLocalOrders] = useState<OrderListItem[]>(orders);
+  
   const [activeTab, setActiveTab] = useState<OrderStatus | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterDate, setFilterDate] = useState('');
 
+  // Add Order Form Modal States
+  const [isAddOrderOpen, setIsAddOrderOpen] = useState(false);
+  const [customerName, setCustomerName] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [whatsappNumber, setWhatsappNumber] = useState('');
+  const [email, setEmail] = useState('');
+  const [address, setAddress] = useState('');
+  const [selectedState, setSelectedState] = useState('Lagos');
+  const [landmark, setLandmark] = useState('');
+  
+  // Multi-product fields inside Add Order
+  const [formProducts, setFormProducts] = useState<Array<{ product: string; quantity: number }>>([
+    { product: 'Shred Belly', quantity: 6 }
+  ]);
+
+  // Success indicator for newly added orders
+  const [successToast, setSuccessToast] = useState<string | null>(null);
+
+  // Dynamic counts derived from state
+  const dynamicCounts = useMemo(() => {
+    return {
+      all: localOrders.length,
+      pending:   localOrders.filter((o) => o.status === "PENDING").length,
+      confirmed: localOrders.filter((o) => o.status === "CONFIRMED").length,
+      delivered: localOrders.filter((o) => o.status === "DELIVERED").length,
+      cancelled: localOrders.filter((o) => o.status === "CANCELLED").length,
+      failed:    localOrders.filter((o) => o.status === "FAILED").length,
+    };
+  }, [localOrders]);
+
   const filteredOrders = useMemo(() => {
-    let result = activeTab ? orders.filter((o) => o.status === activeTab) : orders;
+    let result = activeTab ? localOrders.filter((o) => o.status === activeTab) : localOrders;
     
     if (filterDate) {
       result = result.filter((o) => {
@@ -81,12 +130,77 @@ export function OrdersClient({ orders, counts, userName }: OrdersClientProps) {
       );
     }
     return result;
-  }, [orders, activeTab, searchQuery, filterDate]);
+  }, [localOrders, activeTab, searchQuery, filterDate]);
+
+  // Product Row helpers
+  const addProductRow = () => {
+    setFormProducts([...formProducts, { product: 'Shred Belly', quantity: 1 }]);
+  };
+
+  const removeProductRow = (index: number) => {
+    if (formProducts.length === 1) return;
+    setFormProducts(formProducts.filter((_, i) => i !== index));
+  };
+
+  const updateProductRow = (index: number, field: 'product' | 'quantity', value: any) => {
+    const updated = [...formProducts];
+    updated[index] = { ...updated[index], [field]: value };
+    setFormProducts(updated);
+  };
+
+  const handleAddOrderSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!customerName.trim()) return;
+
+    const newOrder: OrderListItem = {
+      id: Math.random().toString(),
+      orderNumber: `ORD-${Math.floor(100000 + Math.random() * 900000)}`,
+      status: 'PENDING',
+      createdAt: new Date().toISOString(),
+      customer: {
+        name: customerName.trim(),
+        email: email.trim() || null
+      },
+      agent: {
+        companyName: 'Direct Outreach',
+        state: selectedState
+      },
+      items: formProducts.map(fp => ({
+        quantity: fp.quantity,
+        product: { name: fp.product }
+      }))
+    };
+
+    setLocalOrders([newOrder, ...localOrders]);
+    setIsAddOrderOpen(false);
+
+    // Trigger Success Notification
+    setSuccessToast(`Order ${newOrder.orderNumber} added successfully!`);
+    setTimeout(() => setSuccessToast(null), 4000);
+
+    // Reset fields
+    setCustomerName('');
+    setPhoneNumber('');
+    setWhatsappNumber('');
+    setEmail('');
+    setAddress('');
+    setSelectedState('Lagos');
+    setLandmark('');
+    setFormProducts([{ product: 'Shred Belly', quantity: 6 }]);
+  };
 
   return (
-    <div className="max-w-[1200px] mx-auto">
+    <div className="max-w-[1200px] mx-auto space-y-6">
+      {/* Success Notification */}
+      {successToast && (
+        <div className="fixed top-6 right-6 z-50 flex items-center gap-3 bg-emerald-50 border border-emerald-100 rounded-2xl px-5 py-4 shadow-xl animate-in fade-in slide-in-from-top-4 duration-300">
+          <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+          <p className="text-sm font-bold text-emerald-800">{successToast}</p>
+        </div>
+      )}
+
       {/* Top Navigation Icons */}
-      <div className="flex items-center gap-4 mb-6">
+      <div className="flex items-center gap-4 mb-2">
         <button className="p-1 hover:bg-gray-100 rounded text-purple-400">
           <ChevronLeft size={16} />
         </button>
@@ -101,13 +215,35 @@ export function OrdersClient({ orders, counts, userName }: OrdersClientProps) {
         </button>
       </div>
 
-      <h1 className="text-3xl font-bold text-gray-700 mb-8">Welcome Back, {userName}</h1>
+      {/* Welcome Title & Header Buttons */}
+      <div className="flex items-center justify-between mb-2">
+        <h1 className="text-3xl font-extrabold text-gray-800 tracking-tight">
+          Welcome Back, {userName}
+        </h1>
+        <div className="flex items-center gap-3">
+          {/* Circular Plus Button (Triggers Add Order Modal) */}
+          <button 
+            onClick={() => setIsAddOrderOpen(true)}
+            className="w-10 h-10 rounded-full bg-[#A020F0] text-white flex items-center justify-center shadow-lg shadow-purple-100 hover:bg-[#8B1ED2] active:scale-95 transition-all duration-200"
+            title="Add Order"
+          >
+            <Plus className="w-5 h-5 stroke-[2.5]" />
+          </button>
+          {/* Circular Chat Button */}
+          <button 
+            className="w-10 h-10 rounded-full bg-[#A020F0] text-white flex items-center justify-center shadow-lg shadow-purple-100 hover:bg-[#8B1ED2] active:scale-95 transition-all duration-200"
+            title="Messages"
+          >
+            <MessageSquare className="w-5 h-5 fill-white stroke-none" />
+          </button>
+        </div>
+      </div>
 
       {/* Status Tabs */}
-      <div className="flex items-center gap-8 mb-8 border-b border-gray-100 pb-4 overflow-x-auto no-scrollbar">
+      <div className="flex items-center gap-8 border-b border-gray-100 pb-4 overflow-x-auto no-scrollbar">
         {TABS.map((tab) => {
           const isActive = activeTab === tab.key;
-          const count = counts[tab.countKey];
+          const count = dynamicCounts[tab.countKey];
           return (
             <button
               key={tab.key ?? 'all'}
@@ -135,7 +271,7 @@ export function OrdersClient({ orders, counts, userName }: OrdersClientProps) {
       </div>
 
       {/* Filter Bar */}
-      <div className="flex flex-wrap items-center gap-4 mb-8">
+      <div className="flex flex-wrap items-center gap-4">
         <button className="flex items-center gap-2 px-3 py-2 bg-white rounded-lg text-gray-400 hover:text-gray-600 transition-colors">
           <SlidersHorizontal size={18} />
           <span className="text-sm font-medium">Filter</span>
@@ -249,6 +385,231 @@ export function OrdersClient({ orders, counts, userName }: OrdersClientProps) {
           </table>
         )}
       </div>
+
+      {/* Add Order Popup Modal Dialog */}
+      {isAddOrderOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
+          {/* Backdrop blur & fade */}
+          <div 
+            className="fixed inset-0 bg-gray-900/50 backdrop-blur-sm transition-opacity duration-300"
+            onClick={() => setIsAddOrderOpen(false)}
+          ></div>
+
+          {/* Modal Container Card (Responsive wide size) */}
+          <div className="relative bg-white rounded-[32px] shadow-2xl w-full max-w-4xl p-8 md:p-10 overflow-hidden border border-gray-100 animate-in fade-in zoom-in-95 duration-200 my-8">
+            
+            {/* Header circular X button */}
+            <button 
+              onClick={() => setIsAddOrderOpen(false)}
+              className="absolute top-8 right-8 w-8 h-8 rounded-full border border-gray-200 flex items-center justify-center text-gray-400 hover:bg-gray-50 hover:text-gray-600 active:scale-95 transition-all duration-150"
+            >
+              <X className="w-4 h-4 stroke-[2.5]" />
+            </button>
+
+            {/* Modal Title */}
+            <h2 className="text-3xl font-extrabold text-gray-900 tracking-tight text-left mb-8">
+              Add Order
+            </h2>
+
+            {/* Form */}
+            <form onSubmit={handleAddOrderSubmit} className="space-y-8">
+              
+              {/* Form Grid Rows */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-x-6 gap-y-5">
+                
+                {/* Customer name */}
+                <div className="space-y-1.5 text-left">
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+                    Customer name
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={customerName}
+                    onChange={e => setCustomerName(e.target.value)}
+                    placeholder="Adebayo Oluwaseun"
+                    className="w-full bg-white border border-gray-100 shadow-[0_2px_10px_rgb(0,0,0,0.01)] rounded-xl h-12 px-4 text-xs text-gray-700 placeholder-gray-300 focus:outline-none focus:ring-1 focus:ring-purple-200"
+                  />
+                </div>
+
+                {/* Phone number */}
+                <div className="space-y-1.5 text-left">
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+                    Phone number
+                  </label>
+                  <input
+                    type="tel"
+                    required
+                    value={phoneNumber}
+                    onChange={e => setPhoneNumber(e.target.value)}
+                    placeholder="0706 281 5934"
+                    className="w-full bg-white border border-gray-100 shadow-[0_2px_10px_rgb(0,0,0,0.01)] rounded-xl h-12 px-4 text-xs text-gray-700 placeholder-gray-300 focus:outline-none focus:ring-1 focus:ring-purple-200"
+                  />
+                </div>
+
+                {/* WhatsApp number */}
+                <div className="space-y-1.5 text-left">
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+                    WhatsApp number
+                  </label>
+                  <input
+                    type="tel"
+                    required
+                    value={whatsappNumber}
+                    onChange={e => setWhatsappNumber(e.target.value)}
+                    placeholder="0905 118 6427"
+                    className="w-full bg-white border border-gray-100 shadow-[0_2px_10px_rgb(0,0,0,0.01)] rounded-xl h-12 px-4 text-xs text-gray-700 placeholder-gray-300 focus:outline-none focus:ring-1 focus:ring-purple-200"
+                  />
+                </div>
+
+                {/* Email (optional) */}
+                <div className="space-y-1.5 text-left">
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+                    Email (optional)
+                  </label>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={e => setEmail(e.target.value)}
+                    placeholder="adebayo.seun84@yahoo.com"
+                    className="w-full bg-white border border-gray-100 shadow-[0_2px_10px_rgb(0,0,0,0.01)] rounded-xl h-12 px-4 text-xs text-gray-700 placeholder-gray-300 focus:outline-none focus:ring-1 focus:ring-purple-200"
+                  />
+                </div>
+
+                {/* State (Dropdown listing every Nigerian State + FCT) */}
+                <div className="space-y-1.5 text-left">
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+                    State
+                  </label>
+                  <div className="relative">
+                    <select
+                      value={selectedState}
+                      onChange={e => setSelectedState(e.target.value)}
+                      className="w-full bg-white border border-gray-100 shadow-[0_2px_10px_rgb(0,0,0,0.01)] rounded-xl h-12 px-4 pr-10 text-xs text-gray-700 appearance-none focus:outline-none focus:ring-1 focus:ring-purple-200 cursor-pointer"
+                    >
+                      {NIGERIAN_STATES.map(st => (
+                        <option key={st} value={st}>{st}</option>
+                      ))}
+                    </select>
+                    <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                  </div>
+                </div>
+
+                {/* Landmark */}
+                <div className="space-y-1.5 text-left">
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+                    Landmark
+                  </label>
+                  <input
+                    type="text"
+                    value={landmark}
+                    onChange={e => setLandmark(e.target.value)}
+                    placeholder="Close to UNILAG Second Gate"
+                    className="w-full bg-white border border-gray-100 shadow-[0_2px_10px_rgb(0,0,0,0.01)] rounded-xl h-12 px-4 text-xs text-gray-700 placeholder-gray-300 focus:outline-none focus:ring-1 focus:ring-purple-200"
+                  />
+                </div>
+
+                {/* Full delivery address (Beautiful full-width column span across Row 3) */}
+                <div className="space-y-1.5 text-left md:col-span-3">
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+                    Full delivery address
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={address}
+                    onChange={e => setAddress(e.target.value)}
+                    placeholder="22 Akinyemi Street, Akoka"
+                    className="w-full bg-white border border-gray-100 shadow-[0_2px_10px_rgb(0,0,0,0.01)] rounded-xl h-12 px-4 text-xs text-gray-700 placeholder-gray-300 focus:outline-none focus:ring-1 focus:ring-purple-200"
+                  />
+                </div>
+
+              </div>
+
+              {/* Products Sub-Form Section */}
+              <div className="bg-[#FAF8FF] p-6 rounded-[24px] border border-purple-100/30 space-y-5">
+                {formProducts.map((item, index) => (
+                  <div key={index} className="flex gap-4 items-center animate-fadeIn">
+                    
+                    {/* Select Product */}
+                    <div className="flex-1 space-y-1.5 text-left">
+                      <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+                        Product
+                      </label>
+                      <div className="relative">
+                        <select
+                          value={item.product}
+                          onChange={e => updateProductRow(index, 'product', e.target.value)}
+                          className="w-full bg-white border border-gray-100 shadow-[0_2px_10px_rgb(0,0,0,0.01)] rounded-xl h-12 px-4 pr-10 text-xs text-gray-700 appearance-none focus:outline-none focus:ring-1 focus:ring-purple-200 cursor-pointer"
+                        >
+                          <option value="Shred Belly">Shred Belly</option>
+                          <option value="Flat Tummy Tea">Flat Tummy Tea</option>
+                          <option value="Kedi Healthcare">Kedi Healthcare</option>
+                          <option value="Slimming Tea">Slimming Tea</option>
+                          <option value="Nutritcare Blend">Nutritcare Blend</option>
+                        </select>
+                        <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                      </div>
+                    </div>
+
+                    {/* Select Quantity */}
+                    <div className="w-1/3 space-y-1.5 text-left">
+                      <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+                        Quantity
+                      </label>
+                      <div className="relative">
+                        <select
+                          value={item.quantity}
+                          onChange={e => updateProductRow(index, 'quantity', parseInt(e.target.value))}
+                          className="w-full bg-white border border-gray-100 shadow-[0_2px_10px_rgb(0,0,0,0.01)] rounded-xl h-12 px-4 pr-10 text-xs text-gray-700 appearance-none focus:outline-none focus:ring-1 focus:ring-purple-200 cursor-pointer"
+                        >
+                          {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(q => (
+                            <option key={q} value={q}>{q}</option>
+                          ))}
+                        </select>
+                        <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                      </div>
+                    </div>
+
+                    {/* Trash delete button */}
+                    {formProducts.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeProductRow(index)}
+                        className="self-end mb-1 w-11 h-11 rounded-xl bg-white border border-gray-100 flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 hover:border-red-100 transition active:scale-95 duration-150 shadow-sm"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+
+                {/* Add Product Button */}
+                <button
+                  type="button"
+                  onClick={addProductRow}
+                  className="w-full border-2 border-dashed border-[#A020F0]/20 hover:border-[#A020F0] text-[#A020F0] font-bold py-3.5 rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all duration-200 hover:bg-purple-50/50 active:scale-[0.99] bg-white cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+                  Add Product
+                </button>
+              </div>
+
+              {/* Submit Main Button */}
+              <div className="pt-2">
+                <button
+                  type="submit"
+                  className="w-full bg-[#A020F0] hover:bg-[#8B1ED2] active:scale-[0.99] text-white font-extrabold py-4 rounded-xl text-xs tracking-wider uppercase transition-all duration-200 shadow-lg shadow-purple-100 cursor-pointer"
+                >
+                  Add Order
+                </button>
+              </div>
+
+            </form>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

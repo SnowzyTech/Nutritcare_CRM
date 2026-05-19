@@ -62,7 +62,7 @@ function trendLabel(current: number, previous: number): string {
 export async function getSelfProfile(userId: string) {
   return prisma.user.findUnique({
     where: { id: userId },
-    select: { id: true, name: true, email: true, phone: true, whatsappNumber: true, role: true, createdAt: true },
+    select: { id: true, name: true, email: true, phone: true, whatsappNumber: true, role: true, createdAt: true, avatarUrl: true },
   });
 }
 

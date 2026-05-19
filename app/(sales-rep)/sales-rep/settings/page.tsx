@@ -14,11 +14,7 @@ export default async function SalesRepSettingsPage() {
   if (!profile) redirect("/login");
 
   return (
-    <div className="max-w-2xl mx-auto space-y-8 pt-2 pb-20">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
-        <p className="text-sm text-gray-400 mt-1">Manage your profile information.</p>
-      </div>
+    <div className="w-full pb-20">
       <ProfileClient profile={profile} />
     </div>
   );

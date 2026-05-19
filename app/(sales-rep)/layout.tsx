@@ -22,9 +22,15 @@ export default async function SalesRepLayout({
   const userRecord = userId ? await getSalesRepById(userId) : null;
   const isTeamLead = userRecord?.isTeamLead === true;
 
+  const sidebarUser = userRecord ? {
+    name: userRecord.name,
+    email: userRecord.email,
+    avatarUrl: userRecord.avatarUrl,
+  } : undefined;
+
   return (
     <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
-      <SalesRepSidebarClient user={session?.user} />
+      <SalesRepSidebarClient user={sidebarUser} />
 
       <div className="flex flex-col flex-1 overflow-hidden relative">
         {isTeamLead && (
