@@ -13,7 +13,6 @@ import {
   Coins,
   BookOpen,
   BarChart2,
-  Bell,
   Settings,
   LogOut,
   Menu
@@ -33,9 +32,26 @@ const bottomItems = [
   { href: '/accounting/settings', icon: Settings, label: 'Settings' },
 ];
 
-export function AccountingSidebar() {
+function formatRole(role: string): string {
+  return role.split('_').map(w => w.charAt(0) + w.slice(1).toLowerCase()).join(' ');
+}
+
+interface SidebarUser {
+  name: string;
+  email: string;
+  avatarUrl: string | null;
+  role: string;
+  initials: string;
+}
+
+export function AccountingSidebar({ user }: { user?: SidebarUser }) {
   const pathname = usePathname();
   const [isCollapsed, setIsCollapsed] = useState(false);
+
+  const displayName = user?.name ?? 'Accountant';
+  const displayRole = user?.role ? formatRole(user.role) : 'Accountant';
+  const avatarSrc = user?.avatarUrl ??
+    `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=f3e8ff&color=7c3aed&bold=true`;
 
   return (
     <aside 
@@ -57,31 +73,42 @@ export function AccountingSidebar() {
         </div>
         <button 
           onClick={() => setIsCollapsed(!isCollapsed)}
-          className="text-gray-800 hover:text-gray-600 transition-colors flex items-center justify-center p-1 rounded-md hover:bg-gray-100"
+          className="text-gray-800 hover:text-gray-600 transition-colors flex items-center justify-center p-1 rounded-md hover:bg-gray-100 cursor-pointer"
         >
           <Menu size={20} />
         </button>
       </div>
 
       {/* Profile */}
-      <div className={`py-2 ${isCollapsed ? 'px-2 flex justify-center mb-4' : 'px-4'}`}>
-        <div className={`flex items-center ${isCollapsed ? 'justify-center p-0' : 'gap-3 p-2'}`}>
-          <div className="relative w-10 h-10 rounded-full overflow-hidden shadow-sm shrink-0">
-            <Image
-              src="https://ui-avatars.com/api/?name=Victoria+Nwachukwu&background=f3e8ff&color=7c3aed&bold=true"
-              alt="Victoria Nwachukwu"
-              fill
-              className="object-cover"
-              sizes="40px"
-            />
+      <div className={`py-4 ${isCollapsed ? 'px-2 flex justify-center mb-4' : 'px-5 border-b border-gray-50/50 pb-5 mb-3'}`}>
+        <div className={`flex items-center ${isCollapsed ? 'justify-center p-0' : 'gap-4 p-1'}`}>
+          <div className="relative group shrink-0">
+            {/* Elegant Gradient Border Ring */}
+            <div className={`rounded-full p-[2.5px] bg-gradient-to-tr from-[#AE00FF] via-purple-400 to-[#FF00C8] shadow-[0_4px_20px_rgba(174,0,255,0.18)] transition-all duration-300 group-hover:scale-105 active:scale-95 ${
+              isCollapsed ? 'w-12 h-12' : 'w-14 h-14'
+            }`}>
+              <div className="relative w-full h-full rounded-full overflow-hidden border-2 border-white bg-white">
+                <Image
+                  src={avatarSrc}
+                  alt={displayName}
+                  fill
+                  className="object-cover"
+                  sizes="56px"
+                />
+              </div>
+            </div>
+            {/* Stylish Online Status indicator */}
+            <span className={`absolute bottom-0 right-0 bg-emerald-500 border-2 border-white rounded-full shadow-md animate-pulse ${
+              isCollapsed ? 'w-3 h-3' : 'w-3.5 h-3.5'
+            }`} />
           </div>
           {!isCollapsed && (
             <div className="flex flex-col overflow-hidden">
-              <span className="text-[13px] font-bold text-gray-800 truncate max-w-[140px]">
-                Victoria Nwachukwu
+              <span className="text-[14px] font-extrabold text-gray-900 truncate leading-tight tracking-tight hover:text-[#AE00FF] transition-colors">
+                {displayName}
               </span>
-              <span className="text-[11px] text-gray-400 font-medium">
-                Accountant
+              <span className="text-[11px] text-[#AE00FF] font-bold mt-0.5 tracking-wide uppercase">
+                {displayRole}
               </span>
             </div>
           )}
