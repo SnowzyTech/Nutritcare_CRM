@@ -27,7 +27,10 @@
       "Bash(cmd.exe /c \"tasklist /FI \\\\\"IMAGENAME eq node.exe\\\\\" /FO CSV /NH\")",
       "Bash(tasklist /FI \"IMAGENAME eq node.exe\" /FO CSV /NH)",
       "PowerShell(Get-Process *)",
-      "Bash(node -e ' *)"
+      "Bash(node -e ' *)",
+      "Bash(xargs grep -l \"StockTransfer\")",
+      "Bash(Select-String -Path \"C:\\\\Users\\\\emmauel\\\\Desktop\\\\organizations\\\\Nutritcare_CRM\\\\node_modules\\\\.prisma\\\\client\\\\index.d.ts\" -Pattern \"ShelfProductStock\" -SimpleMatch)",
+      "Bash(Select-Object -First 3)"
     ]
   }
 }

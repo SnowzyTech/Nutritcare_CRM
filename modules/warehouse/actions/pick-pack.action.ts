@@ -8,6 +8,9 @@ import {
   getWarehouseProductStock,
   transferWarehouseToAgent,
   transferWarehouseToWarehouse,
+  debitShelfProducts,
+  creditShelfProducts,
+  type ShelfAllocationItem,
 } from "@/modules/inventory/services/stock-level.service";
 
 type Tx = Prisma.TransactionClient;
@@ -65,8 +68,8 @@ async function deductFromWarehouseBins(
   return remaining > 0 ? { ok: false, shortfall: remaining } : { ok: true };
 }
 
-async function creditTargetWarehouseBin(tx: Tx, warehouseId: string, qty: number): Promise<void> {
-  // Prefer an existing non-full bin; fall back to any bin; create one if none exist.
+// Returns the locationId of the credited bin so callers can also update ShelfProductStock.
+async function creditTargetWarehouseBin(tx: Tx, warehouseId: string, qty: number): Promise<string | null> {
   let target = await tx.warehouseLocation.findFirst({
     where: { warehouseId, occupancyStatus: { not: "FULL" } },
     orderBy: { currentStock: "asc" },
@@ -84,17 +87,24 @@ async function creditTargetWarehouseBin(tx: Tx, warehouseId: string, qty: number
   }
   await tx.warehouseLocation.update({
     where: { id: target.id },
-    data: {
-      currentStock: { increment: qty },
-      occupancyStatus: "PARTIAL",
-    },
+    data: { currentStock: { increment: qty }, occupancyStatus: "PARTIAL" },
   });
+  return target.id;
 }
+
+// Per-product per-shelf allocation submitted from the transfer assign modal.
+export type TransferShelfAllocation = {
+  locationId: string;
+  productId: string;
+  quantity: number;
+};
 
 export async function assignPickerAction(
   pickPackIds: string[],
   pickerId: string,
   locationCode: string,
+  // Provided when any selected PickPack is a W-to-W transfer
+  transferAllocations?: TransferShelfAllocation[],
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const session = await auth();
@@ -177,13 +187,12 @@ export async function assignPickerAction(
         // ── Warehouse → Warehouse (StockTransfer) ────────────────────────────
         if (pp.stockTransfer) {
           const { id: transferId, sourceType, sourceId, targetType, targetId, items } = pp.stockTransfer;
-          const totalQty = items.reduce((s, i) => s + i.quantity, 0);
 
           if (sourceType !== "WAREHOUSE" || targetType !== "WAREHOUSE") {
             throw new Error("Stock transfers must be warehouse-to-warehouse");
           }
 
-          // Validate per-product source availability
+          // Validate per-product availability in materialized StockLevel
           for (const item of items) {
             const product = await tx.product.findUnique({
               where: { id: item.productId },
@@ -197,14 +206,93 @@ export async function assignPickerAction(
             }
           }
 
-          const result = await deductFromWarehouseBins(tx, sourceId, totalQty, locationCode);
-          if (!result.ok) {
-            throw new Error(
-              `Bins in source warehouse hold less than the required quantity (short by ${result.shortfall}). Update bin counts before packing.`,
-            );
+          if (transferAllocations && transferAllocations.length > 0) {
+            // ── Explicit per-shelf deductions from the UI ──────────────────
+            // Validate each allocation against ShelfProductStock
+            for (const alloc of transferAllocations) {
+              const shelf = await tx.shelfProductStock.findUnique({
+                where: { locationId_productId: { locationId: alloc.locationId, productId: alloc.productId } },
+              });
+              const shelfQty = shelf?.quantity ?? 0;
+              if (shelfQty < alloc.quantity) {
+                const loc = await tx.warehouseLocation.findUnique({
+                  where: { id: alloc.locationId },
+                  select: { locationCode: true },
+                });
+                const product = await tx.product.findUnique({
+                  where: { id: alloc.productId },
+                  select: { name: true },
+                });
+                throw new Error(
+                  `Shelf ${loc?.locationCode ?? alloc.locationId} only has ${shelfQty} of "${product?.name ?? alloc.productId}", but ${alloc.quantity} requested`,
+                );
+              }
+            }
+
+            // Validate allocations match required quantities exactly (not under, not over)
+            const requiredMap = new Map(items.map((i) => [i.productId, i.quantity]));
+            const allocatedMap = new Map<string, number>();
+            for (const a of transferAllocations) {
+              allocatedMap.set(a.productId, (allocatedMap.get(a.productId) ?? 0) + a.quantity);
+            }
+            for (const [productId, required] of requiredMap) {
+              const allocated = allocatedMap.get(productId) ?? 0;
+              if (allocated !== required) {
+                const product = await tx.product.findUnique({
+                  where: { id: productId },
+                  select: { name: true },
+                });
+                throw new Error(
+                  allocated < required
+                    ? `Shelf allocations for "${product?.name ?? productId}" cover only ${allocated} of ${required} required`
+                    : `Shelf allocations for "${product?.name ?? productId}" exceed the required ${required} (got ${allocated})`,
+                );
+              }
+            }
+
+            // Deduct from ShelfProductStock per allocation
+            await debitShelfProducts(tx, transferAllocations as ShelfAllocationItem[]);
+
+            // Update WarehouseLocation.currentStock per affected bin
+            const qtyByLocation = new Map<string, number>();
+            for (const a of transferAllocations) {
+              qtyByLocation.set(a.locationId, (qtyByLocation.get(a.locationId) ?? 0) + a.quantity);
+            }
+            for (const [locationId, qty] of qtyByLocation) {
+              const loc = await tx.warehouseLocation.findUnique({
+                where: { id: locationId },
+                select: { currentStock: true },
+              });
+              const newStock = Math.max(0, (loc?.currentStock ?? 0) - qty);
+              await tx.warehouseLocation.update({
+                where: { id: locationId },
+                data: {
+                  currentStock: newStock,
+                  ...(newStock === 0 ? { occupancyStatus: "EMPTY" } : {}),
+                },
+              });
+            }
+          } else {
+            // ── Legacy cascade deduction (no explicit shelf allocations) ───
+            const totalQty = items.reduce((s, i) => s + i.quantity, 0);
+            const result = await deductFromWarehouseBins(tx, sourceId, totalQty, locationCode);
+            if (!result.ok) {
+              throw new Error(
+                `Bins in source warehouse hold less than the required quantity (short by ${result.shortfall}). Update bin counts before packing.`,
+              );
+            }
           }
 
-          await creditTargetWarehouseBin(tx, targetId, totalQty);
+          // Credit a bin in the target warehouse
+          const totalQty = items.reduce((s, i) => s + i.quantity, 0);
+          const targetBin = await creditTargetWarehouseBin(tx, targetId, totalQty);
+          // Also credit ShelfProductStock for the target bin if we got one back
+          if (targetBin) {
+            await creditShelfProducts(
+              tx,
+              items.map((i) => ({ locationId: targetBin, productId: i.productId, quantity: i.quantity })),
+            );
+          }
 
           // Materialized balance: source warehouse loses, target gains.
           await transferWarehouseToWarehouse(tx, sourceId, targetId, items);

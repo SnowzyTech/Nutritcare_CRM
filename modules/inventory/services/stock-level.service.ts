@@ -196,6 +196,63 @@ export async function reverseAdjustment(
   }
 }
 
+// ── Shelf-level (bin) product tracking ──────────────────────────────────────
+// ShelfProductStock tracks per-product quantities in specific warehouse bins.
+// These are updated atomically alongside StockLevel and WarehouseLocation.currentStock.
+
+export type ShelfAllocationItem = {
+  locationId: string;
+  productId: string;
+  quantity: number;
+};
+
+/** Credit specific product quantities into shelf bins (incoming goods). */
+export async function creditShelfProducts(
+  tx: Tx,
+  items: ShelfAllocationItem[],
+): Promise<void> {
+  for (const item of items) {
+    if (item.quantity <= 0) continue;
+    await tx.shelfProductStock.upsert({
+      where: { locationId_productId: { locationId: item.locationId, productId: item.productId } },
+      create: { locationId: item.locationId, productId: item.productId, quantity: item.quantity },
+      update: { quantity: { increment: item.quantity } },
+    });
+  }
+}
+
+/** Deduct specific product quantities from shelf bins (pick-pack or reversal). */
+export async function debitShelfProducts(
+  tx: Tx,
+  items: ShelfAllocationItem[],
+): Promise<void> {
+  for (const item of items) {
+    if (item.quantity <= 0) continue;
+    await tx.shelfProductStock.upsert({
+      where: { locationId_productId: { locationId: item.locationId, productId: item.productId } },
+      create: { locationId: item.locationId, productId: item.productId, quantity: 0 },
+      update: { quantity: { decrement: item.quantity } },
+    });
+  }
+}
+
+/** Get all shelves in a warehouse that contain a specific product (quantity > 0). */
+export async function getShelvesWithProduct(
+  warehouseId: string,
+  productId: string,
+): Promise<Array<{ locationId: string; locationCode: string; availableQty: number }>> {
+  const rows = await prisma.shelfProductStock.findMany({
+    where: { productId, quantity: { gt: 0 }, location: { warehouseId } },
+    include: { location: { select: { locationCode: true } } },
+    orderBy: { quantity: "desc" },
+  });
+  return rows.map((r) => ({
+    locationId: r.locationId,
+    locationCode: r.location.locationCode,
+    availableQty: r.quantity,
+  }));
+}
+
 // ── Read helpers ─────────────────────────────────────────────────────────────
 
 /** Total stock per product across every location. */

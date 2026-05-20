@@ -300,7 +300,6 @@ export default function LocationManagementClient({ initialBins, summaryData, bin
                       <thead className="bg-[#059669] text-white">
                         <tr>
                           <th className="px-5 py-3.5 text-left font-normal text-[13px]">#</th>
-                          <th className="px-5 py-3.5 text-left font-normal text-[13px]">Reference</th>
                           <th className="px-5 py-3.5 text-left font-normal text-[13px]">Product</th>
                           <th className="px-5 py-3.5 text-left font-normal text-[13px]">Code</th>
                           <th className="px-5 py-3.5 text-right font-normal text-[13px]">Qty</th>
@@ -310,7 +309,6 @@ export default function LocationManagementClient({ initialBins, summaryData, bin
                         {selectedBinDetail.stockItems.map((item, i) => (
                           <tr key={i} className="hover:bg-gray-50/50 transition-colors">
                             <td className="px-5 py-4 text-gray-400 text-[13px]">{i + 1}</td>
-                            <td className="px-5 py-4 text-gray-500 text-[13px]">{item.referenceNumber}</td>
                             <td className="px-5 py-4 text-gray-500 text-[13px]">{item.product}</td>
                             <td className="px-5 py-4 text-gray-400 text-[13px]">{item.productCode}</td>
                             <td className="px-5 py-4 text-gray-700 font-medium text-[13px] text-right">{item.quantity}</td>
@@ -321,7 +319,7 @@ export default function LocationManagementClient({ initialBins, summaryData, bin
                   </div>
                 ) : (
                   <div className="border border-gray-100 rounded-lg p-5 text-center text-gray-400 text-sm">
-                    No incoming stock assigned to this shelf.
+                    No stock assigned to this shelf.
                   </div>
                 )}
               </div>

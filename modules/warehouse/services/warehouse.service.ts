@@ -205,6 +205,19 @@ export async function getRecordedIncomingVouchers(
 
 // ── Pick & Pack ───────────────────────────────────────────────────────────────
 
+export type TransferShelfOption = {
+  locationId: string;
+  locationCode: string;
+  availableQty: number; // ShelfProductStock.quantity for this product
+};
+
+export type TransferProductItem = {
+  productId: string;
+  productName: string;
+  requiredQty: number;
+  availableShelves: TransferShelfOption[];
+};
+
 export type PickPackRow = {
   // PickPack.id — the row identifier, passed directly to assignPickerAction
   id: string;
@@ -216,6 +229,10 @@ export type PickPackRow = {
   locationCode: string;
   assignedAt: string | null;
   status: "QUEUED" | "PACKED";
+  isTransfer: boolean;
+  sourceWarehouseId: string | null;
+  // Populated for QUEUED transfer PickPacks so the UI can build the shelf-selection modal
+  transferProducts: TransferProductItem[];
 };
 
 export async function getPickPackOrders(warehouseId: string | null): Promise<PickPackRow[]> {
@@ -245,33 +262,124 @@ export async function getPickPackOrders(warehouseId: string | null): Promise<Pic
       },
       stockTransfer: {
         select: {
+          id: true,
           referenceNumber: true,
+          sourceId: true,
+          sourceType: true,
           driverAgent: { select: { companyName: true } },
+          items: { include: { product: { select: { id: true, name: true } } } },
         },
       },
       picker: { select: { name: true } },
     },
   });
 
-  return pickPacks.map((pp) => ({
-    id: pp.id,
-    referenceNumber:
-      pp.stockMovement?.referenceNumber ?? pp.stockTransfer?.referenceNumber ?? "—",
-    dispatchAgent:
-      pp.stockMovement?.driverAgent?.companyName ??
-      pp.stockTransfer?.driverAgent?.companyName ??
-      "—",
-    itemsCount: pp.itemsCount,
-    picker: pp.picker?.name ?? "—",
-    pickerId: pp.pickerId,
-    locationCode: pp.locationCode || "—",
-    assignedAt: pp.assignedAt
-      ? pp.assignedAt
-          .toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit", hour12: true })
-          .toLowerCase()
-      : null,
-    status: pp.status as "QUEUED" | "PACKED",
-  }));
+  // For QUEUED transfer PickPacks fetch ShelfProductStock data so the UI can
+  // show which shelves contain each product and how much is available.
+  const queuedTransferPPs = pickPacks.filter(
+    (pp) => pp.status === "QUEUED" && pp.stockTransfer !== null,
+  );
+
+  // Collect unique (warehouseId, productId) pairs needed
+  type ShelfKey = { warehouseId: string; productId: string };
+  const needed: ShelfKey[] = [];
+  for (const pp of queuedTransferPPs) {
+    const src = pp.stockTransfer!;
+    if (src.sourceType !== "WAREHOUSE") continue;
+    for (const item of src.items) {
+      needed.push({ warehouseId: src.sourceId, productId: item.productId });
+    }
+  }
+
+  // Batch-load ShelfProductStock for all needed pairs
+  type ShelfRow = { locationId: string; locationCode: string; productId: string; qty: number };
+  const shelfRows: ShelfRow[] = [];
+  if (needed.length > 0) {
+    const productIds = [...new Set(needed.map((n) => n.productId))];
+    const whIds = [...new Set(needed.map((n) => n.warehouseId))];
+    const stocks = await prisma.shelfProductStock.findMany({
+      where: {
+        productId: { in: productIds },
+        quantity: { gt: 0 },
+        location: { warehouseId: { in: whIds } },
+      },
+      include: { location: { select: { locationCode: true, warehouseId: true } } },
+      orderBy: { quantity: "desc" },
+    });
+    for (const s of stocks) {
+      shelfRows.push({
+        locationId: s.locationId,
+        locationCode: s.location.locationCode,
+        productId: s.productId,
+        qty: s.quantity,
+      });
+    }
+  }
+
+  // Index by "warehouseId:productId"
+  const shelfMap = new Map<string, TransferShelfOption[]>();
+
+  // Build a locationId → warehouseId map from the stock rows
+  const locToWarehouse = new Map<string, string>();
+  {
+    const locationIds = [...new Set(shelfRows.map((r) => r.locationId))];
+    if (locationIds.length > 0) {
+      const locs = await prisma.warehouseLocation.findMany({
+        where: { id: { in: locationIds } },
+        select: { id: true, warehouseId: true },
+      });
+      for (const l of locs) locToWarehouse.set(l.id, l.warehouseId);
+    }
+  }
+
+  for (const row of shelfRows) {
+    const wid = locToWarehouse.get(row.locationId) ?? "";
+    const key = `${wid}:${row.productId}`;
+    const existing = shelfMap.get(key) ?? [];
+    existing.push({ locationId: row.locationId, locationCode: row.locationCode, availableQty: row.qty });
+    shelfMap.set(key, existing);
+  }
+
+  return pickPacks.map((pp) => {
+    const isTransfer = pp.stockTransfer !== null;
+    const sourceWarehouseId =
+      isTransfer && pp.stockTransfer!.sourceType === "WAREHOUSE" ? pp.stockTransfer!.sourceId : null;
+
+    let transferProducts: TransferProductItem[] = [];
+    if (isTransfer && pp.status === "QUEUED" && sourceWarehouseId) {
+      transferProducts = pp.stockTransfer!.items.map((item) => {
+        const key = `${sourceWarehouseId}:${item.productId}`;
+        return {
+          productId: item.productId,
+          productName: item.product.name,
+          requiredQty: item.quantity,
+          availableShelves: shelfMap.get(key) ?? [],
+        };
+      });
+    }
+
+    return {
+      id: pp.id,
+      referenceNumber: pp.stockMovement?.referenceNumber ?? pp.stockTransfer?.referenceNumber ?? "—",
+      dispatchAgent:
+        pp.stockMovement?.driverAgent?.companyName ??
+        pp.stockTransfer?.driverAgent?.companyName ??
+        "—",
+      itemsCount: pp.itemsCount,
+      picker: pp.picker?.name ?? "—",
+      pickerId: pp.pickerId,
+      locationCode: pp.locationCode || "—",
+      assignedAt: pp.assignedAt
+        ? pp.assignedAt
+            .toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit", hour12: true })
+            .toLowerCase()
+        : null,
+      status: pp.status as "QUEUED" | "PACKED",
+      isTransfer,
+      sourceWarehouseId,
+      transferProducts,
+    };
+  });
 }
 
 export type PickerOption = {
@@ -354,69 +462,36 @@ export async function getLocationSummary(warehouseId: string): Promise<LocationS
   if (!locations.length) return [];
 
   const locationIds = locations.map((l) => l.id);
-  const locationCodes = locations.map((l) => l.locationCode);
   const idToCode = new Map(locations.map((l) => [l.id, l.locationCode]));
 
-  const [pickPacks, incomingMovements] = await Promise.all([
-    prisma.pickPack.findMany({
-      where: { locationCode: { in: locationCodes }, status: { not: "DISPATCHED" } },
-      select: {
-        locationCode: true,
-        order: {
-          select: {
-            items: { select: { quantity: true, product: { select: { name: true } } } },
-          },
-        },
-      },
-    }),
-    prisma.stockMovement.findMany({
-      where: { shelfLocationId: { in: locationIds }, type: "INCOMING", status: { not: "REVERSED" } },
-      select: {
-        shelfLocationId: true,
-        items: { select: { quantity: true, product: { select: { name: true } } } },
-      },
-    }),
-  ]);
+  // ShelfProductStock is now the authoritative source for what product/qty is in each bin
+  const shelfStocks = await prisma.shelfProductStock.findMany({
+    where: { locationId: { in: locationIds }, quantity: { gt: 0 } },
+    include: { product: { select: { name: true } } },
+  });
 
-  const ppMap = new Map<string, { products: string[]; qty: number }>();
-  for (const pp of pickPacks) {
-    if (!pp.order) continue;
-    const entry = ppMap.get(pp.locationCode) ?? { products: [], qty: 0 };
-    for (const item of pp.order.items) {
-      if (!entry.products.includes(item.product.name)) entry.products.push(item.product.name);
-      entry.qty += item.quantity;
-    }
-    ppMap.set(pp.locationCode, entry);
-  }
-
-  const incomingMap = new Map<string, { products: string[]; qty: number }>();
-  for (const mv of incomingMovements) {
-    if (!mv.shelfLocationId) continue;
-    const code = idToCode.get(mv.shelfLocationId);
+  const stockByCode = new Map<string, { products: string[]; qty: number }>();
+  for (const s of shelfStocks) {
+    const code = idToCode.get(s.locationId);
     if (!code) continue;
-    const entry = incomingMap.get(code) ?? { products: [], qty: 0 };
-    for (const item of mv.items) {
-      if (!entry.products.includes(item.product.name)) entry.products.push(item.product.name);
-      entry.qty += item.quantity;
-    }
-    incomingMap.set(code, entry);
+    const entry = stockByCode.get(code) ?? { products: [], qty: 0 };
+    if (!entry.products.includes(s.product.name)) entry.products.push(s.product.name);
+    entry.qty += s.quantity;
+    stockByCode.set(code, entry);
   }
 
   return locations.map((loc) => {
-    const ppData = ppMap.get(loc.locationCode);
-    const inData = incomingMap.get(loc.locationCode);
+    const data = stockByCode.get(loc.locationCode);
     const suffix =
       loc.occupancyStatus === "PARTIAL"
         ? " (Partial)"
         : loc.occupancyStatus === "DAMAGE"
           ? " (Damaged)"
           : "";
-    const allProducts = [...new Set([...(ppData?.products ?? []), ...(inData?.products ?? [])])];
-    const totalQty = (ppData?.qty ?? 0) + (inData?.qty ?? 0);
     return {
       bin: loc.locationCode,
-      product: allProducts.join(", ") || "—",
-      qty: totalQty > 0 ? `${totalQty}${suffix}` : `—${suffix}`,
+      product: data?.products.join(", ") || "—",
+      qty: (data?.qty ?? 0) > 0 ? `${data!.qty}${suffix}` : `—${suffix}`,
     };
   });
 }
@@ -429,7 +504,7 @@ export type BinDetailOrder = {
 };
 
 export type BinStockItem = {
-  referenceNumber: string;
+  referenceNumber?: string;
   product: string;
   productCode: string;
   quantity: number;
@@ -447,7 +522,8 @@ export async function getLocationBinDetailMap(warehouseId: string): Promise<Loca
   const locationCodes = locations.map((l) => l.locationCode);
   const idToCode = new Map(locations.map((l) => [l.id, l.locationCode]));
 
-  const [pickPacks, incomingMovements] = await Promise.all([
+  const [pickPacks, shelfStocks] = await Promise.all([
+    // Active pick & pack orders linked by locationCode
     prisma.pickPack.findMany({
       where: { locationCode: { in: locationCodes }, status: { not: "DISPATCHED" } },
       include: {
@@ -460,26 +536,21 @@ export async function getLocationBinDetailMap(warehouseId: string): Promise<Loca
         picker: { select: { name: true } },
       },
     }),
-    prisma.stockMovement.findMany({
-      where: { shelfLocationId: { in: locationIds }, type: "INCOMING", status: { not: "REVERSED" } },
-      select: {
-        referenceNumber: true,
-        shelfLocationId: true,
-        status: true,
-        items: { select: { quantity: true, product: { select: { name: true, sku: true } } } },
-      },
+    // ShelfProductStock is the authoritative per-product-per-bin inventory
+    prisma.shelfProductStock.findMany({
+      where: { locationId: { in: locationIds }, quantity: { gt: 0 } },
+      include: { product: { select: { name: true, sku: true } } },
     }),
   ]);
 
-  // Group incoming movements by locationCode
-  const incomingByCode = new Map<string, typeof incomingMovements>();
-  for (const mv of incomingMovements) {
-    if (!mv.shelfLocationId) continue;
-    const code = idToCode.get(mv.shelfLocationId);
+  // Group ShelfProductStock rows by locationCode
+  const stockByCode = new Map<string, BinStockItem[]>();
+  for (const s of shelfStocks) {
+    const code = idToCode.get(s.locationId);
     if (!code) continue;
-    const list = incomingByCode.get(code) ?? [];
-    list.push(mv);
-    incomingByCode.set(code, list);
+    const list = stockByCode.get(code) ?? [];
+    list.push({ product: s.product.name, productCode: s.product.sku, quantity: s.quantity });
+    stockByCode.set(code, list);
   }
 
   const result: LocationBinDetailMap = {};
@@ -498,16 +569,11 @@ export async function getLocationBinDetailMap(warehouseId: string): Promise<Loca
         })),
       }));
 
-    const stockItems: BinStockItem[] = (incomingByCode.get(loc.locationCode) ?? []).flatMap((mv) =>
-      mv.items.map((i) => ({
-        referenceNumber: mv.referenceNumber,
-        product: i.product.name,
-        productCode: i.product.sku,
-        quantity: i.quantity,
-      })),
-    );
-
-    result[loc.locationCode] = { occupancyStatus: loc.occupancyStatus, stockItems, orders };
+    result[loc.locationCode] = {
+      occupancyStatus: loc.occupancyStatus,
+      stockItems: stockByCode.get(loc.locationCode) ?? [],
+      orders,
+    };
   }
 
   return result;
