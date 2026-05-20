@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { ExpensesClient } from "../_components/ExpensesClient";
 import {
   listExpenses,
@@ -41,12 +42,14 @@ export default async function ExpensesPage() {
   }));
 
   return (
-    <ExpensesClient
-      initialHistory={initialHistory}
-      initialCategories={categories.map(c => ({ id: c.id, name: c.name }))}
-      initialAccounts={accounts.map(a => ({ id: a.id, name: a.name }))}
-      initialSuppliers={initialSuppliers}
-      nextRef={nextRef}
-    />
+    <Suspense>
+      <ExpensesClient
+        initialHistory={initialHistory}
+        initialCategories={categories.map(c => ({ id: c.id, name: c.name }))}
+        initialAccounts={accounts.map(a => ({ id: a.id, name: a.name }))}
+        initialSuppliers={initialSuppliers}
+        nextRef={nextRef}
+      />
+    </Suspense>
   );
 }

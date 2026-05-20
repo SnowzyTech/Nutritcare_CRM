@@ -41,6 +41,7 @@ export async function updateProfileAction(input: {
     await updateSelfProfile(session.user.id, input);
     revalidatePath("/sales-rep/settings");
     revalidatePath("/warehouse/settings");
+    revalidatePath("/logistics/settings");
     return { success: true };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Failed to update profile" };

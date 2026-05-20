@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db/prisma";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
+import { creditWarehouse, debitWarehouse } from "@/modules/inventory/services/stock-level.service";
 
 function generateReferenceNumber(): string {
   const suffix = Date.now().toString(36).toUpperCase().slice(-6);
@@ -60,7 +61,7 @@ export async function confirmIncomingReceiptAction(
 
   const movement = await prisma.stockMovement.findUnique({
     where: { id: parsed.data.stockMovementId },
-    include: { items: { select: { quantity: true } } },
+    include: { items: { select: { productId: true, quantity: true } } },
   });
   if (!movement || movement.type !== "INCOMING") return { error: "Voucher not found" };
   if (movement.warehouseId !== warehouseId) return { error: "This voucher belongs to a different warehouse" };
@@ -103,6 +104,9 @@ export async function confirmIncomingReceiptAction(
         },
       });
     }
+
+    // Materialized stock balance — goods now belong to this warehouse.
+    await creditWarehouse(tx, warehouseId, movement.items);
   });
 
   revalidatePath("/warehouse/incoming-goods");
@@ -243,12 +247,13 @@ export async function deleteIncomingMovementAction(
 
   const movement = await prisma.stockMovement.findUnique({
     where: { id },
-    include: { items: { select: { quantity: true } } },
+    include: { items: { select: { productId: true, quantity: true } } },
   });
   if (!movement || movement.type !== "INCOMING") return { error: "Movement not found" };
   if (movement.warehouseId !== warehouseId) return { error: "Access denied" };
 
   const totalQty = movement.items.reduce((sum, i) => sum + i.quantity, 0);
+  const wasCredited = movement.status === "RECEIVED" || movement.status === "SHELVED";
 
   await prisma.$transaction(async (tx) => {
     if (movement.shelfLocationId && movement.status !== "REVERSED") {
@@ -264,6 +269,10 @@ export async function deleteIncomingMovementAction(
           ...(newStock === 0 ? { occupancyStatus: "EMPTY" } : {}),
         },
       });
+    }
+    // Undo the stock credit if this receipt was already counted.
+    if (wasCredited && movement.warehouseId) {
+      await debitWarehouse(tx, movement.warehouseId, movement.items);
     }
     await tx.stockMovement.delete({ where: { id } });
   });
@@ -287,13 +296,14 @@ export async function reverseIncomingMovementWarehouseAction(
 
   const movement = await prisma.stockMovement.findUnique({
     where: { id },
-    include: { items: { select: { quantity: true } } },
+    include: { items: { select: { productId: true, quantity: true } } },
   });
   if (!movement || movement.type !== "INCOMING") return { error: "Movement not found" };
   if (movement.warehouseId !== warehouseId) return { error: "Access denied" };
   if (movement.status === "REVERSED") return { error: "Movement is already reversed" };
 
   const totalQty = movement.items.reduce((sum, i) => sum + i.quantity, 0);
+  const wasCredited = movement.status === "RECEIVED" || movement.status === "SHELVED";
 
   await prisma.$transaction(async (tx) => {
     await tx.stockMovement.update({
@@ -314,6 +324,10 @@ export async function reverseIncomingMovementWarehouseAction(
           ...(newStock === 0 ? { occupancyStatus: "EMPTY" } : {}),
         },
       });
+    }
+
+    if (wasCredited && movement.warehouseId) {
+      await debitWarehouse(tx, movement.warehouseId, movement.items);
     }
   });
 

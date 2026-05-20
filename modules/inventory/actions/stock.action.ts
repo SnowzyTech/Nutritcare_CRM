@@ -5,6 +5,17 @@ import { prisma } from "@/lib/db/prisma";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
+import {
+  debitWarehouse,
+  transferAgentToAgent,
+  reverseWarehouseToAgent,
+  transferWarehouseToWarehouse,
+  reverseReturn,
+  recordAdjustment,
+  reverseAdjustment,
+  getWarehouseProductStock,
+  getAgentProductStock,
+} from "@/modules/inventory/services/stock-level.service";
 
 // ── Shared ────────────────────────────────────────────────────────────────────
 
@@ -207,18 +218,7 @@ export async function createOutgoingMovementAction(
     await prisma.$transaction(async (tx) => {
       if (!isAgentToAgentTransfer && warehouseId) {
         for (const item of items) {
-          const movItems = await tx.stockMovementItem.findMany({
-            where: { productId: item.productId, stockMovement: { warehouseId } },
-            include: { stockMovement: { select: { type: true, status: true } } },
-          });
-          let available = 0;
-          for (const mi of movItems) {
-            const { type, status } = mi.stockMovement;
-            if (type === "INCOMING" && ["RECEIVED", "SHELVED"].includes(status)) available += mi.quantity;
-            else if (type === "OUTGOING") available -= mi.quantity;
-            else if (type === "RETURN") available += mi.quantity;
-          }
-          available = Math.max(0, available);
+          const available = await getWarehouseProductStock(tx, warehouseId, item.productId);
           if (available < item.quantity) {
             const prod = await tx.product.findUnique({ where: { id: item.productId }, select: { name: true } });
             throw new Error(
@@ -230,24 +230,7 @@ export async function createOutgoingMovementAction(
 
       if (isAgentToAgentTransfer && fromAgentId) {
         for (const item of items) {
-          const [sentToAgent, sentFromAgent, returnedFromAgent] = await Promise.all([
-            tx.stockMovementItem.aggregate({
-              where: { productId: item.productId, stockMovement: { toAgentId: fromAgentId } },
-              _sum: { quantity: true },
-            }),
-            tx.stockMovementItem.aggregate({
-              where: { productId: item.productId, stockMovement: { agentId: fromAgentId, isAgentToAgentTransfer: true } },
-              _sum: { quantity: true },
-            }),
-            tx.stockMovementItem.aggregate({
-              where: { productId: item.productId, stockMovement: { type: "RETURN", agentId: fromAgentId } },
-              _sum: { quantity: true },
-            }),
-          ]);
-          const available = Math.max(
-            0,
-            (sentToAgent._sum.quantity ?? 0) - (sentFromAgent._sum.quantity ?? 0) - (returnedFromAgent._sum.quantity ?? 0)
-          );
+          const available = await getAgentProductStock(tx, fromAgentId, item.productId);
           if (available < item.quantity) {
             const prod = await tx.product.findUnique({ where: { id: item.productId }, select: { name: true } });
             throw new Error(
@@ -282,6 +265,12 @@ export async function createOutgoingMovementAction(
           },
         },
       });
+
+      // Agent → agent ownership changes immediately at create (no pick/pack step).
+      // Warehouse → agent moves are credited later at PickPack PACKED.
+      if (isAgentToAgentTransfer && fromAgentId) {
+        await transferAgentToAgent(tx, fromAgentId, agentId, items);
+      }
     });
   } catch (e) {
     console.error("createOutgoingMovementAction error:", e);
@@ -334,36 +323,8 @@ export async function createStockTransferAction(
 
   // Check per-product availability in the source warehouse before creating
   if (status === "SUBMITTED") {
-    const [movementItems, completedTransferItems] = await Promise.all([
-      prisma.stockMovementItem.findMany({
-        where: { stockMovement: { warehouseId: sourceId } },
-        include: { stockMovement: { select: { type: true, status: true } } },
-      }),
-      prisma.stockTransferItem.findMany({
-        where: { stockTransfer: { status: "COMPLETED", OR: [{ sourceId }, { targetId: sourceId }] } },
-        include: { stockTransfer: { select: { sourceType: true, sourceId: true, targetType: true, targetId: true } } },
-      }),
-    ]);
-
-    const stockMap: Record<string, number> = {};
-    for (const item of movementItems) {
-      const { type, status: ms } = item.stockMovement;
-      stockMap[item.productId] ??= 0;
-      if (type === "INCOMING" && ["RECEIVED", "SHELVED"].includes(ms)) {
-        stockMap[item.productId] += item.quantity;
-      } else if (type === "RETURN") {
-        stockMap[item.productId] += item.quantity;
-      }
-    }
-    for (const item of completedTransferItems) {
-      const { sourceType: st, sourceId: sid, targetType: tt, targetId: tid } = item.stockTransfer;
-      stockMap[item.productId] ??= 0;
-      if (st === "WAREHOUSE" && sid === sourceId) stockMap[item.productId] -= item.quantity;
-      if (tt === "WAREHOUSE" && tid === sourceId) stockMap[item.productId] += item.quantity;
-    }
-
     for (const item of items) {
-      const available = Math.max(0, stockMap[item.productId] ?? 0);
+      const available = await getWarehouseProductStock(prisma, sourceId, item.productId);
       if (available < item.quantity) {
         const product = await prisma.product.findUnique({ where: { id: item.productId }, select: { name: true } });
         return {
@@ -442,23 +403,29 @@ export async function createAdjustmentAction(
   const { warehouseId, reason, notes, date, status, items } = parsed.data;
 
   try {
-    await prisma.stockAdjustment.create({
-      data: {
-        referenceNumber: generateRefNumber("SA"),
-        warehouseId,
-        reason,
-        notes: notes || null,
-        date: new Date(date),
-        status,
-        createdById: user.id,
-        items: {
-          create: items.map((item) => ({
-            productId: item.productId,
-            quantityBefore: item.quantityBefore,
-            quantityAfter: item.quantityAfter,
-          })),
+    await prisma.$transaction(async (tx) => {
+      await tx.stockAdjustment.create({
+        data: {
+          referenceNumber: generateRefNumber("SA"),
+          warehouseId,
+          reason,
+          notes: notes || null,
+          date: new Date(date),
+          status,
+          createdById: user.id,
+          items: {
+            create: items.map((item) => ({
+              productId: item.productId,
+              quantityBefore: item.quantityBefore,
+              quantityAfter: item.quantityAfter,
+            })),
+          },
         },
-      },
+      });
+      // Only RECORDED adjustments touch live balances; DRAFT is a saved plan.
+      if (status === "RECORDED") {
+        await recordAdjustment(tx, warehouseId, items);
+      }
     });
   } catch (e) {
     console.error("createAdjustmentAction error:", e);
@@ -481,13 +448,23 @@ export async function reverseAdjustmentAction(
     return { error: e instanceof Error ? e.message : "Unauthorized" };
   }
 
-  const adj = await prisma.stockAdjustment.findUnique({ where: { id } });
+  const adj = await prisma.stockAdjustment.findUnique({
+    where: { id },
+    include: {
+      items: { select: { productId: true, quantityBefore: true, quantityAfter: true } },
+    },
+  });
   if (!adj) return { error: "Adjustment not found" };
   if (adj.status === "REVERSED") return { error: "Adjustment is already reversed" };
 
-  await prisma.stockAdjustment.update({
-    where: { id },
-    data: { status: "REVERSED", notes: reason.trim() || null },
+  await prisma.$transaction(async (tx) => {
+    await tx.stockAdjustment.update({
+      where: { id },
+      data: { status: "REVERSED", notes: reason.trim() || null },
+    });
+    if (adj.status === "RECORDED") {
+      await reverseAdjustment(tx, adj.warehouseId, adj.items);
+    }
   });
 
   revalidatePath(`/inventory/adjustment/${id}`);
@@ -506,10 +483,20 @@ export async function deleteAdjustmentAction(
     return { error: e instanceof Error ? e.message : "Unauthorized" };
   }
 
-  const adj = await prisma.stockAdjustment.findUnique({ where: { id } });
+  const adj = await prisma.stockAdjustment.findUnique({
+    where: { id },
+    include: {
+      items: { select: { productId: true, quantityBefore: true, quantityAfter: true } },
+    },
+  });
   if (!adj) return { error: "Adjustment not found" };
 
-  await prisma.stockAdjustment.delete({ where: { id } });
+  await prisma.$transaction(async (tx) => {
+    if (adj.status === "RECORDED") {
+      await reverseAdjustment(tx, adj.warehouseId, adj.items);
+    }
+    await tx.stockAdjustment.delete({ where: { id } });
+  });
 
   revalidatePath("/inventory/adjustment");
   return {};
@@ -523,13 +510,23 @@ export async function reverseIncomingMovementAction(
 ): Promise<{ error?: string }> {
   await requireAuth();
 
-  const movement = await prisma.stockMovement.findUnique({ where: { id } });
+  const movement = await prisma.stockMovement.findUnique({
+    where: { id },
+    include: { items: { select: { productId: true, quantity: true } } },
+  });
   if (!movement || movement.type !== "INCOMING") return { error: "Movement not found" };
   if (movement.status === "REVERSED") return { error: "Movement is already reversed" };
 
-  await prisma.stockMovement.update({
-    where: { id },
-    data: { status: "REVERSED", remarks: reason.trim() || null },
+  const wasCredited = movement.status === "RECEIVED" || movement.status === "SHELVED";
+
+  await prisma.$transaction(async (tx) => {
+    await tx.stockMovement.update({
+      where: { id },
+      data: { status: "REVERSED", remarks: reason.trim() || null },
+    });
+    if (wasCredited && movement.warehouseId) {
+      await debitWarehouse(tx, movement.warehouseId, movement.items);
+    }
   });
 
   revalidatePath(`/inventory/incoming/${id}`);
@@ -544,10 +541,20 @@ export async function deleteIncomingMovementAction(
 ): Promise<{ error?: string }> {
   await requireAuth();
 
-  const movement = await prisma.stockMovement.findUnique({ where: { id } });
+  const movement = await prisma.stockMovement.findUnique({
+    where: { id },
+    include: { items: { select: { productId: true, quantity: true } } },
+  });
   if (!movement || movement.type !== "INCOMING") return { error: "Movement not found" };
 
-  await prisma.stockMovement.delete({ where: { id } });
+  const wasCredited = movement.status === "RECEIVED" || movement.status === "SHELVED";
+
+  await prisma.$transaction(async (tx) => {
+    if (wasCredited && movement.warehouseId) {
+      await debitWarehouse(tx, movement.warehouseId, movement.items);
+    }
+    await tx.stockMovement.delete({ where: { id } });
+  });
 
   revalidatePath("/inventory/incoming");
   return {};
@@ -561,13 +568,27 @@ export async function reverseOutgoingMovementAction(
 ): Promise<{ error?: string }> {
   await requireAuth();
 
-  const movement = await prisma.stockMovement.findUnique({ where: { id } });
+  const movement = await prisma.stockMovement.findUnique({
+    where: { id },
+    include: { items: { select: { productId: true, quantity: true } } },
+  });
   if (!movement || movement.type !== "OUTGOING") return { error: "Movement not found" };
   if (movement.status === "REVERSED") return { error: "Movement is already reversed" };
 
-  await prisma.stockMovement.update({
-    where: { id },
-    data: { status: "REVERSED", remarks: reason.trim() || null },
+  await prisma.$transaction(async (tx) => {
+    await tx.stockMovement.update({
+      where: { id },
+      data: { status: "REVERSED", remarks: reason.trim() || null },
+    });
+
+    // Undo any stock changes this movement made.
+    if (movement.isAgentToAgentTransfer && movement.agentId && movement.toAgentId) {
+      // Agent → agent was applied at create; reverse it.
+      await transferAgentToAgent(tx, movement.toAgentId, movement.agentId, movement.items);
+    } else if (movement.status === "SHELVED" && movement.warehouseId && movement.toAgentId) {
+      // Warehouse → agent was applied at PACKED; undo both sides.
+      await reverseWarehouseToAgent(tx, movement.warehouseId, movement.toAgentId, movement.items);
+    }
   });
 
   revalidatePath(`/inventory/outgoing/${id}`);
@@ -582,10 +603,29 @@ export async function deleteOutgoingMovementAction(
 ): Promise<{ error?: string }> {
   await requireAuth();
 
-  const movement = await prisma.stockMovement.findUnique({ where: { id } });
+  const movement = await prisma.stockMovement.findUnique({
+    where: { id },
+    include: { items: { select: { productId: true, quantity: true } } },
+  });
   if (!movement || movement.type !== "OUTGOING") return { error: "Movement not found" };
 
-  await prisma.stockMovement.delete({ where: { id } });
+  await prisma.$transaction(async (tx) => {
+    if (
+      movement.status !== "REVERSED" &&
+      movement.isAgentToAgentTransfer &&
+      movement.agentId &&
+      movement.toAgentId
+    ) {
+      await transferAgentToAgent(tx, movement.toAgentId, movement.agentId, movement.items);
+    } else if (
+      movement.status === "SHELVED" &&
+      movement.warehouseId &&
+      movement.toAgentId
+    ) {
+      await reverseWarehouseToAgent(tx, movement.warehouseId, movement.toAgentId, movement.items);
+    }
+    await tx.stockMovement.delete({ where: { id } });
+  });
 
   revalidatePath("/inventory/outgoing");
   return {};
@@ -599,13 +639,28 @@ export async function reverseStockTransferAction(
 ): Promise<{ error?: string }> {
   await requireAuth();
 
-  const transfer = await prisma.stockTransfer.findUnique({ where: { id } });
+  const transfer = await prisma.stockTransfer.findUnique({
+    where: { id },
+    include: { items: { select: { productId: true, quantity: true } } },
+  });
   if (!transfer) return { error: "Transfer not found" };
   if (transfer.status === "REVERSED") return { error: "Transfer is already reversed" };
 
-  await prisma.stockTransfer.update({
-    where: { id },
-    data: { status: "REVERSED", notes: reason.trim() || null },
+  const wasApplied = transfer.status === "COMPLETED";
+
+  await prisma.$transaction(async (tx) => {
+    await tx.stockTransfer.update({
+      where: { id },
+      data: { status: "REVERSED", notes: reason.trim() || null },
+    });
+    if (
+      wasApplied &&
+      transfer.sourceType === "WAREHOUSE" &&
+      transfer.targetType === "WAREHOUSE"
+    ) {
+      // Reverse direction: target → source.
+      await transferWarehouseToWarehouse(tx, transfer.targetId, transfer.sourceId, transfer.items);
+    }
   });
 
   revalidatePath(`/inventory/transfer/${id}`);
@@ -620,10 +675,22 @@ export async function deleteStockTransferAction(
 ): Promise<{ error?: string }> {
   await requireAuth();
 
-  const transfer = await prisma.stockTransfer.findUnique({ where: { id } });
+  const transfer = await prisma.stockTransfer.findUnique({
+    where: { id },
+    include: { items: { select: { productId: true, quantity: true } } },
+  });
   if (!transfer) return { error: "Transfer not found" };
 
-  await prisma.stockTransfer.delete({ where: { id } });
+  await prisma.$transaction(async (tx) => {
+    if (
+      transfer.status === "COMPLETED" &&
+      transfer.sourceType === "WAREHOUSE" &&
+      transfer.targetType === "WAREHOUSE"
+    ) {
+      await transferWarehouseToWarehouse(tx, transfer.targetId, transfer.sourceId, transfer.items);
+    }
+    await tx.stockTransfer.delete({ where: { id } });
+  });
 
   revalidatePath("/inventory/transfer");
   return {};
@@ -658,10 +725,18 @@ export async function deleteReturnedMovementAction(
 ): Promise<{ error?: string }> {
   await requireAuth();
 
-  const movement = await prisma.stockMovement.findUnique({ where: { id } });
+  const movement = await prisma.stockMovement.findUnique({
+    where: { id },
+    include: { items: { select: { productId: true, quantity: true } } },
+  });
   if (!movement || movement.type !== "RETURN") return { error: "Movement not found" };
 
-  await prisma.stockMovement.delete({ where: { id } });
+  await prisma.$transaction(async (tx) => {
+    if (movement.status !== "REVERSED" && movement.agentId) {
+      await reverseReturn(tx, movement.agentId, movement.items, movement.warehouseId);
+    }
+    await tx.stockMovement.delete({ where: { id } });
+  });
 
   revalidatePath("/inventory/returned");
   return {};

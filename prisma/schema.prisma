@@ -301,11 +301,36 @@ model Product {
   stockAdjustmentItems StockAdjustmentItem[]
   purchaseOrderItems   PurchaseOrderItem[]
   invoiceItems         InvoiceItem[]
+  stockLevels          StockLevel[]
 
   @@index([categoryId])
   @@index([sku])
   @@index([isActive])
   @@map("products")
+}
+
+// Materialized per-(product, location) stock balance.
+// Maintained transactionally by writes; queries read from here instead of
+// aggregating StockMovement/StockTransfer history.
+// locationKind: "WAREHOUSE" | "AGENT" | "UNASSIGNED"
+//   - WAREHOUSE: locationId = warehouseId
+//   - AGENT:     locationId = agentId
+//   - UNASSIGNED: locationId = "system" (e.g. returns with no warehouse)
+model StockLevel {
+  id           String   @id @default(cuid())
+  productId    String
+  locationKind String
+  locationId   String
+  quantity     Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, locationKind, locationId])
+  @@index([productId])
+  @@index([locationKind, locationId])
+  @@map("stock_levels")
 }
 
 model ProductOffer {

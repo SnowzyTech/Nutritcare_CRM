@@ -88,9 +88,9 @@ export default function TransferCreateClient({ nodes, products }: Props) {
 
     setLoading(true);
     const result = await createStockTransferAction({
-      sourceType: source.type,
+      sourceType: source.type as "WAREHOUSE",
       sourceId: source.id,
-      targetType: target.type,
+      targetType: target.type as "WAREHOUSE",
       targetId: target.id,
       date: form.date,
       notes: form.notes || undefined,

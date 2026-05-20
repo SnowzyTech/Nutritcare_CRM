@@ -4,38 +4,13 @@ import { auth } from "@/lib/auth/auth";
 import { prisma } from "@/lib/db/prisma";
 import { revalidatePath } from "next/cache";
 import type { Prisma } from "@prisma/client";
+import {
+  getWarehouseProductStock,
+  transferWarehouseToAgent,
+  transferWarehouseToWarehouse,
+} from "@/modules/inventory/services/stock-level.service";
 
 type Tx = Prisma.TransactionClient;
-
-// Compute available (un-shelved-deducted) quantity of a product in a warehouse,
-// from stock movements + completed transfers. This is the *logical* inventory
-// for validation; physical bin counts are adjusted at PACKED time below.
-async function getWarehouseProductStock(tx: Tx, warehouseId: string, productId: string): Promise<number> {
-  const [movItems, completedTransfers] = await Promise.all([
-    tx.stockMovementItem.findMany({
-      where: { productId, stockMovement: { warehouseId } },
-      include: { stockMovement: { select: { type: true, status: true } } },
-    }),
-    tx.stockTransferItem.findMany({
-      where: { productId, stockTransfer: { status: "COMPLETED", OR: [{ sourceId: warehouseId }, { targetId: warehouseId }] } },
-      include: { stockTransfer: { select: { sourceType: true, sourceId: true, targetType: true, targetId: true } } },
-    }),
-  ]);
-
-  let available = 0;
-  for (const mi of movItems) {
-    const { type, status } = mi.stockMovement;
-    if (type === "INCOMING" && ["RECEIVED", "SHELVED"].includes(status)) available += mi.quantity;
-    else if (type === "OUTGOING" && status === "SHELVED") available -= mi.quantity;
-    else if (type === "RETURN") available += mi.quantity;
-  }
-  for (const ti of completedTransfers) {
-    const { sourceType, sourceId, targetType, targetId } = ti.stockTransfer;
-    if (sourceType === "WAREHOUSE" && sourceId === warehouseId) available -= ti.quantity;
-    if (targetType === "WAREHOUSE" && targetId === warehouseId) available += ti.quantity;
-  }
-  return Math.max(0, available);
-}
 
 // Deduct `qty` from bins of a warehouse: try the picker-selected bin first,
 // then cascade to other bins by highest stock until satisfied.
@@ -135,6 +110,7 @@ export async function assignPickerAction(
           select: {
             id: true,
             warehouseId: true,
+            toAgentId: true,
             items: { select: { productId: true, productCode: true, quantity: true } },
           },
         },
@@ -157,9 +133,12 @@ export async function assignPickerAction(
       for (const pp of queuedPacks) {
         // ── Warehouse → Agent (StockMovement OUTGOING) ───────────────────────
         if (pp.stockMovement) {
-          const { id: movementId, warehouseId, items } = pp.stockMovement;
+          const { id: movementId, warehouseId, toAgentId, items } = pp.stockMovement;
           if (!warehouseId) {
             throw new Error("Warehouse-to-Agent movement is missing a source warehouse");
+          }
+          if (!toAgentId) {
+            throw new Error("Warehouse-to-Agent movement is missing a destination agent");
           }
 
           // Validate physical availability of every item in the source warehouse
@@ -185,15 +164,10 @@ export async function assignPickerAction(
             );
           }
 
-          // System inventory leaves the company when goods reach the agent
-          for (const item of items) {
-            await tx.product.update({
-              where: { id: item.productId },
-              data: { quantity: { decrement: item.quantity } },
-            });
-          }
+          // Materialized balance: warehouse loses, destination agent gains.
+          await transferWarehouseToAgent(tx, warehouseId, toAgentId, items);
 
-          // Mark the movement as shelved-out so future availability calcs reflect it
+          // Mark the movement as shelved-out (kept for audit/UI status labels)
           await tx.stockMovement.update({
             where: { id: movementId },
             data: { status: "SHELVED" },
@@ -231,6 +205,9 @@ export async function assignPickerAction(
           }
 
           await creditTargetWarehouseBin(tx, targetId, totalQty);
+
+          // Materialized balance: source warehouse loses, target gains.
+          await transferWarehouseToWarehouse(tx, sourceId, targetId, items);
 
           await tx.stockTransfer.update({
             where: { id: transferId },

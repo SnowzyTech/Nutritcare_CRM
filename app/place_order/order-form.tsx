@@ -254,7 +254,7 @@ export default function OrderForm({ products }: { products: Product[] }) {
                     <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Select Product</label>
                     <Select
                       value={item.productId}
-                      onValueChange={(val) => updateItem(index, "productId", val)}
+                      onValueChange={(val) => updateItem(index, "productId", val ?? "")}
                     >
                       <SelectTrigger className="bg-background/50">
                         <SelectValue placeholder="Choose a product..." />

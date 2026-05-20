@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import {
   Select,
@@ -10,7 +11,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 
-export function MonthSelect() {
+function MonthSelectInner() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const currentMonthParam = searchParams.get("month")
@@ -49,5 +50,13 @@ export function MonthSelect() {
         ))}
       </SelectContent>
     </Select>
+  )
+}
+
+export function MonthSelect() {
+  return (
+    <Suspense>
+      <MonthSelectInner />
+    </Suspense>
   )
 }

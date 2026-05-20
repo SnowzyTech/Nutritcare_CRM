@@ -1,4 +1,9 @@
 import { prisma } from "@/lib/db/prisma";
+import {
+  getProductTotalsMap,
+  getWarehouseStockMap,
+  getAgentStockMap,
+} from "@/modules/inventory/services/stock-level.service";
 
 const fmt = (n: number) =>
   `₦${Number(n).toLocaleString("en-NG", { maximumFractionDigits: 0 })}`;
@@ -14,32 +19,25 @@ interface ProductStock {
 }
 
 async function computeProductStock(): Promise<ProductStock[]> {
-  const products = await prisma.product.findMany({
-    where: { deletedAt: null, isActive: true },
-    select: {
-      id: true,
-      name: true,
-      costPrice: true,
-      sellingPrice: true,
-      stockMovementItems: {
-        select: {
-          quantity: true,
-          stockMovement: { select: { type: true, agentId: true, warehouseId: true } },
-        },
-      },
-    },
-    orderBy: { name: "asc" },
-  });
+  const [products, warehouseMap, agentMap] = await Promise.all([
+    prisma.product.findMany({
+      where: { deletedAt: null, isActive: true },
+      select: { id: true, name: true, costPrice: true, sellingPrice: true },
+      orderBy: { name: "asc" },
+    }),
+    getWarehouseStockMap(),
+    getAgentStockMap(),
+  ]);
 
-  return products.map(p => {
+  // Sum per product across all warehouses / agents.
+  return products.map((p) => {
     let warehouse = 0;
+    for (const wMap of Object.values(warehouseMap)) {
+      warehouse += wMap[p.id] ?? 0;
+    }
     let agents = 0;
-    for (const item of p.stockMovementItems) {
-      const t = item.stockMovement.type;
-      const sign = t === "INCOMING" ? 1 : t === "OUTGOING" ? -1 : 1;
-      const q = item.quantity * sign;
-      if (item.stockMovement.warehouseId) warehouse += q;
-      if (item.stockMovement.agentId) agents += q;
+    for (const aMap of Object.values(agentMap)) {
+      agents += aMap[p.id] ?? 0;
     }
     return {
       id: p.id,
@@ -55,7 +53,7 @@ async function computeProductStock(): Promise<ProductStock[]> {
 
 export async function getInventoryProductList() {
   const stocks = await computeProductStock();
-  return stocks.map(s => ({
+  return stocks.map((s) => ({
     name: s.name,
     cost: fmt(s.cost),
     selling: fmt(s.selling),
@@ -74,111 +72,71 @@ export type ProductBreakdownItem = {
 };
 
 export async function getInventoryProductBreakdown(): Promise<ProductBreakdownItem[]> {
-  const products = await prisma.product.findMany({
-    where: { deletedAt: null, isActive: true },
-    select: {
-      id: true,
-      name: true,
-      stockMovementItems: {
-        select: {
-          quantity: true,
-          stockMovement: { select: { type: true, status: true } },
+  const [products, totals] = await Promise.all([
+    prisma.product.findMany({
+      where: { deletedAt: null, isActive: true },
+      select: {
+        id: true,
+        name: true,
+        offers: {
+          select: { id: true, offerName: true, offerQuantity: true, sellingPrice: true },
+          orderBy: { offerQuantity: "asc" },
         },
       },
-      offers: {
-        select: { id: true, offerName: true, offerQuantity: true, sellingPrice: true },
-        orderBy: { offerQuantity: "asc" },
-      },
-    },
-    orderBy: { name: "asc" },
-  });
+      orderBy: { name: "asc" },
+    }),
+    getProductTotalsMap(),
+  ]);
 
-  return products.map((p) => {
-    let stock = 0;
-    for (const item of p.stockMovementItems) {
-      const { type, status } = item.stockMovement;
-      if (type === "INCOMING" && ["RECORDED", "RECEIVED", "SHELVED"].includes(status)) {
-        stock += item.quantity;
-      } else if (type === "OUTGOING") {
-        stock -= item.quantity;
-      } else if (type === "RETURN") {
-        stock += item.quantity;
-      }
-    }
-    return {
-      id: p.id,
-      name: p.name,
-      stock: Math.max(0, stock).toLocaleString(),
-      offers: p.offers.map((o, i) => ({
-        id: i + 1,
-        name: o.offerName,
-        qty: o.offerQuantity,
-        price: fmt(Number(o.sellingPrice)),
-      })),
-    };
-  });
+  return products.map((p) => ({
+    id: p.id,
+    name: p.name,
+    stock: (totals[p.id] ?? 0).toLocaleString(),
+    offers: p.offers.map((o, i) => ({
+      id: i + 1,
+      name: o.offerName,
+      qty: o.offerQuantity,
+      price: fmt(Number(o.sellingPrice)),
+    })),
+  }));
 }
 
 export async function getInventoryLocationView() {
-  const products = await prisma.product.findMany({
-    where: { deletedAt: null, isActive: true },
-    select: { id: true, name: true },
-    orderBy: { name: "asc" },
-  });
-
-  const [warehouses, agents, movements] = await Promise.all([
+  const [products, warehouses, agents, warehouseMap, agentMap] = await Promise.all([
+    prisma.product.findMany({
+      where: { deletedAt: null, isActive: true },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    }),
     prisma.warehouse.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
     prisma.agent.findMany({
       where: { deletedAt: null, status: "ACTIVE" },
       select: { id: true, companyName: true, state: true },
       orderBy: { companyName: "asc" },
     }),
-    prisma.stockMovement.findMany({
-      select: {
-        type: true,
-        agentId: true,
-        warehouseId: true,
-        items: { select: { productId: true, quantity: true } },
-      },
-    }),
+    getWarehouseStockMap(),
+    getAgentStockMap(),
   ]);
 
-  const warehouseStock = new Map<string, Map<string, number>>(); // warehouseId -> productId -> qty
-  const agentStock = new Map<string, Map<string, number>>();
+  const productHeaders = [...products.map((p) => p.name), "Total"];
 
-  for (const m of movements) {
-    const sign = m.type === "INCOMING" ? 1 : m.type === "OUTGOING" ? -1 : 1;
-    if (m.warehouseId) {
-      if (!warehouseStock.has(m.warehouseId)) warehouseStock.set(m.warehouseId, new Map());
-      const map = warehouseStock.get(m.warehouseId)!;
-      for (const it of m.items) map.set(it.productId, (map.get(it.productId) ?? 0) + it.quantity * sign);
-    }
-    if (m.agentId) {
-      if (!agentStock.has(m.agentId)) agentStock.set(m.agentId, new Map());
-      const map = agentStock.get(m.agentId)!;
-      for (const it of m.items) map.set(it.productId, (map.get(it.productId) ?? 0) + it.quantity * sign);
-    }
-  }
-
-  const productHeaders = [...products.map(p => p.name), "Total"];
-
-  const warehouseRows = warehouses.map(w => {
-    const map = warehouseStock.get(w.id) ?? new Map();
-    const values = products.map(p => map.get(p.id) ?? 0);
+  const warehouseRows = warehouses.map((w) => {
+    const map = warehouseMap[w.id] ?? {};
+    const values = products.map((p) => map[p.id] ?? 0);
     const total = values.reduce((s, v) => s + v, 0);
     return { warehouse: w.name, values: [...values, total] };
   });
 
   const totalRow = {
     warehouse: "Total",
-    values: products.map((_, i) => warehouseRows.reduce((s, r) => s + (r.values[i] as number), 0)).concat([
-      warehouseRows.reduce((s, r) => s + (r.values[r.values.length - 1] as number), 0),
-    ]),
+    values: products
+      .map((_, i) => warehouseRows.reduce((s, r) => s + (r.values[i] as number), 0))
+      .concat([warehouseRows.reduce((s, r) => s + (r.values[r.values.length - 1] as number), 0)]),
   };
 
-  const agentRows = agents.map(a => {
-    const map = agentStock.get(a.id) ?? new Map();
-    const values = products.map(p => map.get(p.id) ?? 0);
+  const agentRows = agents.map((a) => {
+    const map = agentMap[a.id] ?? {};
+    const values = products.map((p) => map[p.id] ?? 0);
     const total = values.reduce((s, v) => s + v, 0);
     return {
       name: `${a.companyName}${a.state ? ` | ${a.state}` : ""}`,

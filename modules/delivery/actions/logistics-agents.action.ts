@@ -35,6 +35,7 @@ export async function createAgentAction(input: {
   country?: string;
   statesCovered?: string[];
   picksFromOfficeStock?: boolean;
+  deliveryFee?: number;
 }): Promise<AgentResult> {
   try {
     const user = await requireLogisticsAuth();

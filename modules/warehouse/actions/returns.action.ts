@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db/prisma";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
+import { recordReturn, reverseReturn } from "@/modules/inventory/services/stock-level.service";
 
 function generateReferenceNumber(): string {
   const suffix = Date.now().toString(36).toUpperCase().slice(-6);
@@ -75,28 +76,34 @@ export async function createReturnMovementAction(
   const skuMap = new Map(products.map((p) => [p.id, p.sku]));
   const totalQty = parsed.data.items.reduce((sum, i) => sum + i.quantity, 0);
 
-  await prisma.stockMovement.create({
-    data: {
-      referenceNumber: generateReferenceNumber(),
-      type: "RETURN",
-      status: "RECORDED",
-      agentId: parsed.data.agentId,
-      state: parsed.data.state,
-      country: parsed.data.country,
-      date: new Date(parsed.data.date),
-      damaged: parsed.data.damaged,
-      remarks: parsed.data.remarks ?? null,
-      notes: parsed.data.notes ?? null,
-      quantity: totalQty,
-      createdById: user.id,
-      items: {
-        create: parsed.data.items.map((item) => ({
-          productId: item.productId,
-          productCode: skuMap.get(item.productId) ?? "",
-          quantity: item.quantity,
-        })),
+  await prisma.$transaction(async (tx) => {
+    await tx.stockMovement.create({
+      data: {
+        referenceNumber: generateReferenceNumber(),
+        type: "RETURN",
+        status: "RECORDED",
+        agentId: parsed.data.agentId,
+        state: parsed.data.state,
+        country: parsed.data.country,
+        date: new Date(parsed.data.date),
+        damaged: parsed.data.damaged,
+        remarks: parsed.data.remarks ?? null,
+        notes: parsed.data.notes ?? null,
+        quantity: totalQty,
+        createdById: user.id,
+        items: {
+          create: parsed.data.items.map((item) => ({
+            productId: item.productId,
+            productCode: skuMap.get(item.productId) ?? "",
+            quantity: item.quantity,
+          })),
+        },
       },
-    },
+    });
+
+    // Returns are credited at create — they take stock from the agent and put
+    // it back into circulation (UNASSIGNED bucket since no warehouseId here).
+    await recordReturn(tx, parsed.data.agentId, parsed.data.items);
   });
 
   revalidatePath("/warehouse/returns");
@@ -111,10 +118,18 @@ export async function deleteReturnMovementAction(
   const session = await auth();
   if (!session?.user?.id) throw new Error("Unauthorized");
 
-  const movement = await prisma.stockMovement.findUnique({ where: { id } });
+  const movement = await prisma.stockMovement.findUnique({
+    where: { id },
+    include: { items: { select: { productId: true, quantity: true } } },
+  });
   if (!movement || movement.type !== "RETURN") return { error: "Movement not found" };
 
-  await prisma.stockMovement.delete({ where: { id } });
+  await prisma.$transaction(async (tx) => {
+    if (movement.status !== "REVERSED" && movement.agentId) {
+      await reverseReturn(tx, movement.agentId, movement.items, movement.warehouseId);
+    }
+    await tx.stockMovement.delete({ where: { id } });
+  });
 
   revalidatePath("/warehouse/returns");
   redirect("/warehouse/returns");
@@ -129,13 +144,21 @@ export async function reverseReturnMovementAction(
   const session = await auth();
   if (!session?.user?.id) throw new Error("Unauthorized");
 
-  const movement = await prisma.stockMovement.findUnique({ where: { id } });
+  const movement = await prisma.stockMovement.findUnique({
+    where: { id },
+    include: { items: { select: { productId: true, quantity: true } } },
+  });
   if (!movement || movement.type !== "RETURN") return { error: "Movement not found" };
   if (movement.status === "REVERSED") return { error: "Movement is already reversed" };
 
-  await prisma.stockMovement.update({
-    where: { id },
-    data: { status: "REVERSED", remarks: reason.trim() || null },
+  await prisma.$transaction(async (tx) => {
+    await tx.stockMovement.update({
+      where: { id },
+      data: { status: "REVERSED", remarks: reason.trim() || null },
+    });
+    if (movement.agentId) {
+      await reverseReturn(tx, movement.agentId, movement.items, movement.warehouseId);
+    }
   });
 
   revalidatePath(`/warehouse/returns/${id}`);

@@ -210,20 +210,8 @@ async function getWeeklyOrders(from: Date, to: Date): Promise<ChartPoint[]> {
 }
 
 async function getRemainingStock(): Promise<number> {
-  const [totalIn, totalOut] = await Promise.all([
-    prisma.stockMovementItem.aggregate({
-      where: { stockMovement: { type: "INCOMING" } },
-      _sum: { quantity: true },
-    }),
-    prisma.stockMovementItem.aggregate({
-      where: { stockMovement: { type: "OUTGOING" } },
-      _sum: { quantity: true },
-    }),
-  ]);
-  return Math.max(
-    0,
-    (totalIn._sum.quantity ?? 0) - (totalOut._sum.quantity ?? 0)
-  );
+  const agg = await prisma.stockLevel.aggregate({ _sum: { quantity: true } });
+  return Math.max(0, agg._sum.quantity ?? 0);
 }
 
 export async function getAdminDashboardData(

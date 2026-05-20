@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth/auth";
 import { prisma } from "@/lib/db/prisma";
 import { revalidatePath } from "next/cache";
 import { recordDeliveryFeeEntry } from "@/modules/finance/services/agent-settlement.service";
+import type { OrderStatus } from "@prisma/client";
 
 async function checkAdmin() {
   const session = await auth();
