@@ -80,15 +80,13 @@ export default function PickAndPackClient({ initialOrders, pickers, locationCode
   const isMixedSelection = hasTransfer && hasRegular;
   const isTransferMode = hasTransfer && !hasRegular;
 
-  // Aggregate transfer products across all selected transfer PickPacks
+  // Aggregate transfer products across all selected PickPacks (transfers and outgoing both populate transferProducts)
   const aggregatedTransferProducts = useMemo<TransferProductItem[]>(() => {
-    if (!isTransferMode) return [];
     const map = new Map<string, TransferProductItem>();
     for (const o of selectedOrders) {
       for (const tp of o.transferProducts) {
         const existing = map.get(tp.productId);
         if (existing) {
-          // Add required quantities; shelves stay the same (same source warehouse)
           map.set(tp.productId, { ...existing, requiredQty: existing.requiredQty + tp.requiredQty });
         } else {
           map.set(tp.productId, { ...tp });
@@ -96,7 +94,10 @@ export default function PickAndPackClient({ initialOrders, pickers, locationCode
       }
     }
     return Array.from(map.values());
-  }, [isTransferMode, selectedOrders]);
+  }, [selectedOrders]);
+
+  // Show shelf-selection UI whenever any selected order has shelf data
+  const isShelfMode = aggregatedTransferProducts.length > 0;
 
   function toggleShelf(productId: string, locationId: string, availableQty: number, checked: boolean) {
     setTransferSelections((prev) => {
@@ -149,7 +150,6 @@ export default function PickAndPackClient({ initialOrders, pickers, locationCode
   function openModal() {
     if (selectedIds.length === 0) return;
     setActionError(null);
-    // Pre-initialise per-product shelf selections so the modal starts clean
     const initSelections: TransferSelections = {};
     for (const p of aggregatedTransferProducts) {
       initSelections[p.productId] = {};
@@ -174,13 +174,13 @@ export default function PickAndPackClient({ initialOrders, pickers, locationCode
       setActionError("Cannot mix transfer and regular pick tasks. Select only one type.");
       return;
     }
-    if (isTransferMode && !allTransferProductsCovered()) {
+    if (isShelfMode && !allTransferProductsCovered()) {
       setActionError("Selected shelf quantities must exactly match the required quantities — not more, not less.");
       return;
     }
 
     setActionError(null);
-    const allocations = isTransferMode ? buildTransferAllocations() : undefined;
+    const allocations = isShelfMode ? buildTransferAllocations() : undefined;
 
     startTransition(async () => {
       const result = await assignPickerAction(
@@ -319,6 +319,7 @@ export default function PickAndPackClient({ initialOrders, pickers, locationCode
             <p className="text-gray-600 mb-6 text-[13px]">
               {selectedIds.length} item{selectedIds.length !== 1 ? "s" : ""} selected
               {isTransferMode && " — Warehouse Transfer"}
+              {!isTransferMode && isShelfMode && " — Outgoing"}
             </p>
 
             {isMixedSelection && (
@@ -327,8 +328,8 @@ export default function PickAndPackClient({ initialOrders, pickers, locationCode
               </div>
             )}
 
-            {/* ── Transfer mode: per-product shelf selection ───────────────── */}
-            {isTransferMode && (
+            {/* ── Shelf selection mode: per-product shelf picks (transfers and outgoing) */}
+            {isShelfMode && (
               <div className="mb-6">
                 <h3 className="text-[15px] font-bold text-black mb-3">Shelf Assignments by Product</h3>
                 {aggregatedTransferProducts.map((product) => {
@@ -417,8 +418,8 @@ export default function PickAndPackClient({ initialOrders, pickers, locationCode
               </div>
             )}
 
-            {/* ── Regular outgoing mode: single location code ──────────────── */}
-            {!isTransferMode && !isMixedSelection && (
+            {/* ── Regular outgoing mode: single location code (no shelf data available) */}
+            {!isShelfMode && !isMixedSelection && (
               <div className="mb-5">
                 <div className="flex justify-between items-center mb-2">
                   <span className="text-gray-500 text-sm">Select pickup bin location</span>
@@ -514,7 +515,7 @@ export default function PickAndPackClient({ initialOrders, pickers, locationCode
                 disabled={
                   isPending ||
                   isMixedSelection ||
-                  (isTransferMode && !allTransferProductsCovered())
+                  (isShelfMode && !allTransferProductsCovered())
                 }
                 className="bg-[#ad1df4] text-white font-bold py-2.5 px-8 rounded-md hover:bg-[#9b19dc] transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
               >

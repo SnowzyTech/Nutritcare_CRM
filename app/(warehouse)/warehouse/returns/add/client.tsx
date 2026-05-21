@@ -3,7 +3,7 @@
 import React, { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Filter, ArrowUpDown, ArrowLeft, CheckCircle, CalendarIcon, Trash2 } from "lucide-react";
+import { ArrowLeft, CalendarIcon, Trash2, Loader2 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -11,8 +11,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
-import type { FormAgent, FormProduct } from "@/modules/warehouse/services/warehouse.service";
-import { createReturnMovementAction } from "@/modules/warehouse/actions/returns.action";
+import type { FormAgent, LocationBinRow, AgentProductStock } from "@/modules/warehouse/services/warehouse.service";
+import { createReturnMovementAction, getAgentStocksAction } from "@/modules/warehouse/actions/returns.action";
 
 const nigerianStates = [
   "Abia", "Adamawa", "Akwa Ibom", "Anambra", "Bauchi", "Bayelsa", "Benue", "Borno",
@@ -28,17 +28,20 @@ type ProductRow = {
   productName: string;
   productCode: string;
   quantity: string;
+  maxQty: number;
+  locationId: string;
 };
 
 interface Props {
   agents: FormAgent[];
-  products: FormProduct[];
+  locations: LocationBinRow[];
 }
 
-export default function AddReturnClient({ agents, products }: Props) {
+export default function AddReturnClient({ agents, locations }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [isLoadingStocks, setIsLoadingStocks] = useState(false);
 
   const [selectedState, setSelectedState] = useState("");
   const [country, setCountry] = useState("");
@@ -47,22 +50,49 @@ export default function AddReturnClient({ agents, products }: Props) {
   const [damaged, setDamaged] = useState(false);
   const [remarks, setRemarks] = useState("");
   const [notes, setNotes] = useState("");
+  const [agentStocks, setAgentStocks] = useState<AgentProductStock[]>([]);
 
   const [productRows, setProductRows] = useState<ProductRow[]>([
-    { rowId: 1, productId: "", productName: "", productCode: "", quantity: "" },
+    { rowId: 1, productId: "", productName: "", productCode: "", quantity: "", maxQty: 0, locationId: "" },
   ]);
   const [productSearch, setProductSearch] = useState("");
   const [showDropdown, setShowDropdown] = useState(false);
   const [activeRowIndex, setActiveRowIndex] = useState<number | null>(null);
 
-  const filteredProducts = products.filter((p) =>
-    p.name.toLowerCase().includes(productSearch.toLowerCase()) ||
-    p.sku.toLowerCase().includes(productSearch.toLowerCase())
+  const handleAgentChange = async (id: string) => {
+    setAgentId(id);
+    setProductRows([{ rowId: 1, productId: "", productName: "", productCode: "", quantity: "", maxQty: 0, locationId: "" }]);
+    setAgentStocks([]);
+    setError(null);
+    if (!id) return;
+    setIsLoadingStocks(true);
+    try {
+      const stocks = await getAgentStocksAction(id);
+      setAgentStocks(stocks);
+    } finally {
+      setIsLoadingStocks(false);
+    }
+  };
+
+  const alreadySelectedIds = new Set(productRows.map((r) => r.productId).filter(Boolean));
+
+  const filteredProducts = agentStocks.filter(
+    (p) =>
+      !alreadySelectedIds.has(p.productId) &&
+      (p.productName.toLowerCase().includes(productSearch.toLowerCase()) ||
+        p.productSku.toLowerCase().includes(productSearch.toLowerCase()))
   );
 
-  const handleSelectProduct = (product: FormProduct, index: number) => {
+  const handleSelectProduct = (stock: AgentProductStock, index: number) => {
     const updated = [...productRows];
-    updated[index] = { ...updated[index], productId: product.id, productName: product.name, productCode: product.sku };
+    updated[index] = {
+      ...updated[index],
+      productId: stock.productId,
+      productName: stock.productName,
+      productCode: stock.productSku,
+      quantity: "",
+      maxQty: stock.availableQty,
+    };
     setProductRows(updated);
     setProductSearch("");
     setShowDropdown(false);
@@ -71,14 +101,26 @@ export default function AddReturnClient({ agents, products }: Props) {
 
   const handleQuantityChange = (index: number, value: string) => {
     const updated = [...productRows];
-    updated[index] = { ...updated[index], quantity: value };
+    const max = updated[index].maxQty;
+    const num = parseInt(value);
+    if (!isNaN(num) && max > 0 && num > max) {
+      updated[index] = { ...updated[index], quantity: String(max) };
+    } else {
+      updated[index] = { ...updated[index], quantity: value };
+    }
+    setProductRows(updated);
+  };
+
+  const handleLocationChange = (index: number, locationId: string) => {
+    const updated = [...productRows];
+    updated[index] = { ...updated[index], locationId };
     setProductRows(updated);
   };
 
   const addProductRow = () => {
     setProductRows([
       ...productRows,
-      { rowId: productRows.length + 1, productId: "", productName: "", productCode: "", quantity: "" },
+      { rowId: productRows.length + 1, productId: "", productName: "", productCode: "", quantity: "", maxQty: 0, locationId: "" },
     ]);
   };
 
@@ -101,6 +143,22 @@ export default function AddReturnClient({ agents, products }: Props) {
     if (!agentId) return setError("Agent is required");
     if (validItems.length === 0) return setError("At least one product with quantity is required");
 
+    for (const row of validItems) {
+      const qty = parseInt(row.quantity);
+      if (qty > row.maxQty) {
+        return setError(`"${row.productName}": quantity ${qty} exceeds agent's available stock of ${row.maxQty}`);
+      }
+      if (!row.locationId) {
+        return setError(`Please select a destination shelf for "${row.productName}"`);
+      }
+    }
+
+    const shelfAssignments = validItems.map((r) => ({
+      productId: r.productId,
+      locationId: r.locationId,
+      quantity: parseInt(r.quantity),
+    }));
+
     const fd = new FormData();
     fd.set("state", selectedState);
     fd.set("country", country);
@@ -109,10 +167,8 @@ export default function AddReturnClient({ agents, products }: Props) {
     fd.set("damaged", String(damaged));
     fd.set("remarks", remarks);
     fd.set("notes", notes);
-    fd.set(
-      "items",
-      JSON.stringify(validItems.map((r) => ({ productId: r.productId, quantity: parseInt(r.quantity) })))
-    );
+    fd.set("items", JSON.stringify(validItems.map((r) => ({ productId: r.productId, quantity: parseInt(r.quantity) }))));
+    fd.set("shelfAssignments", JSON.stringify(shelfAssignments));
 
     startTransition(async () => {
       const result = await createReturnMovementAction(null, fd);
@@ -133,27 +189,16 @@ export default function AddReturnClient({ agents, products }: Props) {
           </div>
           Back
         </Link>
-        <div className="flex items-center gap-4 ml-auto">
-          <button type="button" className="flex items-center gap-2 text-gray-500 text-[14px] font-medium hover:text-gray-700">
-            <Filter className="w-[18px] h-[18px]" />
-            Filter
-          </button>
-          <button type="button" className="text-gray-400 hover:text-gray-600">
-            <ArrowUpDown className="w-[18px] h-[18px]" />
-          </button>
-        </div>
       </div>
 
       <form onSubmit={handleSubmit} className="px-8 py-8">
         {/* Header + Form Fields */}
         <div className="flex gap-12">
-          {/* Left — Title */}
           <div className="flex-shrink-0 pt-2">
             <h1 className="text-[22px] font-semibold text-gray-800">Returned Stock</h1>
             <p className="text-[13px] text-gray-400 mt-0.5">Voucher</p>
           </div>
 
-          {/* Right — Form Fields */}
           <div className="flex-1 space-y-5">
             {/* State */}
             <div className="flex items-center gap-6">
@@ -166,9 +211,7 @@ export default function AddReturnClient({ agents, products }: Props) {
                 </SelectTrigger>
                 <SelectContent className="max-h-[240px]">
                   {nigerianStates.map((s) => (
-                    <SelectItem key={s} value={s} className="text-[13px]">
-                      {s}
-                    </SelectItem>
+                    <SelectItem key={s} value={s} className="text-[13px]">{s}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -209,13 +252,7 @@ export default function AddReturnClient({ agents, products }: Props) {
                   </div>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar
-                    mode="single"
-                    selected={date}
-                    onSelect={setDate}
-                    initialFocus
-                    className="rounded-md border"
-                  />
+                  <Calendar mode="single" selected={date} onSelect={setDate} initialFocus className="rounded-md border" />
                 </PopoverContent>
               </Popover>
             </div>
@@ -225,25 +262,44 @@ export default function AddReturnClient({ agents, products }: Props) {
               <label className="text-[12px] font-medium text-amber-600 w-[160px] text-right">
                 Agent<span className="text-red-500">*</span>
               </label>
-              <Select value={agentId} onValueChange={(v) => v && setAgentId(v)}>
-                <SelectTrigger className="w-full max-w-[320px] h-[36px] border-gray-200 text-[13px] text-gray-400 focus:ring-[#9747FF] focus:border-[#9747FF]">
-                  <SelectValue placeholder="Select an Option" />
-                </SelectTrigger>
-                <SelectContent className="max-h-[240px]">
-                  {agents.length === 0 ? (
-                    <div className="px-3 py-2 text-[13px] text-gray-400">No agents found</div>
-                  ) : (
-                    agents.map((a) => (
-                      <SelectItem key={a.id} value={a.id} className="text-[13px]">
-                        {a.companyName}{a.state ? ` — ${a.state}` : ""}
-                      </SelectItem>
-                    ))
-                  )}
-                </SelectContent>
-              </Select>
+              <div className="flex items-center gap-2 w-full max-w-[320px]">
+                <Select value={agentId} onValueChange={(v) => v && handleAgentChange(v)}>
+                  <SelectTrigger className="w-full h-[36px] border-gray-200 text-[13px] text-gray-400 focus:ring-[#9747FF] focus:border-[#9747FF]">
+                    <SelectValue placeholder="Select an Option" />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-[240px]">
+                    {agents.length === 0 ? (
+                      <div className="px-3 py-2 text-[13px] text-gray-400">No agents found</div>
+                    ) : (
+                      agents.map((a) => (
+                        <SelectItem key={a.id} value={a.id} className="text-[13px]">
+                          {a.companyName}{a.state ? ` — ${a.state}` : ""}
+                        </SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+                {isLoadingStocks && <Loader2 className="w-4 h-4 animate-spin text-gray-400 shrink-0" />}
+              </div>
             </div>
 
-            {/* Damaged Checkbox */}
+            {/* Agent stock info */}
+            {agentId && !isLoadingStocks && (
+              <div className="flex items-center gap-6">
+                <div className="w-[160px]" />
+                {agentStocks.length === 0 ? (
+                  <p className="text-[12px] text-amber-600">
+                    This agent has no stock available for return.
+                  </p>
+                ) : (
+                  <p className="text-[12px] text-emerald-600">
+                    {agentStocks.length} product{agentStocks.length !== 1 ? "s" : ""} available in agent's stock.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Damaged */}
             <div className="flex items-center gap-6">
               <div className="w-[160px]" />
               <button
@@ -251,20 +307,21 @@ export default function AddReturnClient({ agents, products }: Props) {
                 onClick={() => setDamaged(!damaged)}
                 className="flex items-center gap-2 text-[13px] text-gray-700 font-medium"
               >
-                <CheckCircle
-                  className={`w-[20px] h-[20px] transition-colors ${
-                    damaged ? "text-[#9747FF] fill-[#9747FF] stroke-white" : "text-gray-300"
-                  }`}
-                />
+                <span
+                  className={cn(
+                    "w-[18px] h-[18px] rounded-full border-2 flex items-center justify-center transition-colors",
+                    damaged ? "border-[#9747FF] bg-[#9747FF]" : "border-gray-300"
+                  )}
+                >
+                  {damaged && <span className="w-2 h-2 rounded-full bg-white" />}
+                </span>
                 Damaged
               </button>
             </div>
 
             {/* Remarks */}
             <div className="flex items-center gap-6">
-              <label className="text-[12px] font-medium text-gray-700 w-[160px] text-right">
-                Remarks
-              </label>
+              <label className="text-[12px] font-medium text-gray-700 w-[160px] text-right">Remarks</label>
               <input
                 type="text"
                 value={remarks}
@@ -278,74 +335,144 @@ export default function AddReturnClient({ agents, products }: Props) {
 
         {/* Product Table */}
         <div className="mt-10 border border-gray-200 rounded-lg shadow-sm overflow-visible">
-          <div className="bg-white px-4 py-2.5 border-b border-gray-100">
-            <span className="text-[12px] text-gray-400">Products</span>
+          <div className="bg-white px-4 py-2.5 border-b border-gray-100 flex items-center justify-between">
+            <span className="text-[12px] text-gray-400">
+              Products
+              {agentId && !isLoadingStocks && agentStocks.length === 0 && (
+                <span className="ml-2 text-amber-500">(agent has no stock)</span>
+              )}
+            </span>
           </div>
           <table className="w-full">
             <thead>
               <tr className="bg-[#4A0E78] text-white">
-                <th className="px-4 py-2.5 text-[11px] font-medium text-left w-12">#</th>
+                <th className="px-4 py-2.5 text-[11px] font-medium text-left w-10">#</th>
                 <th className="px-4 py-2.5 text-[11px] font-medium text-left">Product</th>
-                <th className="px-4 py-2.5 text-[11px] font-medium text-left w-36">Product Code</th>
-                <th className="px-4 py-2.5 text-[11px] font-medium text-right w-32">Quantity</th>
-                <th className="px-4 py-2.5 text-[11px] font-medium text-center w-16"></th>
+                <th className="px-4 py-2.5 text-[11px] font-medium text-left w-28">Code</th>
+                <th className="px-4 py-2.5 text-[11px] font-medium text-center w-28">Available</th>
+                <th className="px-4 py-2.5 text-[11px] font-medium text-right w-28">Qty to Return</th>
+                <th className="px-4 py-2.5 text-[11px] font-medium text-left w-40">Destination Shelf<span className="text-red-300 ml-0.5">*</span></th>
+                <th className="px-4 py-2.5 text-[11px] font-medium text-center w-12"></th>
               </tr>
             </thead>
             <tbody>
               {productRows.map((row, index) => (
                 <tr key={row.rowId} className="border-b border-gray-100 bg-white">
                   <td className="px-4 py-2.5 text-[12px] text-gray-500">{index + 1}</td>
+
+                  {/* Product search */}
                   <td className="px-2 py-2.5 relative">
-                    <div className="relative">
-                      <input
-                        type="text"
-                        value={row.productName || (activeRowIndex === index ? productSearch : "")}
-                        onChange={(e) => {
-                          setProductSearch(e.target.value);
-                          setActiveRowIndex(index);
-                          setShowDropdown(true);
-                          const updated = [...productRows];
-                          updated[index] = { ...updated[index], productId: "", productName: "", productCode: "" };
-                          setProductRows(updated);
-                        }}
-                        onFocus={() => {
-                          setActiveRowIndex(index);
-                          setShowDropdown(true);
-                        }}
-                        placeholder="Search for a Product"
-                        className="w-full h-[32px] border border-gray-200 rounded-md px-3 text-[12px] text-gray-500 placeholder:text-gray-300 focus:outline-none focus:ring-1 focus:ring-[#9747FF] focus:border-[#9747FF]"
-                      />
-                    </div>
-                    {showDropdown && activeRowIndex === index && (
-                      <div className="absolute left-0 top-full mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg z-50 max-h-40 overflow-y-auto">
+                    <input
+                      type="text"
+                      value={row.productName || (activeRowIndex === index ? productSearch : "")}
+                      onChange={(e) => {
+                        setProductSearch(e.target.value);
+                        setActiveRowIndex(index);
+                        setShowDropdown(true);
+                        const updated = [...productRows];
+                        updated[index] = { ...updated[index], productId: "", productName: "", productCode: "", maxQty: 0 };
+                        setProductRows(updated);
+                      }}
+                      onFocus={() => {
+                        setActiveRowIndex(index);
+                        setShowDropdown(true);
+                      }}
+                      disabled={!agentId || isLoadingStocks}
+                      placeholder={
+                        !agentId
+                          ? "Select agent first"
+                          : isLoadingStocks
+                          ? "Loading…"
+                          : agentStocks.length === 0
+                          ? "No stock available"
+                          : "Search product"
+                      }
+                      className="w-full h-[32px] border border-gray-200 rounded-md px-3 text-[12px] text-gray-500 placeholder:text-gray-300 focus:outline-none focus:ring-1 focus:ring-[#9747FF] focus:border-[#9747FF] disabled:bg-gray-50 disabled:cursor-not-allowed"
+                    />
+                    {showDropdown && activeRowIndex === index && agentId && (
+                      <div className="absolute left-0 top-full mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
                         {filteredProducts.length === 0 ? (
-                          <div className="px-3 py-2 text-[12px] text-gray-400">No products found</div>
+                          <div className="px-3 py-2 text-[12px] text-gray-400">
+                            {agentStocks.length === 0 ? "Agent has no stock" : "No matching products"}
+                          </div>
                         ) : (
                           filteredProducts.map((p) => (
                             <button
-                              key={p.id}
+                              key={p.productId}
                               type="button"
                               onMouseDown={() => handleSelectProduct(p, index)}
-                              className="w-full text-left px-3 py-2 text-[12px] text-gray-600 hover:bg-purple-50 transition-colors"
+                              className="w-full text-left px-3 py-2 text-[12px] text-gray-600 hover:bg-purple-50 transition-colors flex items-center justify-between"
                             >
-                              {p.name}
+                              <span>{p.productName}</span>
+                              <span className="text-[11px] text-emerald-600 font-medium ml-2">{p.availableQty} avail.</span>
                             </button>
                           ))
                         )}
                       </div>
                     )}
                   </td>
-                  <td className="px-4 py-2.5 text-[12px] text-gray-500">{row.productCode || "—"}</td>
+
+                  {/* Code */}
+                  <td className="px-4 py-2.5 text-[12px] text-gray-400">{row.productCode || "—"}</td>
+
+                  {/* Available qty indicator */}
+                  <td className="px-4 py-2.5 text-center">
+                    {row.productId ? (
+                      <span className="text-[12px] font-medium text-emerald-600">{row.maxQty}</span>
+                    ) : (
+                      <span className="text-[12px] text-gray-300">—</span>
+                    )}
+                  </td>
+
+                  {/* Quantity to return */}
                   <td className="px-4 py-2.5">
                     <input
                       type="number"
                       min="1"
+                      max={row.maxQty > 0 ? row.maxQty : undefined}
                       value={row.quantity}
                       onChange={(e) => handleQuantityChange(index, e.target.value)}
+                      disabled={!row.productId}
                       placeholder="0"
-                      className="w-full h-[32px] border border-gray-200 rounded-md px-3 text-[12px] text-gray-500 placeholder:text-gray-300 focus:outline-none focus:ring-1 focus:ring-[#9747FF] focus:border-[#9747FF] text-right [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      className={cn(
+                        "w-full h-[32px] border rounded-md px-3 text-[12px] text-gray-500 placeholder:text-gray-300 focus:outline-none focus:ring-1 focus:ring-[#9747FF] focus:border-[#9747FF] text-right [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none disabled:bg-gray-50 disabled:cursor-not-allowed",
+                        row.productId && parseInt(row.quantity) > row.maxQty
+                          ? "border-red-400"
+                          : "border-gray-200"
+                      )}
                     />
                   </td>
+
+                  {/* Destination Shelf */}
+                  <td className="px-2 py-2.5">
+                    <Select
+                      value={row.locationId}
+                      onValueChange={(v) => v && handleLocationChange(index, v)}
+                      disabled={!row.productId}
+                    >
+                      <SelectTrigger className="h-[32px] text-[12px] border-gray-200 focus:ring-[#9747FF] disabled:bg-gray-50 disabled:cursor-not-allowed">
+                        <SelectValue placeholder="Select shelf" />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-[200px]">
+                        {locations.length === 0 ? (
+                          <div className="px-3 py-2 text-[12px] text-gray-400">No shelves configured</div>
+                        ) : (
+                          locations.map((loc) => (
+                            <SelectItem key={loc.id} value={loc.id} className="text-[12px]">
+                              <span className="font-medium">{loc.locationCode}</span>
+                              <span className="text-gray-400 ml-1">
+                                ({loc.currentStock} stk
+                                {loc.maxCapacity ? ` / ${loc.maxCapacity}` : ""}
+                                {loc.occupancyStatus === "FULL" ? " · FULL" : ""})
+                              </span>
+                            </SelectItem>
+                          ))
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </td>
+
+                  {/* Remove */}
                   <td className="px-4 py-2.5 text-center">
                     {productRows.length > 1 && (
                       <button
@@ -365,7 +492,8 @@ export default function AddReturnClient({ agents, products }: Props) {
             <button
               type="button"
               onClick={addProductRow}
-              className="text-[12px] text-[#9747FF] font-medium hover:underline"
+              disabled={!agentId || isLoadingStocks || agentStocks.length === 0}
+              className="text-[12px] text-[#9747FF] font-medium hover:underline disabled:text-gray-300 disabled:no-underline disabled:cursor-not-allowed"
             >
               + Add Product
             </button>
@@ -385,10 +513,10 @@ export default function AddReturnClient({ agents, products }: Props) {
 
         {/* Error */}
         {error && (
-          <p className="text-red-500 text-[13px] mb-4">{error}</p>
+          <p className="text-red-500 text-[13px] mb-4 bg-red-50 border border-red-200 rounded-md px-4 py-2">{error}</p>
         )}
 
-        {/* Action Buttons */}
+        {/* Actions */}
         <div className="flex items-center justify-end gap-3 mt-6">
           <Button
             type="button"

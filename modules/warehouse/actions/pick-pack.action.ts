@@ -92,12 +92,85 @@ async function creditTargetWarehouseBin(tx: Tx, warehouseId: string, qty: number
   return target.id;
 }
 
-// Per-product per-shelf allocation submitted from the transfer assign modal.
+// Per-product per-shelf allocation submitted from the shelf-selection modal.
 export type TransferShelfAllocation = {
   locationId: string;
   productId: string;
   quantity: number;
 };
+
+// Shared: validate allocations against ShelfProductStock, then deduct them.
+// Items = the movement/transfer items (used for the exact-match check).
+async function applyExplicitShelfDeductions(
+  tx: Tx,
+  items: { productId: string; quantity: number; name?: string }[],
+  allocations: TransferShelfAllocation[],
+): Promise<void> {
+  // Validate per-shelf availability
+  for (const alloc of allocations) {
+    const shelf = await tx.shelfProductStock.findUnique({
+      where: { locationId_productId: { locationId: alloc.locationId, productId: alloc.productId } },
+    });
+    const shelfQty = shelf?.quantity ?? 0;
+    if (shelfQty < alloc.quantity) {
+      const loc = await tx.warehouseLocation.findUnique({
+        where: { id: alloc.locationId },
+        select: { locationCode: true },
+      });
+      const product = await tx.product.findUnique({
+        where: { id: alloc.productId },
+        select: { name: true },
+      });
+      throw new Error(
+        `Shelf ${loc?.locationCode ?? alloc.locationId} only has ${shelfQty} of "${product?.name ?? alloc.productId}", but ${alloc.quantity} requested`,
+      );
+    }
+  }
+
+  // Validate allocations exactly match required quantities (no over, no under)
+  const requiredMap = new Map(items.map((i) => [i.productId, i.quantity]));
+  const allocatedMap = new Map<string, number>();
+  for (const a of allocations) {
+    allocatedMap.set(a.productId, (allocatedMap.get(a.productId) ?? 0) + a.quantity);
+  }
+  for (const [productId, required] of requiredMap) {
+    const allocated = allocatedMap.get(productId) ?? 0;
+    if (allocated !== required) {
+      const product = await tx.product.findUnique({
+        where: { id: productId },
+        select: { name: true },
+      });
+      throw new Error(
+        allocated < required
+          ? `Shelf allocations for "${product?.name ?? productId}" cover only ${allocated} of ${required} required`
+          : `Shelf allocations for "${product?.name ?? productId}" exceed the required ${required} (got ${allocated})`,
+      );
+    }
+  }
+
+  // Deduct from ShelfProductStock
+  await debitShelfProducts(tx, allocations as ShelfAllocationItem[]);
+
+  // Decrement WarehouseLocation.currentStock per affected bin
+  const qtyByLocation = new Map<string, number>();
+  for (const a of allocations) {
+    qtyByLocation.set(a.locationId, (qtyByLocation.get(a.locationId) ?? 0) + a.quantity);
+  }
+  for (const [locationId, qty] of qtyByLocation) {
+    const loc = await tx.warehouseLocation.findUnique({
+      where: { id: locationId },
+      select: { currentStock: true },
+    });
+    const newStock = Math.max(0, (loc?.currentStock ?? 0) - qty);
+    await tx.warehouseLocation.update({
+      where: { id: locationId },
+      data: {
+        currentStock: newStock,
+        ...(newStock === 0 ? { occupancyStatus: "EMPTY" } : {}),
+      },
+    });
+  }
+}
 
 export async function assignPickerAction(
   pickPackIds: string[],
@@ -165,13 +238,18 @@ export async function assignPickerAction(
             }
           }
 
-          // Deduct physical bin counts (selected bin first, cascade by stock desc)
-          const totalQty = items.reduce((s, i) => s + i.quantity, 0);
-          const result = await deductFromWarehouseBins(tx, warehouseId, totalQty, locationCode);
-          if (!result.ok) {
-            throw new Error(
-              `Bins in source warehouse hold less than the required quantity (short by ${result.shortfall}). Update bin counts before packing.`,
-            );
+          if (transferAllocations && transferAllocations.length > 0) {
+            // ── Explicit per-shelf deductions from the UI ──────────────────
+            await applyExplicitShelfDeductions(tx, items, transferAllocations);
+          } else {
+            // ── Legacy cascade deduction (no explicit shelf allocations) ───
+            const totalQty = items.reduce((s, i) => s + i.quantity, 0);
+            const result = await deductFromWarehouseBins(tx, warehouseId, totalQty, locationCode);
+            if (!result.ok) {
+              throw new Error(
+                `Bins in source warehouse hold less than the required quantity (short by ${result.shortfall}). Update bin counts before packing.`,
+              );
+            }
           }
 
           // Materialized balance: warehouse loses, destination agent gains.

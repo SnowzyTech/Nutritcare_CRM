@@ -38,6 +38,35 @@ export async function getProductsForOutgoingForm(): Promise<FormProduct[]> {
 export const getAgentsForReturnForm = getAgentsForOutgoingForm;
 export const getProductsForReturnForm = getProductsForOutgoingForm;
 
+export type AgentProductStock = {
+  productId: string;
+  productName: string;
+  productSku: string;
+  availableQty: number;
+};
+
+export async function getAgentProductStocks(agentId: string): Promise<AgentProductStock[]> {
+  const stockRows = await prisma.stockLevel.findMany({
+    where: { locationKind: "AGENT", locationId: agentId, quantity: { gt: 0 } },
+    select: { productId: true, quantity: true },
+  });
+  if (!stockRows.length) return [];
+
+  const productIds = stockRows.map((r) => r.productId);
+  const products = await prisma.product.findMany({
+    where: { id: { in: productIds }, isActive: true, deletedAt: null },
+    select: { id: true, name: true, sku: true },
+  });
+
+  const productMap = new Map(products.map((p) => [p.id, p]));
+  return stockRows
+    .filter((r) => productMap.has(r.productId))
+    .map((r) => {
+      const p = productMap.get(r.productId)!;
+      return { productId: r.productId, productName: p.name, productSku: p.sku, availableQty: r.quantity };
+    });
+}
+
 // ── Incoming goods ────────────────────────────────────────────────────────────
 
 export type FormSupplier = {
@@ -257,7 +286,9 @@ export async function getPickPackOrders(warehouseId: string | null): Promise<Pic
       stockMovement: {
         select: {
           referenceNumber: true,
+          warehouseId: true,
           driverAgent: { select: { companyName: true } },
+          items: { select: { productId: true, quantity: true, product: { select: { id: true, name: true } } } },
         },
       },
       stockTransfer: {
@@ -274,20 +305,34 @@ export async function getPickPackOrders(warehouseId: string | null): Promise<Pic
     },
   });
 
-  // For QUEUED transfer PickPacks fetch ShelfProductStock data so the UI can
+  // For QUEUED transfer and outgoing PickPacks, fetch ShelfProductStock data so the UI can
   // show which shelves contain each product and how much is available.
-  const queuedTransferPPs = pickPacks.filter(
-    (pp) => pp.status === "QUEUED" && pp.stockTransfer !== null,
+  const queuedWithShelves = pickPacks.filter(
+    (pp) =>
+      pp.status === "QUEUED" &&
+      (pp.stockTransfer !== null || (pp.stockMovement !== null && pp.stockMovement.warehouseId !== null)),
   );
 
   // Collect unique (warehouseId, productId) pairs needed
   type ShelfKey = { warehouseId: string; productId: string };
+  const neededSet = new Set<string>();
   const needed: ShelfKey[] = [];
-  for (const pp of queuedTransferPPs) {
-    const src = pp.stockTransfer!;
-    if (src.sourceType !== "WAREHOUSE") continue;
-    for (const item of src.items) {
-      needed.push({ warehouseId: src.sourceId, productId: item.productId });
+
+  function addNeeded(warehouseId: string, productId: string) {
+    const key = `${warehouseId}:${productId}`;
+    if (!neededSet.has(key)) {
+      neededSet.add(key);
+      needed.push({ warehouseId, productId });
+    }
+  }
+
+  for (const pp of queuedWithShelves) {
+    if (pp.stockTransfer) {
+      const src = pp.stockTransfer;
+      if (src.sourceType !== "WAREHOUSE") continue;
+      for (const item of src.items) addNeeded(src.sourceId, item.productId);
+    } else if (pp.stockMovement?.warehouseId) {
+      for (const item of pp.stockMovement.items) addNeeded(pp.stockMovement.warehouseId, item.productId);
     }
   }
 
@@ -346,16 +391,29 @@ export async function getPickPackOrders(warehouseId: string | null): Promise<Pic
       isTransfer && pp.stockTransfer!.sourceType === "WAREHOUSE" ? pp.stockTransfer!.sourceId : null;
 
     let transferProducts: TransferProductItem[] = [];
-    if (isTransfer && pp.status === "QUEUED" && sourceWarehouseId) {
-      transferProducts = pp.stockTransfer!.items.map((item) => {
-        const key = `${sourceWarehouseId}:${item.productId}`;
-        return {
-          productId: item.productId,
-          productName: item.product.name,
-          requiredQty: item.quantity,
-          availableShelves: shelfMap.get(key) ?? [],
-        };
-      });
+    if (pp.status === "QUEUED") {
+      if (isTransfer && sourceWarehouseId) {
+        transferProducts = pp.stockTransfer!.items.map((item) => {
+          const key = `${sourceWarehouseId}:${item.productId}`;
+          return {
+            productId: item.productId,
+            productName: item.product.name,
+            requiredQty: item.quantity,
+            availableShelves: shelfMap.get(key) ?? [],
+          };
+        });
+      } else if (!isTransfer && pp.stockMovement?.warehouseId) {
+        const whId = pp.stockMovement.warehouseId;
+        transferProducts = pp.stockMovement.items.map((item) => {
+          const key = `${whId}:${item.productId}`;
+          return {
+            productId: item.productId,
+            productName: item.product.name,
+            requiredQty: item.quantity,
+            availableShelves: shelfMap.get(key) ?? [],
+          };
+        });
+      }
     }
 
     return {
