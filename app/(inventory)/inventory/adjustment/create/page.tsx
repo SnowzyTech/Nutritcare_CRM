@@ -1,22 +1,25 @@
 import {
   getWarehousesForDropdown,
   getProductsForDropdown,
-  getProductStockMap,
+  getWarehouseLocationsGrouped,
+  getShelfProductStockMap,
 } from "@/modules/inventory/services/inventory.service";
 import AdjustmentCreateClient from "./adjustment-create-client";
 
 export default async function CreateAdjustmentPage() {
-  const [warehouses, products, productStockMap] = await Promise.all([
+  const [warehouses, products, warehouseLocationsMap, shelfStockMap] = await Promise.all([
     getWarehousesForDropdown(),
     getProductsForDropdown(),
-    getProductStockMap(),
+    getWarehouseLocationsGrouped(),
+    getShelfProductStockMap(),
   ]);
 
   return (
     <AdjustmentCreateClient
       warehouses={warehouses}
       products={products}
-      productStockMap={productStockMap}
+      warehouseLocationsMap={warehouseLocationsMap}
+      shelfStockMap={shelfStockMap}
     />
   );
 }

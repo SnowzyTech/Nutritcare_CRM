@@ -380,12 +380,49 @@ const CreateAdjustmentSchema = z.object({
     .array(
       z.object({
         productId: z.string().min(1, "Product is required"),
+        locationId: z.string().min(1, "Shelf is required"),
         quantityBefore: z.number().int().min(0, "Expected quantity must be 0 or more"),
         quantityAfter: z.number().int().min(0, "Actual quantity must be 0 or more"),
       })
     )
     .min(1, "At least one product is required"),
 });
+
+async function applyShelfAdjustment(
+  tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0],
+  items: { productId: string; locationId: string; quantityBefore: number; quantityAfter: number }[],
+  invert = false,
+) {
+  for (const item of items) {
+    const rawDelta = item.quantityAfter - item.quantityBefore;
+    const delta = invert ? -rawDelta : rawDelta;
+    if (delta === 0) continue;
+
+    // Update ShelfProductStock: set the quantity directly rather than incrementing
+    // so we don't drift if quantityBefore was already off.
+    const targetQty = invert ? item.quantityBefore : item.quantityAfter;
+    await tx.shelfProductStock.upsert({
+      where: { locationId_productId: { locationId: item.locationId, productId: item.productId } },
+      create: { locationId: item.locationId, productId: item.productId, quantity: Math.max(0, targetQty) },
+      update: { quantity: Math.max(0, targetQty) },
+    });
+
+    // Update WarehouseLocation.currentStock and occupancyStatus
+    const loc = await tx.warehouseLocation.findUnique({
+      where: { id: item.locationId },
+      select: { currentStock: true, maxCapacity: true },
+    });
+    const newStock = Math.max(0, (loc?.currentStock ?? 0) + delta);
+    const isFull = loc?.maxCapacity != null && newStock >= loc.maxCapacity;
+    await tx.warehouseLocation.update({
+      where: { id: item.locationId },
+      data: {
+        currentStock: newStock,
+        occupancyStatus: newStock === 0 ? "EMPTY" : isFull ? "FULL" : "PARTIAL",
+      },
+    });
+  }
+}
 
 export async function createAdjustmentAction(
   data: z.infer<typeof CreateAdjustmentSchema>
@@ -402,6 +439,17 @@ export async function createAdjustmentAction(
 
   const { warehouseId, reason, notes, date, status, items } = parsed.data;
 
+  // Validate every locationId belongs to this warehouse
+  const locationIds = [...new Set(items.map((i) => i.locationId))];
+  const locations = await prisma.warehouseLocation.findMany({
+    where: { id: { in: locationIds } },
+    select: { id: true, warehouseId: true },
+  });
+  if (locations.length !== locationIds.length)
+    return { error: "One or more shelf locations not found" };
+  if (locations.some((l) => l.warehouseId !== warehouseId))
+    return { error: "One or more shelf locations belong to a different warehouse" };
+
   try {
     await prisma.$transaction(async (tx) => {
       await tx.stockAdjustment.create({
@@ -416,15 +464,18 @@ export async function createAdjustmentAction(
           items: {
             create: items.map((item) => ({
               productId: item.productId,
+              locationId: item.locationId,
               quantityBefore: item.quantityBefore,
               quantityAfter: item.quantityAfter,
             })),
           },
         },
       });
-      // Only RECORDED adjustments touch live balances; DRAFT is a saved plan.
       if (status === "RECORDED") {
+        // Update the materialized warehouse StockLevel balance
         await recordAdjustment(tx, warehouseId, items);
+        // Also update the physical shelf records (WarehouseLocation + ShelfProductStock)
+        await applyShelfAdjustment(tx, items);
       }
     });
   } catch (e) {
@@ -451,7 +502,7 @@ export async function reverseAdjustmentAction(
   const adj = await prisma.stockAdjustment.findUnique({
     where: { id },
     include: {
-      items: { select: { productId: true, quantityBefore: true, quantityAfter: true } },
+      items: { select: { productId: true, locationId: true, quantityBefore: true, quantityAfter: true } },
     },
   });
   if (!adj) return { error: "Adjustment not found" };
@@ -464,6 +515,13 @@ export async function reverseAdjustmentAction(
     });
     if (adj.status === "RECORDED") {
       await reverseAdjustment(tx, adj.warehouseId, adj.items);
+      // Reverse the shelf-level changes for items that had a shelf assigned
+      const shelfItems = adj.items.filter(
+        (i): i is typeof i & { locationId: string } => i.locationId != null
+      );
+      if (shelfItems.length > 0) {
+        await applyShelfAdjustment(tx, shelfItems, true);
+      }
     }
   });
 

@@ -1098,6 +1098,39 @@ export async function getWarehouseProductStockMap(): Promise<Record<string, Reco
   return getWarehouseStockMap();
 }
 
+export type LocationForAdjustment = {
+  id: string;
+  locationCode: string;
+  currentStock: number;
+};
+
+/** Returns every warehouse's shelf locations grouped by warehouseId. */
+export async function getWarehouseLocationsGrouped(): Promise<Record<string, LocationForAdjustment[]>> {
+  const locations = await prisma.warehouseLocation.findMany({
+    select: { id: true, warehouseId: true, locationCode: true, currentStock: true },
+    orderBy: [{ warehouseId: "asc" }, { locationCode: "asc" }],
+  });
+  const map: Record<string, LocationForAdjustment[]> = {};
+  for (const loc of locations) {
+    map[loc.warehouseId] ??= [];
+    map[loc.warehouseId].push({ id: loc.id, locationCode: loc.locationCode, currentStock: loc.currentStock });
+  }
+  return map;
+}
+
+/** Returns per-shelf per-product quantities: locationId → productId → qty. */
+export async function getShelfProductStockMap(): Promise<Record<string, Record<string, number>>> {
+  const stocks = await prisma.shelfProductStock.findMany({
+    select: { locationId: true, productId: true, quantity: true },
+  });
+  const map: Record<string, Record<string, number>> = {};
+  for (const s of stocks) {
+    map[s.locationId] ??= {};
+    map[s.locationId][s.productId] = s.quantity;
+  }
+  return map;
+}
+
 export async function getProductById(id: string) {
   return prisma.product.findFirst({
     where: { id, deletedAt: null },

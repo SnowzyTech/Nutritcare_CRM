@@ -475,10 +475,11 @@ model WarehouseLocation {
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
 
-  warehouse          Warehouse           @relation(fields: [warehouseId], references: [id])
-  damageReports      DamageReport[]
-  stockMovements     StockMovement[]     @relation("StockMovementShelfLocation")
-  shelfProductStocks ShelfProductStock[]
+  warehouse            Warehouse             @relation(fields: [warehouseId], references: [id])
+  damageReports        DamageReport[]
+  stockMovements       StockMovement[]       @relation("StockMovementShelfLocation")
+  shelfProductStocks   ShelfProductStock[]
+  stockAdjustmentItems StockAdjustmentItem[]
 
   @@index([warehouseId])
   @@index([occupancyStatus])
@@ -1090,16 +1091,19 @@ model StockAdjustmentItem {
   id                String   @id @default(cuid())
   stockAdjustmentId String
   productId         String
+  locationId        String?
   quantityBefore    Int
   quantityAfter     Int
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
-  stockAdjustment StockAdjustment @relation(fields: [stockAdjustmentId], references: [id], onDelete: Cascade)
-  product         Product         @relation(fields: [productId], references: [id])
+  stockAdjustment StockAdjustment    @relation(fields: [stockAdjustmentId], references: [id], onDelete: Cascade)
+  product         Product            @relation(fields: [productId], references: [id])
+  location        WarehouseLocation? @relation(fields: [locationId], references: [id])
 
   @@index([stockAdjustmentId])
   @@index([productId])
+  @@index([locationId])
   @@map("stock_adjustment_items")
 }
 
