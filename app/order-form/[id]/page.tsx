@@ -256,6 +256,7 @@ const COUNTRIES_AND_CODES = [
 ];
 
 /* ── Interactive Field row shown in the preview form ── */
+
 function FormField({
   label,
   placeholder,
@@ -506,6 +507,7 @@ export default function OrderFormPreview() {
     show: boolean;
     options: string[];
   }>;
+
 
   const showPaymentMethod =
     data.paystackEnabled ||
