@@ -6,17 +6,7 @@ import {
   ChevronRight,
   RotateCcw,
   MessageCircle,
-  TrendingUp,
-  ChevronDown,
-  Search,
-  MoreVertical,
-  Calendar as CalendarIcon
 } from 'lucide-react';
-import { format } from 'date-fns';
-import { Calendar } from '@/components/ui/calendar';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { ProfitAndLossView } from './ProfitAndLossView';
 import { BalanceSheetView as StatementOfFinancialPosition } from './BalanceSheetView';
@@ -40,46 +30,56 @@ const reportTypes = [
 
 interface ReportsClientProps {
   initialTab?: string;
+  reportData?: any;
+  currentDate?: string;
+  priorDate?: string;
 }
 
-const slugify = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '');
+const slugify = (text: string) =>
+  text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '');
 const unslugify = (slug: string) => {
   const map: Record<string, string> = {};
-  reportTypes.forEach(t => map[slugify(t)] = t);
+  reportTypes.forEach(t => (map[slugify(t)] = t));
   return map[slug] || "Profit & Loss";
 };
 
-export function ReportsClient({ initialTab }: ReportsClientProps = {}) {
+export function ReportsClient({
+  initialTab,
+  reportData,
+  currentDate,
+  priorDate,
+}: ReportsClientProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  // Initialize with initialTab prop if provided, otherwise fallback to default
   const defaultTab = initialTab ? unslugify(initialTab) : "Profit & Loss";
   const [activeReport, setActiveReport] = useState(defaultTab);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
-  // Sync state with URL parameter changes (useful if user uses back/forward browser buttons)
   React.useEffect(() => {
     const tabParam = searchParams.get('tab');
-    if (tabParam) {
-      setActiveReport(unslugify(tabParam));
-    }
+    if (tabParam) setActiveReport(unslugify(tabParam));
   }, [searchParams]);
 
   const handleTabChange = (type: string) => {
     setActiveReport(type);
-    // Create new search params string
     const params = new URLSearchParams(searchParams.toString());
     params.set('tab', slugify(type));
-    // Update URL without a full page reload or scrolling
     router.push(`${pathname}?${params.toString()}`, { scroll: false });
   };
 
+  const updatePeriod = (key: 'current' | 'prior', iso: string) => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set(key, iso);
+    router.push(`${pathname}?${params.toString()}`, { scroll: false });
+  };
+
+  const currentDateObj = currentDate ? new Date(currentDate) : new Date();
+  const priorDateObj = priorDate ? new Date(priorDate) : new Date();
 
   return (
     <div className="p-8 max-w-[1600px] mx-auto min-h-screen bg-[#F9FAFB]">
-      {/* Top Controls */}
       <div className="flex items-center justify-between mb-8">
         <div className="flex items-center gap-4">
           <button className="p-1.5 text-purple-400 hover:text-purple-600 transition-colors bg-purple-50 rounded-lg">
@@ -99,10 +99,11 @@ export function ReportsClient({ initialTab }: ReportsClientProps = {}) {
         </div>
       </div>
 
-      <h1 className="text-[32px] font-bold text-gray-800 mb-10 tracking-tight leading-none">Reports</h1>
+      <h1 className="text-[32px] font-bold text-gray-800 mb-10 tracking-tight leading-none">
+        Reports
+      </h1>
 
       <div className="flex gap-4 items-start">
-        {/* Toggle Sidebar Button */}
         <button
           onClick={() => setIsSidebarOpen(!isSidebarOpen)}
           className="lg:hidden fixed bottom-6 right-6 bg-[#5C2B90] text-white p-4 rounded-full shadow-lg z-50 hover:bg-purple-800 transition-all"
@@ -110,11 +111,18 @@ export function ReportsClient({ initialTab }: ReportsClientProps = {}) {
           {isSidebarOpen ? <ChevronLeft size={24} /> : <ChevronRight size={24} />}
         </button>
 
-        {/* Secondary Sidebar */}
-        <div className={`${isSidebarOpen ? 'w-[230px] opacity-100 visible' : 'w-0 opacity-0 invisible overflow-hidden'} shrink-0 bg-white rounded-[40px] p-4 border border-gray-100 shadow-sm sticky top-8 self-start transition-all duration-300 ease-in-out`}>
+        <div
+          className={`${
+            isSidebarOpen
+              ? 'w-[230px] opacity-100 visible'
+              : 'w-0 opacity-0 invisible overflow-hidden'
+          } shrink-0 bg-white rounded-[40px] p-4 border border-gray-100 shadow-sm sticky top-8 self-start transition-all duration-300 ease-in-out`}
+        >
           <div className="space-y-1">
             <div className="flex items-center justify-between mb-4 px-4">
-              <h3 className="text-gray-400 font-bold text-[12px] uppercase tracking-wider">Reports</h3>
+              <h3 className="text-gray-400 font-bold text-[12px] uppercase tracking-wider">
+                Reports
+              </h3>
               <button
                 onClick={() => setIsSidebarOpen(false)}
                 className="text-gray-400 hover:text-gray-600 transition-colors p-1"
@@ -122,14 +130,15 @@ export function ReportsClient({ initialTab }: ReportsClientProps = {}) {
                 <ChevronLeft size={16} />
               </button>
             </div>
-            {reportTypes.map((type) => (
+            {reportTypes.map(type => (
               <button
                 key={type}
                 onClick={() => handleTabChange(type)}
-                className={`w-full text-left text-[15px] font-bold px-6 py-4 rounded-3xl transition-all ${activeReport === type
-                  ? 'text-[#5C2B90] bg-[#F3E8FF]'
-                  : 'text-[#8A94A6] hover:text-[#5C2B90] hover:bg-purple-50/50'
-                  }`}
+                className={`w-full text-left text-[15px] font-bold px-6 py-4 rounded-3xl transition-all ${
+                  activeReport === type
+                    ? 'text-[#5C2B90] bg-[#F3E8FF]'
+                    : 'text-[#8A94A6] hover:text-[#5C2B90] hover:bg-purple-50/50'
+                }`}
               >
                 {type}
               </button>
@@ -137,7 +146,6 @@ export function ReportsClient({ initialTab }: ReportsClientProps = {}) {
           </div>
         </div>
 
-        {/* Main Area */}
         <div className="flex-1 min-w-0 transition-all duration-300">
           {!isSidebarOpen && (
             <button
@@ -151,25 +159,70 @@ export function ReportsClient({ initialTab }: ReportsClientProps = {}) {
 
           <div className="mb-8">
             <h2 className="text-[28px] font-bold text-gray-800 tracking-tight">{activeReport}</h2>
-            <p className="text-gray-400 text-[14px]">Financial reporting for the selected period</p>
+            <p className="text-gray-400 text-[14px]">
+              Financial reporting for the selected period
+            </p>
           </div>
-          {activeReport === "Profit & Loss" ? (
-            <ProfitAndLossView />
-          ) : activeReport === "STATEMENT OF FINANCIAL POSITION" ? (
-            <StatementOfFinancialPosition />
-          ) : activeReport === "STATEMENT OF CASH FLOW" ? (
-            <StatementOfCashFlow />
-          ) : activeReport === "Revenue By Product" ? (
-            <RevenueByProductView />
-          ) : activeReport === "Inventory Valuation" ? (
-            <InventoryValuationView />
-          ) : activeReport === "Expense Ledger" ? (
-            <ExpenseLedgerView />
-          ) : activeReport === "Delivery Tracker" ? (
-            <DeliveryTrackerView />
-          ) : activeReport === "Trial Balance" ? (
-            <TrialBalanceView />
-          ) : null}
+
+          {activeReport === "Profit & Loss" && (
+            <ProfitAndLossView
+              data={reportData}
+              currentDate={currentDateObj}
+              priorDate={priorDateObj}
+              onDateChange={updatePeriod}
+            />
+          )}
+          {activeReport === "STATEMENT OF FINANCIAL POSITION" && (
+            <StatementOfFinancialPosition
+              data={reportData}
+              currentDate={currentDateObj}
+              priorDate={priorDateObj}
+              onDateChange={updatePeriod}
+            />
+          )}
+          {activeReport === "STATEMENT OF CASH FLOW" && (
+            <StatementOfCashFlow
+              data={reportData}
+              currentDate={currentDateObj}
+              priorDate={priorDateObj}
+              onDateChange={updatePeriod}
+            />
+          )}
+          {activeReport === "Revenue By Product" && (
+            <RevenueByProductView
+              data={reportData}
+              currentDate={currentDateObj}
+              onDateChange={updatePeriod}
+            />
+          )}
+          {activeReport === "Inventory Valuation" && (
+            <InventoryValuationView
+              data={reportData}
+              currentDate={currentDateObj}
+              onDateChange={updatePeriod}
+            />
+          )}
+          {activeReport === "Expense Ledger" && (
+            <ExpenseLedgerView
+              data={reportData}
+              currentDate={currentDateObj}
+              onDateChange={updatePeriod}
+            />
+          )}
+          {activeReport === "Delivery Tracker" && (
+            <DeliveryTrackerView
+              data={reportData}
+              currentDate={currentDateObj}
+              onDateChange={updatePeriod}
+            />
+          )}
+          {activeReport === "Trial Balance" && (
+            <TrialBalanceView
+              data={reportData}
+              currentDate={currentDateObj}
+              onDateChange={updatePeriod}
+            />
+          )}
         </div>
       </div>
     </div>

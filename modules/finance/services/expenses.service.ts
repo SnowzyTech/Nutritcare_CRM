@@ -18,8 +18,11 @@ export async function listExpenses(filters: {
     },
     include: {
       expenseCategory: true,
+      expenseName: true,
+      supplier: true,
       paidFromAccount: true,
       createdBy: { select: { name: true, role: true, avatarUrl: true } },
+      lineItems: { orderBy: { createdAt: "asc" } },
     },
     orderBy: { date: "desc" },
     take: 200,
@@ -38,7 +41,10 @@ export async function getExpenseById(id: string) {
 }
 
 export async function listExpenseCategories() {
-  return prisma.expenseCategory.findMany({ orderBy: { name: "asc" } });
+  return prisma.expenseCategory.findMany({
+    orderBy: { name: "asc" },
+    include: { expenseNames: { orderBy: { name: "asc" } } },
+  });
 }
 
 export async function listPaymentAccounts() {

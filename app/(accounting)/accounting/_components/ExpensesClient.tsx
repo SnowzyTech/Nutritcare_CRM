@@ -24,29 +24,50 @@ import {
 import {
   createExpenseAction,
   createExpenseCategoryAction,
+  addExpenseNamesToCategoryAction,
   createPaymentAccountAction,
 } from "@/modules/finance/actions/expenses.action";
 import { createSupplierAction } from "@/modules/finance/actions/suppliers.action";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
+interface ExpenseLineItem {
+  product: string;
+  description: string;
+  quantity: number;
+  amount: string;
+  tax: string;
+}
+
 interface ExpenseHistoryRow {
   id?: string;
   category: string;
+  expenseName?: string;
   ref: string;
   account: string;
   accountType: string;
+  amount?: string;
+  tax?: string;
   val1: string;
   val2: string;
   date: string;
+  supplier?: string;
+  lineItems?: ExpenseLineItem[];
   notes?: string;
   attachmentUrl?: string | null;
   createdBy?: string;
 }
 
+interface CategoryItem {
+  id: string;
+  name: string;
+  financialStatement?: string | null;
+  expenseNames: { id: string; name: string }[];
+}
+
 interface ExpensesClientProps {
   initialHistory?: ExpenseHistoryRow[];
-  initialCategories?: { id: string; name: string }[];
+  initialCategories?: CategoryItem[];
   initialAccounts?: { id: string; name: string }[];
   initialSuppliers?: { id?: string; name: string; contact: string; balance: string }[];
   nextRef?: string;
@@ -115,7 +136,8 @@ export function ExpensesClient({
   };
 
   const [date, setDate] = useState<Date | undefined>(new Date());
-  const [filterDate, setFilterDate] = useState<Date | undefined>();
+  const [filterDateFrom, setFilterDateFrom] = useState<Date | undefined>();
+  const [filterDateTo, setFilterDateTo] = useState<Date | undefined>();
   const [selectedExpense, setSelectedExpense] = useState<any>(null);
   const historyData: ExpenseHistoryRow[] = initialHistory ?? (fallbackHistoryData as any);
 
@@ -124,21 +146,25 @@ export function ExpensesClient({
 
   const filteredHistory = historyData.filter(row => {
     const matchesCategory = !filterCategory || row.category === filterCategory;
-    const matchesDate = !filterDate || new Date(row.date) >= filterDate;
+    const rowDate = new Date(row.date);
+    rowDate.setHours(0, 0, 0, 0);
+    const from = filterDateFrom ? new Date(filterDateFrom.setHours(0, 0, 0, 0)) : undefined;
+    const to = filterDateTo ? new Date(filterDateTo.setHours(23, 59, 59, 999)) : undefined;
+    const matchesDate = (!from || rowDate >= from) && (!to || rowDate <= to);
     const matchesSearch =
       !historySearch ||
       row.ref.toLowerCase().includes(historySearch.toLowerCase()) ||
-      row.category.toLowerCase().includes(historySearch.toLowerCase());
+      (row.expenseName ?? '').toLowerCase().includes(historySearch.toLowerCase());
     return matchesCategory && matchesDate && matchesSearch;
   });
 
-  const [categories, setCategories] = useState<{ id: string; name: string }[]>(
+  const [categories, setCategories] = useState<CategoryItem[]>(
     initialCategories && initialCategories.length > 0
       ? initialCategories
       : [
-          { id: '__local-1', name: 'Office Supplies' },
-          { id: '__local-2', name: 'Delivery Costs' },
-          { id: '__local-3', name: 'Staff Salaries' },
+          { id: '__local-1', name: 'Office Supplies', expenseNames: [] },
+          { id: '__local-2', name: 'Delivery Costs', expenseNames: [] },
+          { id: '__local-3', name: 'Staff Salaries', expenseNames: [] },
         ]
   );
   const [accounts, setAccounts] = useState<{ id: string; name: string }[]>(
@@ -153,7 +179,12 @@ export function ExpensesClient({
 
   // Form state for new expense
   const [selectedCategoryId, setSelectedCategoryId] = useState('');
+  const [selectedExpenseNameId, setSelectedExpenseNameId] = useState('');
   const [selectedAccountId, setSelectedAccountId] = useState('');
+  const [selectedSupplierId, setSelectedSupplierId] = useState('');
+  const [supplierSearch, setSupplierSearch] = useState('');
+  const [supplierTabSearch, setSupplierTabSearch] = useState('');
+  const [supplierDropdownOpen, setSupplierDropdownOpen] = useState(false);
   const [notesText, setNotesText] = useState('');
   const [savingExpense, setSavingExpense] = useState(false);
 
@@ -180,6 +211,7 @@ export function ExpensesClient({
   const [selectedCategoryType, setSelectedCategoryType] = useState('');
   const [newCategoryName, setNewCategoryName] = useState('');
   const [newCategoryDesc, setNewCategoryDesc] = useState('');
+  const [newFinancialStatement, setNewFinancialStatement] = useState('');
   const [subCategoryInputs, setSubCategoryInputs] = useState<string[]>(['']);
 
   const [isAccountModalOpen, setAccountModalOpen] = useState(false);
@@ -189,46 +221,43 @@ export function ExpensesClient({
   const [newSupplier, setNewSupplier] = useState({ name: '', contact: '', balance: '' });
 
   const handleAddCategory = async () => {
-    const finalName = isAddingNewCategory ? newCategoryName : selectedCategoryType;
-    if (!finalName.trim()) return;
-
     const validSubs = subCategoryInputs.filter(s => s.trim());
-    
-    // In this app, categories are stored as {id, name}. 
-    // If appending to existing, we find the old names first.
-    let displayName = finalName.trim();
-    if (validSubs.length > 0) {
-      if (!isAddingNewCategory) {
-        const existingCat = categories.find(c => c.name.toLowerCase().startsWith(finalName.toLowerCase()));
-        if (existingCat) {
-          // Extract names from brackets if they exist
-          const match = existingCat.name.match(/\((.*)\)/);
-          const oldNames = match ? match[1] : "";
-          const allNames = oldNames ? `${oldNames}, ${validSubs.join(', ')}` : validSubs.join(', ');
-          displayName = `${finalName.trim()} (${allNames})`;
-          
-          // Update local state if it's existing
-          setCategories(prev => prev.map(c => c.id === existingCat.id ? { ...c, name: displayName } : c));
-        } else {
-          displayName = `${finalName.trim()} (${validSubs.join(', ')})`;
-        }
-      } else {
-        displayName = `${finalName.trim()} (${validSubs.join(', ')})`;
+
+    if (isAddingNewCategory) {
+      const name = newCategoryName.trim();
+      if (!name) return;
+
+      const res = await createExpenseCategoryAction(name, newFinancialStatement, validSubs);
+      if ('error' in res) { alert(res.error); return; }
+
+      setCategories(prev => [...prev, {
+        id: res.id!,
+        name: res.name!,
+        financialStatement: res.financialStatement ?? null,
+        expenseNames: res.expenseNames ?? [],
+      }]);
+    } else {
+      // Adding names to an existing category
+      const existingCat = categories.find(c => c.id === selectedCategoryType);
+      if (!existingCat) return;
+
+      if (validSubs.length > 0) {
+        const res = await addExpenseNamesToCategoryAction(existingCat.id, validSubs);
+        if ('error' in res) { alert(res.error); return; }
+
+        setCategories(prev => prev.map(c =>
+          c.id === existingCat.id
+            ? { ...c, expenseNames: [...c.expenseNames, ...(res.names ?? [])] }
+            : c
+        ));
       }
     }
 
-    const res = await createExpenseCategoryAction(displayName);
-    if ('error' in res) { alert(res.error); return; }
-    
-    // If it was new, add to state
-    if (isAddingNewCategory || !categories.find(c => c.name.toLowerCase().startsWith(finalName.toLowerCase()))) {
-       setCategories(prev => [...prev, { id: res.id!, name: res.name! }]);
-    }
-    
     setIsAddingNewCategory(false);
     setSelectedCategoryType('');
     setNewCategoryName('');
     setNewCategoryDesc('');
+    setNewFinancialStatement('');
     setSubCategoryInputs(['']);
     setShowCategoryAdd(false);
   };
@@ -254,6 +283,8 @@ export function ExpensesClient({
       ...prev,
       { id: res.id, name: newSupplier.name, contact: newSupplier.contact, balance: newSupplier.balance || '₦0' },
     ]);
+    setSelectedSupplierId(res.id ?? '');
+    setSupplierSearch(newSupplier.name);
     setSupplierModalOpen(false);
     setNewSupplier({ name: '', contact: '', balance: '' });
   };
@@ -287,6 +318,8 @@ export function ExpensesClient({
     setSavingExpense(true);
     const res = await createExpenseAction({
       expenseCategoryId: selectedCategoryId,
+      expenseNameId: selectedExpenseNameId || undefined,
+      supplierId: selectedSupplierId || undefined,
       paidFromAccountId: selectedAccountId,
       date: date ?? new Date(),
       notes: notesText,
@@ -300,7 +333,10 @@ export function ExpensesClient({
 
   const resetForm = () => {
     setSelectedCategoryId('');
+    setSelectedExpenseNameId('');
     setSelectedAccountId('');
+    setSelectedSupplierId('');
+    setSupplierSearch('');
     setNotesText('');
     setDate(new Date());
     setAttachment(null);
@@ -332,6 +368,8 @@ export function ExpensesClient({
     setSavingExpense(true);
     const res = await createExpenseAction({
       expenseCategoryId: selectedCategoryId,
+      expenseNameId: selectedExpenseNameId || undefined,
+      supplierId: selectedSupplierId || undefined,
       paidFromAccountId: selectedAccountId,
       date: date ?? new Date(),
       notes: notesText,
@@ -451,7 +489,10 @@ export function ExpensesClient({
                       <div className="relative">
                         <select
                           value={selectedCategoryId}
-                          onChange={e => setSelectedCategoryId(e.target.value)}
+                          onChange={e => {
+                            setSelectedCategoryId(e.target.value);
+                            setSelectedExpenseNameId('');
+                          }}
                           className="w-full h-12 bg-gray-50 border-0 rounded-xl px-5 text-[14px] text-gray-700 appearance-none focus:outline-none focus:ring-2 focus:ring-purple-200 font-medium"
                         >
                           <option value="">Please Select</option>
@@ -462,7 +503,7 @@ export function ExpensesClient({
                         <ChevronDown size={18} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
                       </div>
                     </div>
-                    <button 
+                    <button
                       onClick={() => setShowCategoryAdd(!showCategoryAdd)}
                       className={`h-12 border border-[#AE00FF] text-[#AE00FF] rounded-xl flex items-center justify-center gap-2 hover:bg-purple-50 transition-all text-[13px] font-bold ${showCategoryAdd ? 'bg-purple-50' : 'bg-white'}`}
                     >
@@ -470,6 +511,29 @@ export function ExpensesClient({
                       Add New Category
                     </button>
                   </div>
+
+                  {/* Expense Name — appears after category is selected */}
+                  {selectedCategoryId && (() => {
+                    const expenseNames = categories.find(c => c.id === selectedCategoryId)?.expenseNames ?? [];
+                    return expenseNames.length > 0 ? (
+                      <div className="space-y-2 animate-in fade-in slide-in-from-top-1 duration-200">
+                        <label className="text-[13px] font-bold text-gray-600 uppercase tracking-wider">Expense Name</label>
+                        <div className="relative">
+                          <select
+                            value={selectedExpenseNameId}
+                            onChange={e => setSelectedExpenseNameId(e.target.value)}
+                            className="w-full h-12 bg-gray-50 border-0 rounded-xl px-5 text-[14px] text-gray-700 appearance-none focus:outline-none focus:ring-2 focus:ring-purple-200 font-medium"
+                          >
+                            <option value="">Please Select</option>
+                            {expenseNames.map(n => (
+                              <option key={n.id} value={n.id}>{n.name}</option>
+                            ))}
+                          </select>
+                          <ChevronDown size={18} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                        </div>
+                      </div>
+                    ) : null;
+                  })()}
 
                   {showCategoryAdd && (
                     <div className="bg-white rounded-[32px] p-8 border border-purple-100 animate-in fade-in slide-in-from-top-2 duration-300 shadow-xl shadow-purple-50/50">
@@ -483,34 +547,31 @@ export function ExpensesClient({
                       <div className="space-y-6">
                         <div className="grid grid-cols-2 gap-8">
                           <div className="space-y-2">
-                            <label className="text-[13px] font-bold text-gray-500 uppercase tracking-wider">Category Type</label>
-                            <Select 
-                              value={isAddingNewCategory ? "ADD_NEW" : selectedCategoryType} 
+                            <label className="text-[13px] font-bold text-gray-500 uppercase tracking-wider">Expense Category</label>
+                            <Select
+                              value={isAddingNewCategory ? "ADD_NEW" : selectedCategoryType}
                               onValueChange={(val) => {
                                 if (val === "ADD_NEW") {
                                   setIsAddingNewCategory(true);
                                   setSelectedCategoryType('');
                                 } else {
                                   setIsAddingNewCategory(false);
-                                  setSelectedCategoryType(val);
+                                  setSelectedCategoryType(val ?? '');
                                 }
                               }}
                             >
                               <SelectTrigger className="w-full h-[52px] px-5 bg-gray-50 border-0 rounded-2xl text-[14px] font-medium text-gray-700 focus:ring-2 focus:ring-purple-200">
-                                <SelectValue placeholder="Select existing type..." />
+                                <SelectValue placeholder="Select existing category..." />
                               </SelectTrigger>
                               <SelectContent className="rounded-2xl border-purple-50 shadow-xl z-[150]">
-                                <SelectItem value="Operating Expense" className="rounded-xl py-3 px-4 focus:bg-purple-50">Operating Expense</SelectItem>
-                                <SelectItem value="Cost of Goods Sold" className="rounded-xl py-3 px-4 focus:bg-purple-50">Cost of Goods Sold</SelectItem>
-                                <SelectItem value="Administrative Expense" className="rounded-xl py-3 px-4 focus:bg-purple-50">Administrative Expense</SelectItem>
                                 {categories.map(c => (
-                                  <SelectItem key={c.id} value={c.name} className="rounded-xl py-3 px-4 focus:bg-purple-50">
+                                  <SelectItem key={c.id} value={c.id} className="rounded-xl py-3 px-4 focus:bg-purple-50">
                                     {c.name}
                                   </SelectItem>
                                 ))}
                                 <div className="h-px bg-gray-100 my-1" />
                                 <SelectItem value="ADD_NEW" className="rounded-xl py-3 px-4 text-purple-600 font-bold focus:bg-purple-50">
-                                  + Add New Category Type
+                                  + Add New Category
                                 </SelectItem>
                               </SelectContent>
                             </Select>
@@ -518,7 +579,7 @@ export function ExpensesClient({
 
                           {isAddingNewCategory && (
                             <div className="space-y-2 animate-in slide-in-from-left-2 duration-300">
-                              <label className="text-[13px] font-bold text-gray-500 uppercase tracking-wider">New Type Name</label>
+                              <label className="text-[13px] font-bold text-gray-500 uppercase tracking-wider">New Category Name</label>
                               <input
                                 value={newCategoryName}
                                 onChange={e => setNewCategoryName(e.target.value)}
@@ -531,25 +592,39 @@ export function ExpensesClient({
 
                         {isAddingNewCategory && (
                           <div className="space-y-2 animate-in slide-in-from-top-2 duration-300">
-                            <label className="text-[13px] font-bold text-gray-500 uppercase tracking-wider">Description</label>
-                            <input
-                              value={newCategoryDesc}
-                              onChange={e => setNewCategoryDesc(e.target.value)}
-                              placeholder="e.g. Office rent, utilities, etc."
-                              className="w-full h-[52px] px-5 bg-gray-50 border-0 rounded-2xl text-[14px] font-medium text-gray-700 focus:ring-2 focus:ring-purple-200"
-                            />
+                            <label className="text-[13px] font-bold text-gray-500 uppercase tracking-wider">Financial Statement</label>
+                            <Select value={newFinancialStatement} onValueChange={(val) => setNewFinancialStatement(val ?? '')}>
+                              <SelectTrigger className="w-full h-[52px] px-5 bg-gray-50 border-0 rounded-2xl text-[14px] font-medium text-gray-700 focus:ring-2 focus:ring-purple-200">
+                                <SelectValue placeholder="Select financial statement..." />
+                              </SelectTrigger>
+                              <SelectContent className="rounded-2xl border-purple-50 shadow-xl z-[150]">
+                                <SelectItem value="Profit & Loss Statement" className="rounded-xl py-3 px-4 focus:bg-purple-50">Profit & Loss Statement</SelectItem>
+                                <SelectItem value="Balance Sheet" className="rounded-xl py-3 px-4 focus:bg-purple-50">Balance Sheet</SelectItem>
+                                <SelectItem value="Cash Flow Statement" className="rounded-xl py-3 px-4 focus:bg-purple-50">Cash Flow Statement</SelectItem>
+                              </SelectContent>
+                            </Select>
                           </div>
                         )}
 
-                        {!isAddingNewCategory && selectedCategoryType && (
-                          <div className="p-4 bg-purple-50 rounded-2xl border border-purple-100 animate-in fade-in duration-300">
-                            <p className="text-[12px] font-bold text-purple-700 uppercase tracking-tight mb-1">Existing Account Names:</p>
-                            <p className="text-[14px] text-purple-900 font-medium italic">
-                              {categories.find(c => c.name.toLowerCase().startsWith(selectedCategoryType.toLowerCase()))?.name.match(/\((.*)\)/)?.[1] || "No names added yet"}
-                            </p>
-                            <p className="text-[11px] text-purple-400 mt-2">Add more below to append to this category.</p>
-                          </div>
-                        )}
+                        {!isAddingNewCategory && selectedCategoryType && (() => {
+                          const existingCat = categories.find(c => c.id === selectedCategoryType);
+                          return existingCat ? (
+                            <div className="p-4 bg-purple-50 rounded-2xl border border-purple-100 animate-in fade-in duration-300">
+                              {existingCat.financialStatement && (
+                                <p className="text-[11px] font-bold text-purple-500 uppercase tracking-tight mb-2">
+                                  Financial Statement: {existingCat.financialStatement}
+                                </p>
+                              )}
+                              <p className="text-[12px] font-bold text-purple-700 uppercase tracking-tight mb-1">Existing Account Names:</p>
+                              <p className="text-[14px] text-purple-900 font-medium italic">
+                                {existingCat.expenseNames.length > 0
+                                  ? existingCat.expenseNames.map(n => n.name).join(', ')
+                                  : 'No names added yet'}
+                              </p>
+                              <p className="text-[11px] text-purple-400 mt-2">Add more below to append to this category.</p>
+                            </div>
+                          ) : null;
+                        })()}
 
                         <div className="space-y-3">
                           <label className="text-[13px] font-bold text-gray-500 uppercase tracking-wider">Account Name(s)</label>
@@ -655,21 +730,60 @@ export function ExpensesClient({
                   </button>
                 </div>
 
-                {/* Supplier */}
+                {/* Supplier — searchable combobox */}
                 <div className="grid grid-cols-5 gap-6 items-end">
                   <div className="col-span-4 space-y-2">
                     <label className="text-[13px] font-bold text-gray-600">Supplier</label>
                     <div className="relative">
-                      <select className="w-full h-12 bg-white border border-gray-200 rounded-lg px-4 text-[14px] text-gray-600 appearance-none focus:outline-none focus:ring-1 focus:ring-purple-400">
-                        <option value="">Please Select</option>
-                        {suppliers.map((sup: any, idx: number) => (
-                          <option key={sup.id ?? idx} value={sup.name}>{sup.name}</option>
-                        ))}
-                      </select>
-                      <ChevronDown size={18} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-300 pointer-events-none" />
+                      <input
+                        type="text"
+                        value={supplierSearch}
+                        onChange={e => {
+                          setSupplierSearch(e.target.value);
+                          setSelectedSupplierId('');
+                          setSupplierDropdownOpen(true);
+                        }}
+                        onFocus={() => setSupplierDropdownOpen(true)}
+                        onBlur={() => setTimeout(() => setSupplierDropdownOpen(false), 150)}
+                        placeholder="Search supplier..."
+                        className="w-full h-12 bg-white border border-gray-200 rounded-lg px-4 pr-10 text-[14px] text-gray-600 focus:outline-none focus:ring-1 focus:ring-purple-400"
+                      />
+                      {supplierSearch && (
+                        <button
+                          onMouseDown={e => e.preventDefault()}
+                          onClick={() => { setSupplierSearch(''); setSelectedSupplierId(''); }}
+                          className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-500"
+                        >
+                          <X size={15} />
+                        </button>
+                      )}
+                      {supplierDropdownOpen && (() => {
+                        const filtered = suppliers.filter((s: any) =>
+                          !supplierSearch || s.name.toLowerCase().includes(supplierSearch.toLowerCase())
+                        );
+                        return filtered.length > 0 ? (
+                          <div className="absolute z-50 top-full mt-1 left-0 right-0 bg-white border border-gray-200 rounded-xl shadow-lg max-h-52 overflow-y-auto">
+                            {filtered.map((sup: any, idx: number) => (
+                              <button
+                                key={sup.id ?? idx}
+                                onMouseDown={e => e.preventDefault()}
+                                onClick={() => {
+                                  setSelectedSupplierId(sup.id ?? '');
+                                  setSupplierSearch(sup.name);
+                                  setSupplierDropdownOpen(false);
+                                }}
+                                className={`w-full text-left px-4 py-3 text-[13px] hover:bg-purple-50 transition-colors ${selectedSupplierId === sup.id ? 'bg-purple-50 text-[#AE00FF] font-medium' : 'text-gray-600'}`}
+                              >
+                                <span>{sup.name}</span>
+                                {sup.contact && <span className="ml-2 text-[11px] text-gray-400">{sup.contact}</span>}
+                              </button>
+                            ))}
+                          </div>
+                        ) : null;
+                      })()}
                     </div>
                   </div>
-                  <button 
+                  <button
                     onClick={() => setSupplierModalOpen(true)}
                     className="h-12 bg-white border border-gray-200 rounded-lg flex items-center justify-center gap-2 text-gray-500 hover:border-gray-300 transition-all text-[13px] font-medium"
                   >
@@ -814,16 +928,17 @@ export function ExpensesClient({
                   <PopoverTrigger className="flex items-center justify-between bg-black text-white px-4 py-2.5 rounded-lg text-[12px] font-medium w-44 shadow-sm">
                     <div className="flex items-center gap-2">
                       <CalendarIcon size={14} className="text-white" />
-                      <span>{filterDate ? format(filterDate, 'dd/MM/yy') : 'Date From'}</span>
+                      <span>{filterDateFrom ? format(filterDateFrom, 'dd/MM/yy') : 'From'}</span>
                     </div>
                     <div className="flex items-center gap-1">
-                      {filterDate && (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setFilterDate(undefined); }}
-                          className="text-white/70 hover:text-white"
+                      {filterDateFrom && (
+                        <span
+                          role="button"
+                          onClick={(e) => { e.stopPropagation(); setFilterDateFrom(undefined); }}
+                          className="text-white/70 hover:text-white cursor-pointer"
                         >
                           <X size={12} />
-                        </button>
+                        </span>
                       )}
                       <ChevronDown size={14} className="text-white" />
                     </div>
@@ -831,8 +946,37 @@ export function ExpensesClient({
                   <PopoverContent className="w-auto p-0 rounded-xl shadow-lg border-gray-100" align="start">
                     <Calendar
                       mode="single"
-                      selected={filterDate}
-                      onSelect={setFilterDate}
+                      selected={filterDateFrom}
+                      onSelect={setFilterDateFrom}
+                      initialFocus
+                      className="rounded-xl"
+                    />
+                  </PopoverContent>
+                </Popover>
+                <Popover>
+                  <PopoverTrigger className="flex items-center justify-between bg-black text-white px-4 py-2.5 rounded-lg text-[12px] font-medium w-44 shadow-sm">
+                    <div className="flex items-center gap-2">
+                      <CalendarIcon size={14} className="text-white" />
+                      <span>{filterDateTo ? format(filterDateTo, 'dd/MM/yy') : 'To'}</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      {filterDateTo && (
+                        <span
+                          role="button"
+                          onClick={(e) => { e.stopPropagation(); setFilterDateTo(undefined); }}
+                          className="text-white/70 hover:text-white cursor-pointer"
+                        >
+                          <X size={12} />
+                        </span>
+                      )}
+                      <ChevronDown size={14} className="text-white" />
+                    </div>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0 rounded-xl shadow-lg border-gray-100" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={filterDateTo}
+                      onSelect={setFilterDateTo}
                       initialFocus
                       className="rounded-xl"
                     />
@@ -846,7 +990,7 @@ export function ExpensesClient({
                     type="text"
                     value={historySearch}
                     onChange={e => setHistorySearch(e.target.value)}
-                    placeholder="Search by ref or category"
+                    placeholder="Search by ref or account name"
                     className="w-full bg-white border border-gray-200 rounded-lg pl-9 pr-4 py-2 text-[13px] focus:outline-none focus:ring-1 focus:ring-[#AE00FF] transition-all text-gray-600 placeholder:text-gray-400"
                   />
                 </div>
@@ -858,6 +1002,7 @@ export function ExpensesClient({
                   <thead>
                     <tr className="bg-[#EBEBEB] text-gray-500 text-[12px] font-bold">
                       <th className="px-6 py-4">Expense Category</th>
+                      <th className="px-4 py-4">Account Name</th>
                       <th className="px-4 py-4">Ref No</th>
                       <th className="px-4 py-4">Paid From Account</th>
                       <th className="px-4 py-4">Amount</th>
@@ -868,7 +1013,7 @@ export function ExpensesClient({
                   <tbody>
                     {filteredHistory.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="px-6 py-10 text-center text-[13px] text-gray-400">
+                        <td colSpan={7} className="px-6 py-10 text-center text-[13px] text-gray-400">
                           No expenses match your filters.
                         </td>
                       </tr>
@@ -883,6 +1028,7 @@ export function ExpensesClient({
                         className={`cursor-pointer transition-colors hover:bg-purple-50 ${idx % 2 === 1 ? 'bg-[#FAFAFA]' : 'bg-white'}`}
                       >
                         <td className="px-6 py-4 text-[12px] text-gray-500">{row.category}</td>
+                        <td className="px-4 py-4 text-[12px] text-gray-500">{row.expenseName || '—'}</td>
                         <td className="px-4 py-4 text-[12px] text-gray-500">{row.ref}</td>
                         <td className="px-4 py-4">
                           <div className="flex items-center gap-2">
@@ -890,8 +1036,8 @@ export function ExpensesClient({
                             <span className="text-[12px] text-gray-500">{row.account}</span>
                           </div>
                         </td>
-                        <td className="px-4 py-4 text-[12px] text-gray-500">{row.val1}</td>
-                        <td className="px-4 py-4 text-[12px] text-gray-500 font-medium">{row.val2}</td>
+                        <td className="px-4 py-4 text-[12px] text-gray-500 font-medium">{row.amount ?? row.val1}</td>
+                        <td className="px-4 py-4 text-[12px] text-gray-500">{row.tax ?? row.val2}</td>
                         <td className="px-6 py-4 text-[12px] text-gray-500">{row.date}</td>
                       </tr>
                     ))}
@@ -935,6 +1081,13 @@ export function ExpensesClient({
                   <div className="flex-1 border-b border-dashed border-gray-200 mx-4 relative top-1"></div>
                   <span className="text-[13px] text-gray-600">{selectedExpense.category}</span>
                 </div>
+                {selectedExpense.expenseName && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-[13px] font-bold text-gray-500">Account Name</span>
+                    <div className="flex-1 border-b border-dashed border-gray-200 mx-4 relative top-1"></div>
+                    <span className="text-[13px] text-gray-600">{selectedExpense.expenseName}</span>
+                  </div>
+                )}
                 <div className="flex items-center justify-between">
                   <span className="text-[13px] font-bold text-gray-500">Account Paid From</span>
                   <div className="flex-1 border-b border-dashed border-gray-200 mx-4 relative top-1"></div>
@@ -943,6 +1096,18 @@ export function ExpensesClient({
                     <span className="text-[13px] text-gray-600">{selectedExpense.account}</span>
                   </div>
                 </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[13px] font-bold text-gray-500">Date</span>
+                  <div className="flex-1 border-b border-dashed border-gray-200 mx-4 relative top-1"></div>
+                  <span className="text-[13px] text-gray-600">{selectedExpense.date}</span>
+                </div>
+                {selectedExpense.supplier && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-[13px] font-bold text-gray-500">Supplier</span>
+                    <div className="flex-1 border-b border-dashed border-gray-200 mx-4 relative top-1"></div>
+                    <span className="text-[13px] text-gray-600">{selectedExpense.supplier}</span>
+                  </div>
+                )}
               </div>
 
               {/* Table */}
@@ -958,17 +1123,28 @@ export function ExpensesClient({
                     </tr>
                   </thead>
                   <tbody>
-                    <tr className="border-b border-gray-50">
-                      <td className="px-6 py-4 text-[12px] text-gray-600">{selectedExpense.category} item</td>
-                      <td className="px-6 py-4 text-[12px] text-gray-600 text-center">-------</td>
-                      <td className="px-6 py-4 text-[12px] text-gray-600 text-center">1</td>
-                      <td className="px-6 py-4 text-[12px] text-gray-600 text-center">----</td>
-                      <td className="px-6 py-4 text-[12px] text-gray-600 text-right">{selectedExpense.val2}</td>
-                    </tr>
-                    {/* Grand Total */}
+                    {selectedExpense.lineItems && selectedExpense.lineItems.length > 0 ? (
+                      selectedExpense.lineItems.map((item: ExpenseLineItem, idx: number) => (
+                        <tr key={idx} className="border-b border-gray-50">
+                          <td className="px-6 py-4 text-[12px] text-gray-600">{item.product || '—'}</td>
+                          <td className="px-6 py-4 text-[12px] text-gray-600 text-center">{item.description || '—'}</td>
+                          <td className="px-6 py-4 text-[12px] text-gray-600 text-center">{item.quantity}</td>
+                          <td className="px-6 py-4 text-[12px] text-gray-600 text-center">{item.tax}</td>
+                          <td className="px-6 py-4 text-[12px] text-gray-600 text-right">{item.amount}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr className="border-b border-gray-50">
+                        <td className="px-6 py-4 text-[12px] text-gray-600">{selectedExpense.category}</td>
+                        <td className="px-6 py-4 text-[12px] text-gray-600 text-center">—</td>
+                        <td className="px-6 py-4 text-[12px] text-gray-600 text-center">1</td>
+                        <td className="px-6 py-4 text-[12px] text-gray-600 text-center">{selectedExpense.tax ?? '—'}</td>
+                        <td className="px-6 py-4 text-[12px] text-gray-600 text-right">{selectedExpense.amount ?? selectedExpense.val1}</td>
+                      </tr>
+                    )}
                     <tr className="bg-[#FAFAFA]">
                       <td colSpan={4} className="px-6 py-4 text-[13px] font-bold text-gray-800">Grand Total</td>
-                      <td className="px-6 py-4 text-[13px] font-bold text-gray-800 text-right">{selectedExpense.val2}</td>
+                      <td className="px-6 py-4 text-[13px] font-bold text-gray-800 text-right">{selectedExpense.amount ?? selectedExpense.val1}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -978,7 +1154,9 @@ export function ExpensesClient({
               <div className="mb-8">
                 <h3 className="text-[13px] font-bold text-gray-600 mb-2">Notes</h3>
                 <p className="text-[12px] text-gray-400 leading-relaxed max-w-3xl">
-                  Office supplies restock (printer ink, paper), Internet subscription renewal, Transportation (client meeting), Lunch meeting with client
+                  {selectedExpense.notes && selectedExpense.notes.trim().length > 0
+                    ? selectedExpense.notes
+                    : 'No notes recorded for this entry.'}
                 </p>
               </div>
 
@@ -1018,12 +1196,12 @@ export function ExpensesClient({
               <div>
                 <h3 className="text-[13px] font-medium text-gray-500 mb-3">Recorded by</h3>
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-gray-200 overflow-hidden">
-                    <img src="https://i.pravatar.cc/150?img=5" alt="Avatar" className="w-full h-full object-cover" />
+                  <div className="w-10 h-10 rounded-full bg-gray-200 overflow-hidden flex items-center justify-center text-[14px] font-bold text-gray-500">
+                    {(selectedExpense.createdBy ?? '?').slice(0, 1).toUpperCase()}
                   </div>
                   <div>
-                    <p className="text-[13px] font-bold text-gray-700">Victoria Nwachukwu</p>
-                    <p className="text-[11px] text-gray-400">Accountant</p>
+                    <p className="text-[13px] font-bold text-gray-700">{selectedExpense.createdBy || 'Unknown'}</p>
+                    <p className="text-[11px] text-gray-400">Accounting</p>
                   </div>
                 </div>
               </div>
@@ -1036,47 +1214,17 @@ export function ExpensesClient({
             <div>
               {/* Top Filters & Action */}
               <div className="flex items-center justify-between mb-6">
-                <div className="flex items-center gap-4">
-                  <button className="flex items-center justify-between bg-black text-white px-4 py-2.5 rounded-lg text-[12px] font-medium w-44 shadow-sm">
-                    <div className="flex items-center gap-2">
-                      <div className="w-4 h-4 border border-white rounded-[3px] flex items-center justify-center">
-                         <div className="w-2.5 h-px bg-white" />
-                      </div>
-                      <span>Expense Category</span>
-                    </div>
-                    <ChevronDown size={14} className="text-white" />
-                  </button>
-                  <Popover>
-                    <PopoverTrigger className="flex items-center justify-between bg-black text-white px-4 py-2.5 rounded-lg text-[12px] font-medium w-36 shadow-sm">
-                      <div className="flex items-center gap-2">
-                        <CalendarIcon size={14} className="text-white" />
-                        <span>Date Range</span>
-                      </div>
-                      <ChevronDown size={14} className="text-white" />
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto p-0 rounded-xl shadow-lg border-gray-100" align="start">
-                      <Calendar
-                        mode="single"
-                        selected={filterDate}
-                        onSelect={setFilterDate}
-                        initialFocus
-                        className="rounded-xl"
-                      />
-                    </PopoverContent>
-                  </Popover>
-                </div>
-
-                <div className="flex items-center gap-4">
-                  <div className="relative w-[300px]">
-                    <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
-                      <Search size={14} />
-                    </div>
-                    <input
-                      type="text"
-                      placeholder="search"
-                      className="w-full bg-white border border-gray-200 rounded-lg pl-9 pr-4 py-2 text-[13px] focus:outline-none focus:ring-1 focus:ring-[#AE00FF] transition-all text-gray-600 placeholder:text-gray-400"
-                    />
+                <div className="relative w-[300px]">
+                  <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
+                    <Search size={14} />
                   </div>
+                  <input
+                    type="text"
+                    value={supplierTabSearch}
+                    onChange={e => setSupplierTabSearch(e.target.value)}
+                    placeholder="Search by supplier name"
+                    className="w-full bg-white border border-gray-200 rounded-lg pl-9 pr-4 py-2 text-[13px] focus:outline-none focus:ring-1 focus:ring-[#AE00FF] transition-all text-gray-600 placeholder:text-gray-400"
+                  />
                 </div>
               </div>
 
@@ -1091,7 +1239,7 @@ export function ExpensesClient({
                     </tr>
                   </thead>
                   <tbody>
-                    {suppliers.map((row, idx) => (
+                    {suppliers.filter(s => !supplierTabSearch || s.name.toLowerCase().includes(supplierTabSearch.toLowerCase())).map((row, idx) => (
                       <tr key={idx} className={`${idx % 2 === 1 ? 'bg-[#FAFAFA]' : 'bg-white'}`}>
                         <td className="px-6 py-5 text-[12px] text-gray-500">{row.name}</td>
                         <td className="px-6 py-5 text-[12px] text-gray-500">{row.contact}</td>
