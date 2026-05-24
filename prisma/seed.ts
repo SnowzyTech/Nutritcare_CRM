@@ -56,6 +56,7 @@ async function cleanSeedData() {
   await prisma.stockTransfer.deleteMany({ where: { referenceNumber: { startsWith: "SEED-ST" } } }); // cascades items
   await prisma.purchaseOrder.deleteMany({ where: { poNumber: { startsWith: "SEED-PO" } } }); // cascades items
   await prisma.supplier.deleteMany({ where: { phone1: { startsWith: "+234SEED" } } });
+  await prisma.warehouseLocation.deleteMany({ where: { warehouse: { name: { startsWith: "[SEED]" } } } });
   await prisma.warehouse.deleteMany({ where: { name: { startsWith: "[SEED]" } } });
 
   // ── Order cleanup ─────────────────────────────────────────────────────────────

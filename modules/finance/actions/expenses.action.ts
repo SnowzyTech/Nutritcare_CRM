@@ -15,6 +15,8 @@ const lineItemSchema = z.object({
 
 const createExpenseSchema = z.object({
   expenseCategoryId: z.string().min(1),
+  expenseNameId: z.string().optional(),
+  supplierId: z.string().optional(),
   paidFromAccountId: z.string().min(1),
   date: z.coerce.date(),
   notes: z.string().optional(),
@@ -46,6 +48,8 @@ export async function createExpenseAction(input: z.infer<typeof createExpenseSch
     data: {
       referenceNumber,
       expenseCategoryId: data.expenseCategoryId,
+      expenseNameId: data.expenseNameId || null,
+      supplierId: data.supplierId || null,
       paidFromAccountId: data.paidFromAccountId,
       date: data.date,
       amount: totalAmount,
@@ -53,6 +57,17 @@ export async function createExpenseAction(input: z.infer<typeof createExpenseSch
       notes: data.notes,
       attachmentUrl: data.attachmentUrl,
       createdById: session.user.id,
+      lineItems: {
+        createMany: {
+          data: data.lineItems.map(i => ({
+            product: i.product || null,
+            description: i.description || null,
+            quantity: i.quantity || 1,
+            amount: i.amount,
+            tax: i.tax || 0,
+          })),
+        },
+      },
     },
   });
 
@@ -61,18 +76,62 @@ export async function createExpenseAction(input: z.infer<typeof createExpenseSch
   return { id: expense.id, referenceNumber };
 }
 
-export async function createExpenseCategoryAction(name: string) {
+export async function createExpenseCategoryAction(
+  name: string,
+  financialStatement?: string,
+  accountNames?: string[]
+) {
   const session = await auth();
   if (!session?.user?.id) return { error: "Unauthorized" };
   const trimmed = name.trim();
   if (!trimmed) return { error: "Name required" };
 
   try {
-    const cat = await prisma.expenseCategory.create({ data: { name: trimmed } });
+    const cat = await prisma.expenseCategory.create({
+      data: { name: trimmed, financialStatement: financialStatement?.trim() || null },
+    });
+
+    const createdNames: { id: string; name: string }[] = [];
+    if (accountNames?.length) {
+      const validNames = accountNames.filter(n => n.trim());
+      const results = await Promise.all(
+        validNames.map(n =>
+          prisma.expenseName.create({ data: { name: n.trim(), expenseCategoryId: cat.id } })
+        )
+      );
+      createdNames.push(...results.map(r => ({ id: r.id, name: r.name })));
+    }
+
     revalidatePath("/accounting/expenses");
-    return { id: cat.id, name: cat.name };
+    revalidatePath("/accounting/accounting-ledger");
+    return { id: cat.id, name: cat.name, financialStatement: cat.financialStatement, expenseNames: createdNames };
   } catch {
     return { error: "Category already exists" };
+  }
+}
+
+export async function addExpenseNamesToCategoryAction(categoryId: string, names: string[]) {
+  const session = await auth();
+  if (!session?.user?.id) return { error: "Unauthorized" };
+
+  const validNames = names.filter(n => n.trim());
+  if (!validNames.length) return { error: "At least one name required" };
+
+  try {
+    const results = await Promise.all(
+      validNames.map(n =>
+        prisma.expenseName.upsert({
+          where: { name_expenseCategoryId: { name: n.trim(), expenseCategoryId: categoryId } },
+          update: {},
+          create: { name: n.trim(), expenseCategoryId: categoryId },
+        })
+      )
+    );
+    revalidatePath("/accounting/expenses");
+    revalidatePath("/accounting/accounting-ledger");
+    return { names: results.map(r => ({ id: r.id, name: r.name })) };
+  } catch {
+    return { error: "Failed to add names" };
   }
 }
 

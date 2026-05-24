@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import {
   ChevronLeft, ChevronRight, RotateCcw, MessageCircle,
   CalendarIcon, Copy, Trash2, Search, ChevronDown, ArrowUp, ArrowDown, X,
@@ -11,23 +11,32 @@ import { Calendar } from '@/components/ui/calendar';
 import { format } from 'date-fns';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { createJournalEntryAction } from '@/modules/finance/actions/ledger.action';
-import type { LedgerRow } from '@/modules/finance/services/ledger.service';
+import { createExpenseCategoryAction, addExpenseNamesToCategoryAction } from '@/modules/finance/actions/expenses.action';
+import type { LedgerRow, ChartRow, CategoryForLedger } from '@/modules/finance/services/ledger.service';
+
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-interface ChartRow {
-  type: string;
-  description: string;
-  instances: string;
+interface CategoryItem {
+  id: string;
+  name: string;
+  financialStatement: string | null;
+  expenseNames: { id: string; name: string }[];
 }
 
 interface JournalRow {
+  code: string;
   account: string;
+  accountId: string;
+  name: string;
   debits: string;
   credits: string;
-  description: string;
-  name: string;
+  description?: string;
   tax: string;
+  // UI-only search state
+  codeSearch: string;
+  accountSearch: string;
+  nameSearch: string;
 }
 
 interface SavedJournal {
@@ -43,13 +52,15 @@ interface AccountingLedgerClientProps {
   initialSavedJournals?: SavedJournal[];
   initialNextJournalNo?: string;
   initialGeneralLedger?: LedgerRow[];
+  initialCategories?: CategoryForLedger[];
 }
 
 const TABS = ['Charts of Account', 'Journal Entry', 'Journal', 'General Ledger'] as const;
 type Tab = typeof TABS[number];
 
 const emptyRow = (): JournalRow => ({
-  account: '', debits: '', credits: '', description: '', name: '', tax: '',
+  code: '', account: '', accountId: '', name: '', debits: '', credits: '', tax: '',
+  codeSearch: '', accountSearch: '', nameSearch: '',
 });
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -59,6 +70,7 @@ export function AccountingLedgerClient({
   initialSavedJournals = [],
   initialNextJournalNo = '1001',
   initialGeneralLedger = [],
+  initialCategories = [],
 }: AccountingLedgerClientProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -79,16 +91,82 @@ export function AccountingLedgerClient({
 
   // ── Chart of Accounts ──────────────────────────────────────────────────────
   const [chartAccounts, setChartAccounts] = useState<ChartRow[]>(initialChartOfAccounts);
+  const [categories, setCategories] = useState<CategoryForLedger[]>(initialCategories);
   const [showManualAdd, setShowManualAdd] = useState(false);
-  const [newType, setNewType] = useState('');
-  const [newDesc, setNewDesc] = useState('');
-  const [newInstances, setNewInstances] = useState('');
+  const [isAddingNewType, setIsAddingNewType] = useState(false);
+  const [selectedCategoryId, setSelectedCategoryId] = useState('');
+  const [newTypeName, setNewTypeName] = useState('');
+  const [newFinancialStatement, setNewFinancialStatement] = useState('');
+  const [accountNameInputs, setAccountNameInputs] = useState<string[]>(['']);
+  const [savingAccount, setSavingAccount] = useState(false);
 
-  const handleAddAccount = () => {
-    if (!newType.trim()) return;
-    setChartAccounts(prev => [...prev, { type: newType.trim(), description: newDesc.trim(), instances: newInstances.trim() }]);
-    setNewType(''); setNewDesc(''); setNewInstances('');
+  const resetForm = () => {
+    setSelectedCategoryId('');
+    setNewTypeName('');
+    setNewFinancialStatement('');
+    setAccountNameInputs(['']);
+    setIsAddingNewType(false);
     setShowManualAdd(false);
+  };
+
+  const handleAddAccount = async () => {
+    const validNames = accountNameInputs.filter(n => n.trim());
+
+    if (isAddingNewType) {
+      const finalType = newTypeName.trim();
+      if (!finalType) return;
+
+      setSavingAccount(true);
+      const res = await createExpenseCategoryAction(finalType, newFinancialStatement, validNames);
+      setSavingAccount(false);
+      if ('error' in res) { alert(res.error); return; }
+
+      const newCategory: CategoryForLedger = {
+        id: res.id,
+        name: res.name,
+        financialStatement: res.financialStatement ?? null,
+        expenseNames: res.expenseNames ?? [],
+      };
+      setCategories(prev => [...prev, newCategory]);
+
+      const baseCode = chartAccounts.length + 1000;
+      const newRows: ChartRow[] = (res.expenseNames ?? []).map((n, i) => ({
+        code: String(baseCode + i + 1),
+        categoryId: res.id,
+        categoryName: res.name,
+        financialStatement: res.financialStatement ?? '',
+        accountName: n.name,
+        accountNameId: n.id,
+      }));
+      if (newRows.length > 0) setChartAccounts(prev => [...prev, ...newRows]);
+    } else {
+      if (!selectedCategoryId || validNames.length === 0) return;
+
+      setSavingAccount(true);
+      const res = await addExpenseNamesToCategoryAction(selectedCategoryId, validNames);
+      setSavingAccount(false);
+      if ('error' in res) { alert(res.error); return; }
+
+      const cat = categories.find(c => c.id === selectedCategoryId);
+      const baseCode = chartAccounts.length + 1000;
+      const newRows: ChartRow[] = (res.names ?? []).map((n, i) => ({
+        code: String(baseCode + i + 1),
+        categoryId: selectedCategoryId,
+        categoryName: cat?.name ?? '',
+        financialStatement: cat?.financialStatement ?? '',
+        accountName: n.name,
+        accountNameId: n.id,
+      }));
+      if (newRows.length > 0) setChartAccounts(prev => [...prev, ...newRows]);
+
+      setCategories(prev => prev.map(c =>
+        c.id === selectedCategoryId
+          ? { ...c, expenseNames: [...c.expenseNames, ...(res.names ?? [])] }
+          : c
+      ));
+    }
+
+    resetForm();
   };
 
   // ── Journal Entry ──────────────────────────────────────────────────────────
@@ -96,9 +174,23 @@ export function AccountingLedgerClient({
   const [journalNo, setJournalNo] = useState(initialNextJournalNo);
   const [rows, setRows] = useState<JournalRow[]>(Array.from({ length: 10 }, emptyRow));
   const [saving, setSaving] = useState(false);
+  const [openDropdown, setOpenDropdown] = useState<{ idx: number; field: 'code' | 'account' | 'name' } | null>(null);
+  const [attachment, setAttachment] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const updateRow = (index: number, field: keyof JournalRow, value: string) =>
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      setAttachment(e.target.files[0]);
+    }
+  };
+
+  const updateRow = (index: number, field: keyof JournalRow, value: string) => {
+    // Restrict Debits, Credits, and Tax to numeric input only
+    if (['debits', 'credits', 'tax'].includes(field)) {
+      if (value !== '' && !/^\d*\.?\d*$/.test(value)) return;
+    }
     setRows(prev => prev.map((r, i) => i === index ? { ...r, [field]: value } : r));
+  };
 
   const copyRow = (index: number) =>
     setRows(prev => [...prev.slice(0, index + 1), { ...prev[index] }, ...prev.slice(index + 1)]);
@@ -127,7 +219,7 @@ export function AccountingLedgerClient({
         account: r.account,
         debits: parseFloat(r.debits) || 0,
         credits: parseFloat(r.credits) || 0,
-        description: r.description,
+        description: '', // Description removed from UI
         name: r.name,
         tax: parseFloat(r.tax) || 0,
       })),
@@ -156,15 +248,37 @@ export function AccountingLedgerClient({
   const [glDateFrom, setGlDateFrom] = useState<Date | undefined>();
   const [glDateTo, setGlDateTo] = useState<Date | undefined>();
 
-  // Client-side filtering on the initial data (server handles the heavy lifting)
-  const filteredGL = initialGeneralLedger.filter(row => {
+  // Derive General Ledger from Saved Journals
+  const allGlEntries = useMemo(() => {
+    const entries: LedgerRow[] = [];
+    savedJournals.forEach(j => {
+      j.rows.forEach((row: any) => {
+        if (!row.account) return;
+        entries.push({
+          account: row.account,
+          description: j.journalNo,
+          ref: j.journalNo,
+          debit: row.debits ? `₦${parseFloat(row.debits).toLocaleString()}` : '—',
+          credit: row.credits ? `₦${parseFloat(row.credits).toLocaleString()}` : '—',
+          balance: '—', 
+          date: j.date
+        });
+      });
+    });
+    return [...entries, ...initialGeneralLedger];
+  }, [savedJournals, initialGeneralLedger]);
+
+  const filteredGL = allGlEntries.filter(row => {
     const matchesAccount = glAccount === 'All' || row.account === glAccount;
     const matchesSearch =
       !glSearch ||
       row.account.toLowerCase().includes(glSearch.toLowerCase()) ||
       row.description.toLowerCase().includes(glSearch.toLowerCase()) ||
       row.ref.toLowerCase().includes(glSearch.toLowerCase());
-    const rowDate = new Date(row.date);
+    
+    const dateParts = row.date.split('-');
+    const rowDate = dateParts.length === 3 ? new Date(`${dateParts[2]}-${dateParts[1]}-${dateParts[0]}`) : new Date(row.date);
+    
     const matchesFrom = !glDateFrom || rowDate >= glDateFrom;
     const matchesTo = !glDateTo || rowDate <= glDateTo;
     return matchesAccount && matchesSearch && matchesFrom && matchesTo;
@@ -187,28 +301,32 @@ export function AccountingLedgerClient({
       </div>
 
       {/* Header Row */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between mb-10 gap-6 relative">
-        <h1 className="text-[32px] font-bold text-gray-700 tracking-tight">
-          {activeTab === 'Charts of Account' ? 'Accounting' :
-           activeTab === 'Journal Entry' ? 'Journal Entry' :
-           activeTab === 'Journal' ? 'Journal' : 'General Ledger'}
-        </h1>
-        <div className="flex bg-white rounded-lg p-1 border border-gray-100 shadow-[0_2px_4px_rgba(0,0,0,0.02)] absolute left-1/2 -translate-x-1/2 z-10">
-          {TABS.map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`px-5 py-2.5 rounded-md text-[12px] font-bold transition-all tracking-wide whitespace-nowrap ${
-                activeTab === tab ? 'bg-[#AE00FF] text-white shadow-sm' : 'text-gray-500 hover:text-gray-800'
-              }`}
-            >
-              {tab}
-            </button>
-          ))}
+      <div className="flex flex-col gap-8 mb-10">
+        <div className="flex items-center justify-between">
+          <h1 className="text-[32px] font-bold text-gray-700 tracking-tight">
+            {activeTab === 'Charts of Account' ? 'Accounting' :
+              activeTab === 'Journal Entry' ? 'Journal Entry' :
+                activeTab === 'Journal' ? 'Journal' : 'General Ledger'}
+          </h1>
+          <div className="w-16 h-16 bg-[#F3E8FF] rounded-full flex items-center justify-center cursor-pointer">
+            <div className="w-[42px] h-[42px] bg-[#AE00FF] rounded-full flex items-center justify-center text-white shadow-lg shadow-purple-200 hover:scale-105 transition-transform">
+              <MessageCircle fill="currentColor" size={22} />
+            </div>
+          </div>
         </div>
-        <div className="w-16 h-16 bg-[#F3E8FF] rounded-full flex items-center justify-center ml-auto z-10 cursor-pointer">
-          <div className="w-[42px] h-[42px] bg-[#AE00FF] rounded-full flex items-center justify-center text-white shadow-lg shadow-purple-200 hover:scale-105 transition-transform">
-            <MessageCircle fill="currentColor" size={22} />
+
+        <div className="flex justify-center">
+          <div className="flex bg-white rounded-lg p-1 border border-gray-100 shadow-[0_2px_4px_rgba(0,0,0,0.02)] z-10">
+            {TABS.map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={`px-5 py-2.5 rounded-md text-[12px] font-bold transition-all tracking-wide whitespace-nowrap ${activeTab === tab ? 'bg-[#AE00FF] text-white shadow-sm' : 'text-gray-500 hover:text-gray-800'
+                  }`}
+              >
+                {tab}
+              </button>
+            ))}
           </div>
         </div>
       </div>
@@ -220,24 +338,26 @@ export function AccountingLedgerClient({
 
           {chartAccounts.length === 0 ? (
             <div className="bg-white rounded-xl p-16 text-center border border-gray-100 shadow-sm">
-              <p className="text-gray-400 text-[15px]">No accounts yet. Add categories and payment accounts to populate this view.</p>
+              <p className="text-gray-400 text-[15px]">No account names yet. Use &ldquo;Manual Add&rdquo; to create categories and account names.</p>
             </div>
           ) : (
             <div className="bg-white rounded-xl overflow-hidden border border-gray-50">
               <table className="w-full text-left">
                 <thead>
                   <tr className="bg-[#E5E7EB] text-[14px] font-bold text-gray-600">
-                    <th className="px-8 py-5">Type</th>
-                    <th className="px-8 py-5">Description</th>
-                    <th className="px-8 py-5">Instances</th>
+                    <th className="px-8 py-5">Code</th>
+                    <th className="px-8 py-5">Category</th>
+                    <th className="px-8 py-5">Financial Statement</th>
+                    <th className="px-8 py-5">Account Name</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
                   {chartAccounts.map((item, idx) => (
-                    <tr key={idx} className={idx % 2 === 1 ? 'bg-[#F9FAFB]' : 'bg-white'}>
-                      <td className="px-8 py-6 text-[14px] text-gray-500 font-medium">{item.type}</td>
-                      <td className="px-8 py-6 text-[14px] text-gray-500 font-medium">{item.description}</td>
-                      <td className="px-8 py-6 text-[14px] text-gray-500 font-medium">{item.instances}</td>
+                    <tr key={item.accountNameId || idx} className={idx % 2 === 1 ? 'bg-[#F9FAFB]' : 'bg-white'}>
+                      <td className="px-8 py-6 text-[14px] text-gray-500 font-mono font-medium">{item.code}</td>
+                      <td className="px-8 py-6 text-[14px] text-gray-700 font-medium">{item.categoryName}</td>
+                      <td className="px-8 py-6 text-[14px] text-gray-500">{item.financialStatement || '—'}</td>
+                      <td className="px-8 py-6 text-[14px] text-gray-700 font-semibold">{item.accountName}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -246,55 +366,146 @@ export function AccountingLedgerClient({
           )}
 
           {showManualAdd && (
-            <div className="mt-6 bg-white rounded-xl border border-purple-100 p-6 animate-in fade-in slide-in-from-top-2 duration-300">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-[16px] font-bold text-gray-700">Add New Account Type</h3>
-                <button onClick={() => setShowManualAdd(false)} className="text-gray-400 hover:text-gray-600 bg-gray-100 p-1.5 rounded-full">
-                  <X size={16} />
+            <div className="mt-6 bg-white rounded-xl border border-purple-100 p-8 animate-in fade-in slide-in-from-top-2 duration-300 shadow-xl shadow-purple-50">
+              <div className="flex items-center justify-between mb-8">
+                <h3 className="text-[18px] font-bold text-gray-700">Add Account Entry</h3>
+                <button onClick={() => setShowManualAdd(false)} className="text-gray-400 hover:text-gray-600 bg-gray-100 p-2 rounded-full transition-colors">
+                  <X size={18} />
                 </button>
               </div>
-              <div className="grid grid-cols-3 gap-4 mb-4">
-                <div className="space-y-1">
-                  <label className="text-[13px] font-bold text-gray-500">Type</label>
-                  <input
-                    value={newType}
-                    onChange={e => setNewType(e.target.value)}
-                    placeholder="e.g. Asset"
-                    className="w-full px-4 py-3 border border-gray-200 rounded-xl text-[14px] text-gray-700 focus:outline-none focus:ring-1 focus:ring-purple-200"
-                  />
+
+              <div className="space-y-6">
+                <div className="grid grid-cols-2 gap-8">
+                  <div className="space-y-2">
+                    <label className="text-[13px] font-bold text-gray-500 uppercase tracking-wider">Expense Category</label>
+                    <Select
+                      value={isAddingNewType ? "ADD_NEW" : selectedCategoryId}
+                      onValueChange={(val) => {
+                        if (val === "ADD_NEW") {
+                          setIsAddingNewType(true);
+                          setSelectedCategoryId('');
+                        } else {
+                          setIsAddingNewType(false);
+                          setSelectedCategoryId(val ?? '');
+                        }
+                      }}
+                    >
+                      <SelectTrigger className="w-full h-[52px] px-5 bg-gray-50 border-0 rounded-2xl text-[14px] font-medium text-gray-700 focus:ring-2 focus:ring-purple-200">
+                        <SelectValue placeholder="Select existing category..." />
+                      </SelectTrigger>
+                      <SelectContent className="rounded-2xl border-purple-50 shadow-xl">
+                        {categories.map(c => (
+                          <SelectItem key={c.id} value={c.id} className="rounded-xl py-3 px-4 focus:bg-purple-50">
+                            {c.name}
+                          </SelectItem>
+                        ))}
+                        <div className="h-px bg-gray-100 my-1" />
+                        <SelectItem value="ADD_NEW" className="rounded-xl py-3 px-4 text-purple-600 font-bold focus:bg-purple-50">
+                          + Add New Category
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {isAddingNewType && (
+                    <div className="space-y-2 animate-in slide-in-from-left-2 duration-300">
+                      <label className="text-[13px] font-bold text-gray-500 uppercase tracking-wider">New Category Name</label>
+                      <input
+                        value={newTypeName}
+                        onChange={e => setNewTypeName(e.target.value)}
+                        placeholder="e.g. Operating Expense"
+                        className="w-full h-[52px] px-5 bg-gray-50 border-0 rounded-2xl text-[14px] font-medium text-gray-700 focus:ring-2 focus:ring-purple-200"
+                      />
+                    </div>
+                  )}
                 </div>
-                <div className="space-y-1">
-                  <label className="text-[13px] font-bold text-gray-500">Description</label>
-                  <input
-                    value={newDesc}
-                    onChange={e => setNewDesc(e.target.value)}
-                    placeholder="e.g. What the business owns"
-                    className="w-full px-4 py-3 border border-gray-200 rounded-xl text-[14px] text-gray-700 focus:outline-none focus:ring-1 focus:ring-purple-200"
-                  />
+
+                {isAddingNewType && (
+                  <div className="space-y-2 animate-in slide-in-from-top-2 duration-300">
+                    <label className="text-[13px] font-bold text-gray-500 uppercase tracking-wider">Financial Statement</label>
+                    <Select value={newFinancialStatement} onValueChange={(val) => setNewFinancialStatement(val ?? '')}>
+                      <SelectTrigger className="w-full h-[52px] px-5 bg-gray-50 border-0 rounded-2xl text-[14px] font-medium text-gray-700 focus:ring-2 focus:ring-purple-200">
+                        <SelectValue placeholder="Select financial statement..." />
+                      </SelectTrigger>
+                      <SelectContent className="rounded-2xl border-purple-50 shadow-xl">
+                        <SelectItem value="Profit & Loss Statement" className="rounded-xl py-3 px-4 focus:bg-purple-50">Profit &amp; Loss Statement</SelectItem>
+                        <SelectItem value="Balance Sheet" className="rounded-xl py-3 px-4 focus:bg-purple-50">Balance Sheet</SelectItem>
+                        <SelectItem value="Cash Flow Statement" className="rounded-xl py-3 px-4 focus:bg-purple-50">Cash Flow Statement</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+
+                {!isAddingNewType && selectedCategoryId && (() => {
+                  const existing = categories.find(c => c.id === selectedCategoryId);
+                  return existing ? (
+                    <div className="p-4 bg-purple-50 rounded-2xl border border-purple-100 animate-in fade-in duration-300">
+                      {existing.financialStatement && (
+                        <p className="text-[11px] font-bold text-purple-500 uppercase tracking-tight mb-2">
+                          Financial Statement: {existing.financialStatement}
+                        </p>
+                      )}
+                      <p className="text-[12px] font-bold text-purple-700 uppercase tracking-tight mb-1">Existing Account Names:</p>
+                      <p className="text-[14px] text-purple-900 font-medium italic">
+                        {existing.expenseNames.map(n => n.name).join(', ') || 'No names added yet'}
+                      </p>
+                      <p className="text-[11px] text-purple-400 mt-2">Add more below to append to this category.</p>
+                    </div>
+                  ) : null;
+                })()}
+
+                <div className="space-y-3">
+                  <label className="text-[13px] font-bold text-gray-500 uppercase tracking-wider">Account Name(s)</label>
+                  <div className="space-y-3">
+                    {accountNameInputs.map((input, idx) => (
+                      <div key={idx} className="flex gap-3 animate-in fade-in duration-200">
+                        <input
+                          value={input}
+                          onChange={e => {
+                            const next = [...accountNameInputs];
+                            next[idx] = e.target.value;
+                            setAccountNameInputs(next);
+                          }}
+                          placeholder="Enter account name..."
+                          className="flex-1 h-[52px] px-5 bg-gray-50 border-0 rounded-2xl text-[14px] font-medium text-gray-700 focus:ring-2 focus:ring-purple-200"
+                        />
+                        {idx === accountNameInputs.length - 1 && (
+                          <button
+                            onClick={() => setAccountNameInputs([...accountNameInputs, ''])}
+                            className="w-[52px] h-[52px] flex items-center justify-center bg-purple-50 text-purple-600 rounded-2xl hover:bg-purple-100 transition-colors"
+                          >
+                            <ArrowUp size={20} className="rotate-90" /> {/* Using Lucide arrow for plus-like feel if needed, or better use ChevronDown or just a label */}
+                            <span className="font-bold text-[20px]">+</span>
+                          </button>
+                        )}
+                        {accountNameInputs.length > 1 && (
+                          <button
+                            onClick={() => setAccountNameInputs(accountNameInputs.filter((_, i) => i !== idx))}
+                            className="w-[52px] h-[52px] flex items-center justify-center bg-red-50 text-red-400 rounded-2xl hover:bg-red-100 transition-colors"
+                          >
+                            <X size={20} />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
-                <div className="space-y-1">
-                  <label className="text-[13px] font-bold text-gray-500">Instances</label>
-                  <input
-                    value={newInstances}
-                    onChange={e => setNewInstances(e.target.value)}
-                    placeholder="e.g. Cash, Bank"
-                    className="w-full px-4 py-3 border border-gray-200 rounded-xl text-[14px] text-gray-700 focus:outline-none focus:ring-1 focus:ring-purple-200"
-                  />
+
+                <div className="flex items-center gap-4 pt-4 border-t border-gray-50">
+                  <button
+                    onClick={handleAddAccount}
+                    disabled={savingAccount}
+                    className="flex-1 py-4 bg-[#AE00FF] text-white rounded-2xl text-[15px] font-bold hover:bg-[#8B00CC] transition-all shadow-lg shadow-purple-100 active:scale-[0.98] disabled:opacity-50"
+                  >
+                    {savingAccount ? 'Saving…' : 'Confirm & Save'}
+                  </button>
+                  <button
+                    onClick={resetForm}
+                    className="px-10 py-4 border border-gray-200 text-gray-400 rounded-2xl text-[15px] font-bold hover:bg-gray-50 transition-all"
+                  >
+                    Cancel
+                  </button>
                 </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={handleAddAccount}
-                  className="px-8 py-3 bg-[#AE00FF] text-white rounded-xl text-[13px] font-bold hover:bg-[#8B00CC] transition-colors"
-                >
-                  Add
-                </button>
-                <button
-                  onClick={() => { setShowManualAdd(false); setNewType(''); setNewDesc(''); setNewInstances(''); }}
-                  className="px-8 py-3 border border-gray-300 text-gray-500 rounded-xl text-[13px] font-bold hover:bg-gray-50 transition-colors"
-                >
-                  Cancel
-                </button>
               </div>
             </div>
           )}
@@ -343,58 +554,177 @@ export function AccountingLedgerClient({
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-gradient-to-r from-[#4A0A77] to-[#7B2FBF] text-white text-[13px] font-bold">
-                  <th className="px-4 py-4 w-[50px]">#</th>
-                  <th className="px-4 py-4">Account</th>
-                  <th className="px-4 py-4">Debits</th>
-                  <th className="px-4 py-4">Credits</th>
-                  <th className="px-4 py-4">Description</th>
-                  <th className="px-4 py-4">Name</th>
-                  <th className="px-4 py-4">Tax</th>
-                  <th className="px-4 py-4 w-[80px]"></th>
+                  <th className="px-4 py-4 w-[40px]">#</th>
+                  <th className="px-4 py-4 w-[110px]">Code</th>
+                  <th className="px-4 py-4">Account Type</th>
+                  <th className="px-4 py-4">Account Name</th>
+                  <th className="px-4 py-4 w-[100px]">Debits</th>
+                  <th className="px-4 py-4 w-[100px]">Credits</th>
+                  <th className="px-4 py-4 w-[80px]">Tax</th>
+                  <th className="px-4 py-4 w-[70px]"></th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row, idx) => (
-                  <tr key={idx} className="border-b border-gray-100 hover:bg-gray-50/50 transition-colors">
-                    <td className="px-4 py-3 text-[13px] text-gray-400 font-medium border-r border-gray-100">{idx + 1}</td>
-                    <td className="px-2 py-2 border-r border-gray-100">
-                      <input value={row.account} onChange={e => updateRow(idx, 'account', e.target.value)} className="w-full px-3 py-2 text-[13px] text-gray-700 bg-transparent border-0 focus:outline-none focus:bg-purple-50/50 rounded-lg transition-colors" placeholder="Account type" />
-                    </td>
-                    <td className="px-2 py-2 border-r border-gray-100">
-                      <input type="number" value={row.debits} onChange={e => updateRow(idx, 'debits', e.target.value)} className="w-full px-3 py-2 text-[13px] text-gray-700 bg-transparent border-0 focus:outline-none focus:bg-purple-50/50 rounded-lg transition-colors" placeholder="0" />
-                    </td>
-                    <td className="px-2 py-2 border-r border-gray-100">
-                      <input type="number" value={row.credits} onChange={e => updateRow(idx, 'credits', e.target.value)} className="w-full px-3 py-2 text-[13px] text-gray-700 bg-transparent border-0 focus:outline-none focus:bg-purple-50/50 rounded-lg transition-colors" placeholder="0" />
-                    </td>
-                    <td className="px-2 py-2 border-r border-gray-100">
-                      <input value={row.description} onChange={e => updateRow(idx, 'description', e.target.value)} className="w-full px-3 py-2 text-[13px] text-gray-700 bg-transparent border-0 focus:outline-none focus:bg-purple-50/50 rounded-lg transition-colors" placeholder="Description" />
-                    </td>
-                    <td className="px-2 py-2 border-r border-gray-100">
-                      <input value={row.name} onChange={e => updateRow(idx, 'name', e.target.value)} className="w-full px-3 py-2 text-[13px] text-gray-700 bg-transparent border-0 focus:outline-none focus:bg-purple-50/50 rounded-lg transition-colors" placeholder="Name" />
-                    </td>
-                    <td className="px-2 py-2 border-r border-gray-100">
-                      <input type="number" value={row.tax} onChange={e => updateRow(idx, 'tax', e.target.value)} className="w-full px-3 py-2 text-[13px] text-gray-700 bg-transparent border-0 focus:outline-none focus:bg-purple-50/50 rounded-lg transition-colors" placeholder="0" />
-                    </td>
-                    <td className="px-2 py-2">
-                      <div className="flex items-center gap-2">
-                        <button onClick={() => copyRow(idx)} className="text-gray-300 hover:text-purple-500 transition-colors">
-                          <Copy size={16} />
-                        </button>
-                        <button onClick={() => deleteRow(idx)} className="text-gray-300 hover:text-red-500 transition-colors">
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                {rows.map((row, idx) => {
+                  const isCodeOpen = openDropdown?.idx === idx && openDropdown?.field === 'code';
+                  const isAccountOpen = openDropdown?.idx === idx && openDropdown?.field === 'account';
+                  const isNameOpen = openDropdown?.idx === idx && openDropdown?.field === 'name';
+                  const availableNames = chartAccounts.filter(a => a.categoryId === row.accountId);
+                  const filteredCodes = chartAccounts.filter(a =>
+                    !row.codeSearch || a.code.includes(row.codeSearch) || a.accountName.toLowerCase().includes(row.codeSearch.toLowerCase())
+                  );
+                  const filteredAccounts = categories.filter(c =>
+                    !row.accountSearch || c.name.toLowerCase().includes(row.accountSearch.toLowerCase())
+                  );
+                  const filteredNames = availableNames.filter(a =>
+                    !row.nameSearch || a.accountName.toLowerCase().includes(row.nameSearch.toLowerCase())
+                  );
+
+                  return (
+                    <tr key={idx} className="border-b border-gray-100 hover:bg-gray-50/50 transition-colors">
+                      <td className="px-4 py-3 text-[13px] text-gray-400 font-medium border-r border-gray-100">{idx + 1}</td>
+
+                      {/* Code — searchable select */}
+                      <td className="px-2 py-2 border-r border-gray-100 relative">
+                        <input
+                          value={isCodeOpen ? row.codeSearch : row.code}
+                          onChange={e => updateRow(idx, 'codeSearch', e.target.value)}
+                          onFocus={() => { updateRow(idx, 'codeSearch', ''); setOpenDropdown({ idx, field: 'code' }); }}
+                          onBlur={() => setTimeout(() => setOpenDropdown(prev => prev?.idx === idx && prev?.field === 'code' ? null : prev), 150)}
+                          placeholder="Code"
+                          className="w-full px-3 py-2 text-[13px] font-mono text-gray-700 bg-transparent border-0 focus:outline-none focus:bg-purple-50/50 rounded-lg transition-colors"
+                        />
+                        {isCodeOpen && filteredCodes.length > 0 && (
+                          <div className="absolute top-full left-0 z-50 bg-white border border-gray-200 rounded-xl shadow-xl min-w-[260px] max-h-[200px] overflow-y-auto">
+                            {filteredCodes.map(a => (
+                              <div
+                                key={a.accountNameId}
+                                onMouseDown={() => {
+                                  setRows(prev => prev.map((r, i) => i === idx ? {
+                                    ...r, code: a.code, account: a.categoryName, accountId: a.categoryId, name: a.accountName,
+                                    codeSearch: '', accountSearch: '', nameSearch: '',
+                                  } : r));
+                                  setOpenDropdown(null);
+                                }}
+                                className="px-4 py-2.5 text-[12px] hover:bg-purple-50 cursor-pointer flex items-center gap-3"
+                              >
+                                <span className="font-mono font-bold text-purple-700 w-[48px]">{a.code}</span>
+                                <span className="text-gray-600">{a.accountName}</span>
+                                <span className="text-gray-400 text-[11px] ml-auto">{a.categoryName}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </td>
+
+                      {/* Account Type — searchable select */}
+                      <td className="px-2 py-2 border-r border-gray-100 relative">
+                        <input
+                          value={isAccountOpen ? row.accountSearch : row.account}
+                          onChange={e => updateRow(idx, 'accountSearch', e.target.value)}
+                          onFocus={() => { updateRow(idx, 'accountSearch', ''); setOpenDropdown({ idx, field: 'account' }); }}
+                          onBlur={() => setTimeout(() => setOpenDropdown(prev => prev?.idx === idx && prev?.field === 'account' ? null : prev), 150)}
+                          placeholder="Select account type…"
+                          className="w-full px-3 py-2 text-[13px] text-gray-700 bg-transparent border-0 focus:outline-none focus:bg-purple-50/50 rounded-lg transition-colors"
+                        />
+                        {isAccountOpen && filteredAccounts.length > 0 && (
+                          <div className="absolute top-full left-0 z-50 bg-white border border-gray-200 rounded-xl shadow-xl min-w-[220px] max-h-[200px] overflow-y-auto">
+                            {filteredAccounts.map(cat => (
+                              <div
+                                key={cat.id}
+                                onMouseDown={() => {
+                                  setRows(prev => prev.map((r, i) => i === idx ? {
+                                    ...r, account: cat.name, accountId: cat.id, name: '', code: '',
+                                    accountSearch: '', codeSearch: '', nameSearch: '',
+                                  } : r));
+                                  setOpenDropdown(null);
+                                }}
+                                className="px-4 py-2.5 text-[13px] hover:bg-purple-50 cursor-pointer"
+                              >
+                                <span className="font-medium text-gray-700">{cat.name}</span>
+                                {cat.financialStatement && (
+                                  <span className="text-[11px] text-gray-400 block">{cat.financialStatement}</span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </td>
+
+                      {/* Account Name — filtered by selected category */}
+                      <td className="px-2 py-2 border-r border-gray-100 relative">
+                        {row.accountId ? (
+                          <>
+                            <input
+                              value={isNameOpen ? row.nameSearch : row.name}
+                              onChange={e => updateRow(idx, 'nameSearch', e.target.value)}
+                              onFocus={() => { updateRow(idx, 'nameSearch', ''); setOpenDropdown({ idx, field: 'name' }); }}
+                              onBlur={() => setTimeout(() => setOpenDropdown(prev => prev?.idx === idx && prev?.field === 'name' ? null : prev), 150)}
+                              placeholder="Select account name…"
+                              className="w-full px-3 py-2 text-[13px] text-gray-700 bg-transparent border-0 focus:outline-none focus:bg-purple-50/50 rounded-lg transition-colors"
+                            />
+                            {isNameOpen && filteredNames.length > 0 && (
+                              <div className="absolute top-full left-0 z-50 bg-white border border-gray-200 rounded-xl shadow-xl min-w-[200px] max-h-[200px] overflow-y-auto">
+                                {filteredNames.map(a => (
+                                  <div
+                                    key={a.accountNameId}
+                                    onMouseDown={() => {
+                                      setRows(prev => prev.map((r, i) => i === idx ? {
+                                        ...r, name: a.accountName, code: a.code, nameSearch: '',
+                                      } : r));
+                                      setOpenDropdown(null);
+                                    }}
+                                    className="px-4 py-2.5 text-[13px] hover:bg-purple-50 cursor-pointer flex items-center justify-between"
+                                  >
+                                    <span className="text-gray-700">{a.accountName}</span>
+                                    <span className="font-mono text-[11px] text-purple-600">{a.code}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            {isNameOpen && filteredNames.length === 0 && (
+                              <div className="absolute top-full left-0 z-50 bg-white border border-gray-200 rounded-xl shadow-xl min-w-[200px] px-4 py-3 text-[12px] text-gray-400">
+                                No account names found
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          <span className="px-3 py-2 text-[12px] text-gray-300 italic block">Select type first</span>
+                        )}
+                      </td>
+
+                      <td className="px-2 py-2 border-r border-gray-100">
+                        <input type="text" inputMode="numeric" value={row.debits} onChange={e => updateRow(idx, 'debits', e.target.value)} className="w-full px-3 py-2 text-[13px] text-gray-700 bg-transparent border-0 focus:outline-none focus:bg-purple-50/50 rounded-lg transition-colors" placeholder="0" />
+                      </td>
+                      <td className="px-2 py-2 border-r border-gray-100">
+                        <input type="text" inputMode="numeric" value={row.credits} onChange={e => updateRow(idx, 'credits', e.target.value)} className="w-full px-3 py-2 text-[13px] text-gray-700 bg-transparent border-0 focus:outline-none focus:bg-purple-50/50 rounded-lg transition-colors" placeholder="0" />
+                      </td>
+                      <td className="px-2 py-2 border-r border-gray-100">
+                        <input type="text" inputMode="numeric" value={row.tax} onChange={e => updateRow(idx, 'tax', e.target.value)} className="w-full px-3 py-2 text-[13px] text-gray-700 bg-transparent border-0 focus:outline-none focus:bg-purple-50/50 rounded-lg transition-colors" placeholder="0" />
+                      </td>
+                      <td className="px-2 py-2">
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => copyRow(idx)} className="text-gray-300 hover:text-purple-500 transition-colors">
+                            <Copy size={16} />
+                          </button>
+                          <button onClick={() => deleteRow(idx)} className="text-gray-300 hover:text-red-500 transition-colors">
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
+              <tfoot>
+                <tr className="bg-[#F3F4F6] border-t border-gray-200">
+                  <td colSpan={4} className="px-6 py-4 text-[14px] font-bold text-gray-600 text-right">Total</td>
+                  <td className="px-5 py-4 text-[14px] font-bold text-gray-700">₦{totalDebits.toLocaleString()}.00</td>
+                  <td className="px-5 py-4 text-[14px] font-bold text-gray-700">₦{totalCredits.toLocaleString()}.00</td>
+                  <td colSpan={2} />
+                </tr>
+              </tfoot>
             </table>
-            <div className="flex items-center px-4 py-4 bg-[#F3F4F6] border-t border-gray-200">
-              <span className="w-[50px]" />
-              <span className="text-[14px] font-bold text-gray-600 w-[200px] px-4">Total</span>
-              <span className="text-[14px] font-bold text-gray-700 w-[120px] px-4">N{totalDebits.toLocaleString()}.00</span>
-              <span className="text-[14px] font-bold text-gray-700 w-[120px] px-4">N{totalCredits.toLocaleString()}.00</span>
-            </div>
           </div>
 
           <div className="flex items-center gap-4 mb-6">
@@ -412,9 +742,30 @@ export function AccountingLedgerClient({
             </button>
           </div>
 
-          <div className="border border-dashed border-gray-200 rounded-2xl p-8 mb-8 flex flex-col items-center justify-center bg-white">
-            <button className="text-[#AE00FF] text-[14px] font-bold hover:underline">Add Attachment</button>
-            <p className="text-[12px] text-gray-400 mt-1">Max file size: 20 MB</p>
+          <div 
+            onClick={() => fileInputRef.current?.click()}
+            className="border border-dashed border-gray-200 rounded-2xl p-8 mb-8 flex flex-col items-center justify-center bg-white hover:bg-gray-50 transition-all cursor-pointer"
+          >
+            <input 
+              type="file" 
+              ref={fileInputRef} 
+              onChange={handleFileChange} 
+              className="hidden" 
+            />
+            <div className="flex flex-col items-center gap-2">
+              <span className="text-[#AE00FF] text-[14px] font-bold">
+                {attachment ? `Selected: ${attachment.name}` : 'Add Attachment'}
+              </span>
+              <p className="text-[12px] text-gray-400">Max file size: 20 MB</p>
+            </div>
+            {attachment && (
+              <button 
+                onClick={(e) => { e.stopPropagation(); setAttachment(null); }}
+                className="mt-3 text-[11px] text-red-400 hover:text-red-500 font-medium"
+              >
+                Remove File
+              </button>
+            )}
           </div>
 
           <div className="flex items-center justify-end gap-4">
@@ -565,39 +916,33 @@ export function AccountingLedgerClient({
           <div className="bg-white rounded-xl overflow-hidden border border-gray-50 mb-6">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="bg-[#E5E7EB] text-[13px] font-bold text-gray-600">
-                  <th className="px-6 py-4">Account</th>
-                  <th className="px-6 py-4">Description</th>
-                  <th className="px-6 py-4">Ref</th>
-                  <th className="px-6 py-4">
-                    Debit <ArrowUp size={12} className="inline text-green-500 ml-1" />
-                  </th>
-                  <th className="px-6 py-4">
-                    Credit <ArrowDown size={12} className="inline text-red-500 ml-1" />
-                  </th>
-                  <th className="px-6 py-4">Balance</th>
-                  <th className="px-6 py-4">Date</th>
+                <tr className="bg-gradient-to-r from-gray-50 to-gray-100 text-[13px] font-bold text-gray-600 border-b border-gray-100">
+                  <th className="px-8 py-5">Account</th>
+                  <th className="px-8 py-5">Description</th>
+                  <th className="px-8 py-5">Ref</th>
+                  <th className="px-8 py-5 text-right">Debit</th>
+                  <th className="px-8 py-5 text-right">Credit</th>
+                  <th className="px-8 py-5 text-right">Balance</th>
+                  <th className="px-8 py-5">Date</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {filteredGL.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-6 py-16 text-center text-[14px] text-gray-400">
-                      {initialGeneralLedger.length === 0
-                        ? 'No ledger entries yet. Record expenses or delivered orders to see them here.'
-                        : 'No entries match your filters.'}
+                    <td colSpan={7} className="px-6 py-20 text-center text-[15px] text-gray-400">
+                      No ledger entries found. Save a Journal Entry to see it here.
                     </td>
                   </tr>
                 ) : (
                   filteredGL.map((row, idx) => (
-                    <tr key={idx} className={idx % 2 === 1 ? 'bg-[#F9FAFB]' : 'bg-white'}>
-                      <td className="px-6 py-5 text-[14px] text-gray-500 font-medium">{row.account}</td>
-                      <td className="px-6 py-5 text-[14px] text-gray-500 font-medium">{row.description}</td>
-                      <td className="px-6 py-5 text-[13px] text-gray-400 font-mono">{row.ref}</td>
-                      <td className="px-6 py-5 text-[14px] text-gray-700 font-medium">{row.debit}</td>
-                      <td className="px-6 py-5 text-[14px] text-gray-700 font-medium">{row.credit}</td>
-                      <td className="px-6 py-5 text-[14px] text-gray-700 font-medium">{row.balance}</td>
-                      <td className="px-6 py-5 text-[14px] text-gray-400 font-medium">{row.date}</td>
+                    <tr key={idx} className={`${idx % 2 === 1 ? 'bg-[#F9FAFB]' : 'bg-white'} hover:bg-purple-50/30 transition-colors`}>
+                      <td className="px-8 py-6 text-[14px] text-gray-700 font-bold">{row.account}</td>
+                      <td className="px-8 py-6 text-[14px] text-gray-500">{row.description}</td>
+                      <td className="px-8 py-6 text-[13px] text-gray-400 font-mono">{row.ref}</td>
+                      <td className="px-8 py-6 text-[14px] text-green-600 font-bold text-right">{row.debit}</td>
+                      <td className="px-8 py-6 text-[14px] text-red-500 font-bold text-right">{row.credit}</td>
+                      <td className="px-8 py-6 text-[14px] text-gray-700 font-bold text-right">{row.balance}</td>
+                      <td className="px-8 py-6 text-[14px] text-gray-400 font-medium">{row.date}</td>
                     </tr>
                   ))
                 )}
@@ -607,11 +952,8 @@ export function AccountingLedgerClient({
 
           <div className="flex items-center justify-between">
             <p className="text-[13px] text-gray-400 font-medium">
-              {filteredGL.length} entr{filteredGL.length === 1 ? 'y' : 'ies'} shown
+              {filteredGL.length} entr{filteredGL.length === 1 ? 'y' : 'ies'} total
             </p>
-            <button className="px-8 py-3.5 bg-[#AE00FF] text-white rounded-xl text-[14px] font-bold hover:bg-[#8B00CC] transition-colors shadow-lg shadow-purple-100">
-              Import Excel
-            </button>
           </div>
         </div>
       )}

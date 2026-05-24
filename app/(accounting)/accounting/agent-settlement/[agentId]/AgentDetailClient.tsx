@@ -268,7 +268,8 @@ export function AgentDetailClient({ agent, chartData, totalSalesYear, prevYearSa
                   filteredLedger.map((row, idx) => (
                     <tr
                       key={row.id}
-                      className={`${idx % 2 === 1 ? 'bg-[#F9FAFB]/60' : 'bg-white'} hover:bg-gray-50/80 transition-colors cursor-pointer`}
+                      onClick={() => router.push(`/accounting/agent-settlement/${agentId}/${row.id}`)}
+                      className={`${idx % 2 === 1 ? 'bg-[#F9FAFB]/60' : 'bg-white'} hover:bg-purple-50/40 transition-colors cursor-pointer border-b border-gray-50 last:border-0`}
                     >
                       <td className="px-6 py-4 text-[13px] text-gray-500 font-medium">{row.date}</td>
                       <td className="px-6 py-4 text-[13px] text-gray-600">{row.referenceType}</td>

@@ -6,41 +6,52 @@ const fmt = (n: number) =>
 // ── Chart of Accounts ─────────────────────────────────────────────────────────
 
 export interface ChartRow {
-  type: string;
-  description: string;
-  instances: string;
+  code: string;
+  categoryId: string;
+  categoryName: string;
+  financialStatement: string;
+  accountName: string;
+  accountNameId: string;
+}
+
+export interface CategoryForLedger {
+  id: string;
+  name: string;
+  financialStatement: string | null;
+  expenseNames: { id: string; name: string }[];
 }
 
 export async function getChartOfAccounts(): Promise<ChartRow[]> {
-  const [categories, accounts] = await Promise.all([
-    prisma.expenseCategory.findMany({ orderBy: { name: "asc" } }),
-    prisma.paymentAccount.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),
-  ]);
+  const categories = await prisma.expenseCategory.findMany({
+    orderBy: { name: "asc" },
+    include: { expenseNames: { orderBy: { name: "asc" } } },
+  });
 
   const rows: ChartRow[] = [];
+  let counter = 1000;
 
-  if (categories.length > 0) {
-    rows.push({
-      type: "Expense",
-      description: "Operating and business expense categories",
-      instances: categories.map((c) => c.name).join(", "),
-    });
-  }
-
-  const grouped = accounts.reduce<Record<string, string[]>>((acc, a) => {
-    (acc[a.type] = acc[a.type] ?? []).push(a.name);
-    return acc;
-  }, {});
-
-  for (const [type, names] of Object.entries(grouped)) {
-    rows.push({
-      type,
-      description: `${type} payment accounts`,
-      instances: names.join(", "),
-    });
+  for (const cat of categories) {
+    for (const name of cat.expenseNames) {
+      counter++;
+      rows.push({
+        code: String(counter),
+        categoryId: cat.id,
+        categoryName: cat.name,
+        financialStatement: cat.financialStatement ?? "",
+        accountName: name.name,
+        accountNameId: name.id,
+      });
+    }
   }
 
   return rows;
+}
+
+export async function listCategoriesForLedger(): Promise<CategoryForLedger[]> {
+  return prisma.expenseCategory.findMany({
+    orderBy: { name: "asc" },
+    include: { expenseNames: { orderBy: { name: "asc" } } },
+  });
 }
 
 // ── Journal Entries ───────────────────────────────────────────────────────────
