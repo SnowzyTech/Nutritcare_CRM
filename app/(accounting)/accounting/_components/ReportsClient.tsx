@@ -1,11 +1,12 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
   RotateCcw,
   MessageCircle,
+  Loader2,
 } from 'lucide-react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { ProfitAndLossView } from './ProfitAndLossView';
@@ -54,16 +55,38 @@ export function ReportsClient({
   const searchParams = useSearchParams();
 
   const defaultTab = initialTab ? unslugify(initialTab) : "Profit & Loss";
-  const [activeReport, setActiveReport] = useState(defaultTab);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
-  React.useEffect(() => {
-    const tabParam = searchParams.get('tab');
-    if (tabParam) setActiveReport(unslugify(tabParam));
-  }, [searchParams]);
+  // activeReport = what the sidebar highlights (updates immediately on click)
+  const [activeReport, setActiveReport] = useState(defaultTab);
+  // committedTab = what reportData actually corresponds to (updates when server responds)
+  const [committedTab, setCommittedTab] = useState(defaultTab);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const mounted = useRef(false);
+
+  // Sync the URL tab param to the initial tab on first render
+  useEffect(() => {
+    if (!searchParams.get('tab')) {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set('tab', slugify(defaultTab));
+      router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+    }
+    mounted.current = true;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // When the server responds with new reportData (initialTab prop changes), clear loading
+  useEffect(() => {
+    if (!mounted.current) return;
+    const serverTab = initialTab ? unslugify(initialTab) : "Profit & Loss";
+    setCommittedTab(serverTab);
+    setActiveReport(serverTab);
+    setIsLoading(false);
+  }, [initialTab, reportData]);
 
   const handleTabChange = (type: string) => {
     setActiveReport(type);
+    setIsLoading(true);
     const params = new URLSearchParams(searchParams.toString());
     params.set('tab', slugify(type));
     router.push(`${pathname}?${params.toString()}`, { scroll: false });
@@ -164,64 +187,73 @@ export function ReportsClient({
             </p>
           </div>
 
-          {activeReport === "Profit & Loss" && (
-            <ProfitAndLossView
-              data={reportData}
-              currentDate={currentDateObj}
-              priorDate={priorDateObj}
-              onDateChange={updatePeriod}
-            />
-          )}
-          {activeReport === "STATEMENT OF FINANCIAL POSITION" && (
-            <StatementOfFinancialPosition
-              data={reportData}
-              currentDate={currentDateObj}
-              priorDate={priorDateObj}
-              onDateChange={updatePeriod}
-            />
-          )}
-          {activeReport === "STATEMENT OF CASH FLOW" && (
-            <StatementOfCashFlow
-              data={reportData}
-              currentDate={currentDateObj}
-              priorDate={priorDateObj}
-              onDateChange={updatePeriod}
-            />
-          )}
-          {activeReport === "Revenue By Product" && (
-            <RevenueByProductView
-              data={reportData}
-              currentDate={currentDateObj}
-              onDateChange={updatePeriod}
-            />
-          )}
-          {activeReport === "Inventory Valuation" && (
-            <InventoryValuationView
-              data={reportData}
-              currentDate={currentDateObj}
-              onDateChange={updatePeriod}
-            />
-          )}
-          {activeReport === "Expense Ledger" && (
-            <ExpenseLedgerView
-              data={reportData}
-              currentDate={currentDateObj}
-              onDateChange={updatePeriod}
-            />
-          )}
-          {activeReport === "Delivery Tracker" && (
-            <DeliveryTrackerView
-              data={reportData}
-              currentDate={currentDateObj}
-              onDateChange={updatePeriod}
-            />
-          )}
-          {activeReport === "Trial Balance" && (
-            <TrialBalanceView
-              data={reportData}
-              currentDate={currentDateObj}
-              onDateChange={updatePeriod}
-            />
+          {isLoading ? (
+            <div className="flex flex-col items-center justify-center py-32 gap-4">
+              <Loader2 size={36} className="animate-spin text-[#5C2B90]" />
+              <p className="text-gray-400 text-sm">Loading report…</p>
+            </div>
+          ) : (
+            <>
+              {committedTab === "Profit & Loss" && (
+                <ProfitAndLossView
+                  data={reportData}
+                  currentDate={currentDateObj}
+                  priorDate={priorDateObj}
+                  onDateChange={updatePeriod}
+                />
+              )}
+              {committedTab === "STATEMENT OF FINANCIAL POSITION" && (
+                <StatementOfFinancialPosition
+                  data={reportData}
+                  currentDate={currentDateObj}
+                  priorDate={priorDateObj}
+                  onDateChange={updatePeriod}
+                />
+              )}
+              {committedTab === "STATEMENT OF CASH FLOW" && (
+                <StatementOfCashFlow
+                  data={reportData}
+                  currentDate={currentDateObj}
+                  priorDate={priorDateObj}
+                  onDateChange={updatePeriod}
+                />
+              )}
+              {committedTab === "Revenue By Product" && (
+                <RevenueByProductView
+                  data={reportData}
+                  currentDate={currentDateObj}
+                  onDateChange={updatePeriod}
+                />
+              )}
+              {committedTab === "Inventory Valuation" && (
+                <InventoryValuationView
+                  data={reportData}
+                  currentDate={currentDateObj}
+                  onDateChange={updatePeriod}
+                />
+              )}
+              {committedTab === "Expense Ledger" && (
+                <ExpenseLedgerView
+                  data={reportData}
+                  currentDate={currentDateObj}
+                  onDateChange={updatePeriod}
+                />
+              )}
+              {committedTab === "Delivery Tracker" && (
+                <DeliveryTrackerView
+                  data={reportData}
+                  currentDate={currentDateObj}
+                  onDateChange={updatePeriod}
+                />
+              )}
+              {committedTab === "Trial Balance" && (
+                <TrialBalanceView
+                  data={reportData}
+                  currentDate={currentDateObj}
+                  onDateChange={updatePeriod}
+                />
+              )}
+            </>
           )}
         </div>
       </div>

@@ -15,8 +15,21 @@ import {
   BarChart2,
   Settings,
   LogOut,
-  Menu
+  Menu,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
+
+const reportSubItems = [
+  { href: '/accounting/reports/profit-loss', label: 'Profit & Loss' },
+  { href: '/accounting/reports/statement-of-financial-position', label: 'Fin. Position' },
+  { href: '/accounting/reports/statement-of-cash-flow', label: 'Cash Flow' },
+  { href: '/accounting/reports/revenue-by-product', label: 'Revenue by Product' },
+  { href: '/accounting/reports/inventory-valuation', label: 'Inventory Valuation' },
+  { href: '/accounting/reports/expense-ledger', label: 'Expense Ledger' },
+  { href: '/accounting/reports/delivery-tracker', label: 'Delivery Tracker' },
+  { href: '/accounting/reports/trial-balance', label: 'Trial Balance' },
+];
 
 const navItems = [
   { href: '/accounting', icon: Monitor, label: 'Dashboard' },
@@ -47,6 +60,8 @@ interface SidebarUser {
 export function AccountingSidebar({ user }: { user?: SidebarUser }) {
   const pathname = usePathname();
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const onReportsPage = pathname.startsWith('/accounting/reports');
+  const [reportsOpen, setReportsOpen] = useState(onReportsPage);
 
   const displayName = user?.name ?? 'Accountant';
   const displayRole = user?.role ? formatRole(user.role) : 'Accountant';
@@ -118,11 +133,69 @@ export function AccountingSidebar({ user }: { user?: SidebarUser }) {
       {/* Nav Items */}
       <nav className={`flex-1 mt-2 space-y-1.5 overflow-y-auto no-scrollbar ${isCollapsed ? 'px-3' : 'px-4'}`}>
         {navItems.map((item) => {
-          const isActive =
-            item.href === '/accounting'
-              ? pathname === '/accounting'
-              : pathname.startsWith(item.href);
+          const isReports = item.href === '/accounting/reports';
+          const isActive = isReports
+            ? onReportsPage
+            : item.href === '/accounting'
+            ? pathname === '/accounting'
+            : pathname.startsWith(item.href);
           const Icon = item.icon;
+
+          if (isReports) {
+            return (
+              <div key={item.href}>
+                <button
+                  onClick={() => !isCollapsed && setReportsOpen(o => !o)}
+                  title={isCollapsed ? item.label : undefined}
+                  className={`flex items-center w-full rounded-xl transition-all duration-200 group ${
+                    isCollapsed ? 'justify-center h-12' : 'gap-4 px-4 py-3.5'
+                  } ${
+                    isActive
+                      ? 'bg-[#B400FF] text-white shadow-md shadow-purple-200/50'
+                      : 'text-gray-400 hover:bg-gray-50 hover:text-gray-900'
+                  }`}
+                >
+                  <Icon
+                    size={20}
+                    strokeWidth={isActive ? 2.5 : 2}
+                    className={isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-600'}
+                  />
+                  {!isCollapsed && (
+                    <>
+                      <span className={`text-[13px] flex-1 text-left whitespace-nowrap ${isActive ? 'font-bold' : 'font-medium'}`}>
+                        {item.label}
+                      </span>
+                      {reportsOpen
+                        ? <ChevronDown size={14} className={isActive ? 'text-white' : 'text-gray-400'} />
+                        : <ChevronRight size={14} className={isActive ? 'text-white' : 'text-gray-400'} />
+                      }
+                    </>
+                  )}
+                </button>
+                {reportsOpen && !isCollapsed && (
+                  <div className="ml-4 mt-1 space-y-0.5 border-l-2 border-purple-100 pl-3">
+                    {reportSubItems.map(sub => {
+                      const subActive = pathname === sub.href;
+                      return (
+                        <Link
+                          key={sub.href}
+                          href={sub.href}
+                          className={`block text-[12px] px-3 py-2 rounded-lg transition-all ${
+                            subActive
+                              ? 'text-[#B400FF] font-bold bg-purple-50'
+                              : 'text-gray-400 hover:text-gray-700 hover:bg-gray-50 font-medium'
+                          }`}
+                        >
+                          {sub.label}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          }
+
           return (
             <Link
               key={item.href}
@@ -139,11 +212,7 @@ export function AccountingSidebar({ user }: { user?: SidebarUser }) {
               <Icon
                 size={20}
                 strokeWidth={isActive ? 2.5 : 2}
-                className={
-                  isActive
-                    ? 'text-white'
-                    : 'text-gray-400 group-hover:text-gray-600'
-                }
+                className={isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-600'}
               />
               {!isCollapsed && (
                 <span className={`text-[13px] whitespace-nowrap ${isActive ? 'font-bold' : 'font-medium'}`}>

@@ -165,7 +165,7 @@ export async function addOrderItemsAction(
 
   const products = await prisma.product.findMany({
     where: { id: { in: items.map((i) => i.productId) } },
-    select: { id: true, name: true, sellingPrice: true },
+    select: { id: true, name: true, sellingPrice: true, costPrice: true },
   });
 
   const productMap = new Map(products.map((p) => [p.id, p]));
@@ -177,7 +177,7 @@ export async function addOrderItemsAction(
     const unitPrice = Number(product.sellingPrice);
     const lineTotal = unitPrice * item.quantity;
     addedTotal += lineTotal;
-    return { orderId, productId: item.productId, quantity: item.quantity, unitPrice, lineTotal };
+    return { orderId, productId: item.productId, quantity: item.quantity, unitPrice, lineTotal, costPriceAtSale: Number(product.costPrice) };
   });
 
   await prisma.$transaction([

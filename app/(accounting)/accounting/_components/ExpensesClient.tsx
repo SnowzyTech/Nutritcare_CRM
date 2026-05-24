@@ -12,7 +12,10 @@ import {
   Trash2,
   Search,
   ArrowRight,
-  X
+  X,
+  Download,
+  FileText,
+  Upload,
 } from 'lucide-react';
 import { format } from "date-fns";
 import { Calendar } from "@/components/ui/calendar";
@@ -55,6 +58,7 @@ interface ExpenseHistoryRow {
   lineItems?: ExpenseLineItem[];
   notes?: string;
   attachmentUrl?: string | null;
+  attachmentUrls?: string[];
   createdBy?: string;
 }
 
@@ -68,10 +72,27 @@ interface CategoryItem {
 interface ExpensesClientProps {
   initialHistory?: ExpenseHistoryRow[];
   initialCategories?: CategoryItem[];
-  initialAccounts?: { id: string; name: string }[];
+  initialAccounts?: { id: string; name: string; logoUrl?: string }[];
   initialSuppliers?: { id?: string; name: string; contact: string; balance: string }[];
   nextRef?: string;
 }
+
+type AttachmentItem = { file: File; preview: string };
+
+const formatFileSize = (bytes: number): string => {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)}KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+};
+
+const getDownloadUrl = (url: string): string =>
+  url.replace('/upload/', '/upload/fl_attachment/');
+
+const isImageUrl = (url: string): boolean =>
+  /\.(jpg|jpeg|png|gif|webp)/i.test(url) || (url.includes('/image/upload/') && !url.endsWith('.pdf'));
+
+const isPdfUrl = (url: string): boolean =>
+  /\.pdf/i.test(url) || url.includes('/raw/upload/');
 
 const tabs = [
   { id: 'new', label: 'New Expense' },
@@ -167,7 +188,7 @@ export function ExpensesClient({
           { id: '__local-3', name: 'Staff Salaries', expenseNames: [] },
         ]
   );
-  const [accounts, setAccounts] = useState<{ id: string; name: string }[]>(
+  const [accounts, setAccounts] = useState<{ id: string; name: string; logoUrl?: string }[]>(
     initialAccounts && initialAccounts.length > 0
       ? initialAccounts
       : [
@@ -197,13 +218,43 @@ export function ExpensesClient({
   const updateLine = (id: number, field: keyof LineRow, value: string) =>
     setLineItems(prev => prev.map(l => (l.id === id ? { ...l, [field]: value } : l)));
 
-  const [attachment, setAttachment] = useState<File | null>(null);
+  const [attachments, setAttachments] = useState<AttachmentItem[]>([]);
+  const [bankLogoFile, setBankLogoFile] = useState<File | null>(null);
+  const [bankLogoPreview, setBankLogoPreview] = useState<string>('');
+  const [selectedAttachmentUrls, setSelectedAttachmentUrls] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const bankLogoInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      setAttachment(e.target.files[0]);
+    if (e.target.files) {
+      const newItems: AttachmentItem[] = Array.from(e.target.files).map(file => ({
+        file,
+        preview: file.type.startsWith('image/') ? URL.createObjectURL(file) : '',
+      }));
+      setAttachments(prev => [...prev, ...newItems]);
+      e.target.value = '';
     }
+  };
+
+  const removeAttachment = (idx: number) => {
+    setAttachments(prev => {
+      const item = prev[idx];
+      if (item.preview) URL.revokeObjectURL(item.preview);
+      return prev.filter((_, i) => i !== idx);
+    });
+  };
+
+  const uploadExpenseFiles = async (files: File[]): Promise<string[]> => {
+    if (files.length === 0) return [];
+    const fd = new FormData();
+    files.forEach(f => fd.append('files', f));
+    const res = await fetch('/api/upload/expense', { method: 'POST', body: fd });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error ?? 'File upload failed');
+    }
+    const { urls } = await res.json();
+    return urls as string[];
   };
 
   const [showCategoryAdd, setShowCategoryAdd] = useState(false);
@@ -265,11 +316,23 @@ export function ExpensesClient({
   const handleAddAccount = async () => {
     if (!newAccount.bankName) return;
     const display = `${newAccount.bankName}${newAccount.accountNumber ? ' - ' + newAccount.accountNumber : ''}`;
-    const res = await createPaymentAccountAction(display, 'BANK');
+
+    let logoUrl: string | undefined;
+    if (bankLogoFile) {
+      try {
+        const urls = await uploadExpenseFiles([bankLogoFile]);
+        logoUrl = urls[0];
+      } catch { /* continue without logo */ }
+    }
+
+    const res = await createPaymentAccountAction(display, 'BANK', logoUrl);
     if ('error' in res) { alert(res.error); return; }
-    setAccounts(prev => [...prev, { id: res.id!, name: res.name! }]);
+    setAccounts(prev => [...prev, { id: res.id!, name: res.name!, logoUrl: res.logoUrl }]);
     setAccountModalOpen(false);
     setNewAccount({ accountNumber: '', bankName: '' });
+    if (bankLogoPreview) URL.revokeObjectURL(bankLogoPreview);
+    setBankLogoFile(null);
+    setBankLogoPreview('');
   };
 
   const handleAddSupplier = async () => {
@@ -316,6 +379,14 @@ export function ExpensesClient({
       return;
     }
     setSavingExpense(true);
+    let uploadedUrls: string[] = [];
+    try {
+      uploadedUrls = await uploadExpenseFiles(attachments.map(a => a.file));
+    } catch (err: any) {
+      setSavingExpense(false);
+      alert(err.message ?? 'File upload failed');
+      return;
+    }
     const res = await createExpenseAction({
       expenseCategoryId: selectedCategoryId,
       expenseNameId: selectedExpenseNameId || undefined,
@@ -323,6 +394,7 @@ export function ExpensesClient({
       paidFromAccountId: selectedAccountId,
       date: date ?? new Date(),
       notes: notesText,
+      attachmentUrls: uploadedUrls,
       lineItems: items,
     });
     setSavingExpense(false);
@@ -339,7 +411,7 @@ export function ExpensesClient({
     setSupplierSearch('');
     setNotesText('');
     setDate(new Date());
-    setAttachment(null);
+    setAttachments(prev => { prev.forEach(a => { if (a.preview) URL.revokeObjectURL(a.preview); }); return []; });
     setLineItems([
       { id: 1, product: '', description: '', qty: '1', amount: '', tax: '' },
       { id: 2, product: '', description: '', qty: '1', amount: '', tax: '' },
@@ -366,6 +438,14 @@ export function ExpensesClient({
       return;
     }
     setSavingExpense(true);
+    let uploadedUrls2: string[] = [];
+    try {
+      uploadedUrls2 = await uploadExpenseFiles(attachments.map(a => a.file));
+    } catch (err: any) {
+      setSavingExpense(false);
+      alert(err.message ?? 'File upload failed');
+      return;
+    }
     const res = await createExpenseAction({
       expenseCategoryId: selectedCategoryId,
       expenseNameId: selectedExpenseNameId || undefined,
@@ -373,6 +453,7 @@ export function ExpensesClient({
       paidFromAccountId: selectedAccountId,
       date: date ?? new Date(),
       notes: notesText,
+      attachmentUrls: uploadedUrls2,
       lineItems: items,
     });
     setSavingExpense(false);
@@ -854,29 +935,47 @@ export function ExpensesClient({
                   />
                 </div>
 
-                {/* Attachment */}
-                <div 
-                  onClick={() => fileInputRef.current?.click()}
-                  className="border border-dashed border-gray-300 rounded-lg h-32 flex flex-col items-center justify-center gap-1 bg-white hover:bg-gray-50 transition-all cursor-pointer overflow-hidden px-4"
-                >
-                  <input 
-                    type="file" 
-                    ref={fileInputRef} 
-                    onChange={handleFileChange} 
-                    className="hidden" 
+                {/* Attachments */}
+                <div className="border border-dashed border-gray-300 rounded-lg bg-white p-3 space-y-2">
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={handleFileChange}
+                    className="hidden"
+                    multiple
+                    accept="image/*,.pdf,.doc,.docx,.xls,.xlsx"
                   />
-                  <p className="text-[11px] font-bold text-[#AE00FF] text-center line-clamp-1">
-                    {attachment ? `Selected: ${attachment.name}` : 'Add Attachment'}
-                  </p>
-                  <p className="text-[10px] text-gray-400">Max file size: 20 MB</p>
-                  {attachment && (
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); setAttachment(null); }}
-                      className="mt-2 text-[10px] text-red-400 hover:text-red-500 font-bold"
-                    >
-                      Remove
-                    </button>
+                  {attachments.length > 0 && (
+                    <div className="space-y-1.5">
+                      {attachments.map((item, idx) => (
+                        <div key={idx} className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg">
+                          {item.preview ? (
+                            <img src={item.preview} alt="" className="w-9 h-9 rounded object-cover flex-shrink-0" />
+                          ) : (
+                            <div className="w-9 h-9 bg-red-50 rounded flex items-center justify-center flex-shrink-0">
+                              <FileText size={16} className="text-red-400" />
+                            </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[11px] font-bold text-gray-700 truncate">{item.file.name}</p>
+                            <p className="text-[10px] text-gray-400">{formatFileSize(item.file.size)}</p>
+                          </div>
+                          <button onClick={() => removeAttachment(idx)} className="text-gray-300 hover:text-red-400 transition-colors flex-shrink-0">
+                            <X size={13} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
                   )}
+                  <div
+                    onClick={() => fileInputRef.current?.click()}
+                    className="flex flex-col items-center justify-center gap-1 py-3 cursor-pointer hover:bg-gray-50 rounded-lg transition-all"
+                  >
+                    <p className="text-[11px] font-bold text-[#AE00FF]">
+                      {attachments.length > 0 ? '+ Add More Files' : 'Add Attachments'}
+                    </p>
+                    <p className="text-[10px] text-gray-400">Images · PDF · Docs · Max 20MB each</p>
+                  </div>
                 </div>
 
                 {/* Actions */}
@@ -1023,6 +1122,7 @@ export function ExpensesClient({
                         key={idx} 
                         onClick={() => {
                           setSelectedExpense(row);
+                          setSelectedAttachmentUrls([]);
                           setActiveTab('details');
                         }}
                         className={`cursor-pointer transition-colors hover:bg-purple-50 ${idx % 2 === 1 ? 'bg-[#FAFAFA]' : 'bg-white'}`}
@@ -1162,34 +1262,84 @@ export function ExpensesClient({
 
               {/* Attachments */}
               <div className="mb-10">
-                <h3 className="text-[13px] font-bold text-gray-600 mb-4">Attachments</h3>
-                <div className="flex gap-4">
-                  <div className="bg-[#FAFAFA] rounded-xl p-3 flex items-center gap-3 w-64 border border-gray-100">
-                    <div className="w-10 h-10 bg-[#E50000] rounded-lg flex items-center justify-center text-white text-[10px] font-bold">
-                      PDF
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-[13px] font-bold text-gray-600">Attachments</h3>
+                  {(selectedExpense.attachmentUrls?.length > 0) && (
+                    <div className="flex items-center gap-4">
+                      {selectedAttachmentUrls.length > 0 && (
+                        <button
+                          onClick={() => selectedAttachmentUrls.forEach(url => window.open(getDownloadUrl(url), '_blank'))}
+                          className="flex items-center gap-1.5 text-[12px] font-bold text-[#AE00FF] hover:underline"
+                        >
+                          <Download size={13} />
+                          Download Selected ({selectedAttachmentUrls.length})
+                        </button>
+                      )}
+                      <button
+                        onClick={() => (selectedExpense.attachmentUrls as string[]).forEach((url: string) => window.open(getDownloadUrl(url), '_blank'))}
+                        className="flex items-center gap-1.5 text-[12px] font-bold text-gray-500 hover:underline"
+                      >
+                        <Download size={13} />
+                        Download All
+                      </button>
                     </div>
-                    <div>
-                      <p className="text-[11px] font-bold text-gray-700">picture of the expense 1.0</p>
-                      <p className="text-[10px] text-gray-400">304kb</p>
-                    </div>
-                  </div>
-                  <div className="bg-[#FAFAFA] rounded-xl p-3 flex items-center gap-3 w-64 border border-gray-100">
-                    <div className="w-10 h-10 bg-[#E50000] rounded-lg flex items-center justify-center text-white text-[10px] font-bold">
-                      PDF
-                    </div>
-                    <div>
-                      <p className="text-[11px] font-bold text-gray-700">picture of the expense 1.0</p>
-                      <p className="text-[10px] text-gray-400">304kb</p>
-                    </div>
-                  </div>
+                  )}
                 </div>
-              </div>
-
-              {/* Download PDF button */}
-              <div className="flex justify-end mb-10">
-                <button className="bg-[#AE00FF] text-white px-6 py-3 rounded-xl text-[13px] font-bold hover:bg-[#9900E6] transition-colors shadow-sm flex items-center gap-2">
-                  Download PDF <ChevronDown size={16} />
-                </button>
+                {(!selectedExpense.attachmentUrls || selectedExpense.attachmentUrls.length === 0) ? (
+                  <p className="text-[12px] text-gray-400">No attachments uploaded for this expense.</p>
+                ) : (
+                  <div className="flex flex-wrap gap-4">
+                    {(selectedExpense.attachmentUrls as string[]).map((url: string, idx: number) => {
+                      const isImg = isImageUrl(url);
+                      const isPdf = isPdfUrl(url);
+                      const isSelected = selectedAttachmentUrls.includes(url);
+                      const fileName = decodeURIComponent(url.split('/').pop()?.split('?')[0] ?? `file-${idx + 1}`);
+                      return (
+                        <div
+                          key={idx}
+                          onClick={() => setSelectedAttachmentUrls(prev =>
+                            prev.includes(url) ? prev.filter(u => u !== url) : [...prev, url]
+                          )}
+                          className={`relative rounded-xl border-2 cursor-pointer overflow-hidden transition-all ${isSelected ? 'border-[#AE00FF] shadow-md shadow-purple-100' : 'border-gray-100 hover:border-purple-200'}`}
+                          style={{ width: 160 }}
+                        >
+                          {/* Selection indicator */}
+                          <div className={`absolute top-2 right-2 z-10 w-5 h-5 rounded-full border-2 flex items-center justify-center text-[10px] font-bold transition-all ${isSelected ? 'bg-[#AE00FF] border-[#AE00FF] text-white' : 'bg-white/80 border-gray-300 text-transparent'}`}>
+                            ✓
+                          </div>
+                          {/* Preview */}
+                          {isImg ? (
+                            <img src={url} alt={fileName} className="w-full h-24 object-cover" />
+                          ) : isPdf ? (
+                            <div className="w-full h-24 bg-red-50 flex flex-col items-center justify-center gap-1">
+                              <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center">
+                                <FileText size={20} className="text-red-500" />
+                              </div>
+                              <span className="text-[10px] text-red-400 font-bold">PDF</span>
+                            </div>
+                          ) : (
+                            <div className="w-full h-24 bg-gray-50 flex flex-col items-center justify-center gap-1">
+                              <div className="w-10 h-10 bg-gray-200 rounded-lg flex items-center justify-center">
+                                <FileText size={20} className="text-gray-500" />
+                              </div>
+                              <span className="text-[10px] text-gray-400 font-bold">DOC</span>
+                            </div>
+                          )}
+                          {/* Footer */}
+                          <div className="p-2 bg-white">
+                            <p className="text-[10px] font-bold text-gray-600 truncate mb-1">{fileName}</p>
+                            <div className="flex items-center justify-between">
+                              <a href={url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="text-[10px] text-blue-500 hover:underline">View</a>
+                              <a href={getDownloadUrl(url)} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="flex items-center gap-0.5 text-[10px] text-[#AE00FF] hover:underline">
+                                <Download size={10} /> Save
+                              </a>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               {/* Recorded by */}
@@ -1259,12 +1409,47 @@ export function ExpensesClient({
 
       {isAccountModalOpen && (
         <div className="fixed inset-0 bg-black/30 z-[100] flex items-center justify-center backdrop-blur-sm">
-          <div className="bg-white rounded-2xl p-8 w-[400px] shadow-2xl">
+          <div className="bg-white rounded-2xl p-8 w-[420px] shadow-2xl">
             <div className="flex justify-between items-center mb-6">
               <h3 className="text-lg font-bold text-gray-800">Add New Account</h3>
-              <button onClick={() => setAccountModalOpen(false)} className="text-gray-400 hover:text-gray-600 bg-gray-100 p-1.5 rounded-full"><X size={18} /></button>
+              <button onClick={() => { setAccountModalOpen(false); if (bankLogoPreview) URL.revokeObjectURL(bankLogoPreview); setBankLogoFile(null); setBankLogoPreview(''); }} className="text-gray-400 hover:text-gray-600 bg-gray-100 p-1.5 rounded-full"><X size={18} /></button>
             </div>
             <div className="space-y-4">
+              {/* Logo upload */}
+              <div>
+                <label className="text-[12px] font-bold text-gray-600 mb-1.5 block">Bank Logo <span className="text-gray-400 font-normal">(optional)</span></label>
+                <input ref={bankLogoInputRef} type="file" accept="image/*" className="hidden" onChange={e => {
+                  const f = e.target.files?.[0];
+                  if (f) {
+                    if (bankLogoPreview) URL.revokeObjectURL(bankLogoPreview);
+                    setBankLogoFile(f);
+                    setBankLogoPreview(URL.createObjectURL(f));
+                  }
+                }} />
+                <div
+                  onClick={() => bankLogoInputRef.current?.click()}
+                  className="border border-dashed border-gray-200 rounded-xl h-24 flex flex-col items-center justify-center gap-2 cursor-pointer hover:bg-gray-50 transition-all"
+                >
+                  {bankLogoPreview ? (
+                    <div className="flex items-center gap-3">
+                      <img src={bankLogoPreview} className="h-14 w-14 object-contain rounded-lg border border-gray-100" alt="Logo preview" />
+                      <button
+                        onClick={e => { e.stopPropagation(); URL.revokeObjectURL(bankLogoPreview); setBankLogoFile(null); setBankLogoPreview(''); }}
+                        className="text-[11px] text-red-400 hover:text-red-500 font-medium"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="w-8 h-8 bg-purple-50 rounded-full flex items-center justify-center">
+                        <Upload size={14} className="text-purple-500" />
+                      </div>
+                      <p className="text-[11px] text-gray-400">Click to upload bank logo</p>
+                    </>
+                  )}
+                </div>
+              </div>
               <div>
                 <label className="text-[12px] font-bold text-gray-600 mb-1.5 block">Bank Name</label>
                 <input type="text" placeholder="e.g. Zenith Bank" value={newAccount.bankName} onChange={e => setNewAccount({...newAccount, bankName: e.target.value})} className="w-full h-11 border border-gray-200 rounded-lg px-4 text-[13px] text-gray-700 focus:outline-none focus:border-purple-400" />

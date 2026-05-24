@@ -17,6 +17,7 @@ const rowSchema = z.object({
 const createJournalEntrySchema = z.object({
   date: z.coerce.date(),
   rows: z.array(rowSchema).min(1, "At least one row is required"),
+  attachmentUrls: z.array(z.string()).optional(),
 });
 
 async function nextJournalNo() {
@@ -54,6 +55,7 @@ export async function createJournalEntryAction(
       date: data.date,
       totalDebit,
       totalCredit,
+      attachmentUrls: data.attachmentUrls ?? [],
       createdById: session.user.id,
       rows: {
         create: nonEmptyRows.map((r) => ({

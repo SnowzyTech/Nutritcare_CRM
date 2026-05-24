@@ -4,6 +4,7 @@ import React, { useState, useRef, useMemo } from 'react';
 import {
   ChevronLeft, ChevronRight, RotateCcw, MessageCircle,
   CalendarIcon, Copy, Trash2, Search, ChevronDown, ArrowUp, ArrowDown, X,
+  FileText, Upload, Download,
 } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -57,6 +58,18 @@ interface AccountingLedgerClientProps {
 
 const TABS = ['Charts of Account', 'Journal Entry', 'Journal', 'General Ledger'] as const;
 type Tab = typeof TABS[number];
+
+type AttachmentItem = { file: File; preview: string };
+
+const formatFileSize = (bytes: number): string => {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)}KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+};
+
+const getDownloadUrl = (url: string) => url.replace('/upload/', '/upload/fl_attachment/');
+const isImageUrl = (url: string) => /\.(jpg|jpeg|png|gif|webp)/i.test(url) || (url.includes('/image/upload/') && !url.endsWith('.pdf'));
+const isPdfUrl = (url: string) => /\.pdf/i.test(url) || url.includes('/raw/upload/');
 
 const emptyRow = (): JournalRow => ({
   code: '', account: '', accountId: '', name: '', debits: '', credits: '', tax: '',
@@ -175,13 +188,39 @@ export function AccountingLedgerClient({
   const [rows, setRows] = useState<JournalRow[]>(Array.from({ length: 10 }, emptyRow));
   const [saving, setSaving] = useState(false);
   const [openDropdown, setOpenDropdown] = useState<{ idx: number; field: 'code' | 'account' | 'name' } | null>(null);
-  const [attachment, setAttachment] = useState<File | null>(null);
+  const [attachments, setAttachments] = useState<AttachmentItem[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      setAttachment(e.target.files[0]);
+    if (e.target.files) {
+      const newItems: AttachmentItem[] = Array.from(e.target.files).map(file => ({
+        file,
+        preview: file.type.startsWith('image/') ? URL.createObjectURL(file) : '',
+      }));
+      setAttachments(prev => [...prev, ...newItems]);
+      e.target.value = '';
     }
+  };
+
+  const removeAttachment = (idx: number) => {
+    setAttachments(prev => {
+      const item = prev[idx];
+      if (item.preview) URL.revokeObjectURL(item.preview);
+      return prev.filter((_, i) => i !== idx);
+    });
+  };
+
+  const uploadJournalFiles = async (files: File[]): Promise<string[]> => {
+    if (files.length === 0) return [];
+    const fd = new FormData();
+    files.forEach(f => fd.append('files', f));
+    const res = await fetch('/api/upload/expense', { method: 'POST', body: fd });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error ?? 'File upload failed');
+    }
+    const { urls } = await res.json();
+    return urls as string[];
   };
 
   const updateRow = (index: number, field: keyof JournalRow, value: string) => {
@@ -213,20 +252,28 @@ export function AccountingLedgerClient({
       return;
     }
     setSaving(true);
+    let uploadedUrls: string[] = [];
+    try {
+      uploadedUrls = await uploadJournalFiles(attachments.map(a => a.file));
+    } catch (err: any) {
+      setSaving(false);
+      alert(err.message ?? 'File upload failed');
+      return;
+    }
     const res = await createJournalEntryAction({
       date: journalDate ?? new Date(),
       rows: validRows.map(r => ({
         account: r.account,
         debits: parseFloat(r.debits) || 0,
         credits: parseFloat(r.credits) || 0,
-        description: '', // Description removed from UI
+        description: '',
         name: r.name,
         tax: parseFloat(r.tax) || 0,
       })),
+      attachmentUrls: uploadedUrls,
     });
     setSaving(false);
     if ('error' in res) { alert(res.error); return; }
-    // Optimistically add to local saved journals
     const newJournal: SavedJournal = {
       journalNo: res.journalNo!,
       date: journalDate ? format(journalDate, 'dd-MM-yyyy') : format(new Date(), 'dd-MM-yyyy'),
@@ -238,6 +285,7 @@ export function AccountingLedgerClient({
     setJournalNo(String(parseInt(res.journalNo!) + 1));
     setRows(Array.from({ length: 10 }, emptyRow));
     setJournalDate(undefined);
+    setAttachments(prev => { prev.forEach(a => { if (a.preview) URL.revokeObjectURL(a.preview); }); return []; });
     router.refresh();
     setActiveTab('Journal');
   };
@@ -742,35 +790,59 @@ export function AccountingLedgerClient({
             </button>
           </div>
 
-          <div 
-            onClick={() => fileInputRef.current?.click()}
-            className="border border-dashed border-gray-200 rounded-2xl p-8 mb-8 flex flex-col items-center justify-center bg-white hover:bg-gray-50 transition-all cursor-pointer"
-          >
-            <input 
-              type="file" 
-              ref={fileInputRef} 
-              onChange={handleFileChange} 
-              className="hidden" 
+          <div className="border border-dashed border-gray-200 rounded-2xl bg-white mb-8 overflow-hidden">
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileChange}
+              className="hidden"
+              multiple
+              accept="image/*,.pdf,.doc,.docx,.xls,.xlsx"
             />
-            <div className="flex flex-col items-center gap-2">
-              <span className="text-[#AE00FF] text-[14px] font-bold">
-                {attachment ? `Selected: ${attachment.name}` : 'Add Attachment'}
-              </span>
-              <p className="text-[12px] text-gray-400">Max file size: 20 MB</p>
-            </div>
-            {attachment && (
-              <button 
-                onClick={(e) => { e.stopPropagation(); setAttachment(null); }}
-                className="mt-3 text-[11px] text-red-400 hover:text-red-500 font-medium"
-              >
-                Remove File
-              </button>
+            {/* File list */}
+            {attachments.length > 0 && (
+              <div className="p-4 space-y-2 border-b border-gray-100">
+                {attachments.map((item, idx) => (
+                  <div key={idx} className="flex items-center gap-3 p-2.5 bg-gray-50 rounded-xl">
+                    {item.preview ? (
+                      <img src={item.preview} alt="" className="w-10 h-10 rounded-lg object-cover flex-shrink-0" />
+                    ) : (
+                      <div className="w-10 h-10 bg-red-50 rounded-lg flex items-center justify-center flex-shrink-0">
+                        <FileText size={18} className="text-red-400" />
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[13px] font-bold text-gray-700 truncate">{item.file.name}</p>
+                      <p className="text-[11px] text-gray-400">{formatFileSize(item.file.size)}</p>
+                    </div>
+                    <button
+                      onClick={() => removeAttachment(idx)}
+                      className="w-7 h-7 flex items-center justify-center rounded-full text-gray-300 hover:text-red-400 hover:bg-red-50 transition-all flex-shrink-0"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
             )}
+            {/* Upload trigger */}
+            <div
+              onClick={() => fileInputRef.current?.click()}
+              className="flex flex-col items-center justify-center gap-2 p-8 cursor-pointer hover:bg-gray-50/50 transition-all"
+            >
+              <div className="w-10 h-10 bg-purple-50 rounded-full flex items-center justify-center">
+                <Upload size={18} className="text-[#AE00FF]" />
+              </div>
+              <span className="text-[#AE00FF] text-[14px] font-bold">
+                {attachments.length > 0 ? 'Add More Files' : 'Add Attachments'}
+              </span>
+              <p className="text-[12px] text-gray-400">Images · PDF · Docs · Max 20 MB each</p>
+            </div>
           </div>
 
           <div className="flex items-center justify-end gap-4">
             <button
-              onClick={() => { setRows(Array.from({ length: 10 }, emptyRow)); setJournalDate(undefined); }}
+              onClick={() => { setRows(Array.from({ length: 10 }, emptyRow)); setJournalDate(undefined); setAttachments(prev => { prev.forEach(a => { if (a.preview) URL.revokeObjectURL(a.preview); }); return []; }); }}
               className="px-10 py-3.5 border border-gray-300 text-gray-600 rounded-xl text-[14px] font-bold hover:bg-gray-50 transition-colors"
             >
               Cancel

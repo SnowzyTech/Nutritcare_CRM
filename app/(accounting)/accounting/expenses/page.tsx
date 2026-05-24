@@ -42,6 +42,7 @@ export default async function ExpensesPage() {
     })),
     notes: e.notes ?? "",
     attachmentUrl: e.attachmentUrl ?? null,
+    attachmentUrls: e.attachmentUrls ?? [],
     createdBy: e.createdBy?.name ?? "",
   }));
 
@@ -61,7 +62,7 @@ export default async function ExpensesPage() {
         financialStatement: c.financialStatement,
         expenseNames: c.expenseNames.map(n => ({ id: n.id, name: n.name })),
       }))}
-      initialAccounts={accounts.map(a => ({ id: a.id, name: a.name }))}
+      initialAccounts={accounts.map(a => ({ id: a.id, name: a.name, logoUrl: a.logoUrl ?? undefined }))}
       initialSuppliers={initialSuppliers}
       nextRef={nextRef}
     />

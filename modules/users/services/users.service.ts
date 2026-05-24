@@ -79,19 +79,15 @@ export async function updateSelfProfile(
   userId: string,
   data: { name: string; phone?: string; whatsappNumber?: string; avatarUrl?: string }
 ) {
-    select: { id: true, name: true, email: true, phone: true, whatsappNumber: true, role: true, createdAt: true, avatarUrl: true },
-  });
-}
-
-export async function updateSelfProfile(userId: string, data: { name: string; phone?: string; whatsappNumber?: string }) {
   return prisma.user.update({
     where: { id: userId },
     data: {
       name: data.name.trim(),
       phone: data.phone?.trim() || null,
       whatsappNumber: data.whatsappNumber?.trim() || null,
+      avatarUrl: data.avatarUrl,
     },
-    select: { id: true, name: true, email: true, phone: true, whatsappNumber: true },
+    select: { id: true, name: true, email: true, phone: true, whatsappNumber: true, role: true, createdAt: true, avatarUrl: true },
   });
 }
 

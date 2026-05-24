@@ -54,7 +54,8 @@ async function getProductPnL(period: Period) {
     select: {
       quantity: true,
       lineTotal: true,
-      product: { select: { id: true, name: true, costPrice: true } },
+      costPriceAtSale: true,
+      product: { select: { id: true, name: true } },
     },
   });
 
@@ -63,7 +64,7 @@ async function getProductPnL(period: Period) {
     const key = it.product.id;
     const entry = byProduct.get(key) ?? { name: it.product.name, revenue: 0, cost: 0 };
     entry.revenue += DEC(it.lineTotal);
-    entry.cost += it.quantity * DEC(it.product.costPrice);
+    entry.cost += it.quantity * DEC(it.costPriceAtSale);
     byProduct.set(key, entry);
   }
   return byProduct;
@@ -410,7 +411,8 @@ export async function getRevenueByProduct(period: Period): Promise<RevenueByProd
         select: {
           quantity: true,
           lineTotal: true,
-          product: { select: { id: true, name: true, costPrice: true } },
+          costPriceAtSale: true,
+          product: { select: { id: true, name: true } },
         },
       },
     },
@@ -441,7 +443,7 @@ export async function getRevenueByProduct(period: Period): Promise<RevenueByProd
       acc.orderIds.add(o.id);
       acc.qty += it.quantity;
       acc.revenue += DEC(it.lineTotal);
-      acc.productCost += it.quantity * DEC(it.product.costPrice);
+      acc.productCost += it.quantity * DEC(it.costPriceAtSale);
       acc.deliveryCost += DEC(o.deliveryFee) * (DEC(it.lineTotal) / orderRevenue);
       byProduct.set(key, acc);
     }

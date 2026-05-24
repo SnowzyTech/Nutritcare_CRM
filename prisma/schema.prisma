@@ -542,14 +542,15 @@ model Order {
 }
 
 model OrderItem {
-  id        String   @id @default(cuid())
-  orderId   String
-  productId String
-  quantity  Int
-  unitPrice Decimal  @db.Decimal(10, 2)
-  lineTotal Decimal  @db.Decimal(10, 2)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id               String   @id @default(cuid())
+  orderId          String
+  productId        String
+  quantity         Int
+  unitPrice        Decimal  @db.Decimal(10, 2)
+  lineTotal        Decimal  @db.Decimal(10, 2)
+  costPriceAtSale  Decimal  @default(0) @db.Decimal(10, 2)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
   product Product @relation(fields: [productId], references: [id])
@@ -989,6 +990,7 @@ model Expense {
   tax               Decimal  @default(0) @db.Decimal(10, 2)
   notes             String?
   attachmentUrl     String?
+  attachmentUrls    String[]  @default([])
   createdById       String
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
@@ -1059,6 +1061,7 @@ model PaymentAccount {
   name      String
   type      String
   isActive  Boolean  @default(true)
+  logoUrl   String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1150,14 +1153,15 @@ model StockAdjustmentItem {
 }
 
 model JournalEntry {
-  id          String   @id @default(cuid())
-  journalNo   String   @unique
-  date        DateTime
-  totalDebit  Decimal  @default(0) @db.Decimal(10, 2)
-  totalCredit Decimal  @default(0) @db.Decimal(10, 2)
-  createdById String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id             String   @id @default(cuid())
+  journalNo      String   @unique
+  date           DateTime
+  totalDebit     Decimal  @default(0) @db.Decimal(10, 2)
+  totalCredit    Decimal  @default(0) @db.Decimal(10, 2)
+  attachmentUrls String[] @default([])
+  createdById    String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   createdBy User              @relation("JournalEntryCreator", fields: [createdById], references: [id])
   rows      JournalEntryRow[]

@@ -21,6 +21,7 @@ const createExpenseSchema = z.object({
   date: z.coerce.date(),
   notes: z.string().optional(),
   attachmentUrl: z.string().optional(),
+  attachmentUrls: z.array(z.string()).optional(),
   lineItems: z.array(lineItemSchema).min(1),
 });
 
@@ -56,6 +57,7 @@ export async function createExpenseAction(input: z.infer<typeof createExpenseSch
       tax: totalTax,
       notes: data.notes,
       attachmentUrl: data.attachmentUrl,
+      attachmentUrls: data.attachmentUrls ?? [],
       createdById: session.user.id,
       lineItems: {
         createMany: {
@@ -135,14 +137,14 @@ export async function addExpenseNamesToCategoryAction(categoryId: string, names:
   }
 }
 
-export async function createPaymentAccountAction(name: string, type: string = "BANK") {
+export async function createPaymentAccountAction(name: string, type: string = "BANK", logoUrl?: string) {
   const session = await auth();
   if (!session?.user?.id) return { error: "Unauthorized" };
   if (!name.trim()) return { error: "Name required" };
 
   const acc = await prisma.paymentAccount.create({
-    data: { name: name.trim(), type, isActive: true },
+    data: { name: name.trim(), type, isActive: true, ...(logoUrl ? { logoUrl } : {}) },
   });
   revalidatePath("/accounting/expenses");
-  return { id: acc.id, name: acc.name };
+  return { id: acc.id, name: acc.name, logoUrl: acc.logoUrl ?? undefined };
 }
