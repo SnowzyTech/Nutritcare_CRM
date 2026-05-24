@@ -38,11 +38,12 @@ function mapTransferStatus(status: string): DeliveryStatus {
 }
 
 export async function getLogisticsDeliveries(): Promise<LogisticsDeliveryRow[]> {
-  // 1. Stock out vouchers (OUTGOING movements), excluding DRAFT and REVERSED
+  // 1. Stock out vouchers (OUTGOING movements), excluding DRAFT, REVERSED, and Agent-to-Agent
   const outgoing = await prisma.stockMovement.findMany({
     where: {
       type: "OUTGOING",
       status: { notIn: ["DRAFT", "REVERSED"] },
+      isAgentToAgentTransfer: { not: true },
     },
     select: {
       id: true,
@@ -50,16 +51,18 @@ export async function getLogisticsDeliveries(): Promise<LogisticsDeliveryRow[]> 
       status: true,
       createdAt: true,
       scheduledTime: true,
-      agent: { select: { companyName: true, address: true } },
+      warehouse: { select: { name: true } },
+      agent: { select: { address: true } },
       driverAgent: { select: { companyName: true } },
     },
     orderBy: { createdAt: "desc" },
   });
 
-  // 3. Stock transfers, excluding DRAFT and REVERSED
+  // 3. Stock transfers, excluding DRAFT, REVERSED, and Agent-to-Agent
   const transfers = await prisma.stockTransfer.findMany({
     where: {
       status: { notIn: ["DRAFT", "REVERSED"] },
+      NOT: [{ sourceType: "AGENT", targetType: "AGENT" }],
     },
     select: {
       id: true,
@@ -125,7 +128,7 @@ export async function getLogisticsDeliveries(): Promise<LogisticsDeliveryRow[]> 
     id: m.id,
     orderNumber: m.referenceNumber,
     orderId: m.id,
-    agent: m.agent?.companyName ?? "—",
+    agent: m.warehouse?.name ?? "—",
     driver: m.driverAgent?.companyName ?? "—",
     time: m.scheduledTime ? formatDate(m.scheduledTime) : "—",
     address: m.agent?.address ?? "—",

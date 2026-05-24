@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { getSalesRepAnalytics } from "@/modules/orders/services/analytics.service";
 import type { MonthMetrics } from "@/modules/orders/services/analytics.service";
 import { MonthSelect } from "./month-select";
+import { AnalyticsReportButtons } from "./report-buttons";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = { title: "Analytics" };
@@ -48,6 +49,8 @@ export default async function AnalyticsPage(props: { searchParams: Promise<{ mon
   const session = await auth();
   if (!session?.user?.id) redirect("/login");
 
+  const now = new Date();
+  const currentMonthParam = searchParams.month ?? `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   const targetMonth = searchParams.month ? new Date(`${searchParams.month}-01T00:00:00`) : undefined;
 
   const { current: cur, last } = await getSalesRepAnalytics(session.user.id, targetMonth);
@@ -130,14 +133,11 @@ export default async function AnalyticsPage(props: { searchParams: Promise<{ mon
         </p>
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
-        <button className="bg-purple-100 border border-purple-200 px-5 py-3 rounded-lg font-semibold text-purple-600 text-sm flex items-center justify-center gap-2 hover:bg-purple-50 transition">
-          Generate Weekly Report →
-        </button>
-        <button className="bg-purple-100 border border-purple-200 px-5 py-3 rounded-lg font-semibold text-purple-600 text-sm flex items-center justify-center gap-2 hover:bg-purple-50 transition">
-          Generate Monthly Report →
-        </button>
-      </div>
+      <AnalyticsReportButtons
+        monthlyData={cur}
+        month={currentMonthParam}
+        salesRepName={session.user.name ?? "Sales Rep"}
+      />
 
       <div className="grid grid-cols-2 gap-6">
         <div className="bg-white rounded-xl p-5 shadow-sm">

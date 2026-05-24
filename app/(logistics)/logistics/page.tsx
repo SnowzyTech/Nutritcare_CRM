@@ -6,7 +6,7 @@ import type { DeliveryQueueRow, DriverAssignmentRow } from "@/modules/delivery/s
 import { formatDistanceToNow } from "date-fns";
 
 export default async function LogisticsDashboardPage() {
-  const { stats, deliveryQueue, driverAssignments, routes, alerts } =
+  const { stats, deliveryQueue, driverAssignments, alerts } =
     await getLogisticsDashboardData();
 
   return (
@@ -74,8 +74,9 @@ export default async function LogisticsDashboardPage() {
                 <thead>
                   <tr className="text-gray-500 text-left border-b">
                     <th className="pb-3 w-8"><Checkbox /></th>
-                    <th className="pb-3 font-medium">Order ID</th>
-                    <th className="pb-3 font-medium">Customer</th>
+                    <th className="pb-3 font-medium">Ref ID</th>
+                    <th className="pb-3 font-medium">Type</th>
+                    <th className="pb-3 font-medium">Source</th>
                     <th className="pb-3 font-medium">Driver</th>
                     <th className="pb-3 font-medium">Time</th>
                     <th className="pb-3 font-medium">Status</th>
@@ -134,29 +135,9 @@ export default async function LogisticsDashboardPage() {
               Optimise &gt;
             </Button>
           </div>
-          {routes.length === 0 ? (
-            <div className="p-8 flex flex-col items-center justify-center border-b">
-              <p className="text-xs text-gray-400">No routes configured yet</p>
-            </div>
-          ) : (
-            <>
-              <div className="p-8 flex flex-col items-center justify-center border-b">
-                <p className="text-xs text-gray-400 mb-2">
-                  {routes[0]?.name} — {routes[0]?.stopsCount} stops — {routes[0]?.distanceKm}km — click to open
-                </p>
-              </div>
-              <div className="grid grid-cols-3 gap-2 p-2 bg-white">
-                {routes.slice(0, 6).map((route) => (
-                  <button
-                    key={route.id}
-                    className="bg-gray-300 text-gray-600 rounded-md py-1.5 text-xs font-semibold"
-                  >
-                    {route.zone}
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
+          <div className="p-8 flex flex-col items-center justify-center flex-1">
+            <p className="text-xs text-gray-400">Route planning coming soon</p>
+          </div>
         </div>
 
         {/* Alerts */}
@@ -220,10 +201,10 @@ function Step({
 }
 
 const STATUS_STYLES: Record<DeliveryQueueRow["status"], string> = {
-  IN_TRANSIT: "bg-[#f0d9ff] text-[#ad1df4]",
-  PENDING_DISPATCH: "bg-[#ffebd6] text-orange-500",
-  DELIVERED: "bg-green-600 text-white",
-  FAILED: "bg-red-700 text-white",
+  IN_TRANSIT: "bg-[#faf5ff] text-[#ad1df4] border border-[#f3e8ff]",
+  PENDING_DISPATCH: "bg-[#fdf8e6] text-[#eab308] border border-[#fde68a]",
+  DELIVERED: "bg-[#f0fdf4] text-[#22c55e] border border-[#dcfce7]",
+  FAILED: "bg-[#fef2f2] text-[#ef4444] border border-[#fee2e2]",
 };
 
 const STATUS_LABELS: Record<DeliveryQueueRow["status"], string> = {
@@ -233,16 +214,30 @@ const STATUS_LABELS: Record<DeliveryQueueRow["status"], string> = {
   FAILED: "Failed",
 };
 
+const SOURCE_LABEL: Record<DeliveryQueueRow["sourceType"], string> = {
+  stockOut: "Stock Out",
+  stockTransfer: "Transfer",
+};
+
 function DeliveryTableRow({ row }: { row: DeliveryQueueRow }) {
   return (
     <tr className="hover:bg-gray-50">
       <td className="py-3"><Checkbox /></td>
-      <td className="py-3 font-medium text-gray-700">{row.orderNumber}</td>
-      <td className="py-3 text-gray-600">{row.customer}</td>
-      <td className="py-3 text-gray-600">{row.driver}</td>
+      <td className="py-3 font-bold text-gray-700">{row.orderNumber}</td>
+      <td className="py-3">
+        <span className={`px-2.5 py-0.5 rounded text-[10px] font-bold ${
+          row.sourceType === "stockOut"
+            ? "bg-orange-50 text-orange-600"
+            : "bg-teal-50 text-teal-600"
+        }`}>
+          {SOURCE_LABEL[row.sourceType]}
+        </span>
+      </td>
+      <td className="py-3 text-gray-500 font-medium">{row.warehouse}</td>
+      <td className="py-3 text-gray-500 font-medium">{row.driver}</td>
       <td className="py-3 text-gray-500">{row.time ?? "—"}</td>
       <td className="py-3">
-        <span className={`px-3 py-1 rounded text-xs font-semibold ${STATUS_STYLES[row.status]}`}>
+        <span className={`px-3 py-1 rounded-full text-[10px] font-bold ${STATUS_STYLES[row.status]}`}>
           {STATUS_LABELS[row.status]}
         </span>
       </td>

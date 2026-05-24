@@ -14,7 +14,7 @@ export default async function PickAndPackPage() {
   const warehouseId = session?.user?.warehouseId ?? null;
 
   const [orders, pickers, locationCodes] = await Promise.all([
-    getPickPackOrders(),
+    getPickPackOrders(warehouseId),
     getAvailablePickers(),
     warehouseId
       ? getWarehouseLocations(warehouseId).then((locs) => locs.map((l) => l.locationCode))

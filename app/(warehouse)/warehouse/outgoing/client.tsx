@@ -1,21 +1,20 @@
 "use client";
 
 import React, { useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Checkbox } from "@/components/ui/checkbox";
-import type { OutgoingMovementRow } from "@/modules/inventory/services/inventory.service";
-import { Filter, PlusCircle, ArrowUpDown, Search, ArrowLeft, ChevronDown } from "lucide-react";
+import type { WarehouseOutgoingRow } from "@/modules/warehouse/services/warehouse.service";
+import { Filter, ArrowUpDown, Search, ArrowLeft, ChevronDown } from "lucide-react";
 
 interface Props {
-  items: OutgoingMovementRow[];
+  items: WarehouseOutgoingRow[];
+  hasWarehouse: boolean;
 }
 
-export default function OutgoingClient({ items }: Props) {
+export default function OutgoingClient({ items, hasWarehouse }: Props) {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedAction, setSelectedAction] = useState("");
-  const isEmpty = items.length === 0;
 
   const filteredItems = items.filter((item) => {
     if (!searchQuery.trim()) return true;
@@ -30,6 +29,19 @@ export default function OutgoingClient({ items }: Props) {
     );
   });
 
+  if (!hasWarehouse) {
+    return (
+      <div className="flex-1 flex items-center justify-center mt-12">
+        <div className="bg-white rounded-2xl shadow-sm p-12 flex flex-col items-center justify-center w-[500px] h-[280px]">
+          <h2 className="text-[18px] font-semibold text-gray-600 mb-3">No Warehouse Assigned</h2>
+          <p className="text-gray-400 text-[13px] text-center">
+            Your account is not linked to a warehouse. Contact an administrator.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-full bg-[#FAFAFA] min-h-screen relative">
       {/* Top Bar */}
@@ -39,13 +51,6 @@ export default function OutgoingClient({ items }: Props) {
             <Filter className="w-[17px] h-[17px]" />
             Filter
           </button>
-          <Link
-            href="/warehouse/outgoing/add"
-            className="flex items-center gap-1.5 text-gray-400 text-[14px] hover:text-gray-600"
-          >
-            Add New
-            <PlusCircle className="w-[17px] h-[17px]" />
-          </Link>
           <button className="text-gray-400 hover:text-gray-600">
             <ArrowUpDown className="w-[17px] h-[17px]" />
           </button>
@@ -63,7 +68,7 @@ export default function OutgoingClient({ items }: Props) {
         </div>
       </div>
 
-      {isEmpty ? (
+      {items.length === 0 ? (
         /* ── Empty State ──────────────────────────────────────── */
         <div className="flex-1 flex items-center justify-center mt-12">
           <div className="bg-white rounded-2xl shadow-sm p-12 flex flex-col items-center justify-center w-[500px] h-[380px]">
@@ -80,14 +85,7 @@ export default function OutgoingClient({ items }: Props) {
               </svg>
             </div>
 
-            <p className="text-gray-400 text-[12px] mb-5">Create Outgoing Stock</p>
-
-            <Link
-              href="/warehouse/outgoing/add"
-              className="bg-[#9747FF] text-white text-[12px] font-medium px-5 py-2 rounded-md hover:bg-purple-600 transition-colors"
-            >
-              Click to Add Stock
-            </Link>
+            <p className="text-gray-400 text-[12px]">No outgoing stock movements for your warehouse yet.</p>
           </div>
         </div>
       ) : (
@@ -138,26 +136,34 @@ export default function OutgoingClient({ items }: Props) {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredItems.map((item) => (
-                    <tr
-                      key={item.id}
-                      onClick={() => router.push(`/warehouse/outgoing/${item.id}`)}
-                      className="border-b border-gray-100 hover:bg-gray-50/60 text-gray-500 bg-white cursor-pointer transition-colors"
-                    >
-                      <td className="px-3 py-2.5 border-r border-gray-100" onClick={(e) => e.stopPropagation()}>
-                        <Checkbox className="border-gray-300 rounded-[3px] w-3.5 h-3.5" />
+                  {filteredItems.length === 0 ? (
+                    <tr>
+                      <td colSpan={10} className="text-center py-10 text-gray-400 text-[12px]">
+                        No results match your search.
                       </td>
-                      <td className="px-3 py-2.5 border-r border-gray-100">{item.id}</td>
-                      <td className="px-3 py-2.5 border-r border-gray-100 whitespace-nowrap">{item.date}</td>
-                      <td className="px-3 py-2.5 border-r border-gray-100">{item.productName}</td>
-                      <td className="px-3 py-2.5 border-r border-gray-100 text-[#9747FF]">{item.state}</td>
-                      <td className="px-3 py-2.5 border-r border-gray-100 text-[#9747FF]">{item.agent}</td>
-                      <td className="px-3 py-2.5 border-r border-gray-100">{item.otherInfo}</td>
-                      <td className="px-3 py-2.5 border-r border-gray-100">{item.qtySent}</td>
-                      <td className="px-3 py-2.5 border-r border-gray-100">{item.status}</td>
-                      <td className="px-3 py-2.5 whitespace-nowrap">{item.addedBy}</td>
                     </tr>
-                  ))}
+                  ) : (
+                    filteredItems.map((item) => (
+                      <tr
+                        key={item.id}
+                        onClick={() => router.push(`/warehouse/outgoing/${item.id}`)}
+                        className="border-b border-gray-100 hover:bg-gray-50/60 text-gray-500 bg-white cursor-pointer transition-colors"
+                      >
+                        <td className="px-3 py-2.5 border-r border-gray-100" onClick={(e) => e.stopPropagation()}>
+                          <Checkbox className="border-gray-300 rounded-[3px] w-3.5 h-3.5" />
+                        </td>
+                        <td className="px-3 py-2.5 border-r border-gray-100">{item.id}</td>
+                        <td className="px-3 py-2.5 border-r border-gray-100 whitespace-nowrap">{item.date}</td>
+                        <td className="px-3 py-2.5 border-r border-gray-100">{item.productName}</td>
+                        <td className="px-3 py-2.5 border-r border-gray-100 text-[#9747FF]">{item.state}</td>
+                        <td className="px-3 py-2.5 border-r border-gray-100 text-[#9747FF]">{item.agent}</td>
+                        <td className="px-3 py-2.5 border-r border-gray-100">{item.otherInfo}</td>
+                        <td className="px-3 py-2.5 border-r border-gray-100">{item.qtySent}</td>
+                        <td className="px-3 py-2.5 border-r border-gray-100">{item.status}</td>
+                        <td className="px-3 py-2.5 whitespace-nowrap">{item.addedBy}</td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>

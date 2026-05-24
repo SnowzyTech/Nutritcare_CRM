@@ -105,7 +105,11 @@ export default function IncomingCreateClient({ warehouses, suppliers, products }
       setError(result.error);
       setLoading(false);
     } else {
-      router.push("/inventory/incoming");
+      if (status === "DRAFT" && result.id) {
+        router.push(`/inventory/incoming/${result.id}/edit`);
+      } else {
+        router.push("/inventory/incoming");
+      }
     }
   };
 

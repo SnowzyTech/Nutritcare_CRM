@@ -4,14 +4,7 @@ import React, { useState, useRef } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, X, ArrowLeft, CheckCircle2 } from "lucide-react";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { ArrowLeft, CheckCircle2 } from "lucide-react";
 import { createDriverAction } from "@/modules/delivery/actions/logistics-agents.action";
 
 export default function AddDriverPage() {
@@ -23,24 +16,15 @@ export default function AddDriverPage() {
   const [country, setCountry] = useState("Nigeria");
   const [state, setState] = useState("");
   const [vehicleNo, setVehicleNo] = useState("");
-  const [locations, setLocations] = useState([""]);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
   const submittingRef = useRef(false);
 
-  const addLocation = () => setLocations([...locations, ""]);
-  const removeLocation = (index: number) => {
-    if (locations.length > 1) setLocations(locations.filter((_, i) => i !== index));
-  };
-  const updateLocation = (index: number, value: string) => {
-    setLocations(locations.map((l, i) => (i === index ? value : l)));
-  };
-
   const handleReset = () => {
     setName(""); setAddress(""); setPhone(""); setPhone2(""); setPhone3("");
-    setCountry("Nigeria"); setState(""); setVehicleNo(""); setLocations([""]); setError("");
+    setCountry("Nigeria"); setState(""); setVehicleNo(""); setError("");
   };
 
   const handleSubmit = async () => {
@@ -51,7 +35,6 @@ export default function AddDriverPage() {
 
     submittingRef.current = true;
     setLoading(true);
-    const statesCovered = locations.filter((l) => l.trim() !== "");
 
     const result = await createDriverAction({
       name: name.trim(),
@@ -62,7 +45,6 @@ export default function AddDriverPage() {
       state: state.trim() || undefined,
       country: country.trim() || undefined,
       vehicleNo: vehicleNo.trim() || undefined,
-      statesCovered,
     });
 
     submittingRef.current = false;
@@ -222,42 +204,6 @@ export default function AddDriverPage() {
           </div>
         </div>
 
-        {/* Row 4: Locations */}
-        <div className="grid grid-cols-2 gap-8 pt-2">
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <label className="text-[10px] font-bold text-gray-700 uppercase">
-                Locations / States Covered
-              </label>
-              <button
-                onClick={addLocation}
-                className="text-[#ad1df4] hover:text-[#8e14cc] transition-colors"
-              >
-                <Plus className="w-4 h-4" />
-              </button>
-            </div>
-            <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-              {locations.map((loc, index) => (
-                <div key={index} className="flex items-center gap-2">
-                  <Input
-                    value={loc}
-                    onChange={(e) => updateLocation(index, e.target.value)}
-                    placeholder={`Location ${index + 1}`}
-                    className="bg-white border-gray-200 h-10 text-xs focus:ring-[#ad1df4] flex-1"
-                  />
-                  {locations.length > 1 && (
-                    <button
-                      onClick={() => removeLocation(index)}
-                      className="text-red-400 hover:text-red-600 transition-colors p-1"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
       </div>
     </div>
   );

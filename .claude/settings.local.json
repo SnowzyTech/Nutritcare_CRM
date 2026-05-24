@@ -19,8 +19,20 @@
       "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\emmauel\\\\Desktop\\\\organizations\\\\Nutritcare_CRM\\\\app\" -Directory)",
       "Bash(Select-Object Name)",
       "Bash(grep -E \"\\\\.\\(tsx?|jsx?\\)$\")",
-      "Bash(cat modules/finance/services/suppliers.service.ts)",
-      "Bash(find modules *)"
+      "Bash(wmic logicaldisk *)",
+      "Bash(Select-String -Pattern \"report-buttons|profile-client|settings|analytics\\\\.service|orders\\\\.action|settlements\\\\.action|agent-settlement\\\\.service|users\\\\.action|users\\\\.service\")",
+      "Bash(grep -r \"cloudinary\\\\|CLOUDINARY\\\\|CLOUD_NAME\\\\|CLOUD\" .env* --include=\"*.env*\" -i)",
+      "Bash(grep -r \"cloudinary\" package.json next.config* -i)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\emmauel\\\\Desktop\\\\organizations\\\\Nutritcare_CRM\" -Directory)",
+      "Bash(cmd.exe /c \"tasklist /FI \\\\\"IMAGENAME eq node.exe\\\\\" /FO CSV /NH\")",
+      "Bash(tasklist /FI \"IMAGENAME eq node.exe\" /FO CSV /NH)",
+      "PowerShell(Get-Process *)",
+      "Bash(node -e ' *)",
+      "Bash(xargs grep -l \"StockTransfer\")",
+      "Bash(Select-String -Path \"C:\\\\Users\\\\emmauel\\\\Desktop\\\\organizations\\\\Nutritcare_CRM\\\\node_modules\\\\.prisma\\\\client\\\\index.d.ts\" -Pattern \"ShelfProductStock\" -SimpleMatch)",
+      "Bash(Select-Object -First 3)",
+      "Bash(Get-ChildItem *)",
+      "Bash(xargs grep -l \"getReturnedMovements\")"
     ]
   }
 }

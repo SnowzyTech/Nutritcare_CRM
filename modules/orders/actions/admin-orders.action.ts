@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth/auth";
 import { prisma } from "@/lib/db/prisma";
 import { revalidatePath } from "next/cache";
 import { recordDeliveryFeeEntry } from "@/modules/finance/services/agent-settlement.service";
+import type { OrderStatus } from "@prisma/client";
 
 async function checkAdmin() {
   const session = await auth();
@@ -13,7 +14,7 @@ async function checkAdmin() {
 }
 
 async function getOrder(orderId: string) {
-  return prisma.order.findUnique({ where: { id: orderId, deletedAt: null } });
+  return prisma.order.findFirst({ where: { id: orderId, deletedAt: null } });
 }
 
 function revalidate(orderId: string) {
@@ -87,8 +88,8 @@ export async function adminReassignOrdersAction(
   if (!salesRepIds.length) throw new Error("No sales reps selected");
 
   const updates = orderIds.map((orderId, i) =>
-    prisma.order.update({
-      where: { id: orderId, status: { in: ["PENDING", "CONFIRMED"] }, deletedAt: null },
+    prisma.order.updateMany({
+      where: { id: orderId, status: { in: ["PENDING", "CONFIRMED"] as OrderStatus[] }, deletedAt: null },
       data: { salesRepId: salesRepIds[i % salesRepIds.length] },
     })
   );
@@ -109,6 +110,16 @@ export async function adminReassignOrderAgentAction(orderId: string, agentId: st
     where: { id: orderId },
     data: { agentId, ...(order.status === "FAILED" ? { status: "CONFIRMED" } : {}) },
   });
+  revalidate(orderId);
+}
+
+export async function adminUpdateOrderNotesAction(orderId: string, notes: string) {
+  await checkAdmin();
+  const order = await getOrder(orderId);
+  if (!order || order.status === "DELIVERED" || order.status === "CANCELLED") {
+    throw new Error("Cannot update notes for this order");
+  }
+  await prisma.order.update({ where: { id: orderId }, data: { notes: notes.trim() || null } });
   revalidate(orderId);
 }
 

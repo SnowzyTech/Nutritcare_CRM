@@ -42,14 +42,29 @@ export async function createMockOrderAction(data: {
       });
     }
 
-    // 2. Find a sales rep to assign to (fallback to first available)
-    const salesRep = await prisma.user.findFirst({
+    // 2. Auto-assign to the sales rep with the fewest open (PENDING/CONFIRMED) orders
+    const salesReps = await prisma.user.findMany({
       where: { role: "SALES_REP", isActive: true },
+      select: { id: true },
     });
 
-    if (!salesRep) {
+    if (!salesReps.length) {
       throw new Error("No active sales representative found to assign the order.");
     }
+
+    const openCounts = await prisma.order.groupBy({
+      by: ["salesRepId"],
+      where: {
+        salesRepId: { in: salesReps.map((r) => r.id) },
+        status: { in: ["PENDING", "CONFIRMED"] },
+        deletedAt: null,
+      },
+      _count: { id: true },
+    });
+    const countMap = new Map(openCounts.map((c) => [c.salesRepId, c._count.id]));
+    const salesRep = salesReps.reduce((least, rep) =>
+      (countMap.get(rep.id) ?? 0) < (countMap.get(least.id) ?? 0) ? rep : least
+    );
 
     // 3. Generate Order Number
     const orderCount = await prisma.order.count();

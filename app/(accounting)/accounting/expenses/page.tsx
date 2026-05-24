@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { ExpensesClient } from "../_components/ExpensesClient";
 import {
   listExpenses,

@@ -207,7 +207,7 @@ export function LogisticsDeliveriesClient({ deliveries }: { deliveries: Logistic
                   </th>
                   <th className="px-6 py-4 font-bold">Ref ID</th>
                   <th className="px-6 py-4 font-bold">Type</th>
-                  <th className="px-6 py-4 font-bold">Agent</th>
+                  <th className="px-6 py-4 font-bold">Warehouse</th>
                   <th className="px-6 py-4 font-bold">Driver</th>
                   <th className="px-6 py-4 font-bold">Time</th>
                   <th className="px-6 py-4 font-bold">Address</th>

@@ -21,6 +21,7 @@ export interface CreateDeliveryAgentInput {
   country?: string;
   statesCovered?: string[];
   picksFromOfficeStock?: boolean;
+  deliveryFee?: number;
   addedById: string;
 }
 
@@ -48,6 +49,7 @@ export async function createDeliveryAgentWithUser(input: CreateDeliveryAgentInpu
         country: input.country,
         statesCovered: input.statesCovered ?? [],
         picksFromOfficeStock: input.picksFromOfficeStock ?? false,
+        deliveryFee: input.deliveryFee ?? null,
         status: "ACTIVE",
         addedById: input.addedById,
       },

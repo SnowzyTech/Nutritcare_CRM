@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { Search, PlusCircle } from "lucide-react";
+import Link from "next/link";
 import type {
   StockAgentRow,
   StockSupplierRow,
@@ -169,7 +170,11 @@ function AgentsTab({ rows }: { rows: StockAgentRow[] }) {
                   <input type="checkbox" className="accent-[#9D00FF]" />
                 </td>
                 <td className={tdClass}>{idx + 1}</td>
-                <td className={tdClass}>{row.companyName}</td>
+                <td className={tdClass}>
+                  <Link href={`/inventory/stock/agent/${row.id}`} className="text-[#9D00FF] hover:underline">
+                    {row.companyName}
+                  </Link>
+                </td>
                 <td className={tdClass}>{row.state}</td>
                 <td className={tdClass}>{row.address}</td>
                 <td className={tdClass}>
@@ -248,7 +253,11 @@ function SuppliersTab({
                   <input type="checkbox" className="accent-[#9D00FF]" />
                 </td>
                 <td className={tdClass}>{idx + 1}</td>
-                <td className={tdClass}>{row.name}</td>
+                <td className={tdClass}>
+                  <Link href={`/inventory/stock/supplier/${row.id}`} className="text-[#9D00FF] hover:underline">
+                    {row.name}
+                  </Link>
+                </td>
                 <td className={tdClass}>{row.address}</td>
                 <td className={tdClass}>
                   <PhoneNumbers numbers={row.phones} />
@@ -321,7 +330,11 @@ function WarehouseTab({
                   <input type="checkbox" className="accent-[#9D00FF]" />
                 </td>
                 <td className={tdClass}>{idx + 1}</td>
-                <td className={tdClass}>{row.name}</td>
+                <td className={tdClass}>
+                  <Link href={`/inventory/stock/warehouse/${row.id}`} className="text-[#9D00FF] hover:underline">
+                    {row.name}
+                  </Link>
+                </td>
                 <td className={tdClass}>{row.phone}</td>
                 <td className={tdClass}>{row.createdAt}</td>
                 <td className={tdClass}>{row.managerName}</td>
@@ -394,7 +407,11 @@ function ProductTab({
                 <td className="py-2.5 pr-4">
                   <input type="checkbox" className="accent-[#9D00FF]" />
                 </td>
-                <td className={tdClass}>{row.name}</td>
+                <td className={tdClass}>
+                  <Link href={`/inventory/stock/product/${row.id}`} className="text-[#9D00FF] hover:underline">
+                    {row.name}
+                  </Link>
+                </td>
                 <td className={tdClass}>{row.categoryName}</td>
                 <td className={tdClass}>{row.country}</td>
                 <td className={tdClass}>{row.sku}</td>
@@ -471,7 +488,11 @@ function ProductCategoriesTab({
                   <input type="checkbox" className="accent-[#9D00FF]" />
                 </td>
                 <td className={tdClass}>{idx + 1}</td>
-                <td className={tdClass}>{row.categoryName}</td>
+                <td className={tdClass}>
+                  <Link href={`/inventory/stock/category/${row.id}`} className="text-[#9D00FF] hover:underline">
+                    {row.categoryName}
+                  </Link>
+                </td>
                 <td className={tdClass}>{row.brandName}</td>
                 <td className={tdClass}>
                   <PhoneNumbers numbers={row.brandPhoneEmail} />

@@ -209,13 +209,13 @@ export function ManageAccountToolbar({ teams }: { teams: Team[] }) {
     return str ? `?${str}` : "";
   }
 
-  function setDept(val: string) {
-    const d = val === "all" ? "" : val;
+  function setDept(val: string | null) {
+    const d = !val || val === "all" ? "" : val;
     router.push(`${pathname}${buildParams({ dept: d, team: "" })}`);
   }
 
-  function setTeam(val: string) {
-    router.push(`${pathname}${buildParams({ team: val === "all" ? "" : val })}`);
+  function setTeam(val: string | null) {
+    router.push(`${pathname}${buildParams({ team: !val || val === "all" ? "" : val })}`);
   }
 
   function toggleSort() {

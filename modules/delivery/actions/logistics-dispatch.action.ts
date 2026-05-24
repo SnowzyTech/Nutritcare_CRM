@@ -64,7 +64,7 @@ export async function dispatchOrderAction(
   } else if (sourceType === "stockOut") {
     const movement = await prisma.stockMovement.findUnique({
       where: { id: itemId },
-      select: { id: true, status: true, type: true },
+      include: { items: { select: { quantity: true } } },
     });
 
     if (!movement) return { success: false, error: "Stock movement not found" };
@@ -72,6 +72,22 @@ export async function dispatchOrderAction(
       return { success: false, error: "Only outgoing movements can be dispatched" };
     if (movement.status !== "RECORDED")
       return { success: false, error: "Movement is not in a dispatchable state" };
+
+    const alreadyQueued = await prisma.pickPack.findFirst({
+      where: { stockMovementId: itemId },
+      select: { id: true },
+    });
+
+    if (!alreadyQueued) {
+      const itemsCount = movement.items.reduce((sum, i) => sum + i.quantity, 0);
+      await prisma.pickPack.create({
+        data: {
+          stockMovementId: itemId,
+          itemsCount,
+          status: "QUEUED",
+        },
+      });
+    }
 
     await prisma.stockMovement.update({
       where: { id: itemId },
@@ -85,12 +101,28 @@ export async function dispatchOrderAction(
     // stockTransfer
     const transfer = await prisma.stockTransfer.findUnique({
       where: { id: itemId },
-      select: { id: true, status: true },
+      include: { items: { select: { quantity: true } } },
     });
 
     if (!transfer) return { success: false, error: "Stock transfer not found" };
     if (transfer.status !== "SUBMITTED")
       return { success: false, error: "Transfer is not in a dispatchable state" };
+
+    const alreadyQueued = await prisma.pickPack.findFirst({
+      where: { stockTransferId: itemId },
+      select: { id: true },
+    });
+
+    if (!alreadyQueued) {
+      const itemsCount = transfer.items.reduce((sum, i) => sum + i.quantity, 0);
+      await prisma.pickPack.create({
+        data: {
+          stockTransferId: itemId,
+          itemsCount,
+          status: "QUEUED",
+        },
+      });
+    }
 
     await prisma.stockTransfer.update({
       where: { id: itemId },
@@ -104,6 +136,7 @@ export async function dispatchOrderAction(
 
   revalidatePath("/logistics/deliveries");
   revalidatePath("/logistics/orders");
+  revalidatePath("/warehouse/pick-and-pack");
 
   return { success: true };
 }

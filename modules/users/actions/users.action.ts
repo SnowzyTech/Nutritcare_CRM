@@ -13,8 +13,11 @@ import {
   approveAccount,
   rejectAccount,
   assignWarehouseToUser,
+  createTeam,
+  deleteTeam,
   updateSelfProfile,
 } from "../services/users.service";
+import type { Department } from "@prisma/client";
 
 type ActionResult = { success: true } | { error: string };
 type ResetPasswordResult = { success: true; tempPassword: string } | { error: string };
@@ -40,6 +43,7 @@ export async function updateProfileAction(input: {
     revalidatePath("/sales-rep/settings");
     revalidatePath("/warehouse/settings");
     revalidatePath("/accounting/settings");
+    revalidatePath("/logistics/settings");
     return { success: true };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Failed to update profile" };
@@ -150,5 +154,28 @@ export async function assignWarehouseAction(userId: string, warehouseId: string 
     return { success: true };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Failed to assign warehouse" };
+  }
+}
+
+export async function createTeamAction(name: string, department: Department): Promise<ActionResult> {
+  try {
+    await requireAdmin();
+    if (!name.trim()) return { error: "Team name is required" };
+    await createTeam(name, department);
+    revalidatePath("/admin/staff/teams");
+    return { success: true };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Failed to create team" };
+  }
+}
+
+export async function deleteTeamAction(id: string): Promise<ActionResult> {
+  try {
+    await requireAdmin();
+    await deleteTeam(id);
+    revalidatePath("/admin/staff/teams");
+    return { success: true };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Failed to delete team" };
   }
 }

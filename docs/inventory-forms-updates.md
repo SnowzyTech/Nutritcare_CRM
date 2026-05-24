@@ -1,0 +1,10 @@
+Read the current inventory module pages and make these changes:
+
+Add Warehouse form (/inventory/stock or wherever the warehouse form lives) — add a "Warehouse Reference Code" input field. Remove the "More Information" input and replace it with this reference code field. Wire it to the referenceCode field on the Warehouse model.
+Add Product form (/inventory/add-product) — update to match the new Figma design. Add an image upload input for product image (save to imageUrl). Add a quantity input field and wire it to the quantity field on the Product model.
+Add Agent form — add a "Delivery Fee" input field (currency input in Naira). Wire it to the deliveryFee field on the Agent model.
+Product detail page — create a detail page for each product in the inventory stock section. Add edit and delete action buttons on this page. The product list table should link each product row to this detail page.
+Delete actions for Stock entities — add delete action buttons on the detail pages for: Suppliers, Products, Product Categories, and Warehouses in the /inventory/stock section. Each delete should be a soft delete (set deletedAt) with a confirmation dialog before executing.
+Incoming stock draft state — change the draft state for incoming stock so that instead of saving a minimal record, it redirects to a full-page form where the user can complete all fields before saving. The draft should be a separate page at something like /inventory/incoming/[id]/edit.
+Outgoing stock voucher (/inventory/outgoings/create) — in the agent selection dropdown, only show delivery agents (from the Agent model), not system users. Add a "From Agent" select dropdown as well so the user can specify which agent the stock is coming from.
+Stock Transfer voucher (/inventory/transfer/create) — same fix: only show delivery agents from the Agent model in the agent dropdowns, not system user drivers.

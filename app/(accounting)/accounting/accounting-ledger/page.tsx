@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { AccountingLedgerClient } from "../_components/AccountingLedgerClient";
 import {
   getChartOfAccounts,
@@ -33,12 +34,13 @@ export default async function AccountingLedgerPage() {
   }));
 
   return (
-    <AccountingLedgerClient
-      initialChartOfAccounts={chartOfAccounts}
-      initialSavedJournals={savedJournals}
-      initialNextJournalNo={nextJournalNo}
-      initialGeneralLedger={generalLedger}
-      initialCategories={categories}
-    />
+    <Suspense>
+      <AccountingLedgerClient
+        initialChartOfAccounts={chartOfAccounts}
+        initialSavedJournals={savedJournals}
+        initialNextJournalNo={nextJournalNo}
+        initialGeneralLedger={generalLedger}
+      />
+    </Suspense>
   );
 }

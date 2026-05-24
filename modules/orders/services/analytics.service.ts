@@ -125,6 +125,15 @@ function computeMetrics(orders: OrderRow[]): MonthMetrics {
   };
 }
 
+export async function getSalesRepWeeklyAnalytics(salesRepId: string): Promise<MonthMetrics> {
+  const now = new Date();
+  const weekStart = new Date(now);
+  weekStart.setDate(now.getDate() - 6);
+  weekStart.setHours(0, 0, 0, 0);
+  const orders = await fetchOrders(salesRepId, weekStart);
+  return computeMetrics(orders);
+}
+
 export async function getSalesRepAnalytics(salesRepId: string, targetMonth?: Date): Promise<AnalyticsData> {
   const now = targetMonth || new Date();
   const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);

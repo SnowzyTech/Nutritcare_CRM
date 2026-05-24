@@ -94,16 +94,14 @@ export default function AddWarehousePage() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               <div>
-                <label className={labelClass} htmlFor="moreInformation">More Information</label>
-                <div className="relative">
-                  <select id="moreInformation" name="moreInformation" className={selectClass}>
-                    <option value="">Select an Option</option>
-                    <option value="Main Warehouse">Main Warehouse</option>
-                    <option value="Secondary Warehouse">Secondary Warehouse</option>
-                    <option value="Transit Hub">Transit Hub</option>
-                  </select>
-                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">▾</span>
-                </div>
+                <label className={labelClass} htmlFor="referenceCode">Warehouse Reference Code</label>
+                <input
+                  id="referenceCode"
+                  type="text"
+                  name="referenceCode"
+                  placeholder="Type in here"
+                  className={inputClass}
+                />
               </div>
               <div>
                 <label className={labelClass} htmlFor="country">Select Country</label>

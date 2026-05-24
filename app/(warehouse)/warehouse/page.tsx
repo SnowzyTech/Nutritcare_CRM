@@ -17,14 +17,13 @@ const binColour: Record<string, string> = {
 };
 
 const packStatusBadge: Record<string, string> = {
-  PACKED:     "bg-[#059669] text-white",
-  QUEUED:     "bg-[#F59E0B] text-white",
-  PACKING:    "bg-[#3B82F6] text-white",
-  DISPATCHED: "bg-[#6B7280] text-white",
+  QUEUED: "bg-[#F59E0B] text-white",
+  PACKED: "bg-[#059669] text-white",
 };
 
 const packStatusLabel: Record<string, string> = {
-  PACKED: "Packed", QUEUED: "Queued", PACKING: "Packing", DISPATCHED: "Dispatched",
+  QUEUED: "Queued",
+  PACKED: "Packed",
 };
 
 const receivingStatusBadge: Record<string, string> = {
@@ -148,7 +147,7 @@ export default async function WarehouseDashboard() {
               <thead className="bg-[#FAF5FF] sticky top-0">
                 <tr className="text-gray-500 text-left">
                   <th className="px-4 py-2.5 w-8"><Checkbox className="border-gray-300 rounded-sm" /></th>
-                  <th className="px-4 py-2.5 font-medium">Order ID</th>
+                  <th className="px-4 py-2.5 font-medium">Reference</th>
                   <th className="px-4 py-2.5 font-medium">Items</th>
                   <th className="px-4 py-2.5 font-medium">Picker</th>
                   <th className="px-4 py-2.5 font-medium">Location</th>
@@ -169,18 +168,14 @@ export default async function WarehouseDashboard() {
                       className={`${i % 2 === 1 ? "bg-gray-50" : "bg-white"} hover:bg-gray-50/80 transition-colors`}
                     >
                       <td className="px-4 py-2.5"><Checkbox className="border-gray-300 rounded-sm" /></td>
-                      <td className="px-4 py-2.5 text-gray-700 font-medium">{order.orderNumber}</td>
+                      <td className="px-4 py-2.5 text-gray-700 font-medium">{order.referenceNumber}</td>
                       <td className="px-4 py-2.5 text-gray-500">{order.itemsCount}</td>
                       <td className="px-4 py-2.5 text-gray-500">{order.picker}</td>
                       <td className="px-4 py-2.5 text-gray-500">{order.locationCode}</td>
                       <td className="px-4 py-2.5">
-                        {order.status ? (
-                          <span className={`text-[10px] font-bold px-3 py-1 rounded-sm ${packStatusBadge[order.status] ?? "bg-gray-100 text-gray-500"}`}>
-                            {packStatusLabel[order.status] ?? order.status}
-                          </span>
-                        ) : (
-                          <span className="text-[10px] text-gray-400 italic">Unassigned</span>
-                        )}
+                        <span className={`text-[10px] font-bold px-3 py-1 rounded-sm ${packStatusBadge[order.status] ?? "bg-gray-100 text-gray-500"}`}>
+                          {packStatusLabel[order.status] ?? order.status}
+                        </span>
                       </td>
                     </tr>
                   ))
