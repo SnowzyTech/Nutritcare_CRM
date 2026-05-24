@@ -1,325 +1,1189 @@
 "use client";
 
-import { useState } from "react";
-import {
-  Plus, Trash2, FileText, User, Mail, MapPin, Map, Phone,
-  ListChecks, Send, LayoutTemplate, Palette, Copy, Check,
-  ChevronLeft, PenLine, Search
-} from "lucide-react";
-import { Input } from "@/components/ui/input";
+import { useState, useRef, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { MessageCircle, ChevronDown, X } from "lucide-react";
+import { saveForm, getForms } from "@/lib/formsStore";
 
-/* ── Types ── */
-type FieldType = "fullName" | "email" | "fullAddress" | "state" | "phone1" | "phone2" | "packages" | "submitButton";
-type PackageOption = { id: string; label: string };
-type FormField =
-  | { id: string; type: Exclude<FieldType, "packages" | "submitButton"> }
-  | { id: string; type: "packages"; options: PackageOption[] }
-  | { id: string; type: "submitButton" };
-
-type FormStyle = {
-  textColor: string;
-  bgColor: string;
-  fontFamily: string;
-  buttonColor: string;
-  buttonText: string;
-};
-
-type FormConfig = {
-  id: string;
-  name: string;
-  fields: FormField[];
-  style: FormStyle;
-};
-
-const defaultStyle: FormStyle = {
-  textColor: "#334155",
-  bgColor: "#ffffff",
-  fontFamily: "Inter",
-  buttonColor: "#8B2FE8",
-  buttonText: "Submit Order",
-};
-
-const uid = () => Math.random().toString(36).slice(2, 9);
-
-const paletteItems: { type: FieldType; label: string; icon: typeof User }[] = [
-  { type: "fullName", label: "Full Name", icon: User },
-  { type: "email", label: "Email Address", icon: Mail },
-  { type: "fullAddress", label: "Full Address", icon: MapPin },
-  { type: "state", label: "State", icon: Map },
-  { type: "phone1", label: "Phone Number 1", icon: Phone },
-  { type: "phone2", label: "Phone Number 2", icon: Phone },
-  { type: "packages", label: "Preferred Packages", icon: ListChecks },
-  { type: "submitButton", label: "Submit Button", icon: Send },
+/* ── Nigerian States List ── */
+const NIGERIAN_STATES = [
+  "Abia", "Adamawa", "Akwa Ibom", "Anambra", "Bauchi", "Bayelsa", "Benue",
+  "Borno", "Cross River", "Delta", "Ebonyi", "Edo", "Ekiti", "Enugu",
+  "FCT (Abuja)", "Gombe", "Imo", "Jigawa", "Kaduna", "Kano", "Katsina",
+  "Kebbi", "Kogi", "Kwara", "Lagos", "Nasarawa", "Niger", "Ogun", "Ondo",
+  "Osun", "Oyo", "Plateau", "Rivers", "Sokoto", "Taraba", "Yobe", "Zamfara"
 ];
 
-const fontOptions = ["Inter", "Roboto", "Poppins", "Outfit", "Lato", "Open Sans", "Nunito", "Montserrat"];
+/* ── Custom Toggle Component ── */
+function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(!checked)}
+      className={`relative w-10 h-5 rounded-full transition-colors duration-200 ${checked ? "bg-green-500" : "bg-gray-300"}`}
+    >
+      <span
+        className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform duration-200 ${checked ? "translate-x-5" : "translate-x-0"}`}
+      />
+    </button>
+  );
+}
 
-/* ══════════════════════════════════════════════════════════════ */
-export function FormBuilder() {
-  const [forms, setForms] = useState<FormConfig[]>([]);
-  const [activeFormId, setActiveFormId] = useState<string | null>(null);
-  const [leftTab, setLeftTab] = useState<"fields" | "style">("fields");
-  const [copied, setCopied] = useState(false);
-
-  const activeForm = forms.find(f => f.id === activeFormId);
-
-  /* ── Form CRUD ── */
-  function createForm() {
-    const newForm: FormConfig = { id: uid(), name: `Form ${forms.length + 1}`, fields: [], style: { ...defaultStyle } };
-    setForms(prev => [...prev, newForm]);
-    setActiveFormId(newForm.id);
-    setLeftTab("fields");
-  }
-
-  function deleteForm(id: string) {
-    setForms(prev => prev.filter(f => f.id !== id));
-    if (activeFormId === id) setActiveFormId(null);
-  }
-
-  function renameForm(id: string, name: string) {
-    setForms(prev => prev.map(f => f.id === id ? { ...f, name } : f));
-  }
-
-  /* ── Field management ── */
-  function updateFields(fn: (fields: FormField[]) => FormField[]) {
-    setForms(prev => prev.map(f => f.id === activeFormId ? { ...f, fields: fn(f.fields) } : f));
-  }
-
-  function addField(type: FieldType) {
-    if (!activeForm) return;
-    if (type === "submitButton" && activeForm.fields.some(f => f.type === "submitButton")) return;
-    if (type === "packages") {
-      updateFields(prev => [...prev, { id: uid(), type: "packages", options: [{ id: uid(), label: "" }] }]);
-    } else {
-      updateFields(prev => [...prev, { id: uid(), type }]);
-    }
-  }
-
-  function removeField(id: string) { updateFields(prev => prev.filter(f => f.id !== id)); }
-
-  function updatePackageOption(fieldId: string, optionId: string, value: string) {
-    updateFields(prev => prev.map(f => {
-      if (f.id !== fieldId || f.type !== "packages") return f;
-      return { ...f, options: f.options.map(o => o.id === optionId ? { ...o, label: value } : o) };
-    }));
-  }
-
-  function addPackageOption(fieldId: string) {
-    updateFields(prev => prev.map(f => {
-      if (f.id !== fieldId || f.type !== "packages") return f;
-      return { ...f, options: [...f.options, { id: uid(), label: "" }] };
-    }));
-  }
-
-  function removePackageOption(fieldId: string, optionId: string) {
-    updateFields(prev => prev.map(f => {
-      if (f.id !== fieldId || f.type !== "packages") return f;
-      if (f.options.length <= 1) return f;
-      return { ...f, options: f.options.filter(o => o.id !== optionId) };
-    }));
-  }
-
-  /* ── Style management ── */
-  function updateStyle(key: keyof FormStyle, value: string) {
-    setForms(prev => prev.map(f => f.id === activeFormId ? { ...f, style: { ...f.style, [key]: value } } : f));
-  }
-
-  /* ── Shortcode ── */
-  function copyShortcode() {
-    if (!activeForm) return;
-    const code = `[nutritcare_form id="${activeForm.id}"]`;
-    navigator.clipboard.writeText(code).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
-  }
-
-  /* ════════════════════════════════════════════════════════════ */
-  /* SCREEN 1 — Form List                                        */
-  /* ════════════════════════════════════════════════════════════ */
-  if (!activeFormId) {
-    return (
-      <div>
-        {forms.length === 0 ? (
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-16 flex flex-col items-center justify-center">
-            <FileText size={48} className="text-[#8B2FE8]" />
-            <h3 className="text-xl font-bold text-slate-700 mt-4">No forms yet</h3>
-            <p className="text-sm text-slate-400 mt-2 text-center max-w-xs">Click the button below to start building your first form.</p>
-            <button onClick={createForm} className="mt-6 bg-[#8B2FE8] hover:bg-[#7a28d4] text-white font-semibold rounded-xl px-8 py-3 text-sm transition-colors flex items-center gap-2">
-              <Plus size={16} /> Create Form
-            </button>
-          </div>
-        ) : (
-          <>
-            <div className="flex justify-between items-center mb-6">
-              <p className="text-sm text-slate-500">{forms.length} form{forms.length !== 1 ? "s" : ""} created</p>
-              <button onClick={createForm} className="bg-[#8B2FE8] hover:bg-[#7a28d4] text-white font-semibold rounded-xl px-6 py-2.5 text-sm transition-colors flex items-center gap-2">
-                <Plus size={16} /> New Form
-              </button>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {forms.map(form => (
-                <div key={form.id} className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 hover:border-[#8B2FE8] transition-colors group relative">
-                  <button onClick={() => deleteForm(form.id)} className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity text-red-400 hover:text-red-600"><Trash2 size={16} /></button>
-                  <div className="w-10 h-10 rounded-xl bg-purple-50 flex items-center justify-center mb-4"><FileText size={20} className="text-[#8B2FE8]" /></div>
-                  <h4 className="font-bold text-slate-800">{form.name}</h4>
-                  <p className="text-xs text-slate-400 mt-1">{form.fields.length} field{form.fields.length !== 1 ? "s" : ""}</p>
-                  <button onClick={() => { setActiveFormId(form.id); setLeftTab("fields"); }} className="mt-4 text-sm font-semibold text-[#8B2FE8] flex items-center gap-1 hover:gap-2 transition-all">
-                    <PenLine size={14} /> Edit Form
-                  </button>
-                </div>
-              ))}
-            </div>
-          </>
-        )}
+/* ─ Custom Color Picker Component ── */
+function ColorPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <div className="flex items-center border border-gray-200 rounded-md overflow-hidden bg-white">
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="flex-1 px-3 py-2 text-sm text-gray-500 outline-none"
+      />
+      <div className="w-8 h-8 flex items-center justify-center border-l border-gray-200">
+        <input
+          type="color"
+          value={value.startsWith("#") ? value : `#${value}`}
+          onChange={(e) => onChange(e.target.value.replace("#", ""))}
+          className="w-6 h-6 cursor-pointer border-0 p-0"
+        />
       </div>
-    );
-  }
+    </div>
+  );
+}
 
-  /* ════════════════════════════════════════════════════════════ */
-  /* SCREEN 2 — Builder                                          */
-  /* ════════════════════════════════════════════════════════════ */
-  const s = activeForm!.style;
-  const submitExists = activeForm!.fields.some(f => f.type === "submitButton");
+/* ─ Custom Select Component ── */
+function CustomSelect({ value, onChange, options, placeholder }: { value: string; onChange: (v: string) => void; options: string[]; placeholder: string }) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-md bg-white text-gray-400 outline-none focus:border-purple-300 appearance-none"
+      style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23999' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`, backgroundRepeat: "no-repeat", backgroundPosition: "right 10px center" }}
+    >
+      <option value="">{placeholder}</option>
+      {options.map((opt) => (
+        <option key={opt} value={opt}>{opt}</option>
+      ))}
+    </select>
+  );
+}
+
+/* ─ Main FormBuilder Component ── */
+export function FormBuilder({ editId }: { editId?: string } = {}) {
+  const defaultFormData = {
+    formName: "",
+    hasWebsite: false,
+    formHeaderText: "",
+    formSubHeaderText: "",
+    selectedProduct: "",
+    usePriceVariation: "",
+
+    fields: {
+      name: { label: "", required: false, show: false },
+      phone: { label: "", required: false, show: false },
+      whatsapp: { label: "", required: true, show: false },
+      email: { label: "", required: true, show: true },
+      address: { label: "", required: false, show: false },
+      state: { label: "", required: true, show: true },
+    },
+
+    showCountryCode: "YES",
+    productQuantityDisplay: "Radio Button Option",
+    typeProductText: "Choose Your Preferred Packages",
+    formBackgroundColor: "FFFFFF",
+    innerBackgroundColor: "FFFFFF",
+    showProductQuantityOnTop: "Yes",
+    showFormFieldsLabel: "Yes",
+    allowTypeVariationQuantity: "Yes",
+    formLabelColor: "111827",
+
+    createOptinForm: "Yes",
+    optinFields: {
+      name: { required: false, show: true },
+      email: { required: false, show: true },
+      whatsapp: { required: true, show: false },
+    },
+    additionalFields: [
+      { required: true, show: true, options: ["", ""] },
+      { required: true, show: true, options: ["", ""] },
+      { required: true, show: true, options: ["", ""] },
+    ],
+
+    optinButtonText: "TAKE ME IN NOW!",
+    salesPageUrl: "",
+    submitButtonBackgroundColor: "B57900",
+    submitButtonTextColor: "4E0274",
+    submitButtonBorderColor: "40FF00",
+    borderRadius: "12",
+    submitButtonFontSize: "22",
+    formWidth: "Normal",
+    formFieldsHeight: "50",
+    formLabelFontSize: "18",
+    formFontType: "System Default",
+    formLabelFontColor: "111827",
+    submitButtonText: "ORDER NOW",
+    textBeforeSubmitButton: "Add here",
+
+    addOrderBump: "No",
+    orderBumpPreText: "",
+    orderBumpBiggestBenefit: "",
+    orderBumpHeader: "",
+    orderBumpCallToAction: "",
+    orderBumpScarcityText: "",
+    orderBumpCtaCheckbox: "",
+    orderBumpBgColor: "FFFF99",
+    orderBumpProductTextColor: "0000B2",
+    orderBumpProduct: "",
+    orderBumpPriceVariation: "",
+    orderBumpImageUrl: "",
+    orderBumpVideoUrl: "",
+
+    addUpsell: "No",
+    upsellItems: [
+      { product: "", pageUrl: "", formWidth: "Normal", buttonText: "YES ADD TO MY ORDER", declineText: "No I dont want this huge give-away discount", declineTextSize: "18", scarcityText: "", scarcityTextSize: "18" }
+    ] as Array<{ product: string; pageUrl: string; formWidth: string; buttonText: string; declineText: string; declineTextSize: string; scarcityText: string; scarcityTextSize: string }>,
+
+    thankYouUrl: "",
+
+    // Payment Methods — individual toggles
+    paystackEnabled: false,
+    paystackKey: "",
+    flutterwaveEnabled: false,
+    flutterwaveKey: "",
+    bankTransferEnabled: false,
+    bankAccountName: "",
+    bankAccountNumber: "",
+    bankName: "",
+    bankAfterPaymentInstruction: "",
+    payOnDeliveryEnabled: false,
+
+    // Payment config fields (shown when any online method is enabled)
+    selectMethodText: "",
+    discountMessageOnline: "",
+    discountAmountOnline: "",
+    commitmentFee: "",
+    selectStatesExclude: [] as string[],
+
+    useCouponDiscount: "",
+    enableStatesDeliveryFee: "",
+    useCustomStates: "",
+    emailForNotifications: "",
+    showOrderId: "",
+    showMessageBanned: "Yes",
+    termsAndConditions: "",
+  };
+
+  // Lazy initializer: immediately loads saved data when editing
+  const [formData, setFormData] = useState<typeof defaultFormData>(() => {
+    if (editId) {
+      try {
+        const saved = JSON.parse(localStorage.getItem("nutritcare_forms") || "[]");
+        const existing = saved.find((f: { id: string }) => f.id === editId);
+        if (existing?.data) {
+          return { ...defaultFormData, ...existing.data } as typeof defaultFormData;
+        }
+      } catch {
+        // fall through to default
+      }
+    }
+    return defaultFormData;
+  });
+
+
+  const updateField = (key: string, value: any) => {
+    setFormData((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const updateNestedField = (section: string, key: string, value: any) => {
+    setFormData((prev) => ({
+      ...prev,
+      [section]: { ...(prev[section as keyof typeof prev] as object), [key]: value },
+    }));
+  };
+
+  const updateFieldProp = (field: string, prop: string, value: any) => {
+    setFormData((prev) => ({
+      ...prev,
+      fields: {
+        ...prev.fields,
+        [field]: { ...prev.fields[field as keyof typeof prev.fields], [prop]: value },
+      },
+    }));
+  };
+
+  const updateOptinFieldProp = (field: string, prop: string, value: any) => {
+    setFormData((prev) => ({
+      ...prev,
+      optinFields: {
+        ...prev.optinFields,
+        [field]: { ...prev.optinFields[field as keyof typeof prev.optinFields], [prop]: value },
+      },
+    }));
+  };
+
+  const updateAdditionalField = (index: number, prop: string, value: any) => {
+    setFormData((prev) => {
+      const newFields = [...prev.additionalFields];
+      newFields[index] = { ...newFields[index], [prop]: value };
+      return { ...prev, additionalFields: newFields };
+    });
+  };
+
+  const updateAdditionalOption = (fieldIndex: number, optionIndex: number, value: string) => {
+    setFormData((prev) => {
+      const newFields = [...prev.additionalFields];
+      const newOptions = [...newFields[fieldIndex].options];
+      newOptions[optionIndex] = value;
+      newFields[fieldIndex] = { ...newFields[fieldIndex], options: newOptions };
+      return { ...prev, additionalFields: newFields };
+    });
+  };
+
+  const handleReset = () => {
+    setFormData({
+      formName: "",
+      hasWebsite: false,
+      formHeaderText: "",
+      formSubHeaderText: "",
+      selectedProduct: "",
+      usePriceVariation: "",
+      fields: {
+        name: { label: "", required: false, show: false },
+        phone: { label: "", required: false, show: false },
+        whatsapp: { label: "", required: true, show: false },
+        email: { label: "", required: true, show: true },
+        address: { label: "", required: false, show: false },
+        state: { label: "", required: true, show: true },
+      },
+      showCountryCode: "YES",
+      productQuantityDisplay: "Radio Button Option",
+      typeProductText: "Choose Your Preferred Packages",
+      formBackgroundColor: "FFFFFF",
+      innerBackgroundColor: "FFFFFF",
+      showProductQuantityOnTop: "Yes",
+      showFormFieldsLabel: "Yes",
+      allowTypeVariationQuantity: "Yes",
+      formLabelColor: "111827",
+      createOptinForm: "Yes",
+      optinFields: {
+        name: { required: false, show: true },
+        email: { required: false, show: true },
+        whatsapp: { required: true, show: false },
+      },
+      additionalFields: [
+        { required: true, show: true, options: ["", ""] },
+        { required: true, show: true, options: ["", ""] },
+        { required: true, show: true, options: ["", ""] },
+      ],
+      optinButtonText: "TAKE ME IN NOW!",
+      salesPageUrl: "",
+      submitButtonBackgroundColor: "B57900",
+      submitButtonTextColor: "4E0274",
+      submitButtonBorderColor: "40FF00",
+      borderRadius: "12",
+      submitButtonFontSize: "22",
+      formWidth: "Normal",
+      formFieldsHeight: "50",
+      formLabelFontSize: "18",
+      formFontType: "System Default",
+      formLabelFontColor: "111827",
+      submitButtonText: "ORDER NOW",
+      textBeforeSubmitButton: "Add here",
+      addOrderBump: "No",
+      orderBumpPreText: "",
+      orderBumpBiggestBenefit: "",
+      orderBumpHeader: "",
+      orderBumpCallToAction: "",
+      orderBumpScarcityText: "",
+      orderBumpCtaCheckbox: "",
+      orderBumpBgColor: "FFFF99",
+      orderBumpProductTextColor: "0000B2",
+      orderBumpProduct: "",
+      orderBumpPriceVariation: "",
+      orderBumpImageUrl: "",
+      orderBumpVideoUrl: "",
+      addUpsell: "No",
+      upsellItems: [
+        { product: "", pageUrl: "", formWidth: "Normal", buttonText: "YES ADD TO MY ORDER", declineText: "No I dont want this huge give-away discount", declineTextSize: "18", scarcityText: "", scarcityTextSize: "18" }
+      ] as Array<{ product: string; pageUrl: string; formWidth: string; buttonText: string; declineText: string; declineTextSize: string; scarcityText: string; scarcityTextSize: string }>,
+      thankYouUrl: "",
+      paystackEnabled: false,
+      paystackKey: "",
+      flutterwaveEnabled: false,
+      flutterwaveKey: "",
+      bankTransferEnabled: false,
+      bankAccountName: "",
+      bankAccountNumber: "",
+      bankName: "",
+      bankAfterPaymentInstruction: "",
+      payOnDeliveryEnabled: false,
+      selectMethodText: "",
+      discountMessageOnline: "",
+      discountAmountOnline: "",
+      commitmentFee: "",
+      selectStatesExclude: [] as string[],
+      useCouponDiscount: "",
+      enableStatesDeliveryFee: "",
+      useCustomStates: "",
+      emailForNotifications: "",
+      showOrderId: "",
+      showMessageBanned: "Yes",
+      termsAndConditions: "",
+    });
+  };
+
+  const router = useRouter();
+
+
+  const handleAddForm = () => {
+    if (editId) {
+      // Update existing: replace in localStorage
+      const forms = getForms();
+      const idx = forms.findIndex((f) => f.id === editId);
+      if (idx !== -1) {
+        forms[idx] = { ...forms[idx], formName: formData.formName || forms[idx].formName, data: formData as Record<string, unknown> };
+        localStorage.setItem("nutritcare_forms", JSON.stringify(forms));
+      }
+    } else {
+      saveForm(formData as Record<string, unknown>);
+    }
+    router.push("/admin/forms");
+  };
+
+  const yesNoOptions = ["Yes", "No"];
+  const fontOptions = ["System Default", "Arial", "Helvetica", "Times New Roman", "Courier New", "Verdana", "Georgia"];
+
+  // Whether any online payment method is enabled (to show the extra config fields)
+  const anyOnlinePaymentEnabled =
+    formData.paystackEnabled || formData.flutterwaveEnabled || formData.bankTransferEnabled;
+
+  // Multi-select states dropdown state
+  const [statesDropdownOpen, setStatesDropdownOpen] = useState(false);
+  const statesDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (statesDropdownRef.current && !statesDropdownRef.current.contains(e.target as Node)) {
+        setStatesDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const toggleStateSelection = (state: string) => {
+    setFormData((prev) => {
+      const current = prev.selectStatesExclude as string[];
+      return {
+        ...prev,
+        selectStatesExclude: current.includes(state)
+          ? current.filter((s) => s !== state)
+          : [...current, state],
+      };
+    });
+  };
+
+  const removeState = (state: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      selectStatesExclude: (prev.selectStatesExclude as string[]).filter((s) => s !== state),
+    }));
+  };
 
   return (
-    <div>
-      {/* Top bar */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-4">
-          <button onClick={() => setActiveFormId(null)} className="text-slate-400 hover:text-[#8B2FE8] transition-colors"><ChevronLeft size={24} /></button>
-          <input value={activeForm!.name} onChange={e => renameForm(activeForm!.id, e.target.value)} className="text-xl font-black text-slate-800 bg-transparent border-none outline-none focus:ring-0 w-[240px]" />
-        </div>
-        <button onClick={copyShortcode} className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold transition-all border ${copied ? "bg-emerald-50 border-emerald-300 text-emerald-600" : "bg-white border-slate-200 text-slate-600 hover:border-[#8B2FE8] hover:text-[#8B2FE8]"}`}>
-          {copied ? <><Check size={16} /> Copied!</> : <><Copy size={16} /> Copy Shortcode</>}
-        </button>
+    <div className="bg-gray-50 min-h-screen pb-10">
+      {/* Header */}
+      <div className="px-6 py-6 flex items-center justify-between">
+        <h1 className="text-2xl font-bold text-gray-800">Welcome Back Linda</h1>
       </div>
 
-      <div className="flex gap-6 items-start">
-        {/* ── LEFT PANEL ── */}
-        <div className="w-[320px] shrink-0 bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-          {/* Tabs */}
-          <div className="flex border-b border-slate-100">
-            <button onClick={() => setLeftTab("fields")} className={`flex-1 py-3 text-sm font-bold transition-colors ${leftTab === "fields" ? "text-[#8B2FE8] border-b-2 border-[#8B2FE8]" : "text-slate-400 hover:text-slate-600"}`}>Fields</button>
-            <button onClick={() => setLeftTab("style")} className={`flex-1 py-3 text-sm font-bold transition-colors flex items-center justify-center gap-1.5 ${leftTab === "style" ? "text-[#8B2FE8] border-b-2 border-[#8B2FE8]" : "text-slate-400 hover:text-slate-600"}`}><Palette size={14} /> Style</button>
-          </div>
-
-          <div className="p-5">
-            {leftTab === "fields" ? (
-              <>
-                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Add Fields</h4>
-                {paletteItems.map(item => {
-                  const Icon = item.icon;
-                  const disabled = item.type === "submitButton" && submitExists;
-                  return (
-                    <button key={item.type} onClick={() => !disabled && addField(item.type)} disabled={disabled}
-                      className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border text-sm font-medium transition-all mb-2 text-left ${disabled ? "border-slate-100 bg-slate-50 text-slate-300 cursor-not-allowed" : "border-slate-200 bg-slate-50 hover:bg-purple-50 hover:border-[#8B2FE8] hover:text-[#8B2FE8] text-slate-600 cursor-pointer"}`}>
-                      <Icon size={16} /> {item.label}
-                    </button>
-                  );
-                })}
-              </>
-            ) : (
-              <div className="space-y-5">
-                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Customize</h4>
-                {/* Text Color */}
-                <div>
-                  <label className="text-xs font-semibold text-slate-600 mb-1.5 block">Text Color</label>
-                  <div className="flex items-center gap-2">
-                    <input type="color" value={s.textColor} onChange={e => updateStyle("textColor", e.target.value)} className="w-8 h-8 rounded-lg border border-slate-200 cursor-pointer p-0" />
-                    <Input value={s.textColor} onChange={e => updateStyle("textColor", e.target.value)} className="flex-1 text-xs font-mono" />
-                  </div>
-                </div>
-                {/* Background Color */}
-                <div>
-                  <label className="text-xs font-semibold text-slate-600 mb-1.5 block">Background Color</label>
-                  <div className="flex items-center gap-2">
-                    <input type="color" value={s.bgColor} onChange={e => updateStyle("bgColor", e.target.value)} className="w-8 h-8 rounded-lg border border-slate-200 cursor-pointer p-0" />
-                    <Input value={s.bgColor} onChange={e => updateStyle("bgColor", e.target.value)} className="flex-1 text-xs font-mono" />
-                  </div>
-                </div>
-                {/* Button Color */}
-                <div>
-                  <label className="text-xs font-semibold text-slate-600 mb-1.5 block">Button Color</label>
-                  <div className="flex items-center gap-2">
-                    <input type="color" value={s.buttonColor} onChange={e => updateStyle("buttonColor", e.target.value)} className="w-8 h-8 rounded-lg border border-slate-200 cursor-pointer p-0" />
-                    <Input value={s.buttonColor} onChange={e => updateStyle("buttonColor", e.target.value)} className="flex-1 text-xs font-mono" />
-                  </div>
-                </div>
-                {/* Button Text */}
-                <div>
-                  <label className="text-xs font-semibold text-slate-600 mb-1.5 block">Button Text</label>
-                  <Input value={s.buttonText} onChange={e => updateStyle("buttonText", e.target.value)} placeholder="Submit Order" />
-                </div>
-                {/* Font Family */}
-                <div>
-                  <label className="text-xs font-semibold text-slate-600 mb-1.5 block">Font Family</label>
-                  <select value={s.fontFamily} onChange={e => updateStyle("fontFamily", e.target.value)} className="w-full h-9 rounded-lg border border-slate-200 px-3 text-sm bg-white outline-none focus:border-[#8B2FE8]">
-                    {fontOptions.map(f => <option key={f} value={f}>{f}</option>)}
-                  </select>
-                </div>
-              </div>
-            )}
+      <div className="max-w-5xl mx-auto px-4 space-y-4">
+        {/* Basic Info Card */}
+        <div className="bg-white rounded-lg p-6">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-amber-600 mb-1">Form Name*</label>
+              <input
+                type="text"
+                value={formData.formName}
+                onChange={(e) => updateField("formName", e.target.value)}
+                className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm outline-none focus:border-purple-300"
+              />
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-gray-600">Do you have a website?</span>
+              <Toggle checked={formData.hasWebsite} onChange={(v) => updateField("hasWebsite", v)} />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-amber-600 mb-1">Select Product*</label>
+              <CustomSelect value={formData.selectedProduct} onChange={(v) => updateField("selectedProduct", v)} options={["Product 1", "Product 2", "Product 3"]} placeholder="Select an Option" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-amber-600 mb-1">Use Price Variation Template?</label>
+              <CustomSelect value={formData.usePriceVariation} onChange={(v) => updateField("usePriceVariation", v)} options={["Yes", "No"]} placeholder="Select an Option" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Form Header Text</label>
+              <input
+                type="text"
+                value={formData.formHeaderText}
+                onChange={(e) => updateField("formHeaderText", e.target.value)}
+                placeholder="Place fill the form below to place your order"
+                className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm text-gray-400 outline-none focus:border-purple-300"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Form Sub Header Text</label>
+              <input
+                type="text"
+                value={formData.formSubHeaderText}
+                onChange={(e) => updateField("formSubHeaderText", e.target.value)}
+                placeholder="Only Serious Buyers Should Fill The Form Below"
+                className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm text-gray-400 outline-none focus:border-purple-300"
+              />
+            </div>
           </div>
         </div>
 
-        {/* ── RIGHT PANEL — Canvas ── */}
-        <div className="flex-1 rounded-2xl shadow-sm border border-slate-100 p-6 min-h-[500px]" style={{ backgroundColor: s.bgColor, fontFamily: s.fontFamily, color: s.textColor }}>
-          {activeForm!.fields.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-64 text-slate-300">
-              <LayoutTemplate size={40} />
-              <p className="mt-3 text-sm">Click a field on the left to add it here</p>
+        {/* Form Fields Card */}
+        <div className="bg-white rounded-lg p-6">
+          <div className="grid grid-cols-12 gap-4 items-center mb-4">
+            <div className="col-span-5">
+              <h3 className="text-sm font-bold text-gray-700">Form Fields</h3>
             </div>
-          ) : (
-            activeForm!.fields.map(field => (
-              <div key={field.id} className="bg-white/60 border border-slate-200 rounded-xl p-4 mb-4 relative group backdrop-blur-sm">
-                <button onClick={() => removeField(field.id)} className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity text-red-400 hover:text-red-600 cursor-pointer"><Trash2 size={16} /></button>
+            <div className="col-span-3">
+              <h3 className="text-sm font-bold text-gray-700">Required?</h3>
+            </div>
+            <div className="col-span-3">
+              <h3 className="text-sm font-bold text-gray-700">Show On Form?</h3>
+            </div>
+            <div className="col-span-1"></div>
+          </div>
 
-                {field.type === "fullName" && (
-                  <><label className="block text-sm font-semibold mb-2" style={{ color: s.textColor }}>Full Name *</label><Input type="text" placeholder="Enter full name" className="bg-white" /></>
-                )}
-                {field.type === "email" && (
-                  <><label className="block text-sm font-semibold mb-2" style={{ color: s.textColor }}>Email Address *</label><Input type="email" placeholder="Enter email address" className="bg-white" /></>
-                )}
-                {field.type === "fullAddress" && (
-                  <><label className="block text-sm font-semibold mb-2" style={{ color: s.textColor }}>Full Address *</label><Input type="text" placeholder="Enter full address" className="bg-white" /></>
-                )}
-                {field.type === "state" && (
-                  <><label className="block text-sm font-semibold mb-2" style={{ color: s.textColor }}>State *</label><Input type="text" placeholder="Enter your state" className="bg-white" /></>
-                )}
-                {field.type === "phone1" && (
-                  <><label className="block text-sm font-semibold mb-2" style={{ color: s.textColor }}>Phone Number 1 *</label><Input type="tel" placeholder="Enter phone number" className="bg-white" /></>
-                )}
-                {field.type === "phone2" && (
-                  <><label className="block text-sm font-semibold mb-2" style={{ color: s.textColor }}>Phone Number 2 *</label><Input type="tel" placeholder="Enter second phone number" className="bg-white" /></>
-                )}
-                {field.type === "packages" && (
-                  <>
-                    <label className="block text-sm font-semibold mb-3" style={{ color: s.textColor }}>Choose Your Preferred Packages *</label>
-                    <div className="space-y-2">
-                      {field.options.map(opt => (
-                        <div key={opt.id} className="flex items-center gap-3">
-                          <input type="radio" disabled className="accent-[#8B2FE8] w-4 h-4 shrink-0" />
-                          <Input value={opt.label} onChange={e => updatePackageOption(field.id, opt.id, e.target.value)} placeholder="Enter package option" className="flex-1 bg-white" />
-                          {field.options.length > 1 && (
-                            <button onClick={() => removePackageOption(field.id, opt.id)} className="text-red-400 hover:text-red-600 transition-colors p-1 shrink-0"><Trash2 size={14} /></button>
-                          )}
-                        </div>
-                      ))}
+          {Object.entries(formData.fields).map(([key, field]) => (
+            <div key={key} className="grid grid-cols-12 gap-4 items-center mb-3">
+              <div className="col-span-5">
+                <label className="block text-xs font-semibold text-gray-600 mb-1 capitalize">{key} Label</label>
+                <input
+                  type="text"
+                  value={field.label}
+                  onChange={(e) => updateFieldProp(key, "label", e.target.value)}
+                  placeholder={`Your ${key}`}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm text-gray-400 outline-none focus:border-purple-300"
+                />
+              </div>
+              <div className="col-span-3 flex items-center h-10">
+                <Toggle checked={field.required} onChange={(v) => updateFieldProp(key, "required", v)} />
+              </div>
+              <div className="col-span-3 flex items-center h-10">
+                <Toggle checked={field.show} onChange={(v) => updateFieldProp(key, "show", v)} />
+              </div>
+              {key === "phone" && (
+                <div className="col-span-1 flex items-center h-10">
+                  <span className="text-xs text-gray-500">Show Country Code</span>
+                </div>
+              )}
+            </div>
+          ))}
+
+          <div className="mt-4 pt-4 border-t border-gray-100 max-w-xs">
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Show Country Code</label>
+            <div className="relative flex items-center border border-gray-200 rounded-md overflow-hidden bg-white h-10 w-full sm:w-[250px]">
+              <select
+                value={formData.showCountryCode}
+                onChange={(e) => updateField("showCountryCode", e.target.value)}
+                className="w-full h-full pl-3 pr-10 text-sm font-semibold text-gray-700 bg-transparent outline-none appearance-none z-10 cursor-pointer animate-fadeIn"
+              >
+                <option value="YES">YES</option>
+                <option value="NO">NO</option>
+              </select>
+              <div className="absolute right-0 top-0 bottom-0 w-10 flex items-center justify-center bg-purple-50 pointer-events-none border-l border-gray-100">
+                <ChevronDown size={14} className="text-gray-500" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Appearance Settings Card */}
+        <div className="bg-white rounded-lg p-6">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Product Quantity Display As?</label>
+              <CustomSelect value={formData.productQuantityDisplay} onChange={(v) => updateField("productQuantityDisplay", v)} options={["Radio Button Option", "Dropdown Option"]} placeholder="Select an Option" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Type Product Text</label>
+              <input
+                type="text"
+                value={formData.typeProductText}
+                onChange={(e) => updateField("typeProductText", e.target.value)}
+                placeholder="e.g. Choose Your Preferred Packages"
+                className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm text-gray-700 outline-none focus:border-purple-300 bg-white"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Form Bakground Colour</label>
+              <ColorPicker value={formData.formBackgroundColor} onChange={(v) => updateField("formBackgroundColor", v)} />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Inner Background Color</label>
+              <ColorPicker value={formData.innerBackgroundColor} onChange={(v) => updateField("innerBackgroundColor", v)} />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Show Product Quantity Options On Top of Form?</label>
+              <CustomSelect value={formData.showProductQuantityOnTop} onChange={(v) => updateField("showProductQuantityOnTop", v)} options={yesNoOptions} placeholder="Yes" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Show form Fields Label?</label>
+              <CustomSelect value={formData.showFormFieldsLabel} onChange={(v) => updateField("showFormFieldsLabel", v)} options={yesNoOptions} placeholder="Yes" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Allow to to type Variation Quantity</label>
+              <CustomSelect value={formData.allowTypeVariationQuantity} onChange={(v) => updateField("allowTypeVariationQuantity", v)} options={yesNoOptions} placeholder="Yes" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Form Text Color (Labels & Headers)</label>
+              <ColorPicker value={formData.formLabelFontColor} onChange={(v) => updateField("formLabelFontColor", v)} />
+            </div>
+          </div>
+        </div>
+
+        {/* Hidden Field */}
+        <div className="bg-white rounded-lg p-6">
+          <label className="block text-xs font-semibold text-gray-600 mb-2">Hidden Field (Whatever you type here won't appear on your form)</label>
+          <input
+            type="text"
+            placeholder="Type Here"
+            className="w-full px-3 py-3 border border-gray-200 rounded-md text-sm text-gray-400 outline-none focus:border-purple-300"
+          />
+        </div>
+
+        {/* Divider */}
+        <div className="bg-gray-600 text-white text-center py-2 text-xs font-medium rounded">
+          • To add more form fields, first save your form and edit.
+        </div>
+
+        {/* Create Optin Form */}
+        <div className="flex items-center gap-4">
+          <span className="text-sm text-gray-600">Create An Optin Form?</span>
+          <CustomSelect value={formData.createOptinForm} onChange={(v) => updateField("createOptinForm", v)} options={yesNoOptions} placeholder="Yes" />
+        </div>
+
+        {/* Optin Form Fields */}
+        {formData.createOptinForm === "Yes" && (
+          <div className="space-y-3">
+            {Object.entries(formData.optinFields).map(([key, field]) => (
+              <div key={key} className="bg-white rounded-lg p-4 flex items-center justify-between">
+                <span className="text-sm font-semibold text-gray-700 capitalize">{key}</span>
+                <div className="flex items-center gap-8">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-gray-500">Required?</span>
+                    <Toggle checked={field.required} onChange={(v) => updateOptinFieldProp(key, "required", v)} />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-gray-500">Show on Form?</span>
+                    <Toggle checked={field.show} onChange={(v) => updateOptinFieldProp(key, "show", v)} />
+                  </div>
+                </div>
+              </div>
+            ))}
+
+            {/* Additional Fields */}
+            {formData.additionalFields.map((field, index) => (
+              <div key={index} className="bg-white rounded-lg p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-semibold text-gray-700">Additional Field</span>
+                  <div className="flex items-center gap-8">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-500">Required?</span>
+                      <Toggle checked={field.required} onChange={(v) => updateAdditionalField(index, "required", v)} />
                     </div>
-                    <button onClick={() => addPackageOption(field.id)} className="mt-2 text-xs font-semibold text-[#8B2FE8] border border-[#8B2FE8] rounded-lg px-3 py-1.5 hover:bg-purple-50 transition-colors flex items-center gap-1">
-                      <Plus size={12} /> Add Option
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-500">Show on Form?</span>
+                      <Toggle checked={field.show} onChange={(v) => updateAdditionalField(index, "show", v)} />
+                    </div>
+                  </div>
+                </div>
+                <input
+                  type="text"
+                  className="w-64 px-3 py-2 border border-gray-200 rounded-md text-sm outline-none focus:border-purple-300"
+                />
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Options</label>
+                  <div className="flex gap-3">
+                    {field.options.map((opt, optIndex) => (
+                      <input
+                        key={optIndex}
+                        type="text"
+                        value={opt}
+                        onChange={(e) => updateAdditionalOption(index, optIndex, e.target.value)}
+                        className="flex-1 px-3 py-2 border border-gray-200 rounded-md text-sm outline-none focus:border-purple-300"
+                      />
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Optin Button & URL Settings */}
+        {formData.createOptinForm === "Yes" && (
+          <div className="bg-white rounded-lg p-6 space-y-4">
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-2">SALES PAGE URL</label>
+              <input
+                type="text"
+                value={formData.salesPageUrl || ""}
+                onChange={(e) => updateField("salesPageUrl", e.target.value)}
+                placeholder="https://yoursalespage.com"
+                className="w-full px-3 py-3 border border-gray-200 rounded-md text-sm text-gray-500 outline-none focus:border-purple-300"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-2">Optin Button Text</label>
+              <input
+                type="text"
+                value={formData.optinButtonText}
+                onChange={(e) => updateField("optinButtonText", e.target.value)}
+                className="w-full px-3 py-4 border border-gray-200 rounded-md text-2xl text-center text-gray-500 font-bold outline-none focus:border-purple-300"
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Button Settings */}
+        <div className="bg-white rounded-lg p-6">
+          <div className="grid grid-cols-4 gap-4 mb-4">
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Submit Button Background Color</label>
+              <ColorPicker value={formData.submitButtonBackgroundColor} onChange={(v) => updateField("submitButtonBackgroundColor", v)} />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Submit Button Text Color</label>
+              <ColorPicker value={formData.submitButtonTextColor} onChange={(v) => updateField("submitButtonTextColor", v)} />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Submit Button Border Color</label>
+              <ColorPicker value={formData.submitButtonBorderColor} onChange={(v) => updateField("submitButtonBorderColor", v)} />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Border Radius</label>
+              <input
+                type="text"
+                value={formData.borderRadius}
+                onChange={(e) => updateField("borderRadius", e.target.value)}
+                className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm text-center outline-none focus:border-purple-300"
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-6 gap-4 mb-4">
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Submit Button Font Size</label>
+              <input
+                type="text"
+                value={formData.submitButtonFontSize}
+                onChange={(e) => updateField("submitButtonFontSize", e.target.value)}
+                className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm text-center outline-none focus:border-purple-300"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Form Width</label>
+              <CustomSelect value={formData.formWidth} onChange={(v) => updateField("formWidth", v)} options={["Normal", "Wide", "Narrow"]} placeholder="Normal" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Form Fields Height</label>
+              <input
+                type="text"
+                value={formData.formFieldsHeight}
+                onChange={(e) => updateField("formFieldsHeight", e.target.value)}
+                className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm text-center outline-none focus:border-purple-300"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Form Label Font Size</label>
+              <input
+                type="text"
+                value={formData.formLabelFontSize}
+                onChange={(e) => updateField("formLabelFontSize", e.target.value)}
+                className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm text-center outline-none focus:border-purple-300"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Form Font Type</label>
+              <CustomSelect value={formData.formFontType} onChange={(v) => updateField("formFontType", v)} options={fontOptions} placeholder="System Default" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Form Text Color (Labels & Headers)</label>
+              <ColorPicker value={formData.formLabelFontColor} onChange={(v) => updateField("formLabelFontColor", v)} />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Submit Button Text</label>
+              <input
+                type="text"
+                value={formData.submitButtonText}
+                onChange={(e) => updateField("submitButtonText", e.target.value)}
+                className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm outline-none focus:border-purple-300"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Text To Show Before Submit Button</label>
+              <input
+                type="text"
+                value={formData.textBeforeSubmitButton}
+                onChange={(e) => updateField("textBeforeSubmitButton", e.target.value)}
+                className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm text-center outline-none focus:border-purple-300"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Order Bump */}
+        <div className="bg-white rounded-lg p-6 space-y-4">
+          <div className="flex items-center gap-4">
+            <span className="text-sm text-gray-600">Do you want to add an Order Bump product?</span>
+            <CustomSelect value={formData.addOrderBump} onChange={(v) => updateField("addOrderBump", v)} options={yesNoOptions} placeholder="No" />
+          </div>
+
+          {formData.addOrderBump === "Yes" && (
+            <div className="space-y-3 pt-2">
+              <div>
+                <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Order Bump Product Pre Text</label>
+                <input type="text" value={formData.orderBumpPreText} onChange={(e) => updateField("orderBumpPreText", e.target.value)} placeholder="Brand new, Amazing, 100% Genuine etc" className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm text-gray-400 outline-none focus:border-purple-300" />
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Order Bump Product Biggest Benefit</label>
+                <input type="text" value={formData.orderBumpBiggestBenefit} onChange={(e) => updateField("orderBumpBiggestBenefit", e.target.value)} placeholder="Melts Away Fats In 2 Days!" className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm text-gray-400 outline-none focus:border-purple-300" />
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Order Bump Header</label>
+                <input type="text" value={formData.orderBumpHeader} onChange={(e) => updateField("orderBumpHeader", e.target.value)} placeholder="Would You Like To Add To Your Order:" className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm text-gray-400 outline-none focus:border-purple-300" />
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Order Bump Call To Action</label>
+                <input type="text" value={formData.orderBumpCallToAction} onChange={(e) => updateField("orderBumpCallToAction", e.target.value)} placeholder="Kindly click the box below to add this to your order now for just xxxx instead of paying normal price of yyyy!" className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm text-gray-400 outline-none focus:border-purple-300" />
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Order Bump Scarcity Text</label>
+                <input type="text" value={formData.orderBumpScarcityText} onChange={(e) => updateField("orderBumpScarcityText", e.target.value)} placeholder="This offer is not available at ANY other time or place" className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm text-gray-400 outline-none focus:border-purple-300" />
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Order Bump CTA For Checkbox</label>
+                <input type="text" value={formData.orderBumpCtaCheckbox} onChange={(e) => updateField("orderBumpCtaCheckbox", e.target.value)} placeholder="Yes, I will Take It" className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm text-gray-400 outline-none focus:border-purple-300" />
+              </div>
+              <div className="flex items-end gap-6">
+                <div>
+                  <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Order Bump Section Background Color</label>
+                  <ColorPicker value={formData.orderBumpBgColor} onChange={(v) => updateField("orderBumpBgColor", v)} />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Product Text Color</label>
+                  <ColorPicker value={formData.orderBumpProductTextColor} onChange={(v) => updateField("orderBumpProductTextColor", v)} />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Select Order Bump Product</label>
+                  <CustomSelect value={formData.orderBumpProduct} onChange={(v) => updateField("orderBumpProduct", v)} options={["Product 1", "Product 2"]} placeholder="None" />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Use Price Variation Template?</label>
+                  <CustomSelect value={formData.orderBumpPriceVariation} onChange={(v) => updateField("orderBumpPriceVariation", v)} options={["None", "Yes", "No"]} placeholder="None" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Order Bump Image (Width: 345px)</label>
+                <input type="file" accept="image/*" className="w-full text-sm text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border file:border-gray-200 file:text-xs file:bg-white file:text-gray-600 hover:file:bg-gray-50" />
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Order Bump Video URL &nbsp;<span className="normal-case font-normal text-gray-400">Copy Video URL From YouTube</span></label>
+                <input type="text" value={formData.orderBumpVideoUrl} onChange={(e) => updateField("orderBumpVideoUrl", e.target.value)} placeholder="Link from youtube" className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm text-gray-400 outline-none focus:border-purple-300" />
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Upsell */}
+        <div className="bg-white rounded-lg p-6 space-y-4">
+          <div className="flex items-center gap-4">
+            <span className="text-sm text-gray-600">Do you want to add an UPSELL product?</span>
+            <CustomSelect value={formData.addUpsell} onChange={(v) => updateField("addUpsell", v)} options={yesNoOptions} placeholder="No" />
+          </div>
+
+          {formData.addUpsell === "Yes" && (
+            <div className="space-y-3 pt-2">
+              {formData.upsellItems.map((item, idx) => (
+                <div key={idx} className="border border-gray-200 rounded-lg p-4 space-y-3 relative">
+                  {formData.upsellItems.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const items = formData.upsellItems.filter((_, i) => i !== idx);
+                        updateField("upsellItems", items);
+                      }}
+                      className="absolute top-2 right-2 text-red-500 hover:text-red-700 p-1.5 rounded-full hover:bg-red-50 transition-colors"
+                      title="Delete Upsell"
+                    >
+                      <X size={16} />
                     </button>
-                  </>
-                )}
-                {field.type === "submitButton" && (
-                  <button disabled className="w-full text-white font-semibold rounded-xl py-3 text-sm cursor-default" style={{ backgroundColor: s.buttonColor }}>
-                    {s.buttonText}
-                  </button>
+                  )}
+                  <div className="grid grid-cols-4 gap-3">
+                    <div>
+                      <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Select Upsell Product</label>
+                      <CustomSelect value={item.product} onChange={(v) => { const items = [...formData.upsellItems]; items[idx] = { ...items[idx], product: v }; updateField("upsellItems", items); }} options={["Product 1", "Product 2"]} placeholder="None" />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Upsell Page URL &nbsp;<span className="normal-case font-normal text-gray-400">Ensure you add http:// or https:// to your URL</span></label>
+                      <input type="text" value={item.pageUrl} onChange={(e) => { const items = [...formData.upsellItems]; items[idx] = { ...items[idx], pageUrl: e.target.value }; updateField("upsellItems", items); }} placeholder="http://yourupsellpage" className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm text-gray-400 outline-none focus:border-purple-300" />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Upsell Form Width</label>
+                      <CustomSelect value={item.formWidth} onChange={(v) => { const items = [...formData.upsellItems]; items[idx] = { ...items[idx], formWidth: v }; updateField("upsellItems", items); }} options={["Normal", "Wide", "Narrow"]} placeholder="Normal" />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Upsell Button Text</label>
+                      <input type="text" value={item.buttonText} onChange={(e) => { const items = [...formData.upsellItems]; items[idx] = { ...items[idx], buttonText: e.target.value }; updateField("upsellItems", items); }} className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm text-gray-400 outline-none focus:border-purple-300" />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-4 gap-3">
+                    <div>
+                      <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Upsell Decline Offer Text</label>
+                      <input type="text" value={item.declineText} onChange={(e) => { const items = [...formData.upsellItems]; items[idx] = { ...items[idx], declineText: e.target.value }; updateField("upsellItems", items); }} className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm text-gray-400 outline-none focus:border-purple-300" />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Upsell Decline Offer Text Size</label>
+                      <input type="text" value={item.declineTextSize} onChange={(e) => { const items = [...formData.upsellItems]; items[idx] = { ...items[idx], declineTextSize: e.target.value }; updateField("upsellItems", items); }} className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm text-gray-400 outline-none focus:border-purple-300" />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Upsell Scarcity Text</label>
+                      <input type="text" value={item.scarcityText} onChange={(e) => { const items = [...formData.upsellItems]; items[idx] = { ...items[idx], scarcityText: e.target.value }; updateField("upsellItems", items); }} className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm text-gray-400 outline-none focus:border-purple-300" />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Upsell Scarcity Text Size</label>
+                      <input type="text" value={item.scarcityTextSize} onChange={(e) => { const items = [...formData.upsellItems]; items[idx] = { ...items[idx], scarcityTextSize: e.target.value }; updateField("upsellItems", items); }} className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm text-gray-400 outline-none focus:border-purple-300" />
+                    </div>
+                  </div>
+                </div>
+              ))}
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => updateField("upsellItems", [...formData.upsellItems, { product: "", pageUrl: "", formWidth: "Normal", buttonText: "YES ADD TO MY ORDER", declineText: "No I dont want this huge give-away discount", declineTextSize: "18", scarcityText: "", scarcityTextSize: "18" }])}
+                  className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-md transition-colors"
+                >
+                  Add More Upsell
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Thank You URL */}
+        <div className="bg-white rounded-lg p-6">
+          <label className="block text-xs font-semibold text-gray-600 mb-2">Thank You URL Ensure you add http:// or https:// to your URL</label>
+          <input
+            type="text"
+            value={formData.thankYouUrl}
+            onChange={(e) => updateField("thankYouUrl", e.target.value)}
+            placeholder="Type Here"
+            className="w-full px-3 py-3 border border-gray-200 rounded-md text-sm text-gray-400 outline-none focus:border-purple-300"
+          />
+        </div>
+
+        {/* Payment Methods */}
+        <div className="bg-white rounded-lg p-6">
+          {/* Header row */}
+          <div className="grid grid-cols-[1fr_auto_auto] items-center mb-6 gap-4">
+            <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Payment Method</span>
+            <span className="text-xs font-semibold text-gray-500 text-center">API Key</span>
+            <span className="text-xs font-semibold text-gray-500 text-center pr-1">Enable?</span>
+          </div>
+
+          {/* Paystack Row */}
+          <div className="border-t border-gray-100 py-5">
+            <div className="grid grid-cols-[200px_1fr_60px] gap-6 items-center">
+              {/* Logo placeholder */}
+              <div className="flex items-center justify-center border-2 border-blue-400 rounded-lg h-16 bg-white">
+                <span className="text-sm font-extrabold text-blue-700 tracking-tight">paystack</span>
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Live Secret Key</label>
+                <input
+                  type="text"
+                  value={formData.paystackKey}
+                  onChange={(e) => updateField("paystackKey", e.target.value)}
+                  placeholder="Copy & paste Live Secret Key from your PayStack account"
+                  className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm text-gray-400 outline-none focus:border-purple-300 bg-gray-50"
+                />
+              </div>
+              <div className="flex justify-center">
+                <Toggle checked={formData.paystackEnabled} onChange={(v) => updateField("paystackEnabled", v)} />
+              </div>
+            </div>
+          </div>
+
+          {/* Flutterwave Row */}
+          <div className="border-t border-gray-100 py-5">
+            <div className="grid grid-cols-[200px_1fr_60px] gap-6 items-center">
+              <div className="flex items-center justify-center border-2 border-green-500 rounded-lg h-16 bg-white">
+                <span className="text-sm font-extrabold text-green-700 tracking-tight">Flutterwave</span>
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Live Public Key</label>
+                <input
+                  type="text"
+                  value={formData.flutterwaveKey}
+                  onChange={(e) => updateField("flutterwaveKey", e.target.value)}
+                  placeholder="Copy & paste Live Public Key from your FlutterWave account"
+                  className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm text-gray-400 outline-none focus:border-purple-300 bg-gray-50"
+                />
+              </div>
+              <div className="flex justify-center">
+                <Toggle checked={formData.flutterwaveEnabled} onChange={(v) => updateField("flutterwaveEnabled", v)} />
+              </div>
+            </div>
+          </div>
+
+          {/* Bank Transfer Row */}
+          <div className="border-t border-gray-100 py-5">
+            <div className="grid grid-cols-[200px_1fr_60px] gap-6 items-start">
+              <div className="flex items-center justify-center border-2 border-blue-700 rounded-lg h-24 bg-white">
+                <span className="text-sm font-extrabold text-blue-900 tracking-tight text-center leading-tight px-2">≡ BANK<br />TRANSFER</span>
+              </div>
+              <div className={`space-y-2 transition-opacity duration-200 ${formData.bankTransferEnabled ? "opacity-100" : "opacity-40 pointer-events-none"}`}>
+                <div>
+                  <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Account Name</label>
+                  <input
+                    type="text"
+                    disabled={!formData.bankTransferEnabled}
+                    value={formData.bankAccountName}
+                    onChange={(e) => updateField("bankAccountName", e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm text-gray-400 outline-none focus:border-purple-300 bg-gray-50 disabled:cursor-not-allowed"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Account Number</label>
+                  <input
+                    type="text"
+                    disabled={!formData.bankTransferEnabled}
+                    value={formData.bankAccountNumber}
+                    onChange={(e) => updateField("bankAccountNumber", e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm text-gray-400 outline-none focus:border-purple-300 bg-gray-50 disabled:cursor-not-allowed"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Bank</label>
+                  <input
+                    type="text"
+                    disabled={!formData.bankTransferEnabled}
+                    value={formData.bankName}
+                    onChange={(e) => updateField("bankName", e.target.value)}
+                    placeholder="Type Bank Name"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm text-gray-400 outline-none focus:border-purple-300 bg-gray-50 disabled:cursor-not-allowed"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">After Payment Instruction</label>
+                  <input
+                    type="text"
+                    disabled={!formData.bankTransferEnabled}
+                    value={formData.bankAfterPaymentInstruction}
+                    onChange={(e) => updateField("bankAfterPaymentInstruction", e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm text-gray-400 outline-none focus:border-purple-300 bg-gray-50 disabled:cursor-not-allowed"
+                  />
+                </div>
+              </div>
+              <div className="flex justify-center pt-2">
+                <Toggle checked={formData.bankTransferEnabled} onChange={(v) => updateField("bankTransferEnabled", v)} />
+              </div>
+            </div>
+          </div>
+
+          {/* Pay On Delivery Row */}
+          <div className="border-t border-gray-100 py-5">
+            <div className="grid grid-cols-[200px_1fr_60px] gap-6 items-center">
+              <div className="flex items-center justify-center rounded-lg h-16 bg-teal-700 gap-2 px-3">
+                <span className="text-white text-sm font-extrabold tracking-tight">Pay On Delivery</span>
+              </div>
+              <div />
+              <div className="flex justify-center">
+                <Toggle checked={formData.payOnDeliveryEnabled} onChange={(v) => updateField("payOnDeliveryEnabled", v)} />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Payment Config Fields — shown when any online payment method is toggled on */}
+        {anyOnlinePaymentEnabled && (
+          <div className="bg-white rounded-lg p-6 space-y-4">
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Select Method Text</label>
+              <input
+                type="text"
+                value={formData.selectMethodText}
+                onChange={(e) => updateField("selectMethodText", e.target.value)}
+                placeholder="SELECT A PAYMENT METHOD"
+                className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm text-gray-400 outline-none focus:border-purple-300"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Discount Message For Paying Online (Leave Blank If None)</label>
+              <input
+                type="text"
+                value={formData.discountMessageOnline}
+                onChange={(e) => updateField("discountMessageOnline", e.target.value)}
+                placeholder="eg Pay only N12,000 if you pay online OR Get N5,000 discount if you pay online"
+                className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm text-gray-400 outline-none focus:border-purple-300"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Discount Amount For Paying Online</label>
+              <input
+                type="text"
+                value={formData.discountAmountOnline}
+                onChange={(e) => updateField("discountAmountOnline", e.target.value)}
+                placeholder="eg 5000"
+                className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm text-gray-400 outline-none focus:border-purple-300"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4 items-end">
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Any Commitment Fee? Type Amount</label>
+                <input
+                  type="text"
+                  value={formData.commitmentFee}
+                  onChange={(e) => updateField("commitmentFee", e.target.value)}
+                  placeholder="eg 2000"
+                  className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm text-gray-400 outline-none focus:border-purple-300"
+                />
+              </div>
+              {/* States multi-select dropdown */}
+              <div ref={statesDropdownRef} className="relative">
+                <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">
+                  Select States To <span className="underline">EXCLUDE</span> From Paying Commitment Fee (Leave blank if none)
+                </label>
+                {/* Trigger box */}
+                <div
+                  onClick={() => setStatesDropdownOpen((o) => !o)}
+                  className="w-full min-h-[38px] px-3 py-1.5 border border-gray-200 rounded-md text-sm outline-none focus:border-purple-300 cursor-pointer bg-white flex flex-wrap gap-1 items-center"
+                >
+                  {(formData.selectStatesExclude as string[]).length === 0 ? (
+                    <span className="text-gray-400 text-sm">Click to select states…</span>
+                  ) : (
+                    (formData.selectStatesExclude as string[]).map((s) => (
+                      <span
+                        key={s}
+                        className="inline-flex items-center gap-1 bg-purple-100 text-purple-700 text-xs font-medium px-2 py-0.5 rounded-full"
+                      >
+                        {s}
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); removeState(s); }}
+                          className="hover:text-purple-900"
+                        >
+                          <X size={10} />
+                        </button>
+                      </span>
+                    ))
+                  )}
+                  <ChevronDown size={14} className="ml-auto text-gray-400 flex-shrink-0" />
+                </div>
+                {/* Dropdown list */}
+                {statesDropdownOpen && (
+                  <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-52 overflow-y-auto">
+                    {NIGERIAN_STATES.map((state) => {
+                      const selected = (formData.selectStatesExclude as string[]).includes(state);
+                      return (
+                        <div
+                          key={state}
+                          onClick={() => toggleStateSelection(state)}
+                          className={`flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-purple-50 transition-colors ${
+                            selected ? "bg-purple-50 text-purple-700 font-medium" : "text-gray-700"
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            readOnly
+                            checked={selected}
+                            className="accent-purple-600 pointer-events-none"
+                          />
+                          {state}
+                        </div>
+                      );
+                    })}
+                  </div>
                 )}
               </div>
-            ))
-          )}
+            </div>
+          </div>
+        )}
+
+        {/* Additional Settings */}
+        <div className="bg-white rounded-lg p-6 space-y-4">
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Use Coupon/Discount?</label>
+              <CustomSelect value={formData.useCouponDiscount} onChange={(v) => updateField("useCouponDiscount", v)} options={["Select", "Yes", "No"]} placeholder="Select" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Enable States Delivery Fee?</label>
+              <CustomSelect value={formData.enableStatesDeliveryFee} onChange={(v) => updateField("enableStatesDeliveryFee", v)} options={["Select", "Yes", "No"]} placeholder="Select" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Use Custom States?</label>
+              <CustomSelect value={formData.useCustomStates} onChange={(v) => updateField("useCustomStates", v)} options={["Select", "Yes", "No"]} placeholder="Select" />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Email To Receive Order Notifications (If you're adding multiple emails, separate each with a comma: email1@email.com, email2@email.com)</label>
+            <input
+              type="text"
+              value={formData.emailForNotifications}
+              onChange={(e) => updateField("emailForNotifications", e.target.value)}
+              className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm outline-none focus:border-purple-300"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Show Order ID on Email Notifications</label>
+              <CustomSelect value={formData.showOrderId} onChange={(v) => updateField("showOrderId", v)} options={["Select", "Yes", "No"]} placeholder="Select" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Show Message to banned customers?</label>
+              <CustomSelect value={formData.showMessageBanned} onChange={(v) => updateField("showMessageBanned", v)} options={yesNoOptions} placeholder="Yes" />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Terms & Conditions</label>
+            <p className="text-xs text-gray-400 mb-2">This will show a checkbox before the Submit button on your form, for customers to accept your Terms & Conditions before they can submit any order. Leave blank if you don't want the checkbox to appear</p>
+            <textarea
+              value={formData.termsAndConditions}
+              onChange={(e) => updateField("termsAndConditions", e.target.value)}
+              rows={3}
+              className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm outline-none focus:border-purple-300 resize-none"
+            />
+          </div>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="flex justify-end gap-4 pt-4">
+          <button
+            onClick={handleAddForm}
+            className="px-8 py-2.5 bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-md text-sm transition-colors"
+          >
+            {editId ? "Save Changes" : "Add Form"}
+          </button>
+          <button
+            onClick={handleReset}
+            className="px-8 py-2.5 bg-gray-600 hover:bg-gray-700 text-white font-semibold rounded-md text-sm transition-colors"
+          >
+            Reset
+          </button>
         </div>
       </div>
     </div>
