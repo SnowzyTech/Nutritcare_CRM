@@ -14,6 +14,7 @@ import {
   adminAddOrderItemsAction,
   adminUpdateOrderTotalAction,
   adminReassignOrderAgentAction,
+  adminUpdateOrderNotesAction,
 } from "@/modules/orders/actions/admin-orders.action";
 
 export type SerializedOrder = {
@@ -148,6 +149,7 @@ export function AdminOrderDetailClient({
   const [isReassignOpen, setIsReassignOpen] = useState(false);
   const [selectedAgentId, setSelectedAgentId] = useState("");
   const [totalInput, setTotalInput] = useState(order.totalAmount);
+  const [prescription, setPrescription] = useState(order.notes ?? "");
   const [productRows, setProductRows] = useState([
     { id: Date.now(), productId: products[0]?.id ?? "", qty: "1" },
   ]);
@@ -572,23 +574,40 @@ export function AdminOrderDetailClient({
               </div>
             )}
 
-            {order.status !== "PENDING" && (
-              <div className="mt-4">
-                <div className="bg-slate-200 p-3 rounded-t-xl text-[0.8rem] font-bold text-slate-500 uppercase">
-                  Prescription
-                </div>
-                <div className="bg-white p-6 rounded-b-xl border border-t-0 border-slate-200 shadow-sm relative group">
-                  <textarea
-                    placeholder="Cap. Amoxicillin 500mg Take 1 capsule every 8 hours for 5 days."
-                    defaultValue={order.notes ?? ""}
-                    className="w-full min-h-20 text-[0.9rem] font-bold text-slate-600 leading-relaxed outline-none resize-none bg-transparent"
-                  />
-                  <button className="absolute top-4 right-4 p-1 rounded-md border border-purple-200 text-purple-600 text-[0.6rem] font-bold hover:bg-purple-50">
-                    Edit
-                  </button>
-                </div>
+            <div className="mt-4">
+              <div className="bg-slate-200 p-3 rounded-t-xl text-[0.8rem] font-bold text-slate-500 uppercase">
+                {order.status === "PENDING" || order.status === "CONFIRMED"
+                  ? "Set Prescription"
+                  : "Prescription"}
               </div>
-            )}
+              <div className="bg-white p-4 rounded-b-xl border border-t-0 border-slate-200 shadow-sm">
+                {order.status === "PENDING" || order.status === "CONFIRMED" ? (
+                  <>
+                    <textarea
+                      value={prescription}
+                      onChange={(e) => setPrescription(e.target.value)}
+                      placeholder="Cap. Amoxicillin 500mg Take 1 capsule every 8 hours for 5 days."
+                      className="w-full min-h-20 text-[0.85rem] text-slate-600 leading-relaxed outline-none resize-none bg-transparent border border-slate-200 rounded-lg px-3 py-2 focus:border-purple-400"
+                    />
+                    <button
+                      disabled={isPending}
+                      onClick={() =>
+                        handleAction(() =>
+                          adminUpdateOrderNotesAction(order.id, prescription)
+                        )
+                      }
+                      className="mt-3 w-full bg-purple-600 text-white py-2 rounded-lg text-sm font-bold hover:bg-purple-700 transition disabled:opacity-50"
+                    >
+                      Save Prescription
+                    </button>
+                  </>
+                ) : order.notes ? (
+                  <p className="text-[0.85rem] text-slate-600 leading-relaxed">{order.notes}</p>
+                ) : (
+                  <p className="text-[0.85rem] text-slate-400 italic">No prescription set.</p>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       </div>

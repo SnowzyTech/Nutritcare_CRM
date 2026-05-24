@@ -93,7 +93,7 @@ export async function getSalesRecords(filters: {
 }
 
 export async function getSalesRecordById(id: string) {
-  const order = await prisma.order.findUnique({
+  const order = await prisma.order.findFirst({
     where: { id, deletedAt: null },
     include: {
       customer: true,

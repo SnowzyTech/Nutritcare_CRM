@@ -13,7 +13,11 @@ import {
   approveAccount,
   rejectAccount,
   assignWarehouseToUser,
+  createTeam,
+  deleteTeam,
+  updateSelfProfile,
 } from "../services/users.service";
+import type { Department } from "@prisma/client";
 
 type ActionResult = { success: true } | { error: string };
 type ResetPasswordResult = { success: true; tempPassword: string } | { error: string };
@@ -22,6 +26,25 @@ async function requireAdmin() {
   const session = await auth();
   if (!session?.user?.id || session.user.role !== "ADMIN") {
     throw new Error("Unauthorized");
+  }
+}
+
+export async function updateProfileAction(input: {
+  name: string;
+  phone?: string;
+  whatsappNumber?: string;
+}): Promise<ActionResult> {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) return { error: "Unauthorized" };
+    if (!input.name.trim()) return { error: "Name is required" };
+    await updateSelfProfile(session.user.id, input);
+    revalidatePath("/sales-rep/settings");
+    revalidatePath("/warehouse/settings");
+    revalidatePath("/logistics/settings");
+    return { success: true };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Failed to update profile" };
   }
 }
 
@@ -129,5 +152,28 @@ export async function assignWarehouseAction(userId: string, warehouseId: string 
     return { success: true };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Failed to assign warehouse" };
+  }
+}
+
+export async function createTeamAction(name: string, department: Department): Promise<ActionResult> {
+  try {
+    await requireAdmin();
+    if (!name.trim()) return { error: "Team name is required" };
+    await createTeam(name, department);
+    revalidatePath("/admin/staff/teams");
+    return { success: true };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Failed to create team" };
+  }
+}
+
+export async function deleteTeamAction(id: string): Promise<ActionResult> {
+  try {
+    await requireAdmin();
+    await deleteTeam(id);
+    revalidatePath("/admin/staff/teams");
+    return { success: true };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Failed to delete team" };
   }
 }

@@ -1,4 +1,9 @@
 import { prisma } from "@/lib/db/prisma";
+import {
+  getProductTotalsMap,
+  getWarehouseStockMap,
+  getAgentStockMap,
+} from "./stock-level.service";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -126,17 +131,12 @@ function formatMovementTime(date: Date): string {
 // ── Dashboard ────────────────────────────────────────────────────────────────
 
 export async function getInventoryDashboardData() {
-  const [products, allMovementItems, purchaseOrders, recentMovements] = await Promise.all([
+  const [products, totalsMap, purchaseOrders, recentMovements] = await Promise.all([
     prisma.product.findMany({
       where: { isActive: true, deletedAt: null },
       include: { category: true },
     }),
-    prisma.stockMovementItem.findMany({
-      include: {
-        stockMovement: { select: { type: true, status: true } },
-        product: { include: { category: true } },
-      },
-    }),
+    getProductTotalsMap(),
     prisma.purchaseOrder.findMany({
       where: { status: { in: ["PENDING", "IN_TRANSIT"] } },
       include: { supplier: true, items: { include: { product: true } } },
@@ -149,26 +149,8 @@ export async function getInventoryDashboardData() {
     }),
   ]);
 
-  // Compute net stock per product
-  const stockMap = new Map<string, { incoming: number; outgoing: number; returned: number }>();
-  for (const item of allMovementItems) {
-    if (!stockMap.has(item.productId)) {
-      stockMap.set(item.productId, { incoming: 0, outgoing: 0, returned: 0 });
-    }
-    const entry = stockMap.get(item.productId)!;
-    const { type, status } = item.stockMovement;
-    if (type === "INCOMING" && ["RECORDED", "RECEIVED", "SHELVED"].includes(status)) {
-      entry.incoming += item.quantity;
-    } else if (type === "OUTGOING") {
-      entry.outgoing += item.quantity;
-    } else if (type === "RETURN") {
-      entry.returned += item.quantity;
-    }
-  }
-
   const stockLevels: StockLevelRow[] = products.map((p) => {
-    const s = stockMap.get(p.id) ?? { incoming: 0, outgoing: 0, returned: 0 };
-    const qty = Math.max(0, s.incoming - s.outgoing + s.returned);
+    const qty = totalsMap[p.id] ?? 0;
     const min = p.lowStockAlertQtyTotal ?? 50;
     const status: "OK" | "Low" | "Watch" =
       qty < min ? "Low" : qty < min * 1.5 ? "Watch" : "OK";
@@ -269,6 +251,7 @@ export async function getOutgoingMovements(): Promise<OutgoingMovementRow[]> {
     where: { type: "OUTGOING" },
     include: {
       agent: true,
+      toAgent: true,
       createdBy: true,
       items: { include: { product: true } },
     },
@@ -287,8 +270,10 @@ export async function getOutgoingMovements(): Promise<OutgoingMovementRow[]> {
       date: formatMovementDate(m.date),
       productName: m.items.map((i) => i.product.name).join(", ") || "—",
       state: m.state ?? "—",
-      agent: m.agent?.companyName ?? "—",
-      otherInfo: m.agent?.phone1 ?? "—",
+      agent: m.isAgentToAgentTransfer 
+        ? `${m.agent?.companyName ?? "Unknown"} → ${m.toAgent?.companyName ?? "Unknown"}`
+        : (m.toAgent?.companyName ?? m.agent?.companyName ?? "—"),
+      otherInfo: m.toAgent?.phone1 ?? m.agent?.phone1 ?? "—",
       qtySent: totalQty,
       status: statusMap[m.status] ?? m.status,
       addedBy: m.createdBy.name,
@@ -400,54 +385,26 @@ export async function getStockTransfers(): Promise<StockTransferRow[]> {
 // ── Stock in Warehouse ────────────────────────────────────────────────────────
 
 export async function getStockInWarehouse(): Promise<WarehouseStockRow[]> {
-  const items = await prisma.stockMovementItem.findMany({
-    include: {
-      stockMovement: { select: { type: true, status: true, warehouseId: true } },
-      product: true,
-    },
-    where: {
-      stockMovement: { warehouseId: { not: null } },
-    },
-  });
+  const [levels, warehouses, products] = await Promise.all([
+    prisma.stockLevel.findMany({
+      where: { locationKind: "WAREHOUSE", quantity: { gt: 0 } },
+      select: { productId: true, locationId: true, quantity: true },
+    }),
+    prisma.warehouse.findMany({ select: { id: true, name: true } }),
+    prisma.product.findMany({ select: { id: true, name: true } }),
+  ]);
 
-  const warehouses = await prisma.warehouse.findMany({ select: { id: true, name: true } });
   const whMap = new Map(warehouses.map((w) => [w.id, w.name]));
+  const productNameMap = new Map(products.map((p) => [p.id, p.name]));
 
-  type Key = `${string}::${string}`;
-  const map = new Map<Key, { productName: string; warehouseName: string; recorded: number; left: number }>();
-
-  for (const item of items) {
-    const { type, status, warehouseId } = item.stockMovement;
-    if (!warehouseId) continue;
-    const key: Key = `${item.productId}::${warehouseId}`;
-    if (!map.has(key)) {
-      map.set(key, {
-        productName: item.product.name,
-        warehouseName: whMap.get(warehouseId) ?? warehouseId,
-        recorded: 0,
-        left: 0,
-      });
-    }
-    const entry = map.get(key)!;
-    if (type === "INCOMING" && ["RECORDED", "RECEIVED", "SHELVED"].includes(status)) {
-      entry.recorded += item.quantity;
-      entry.left += item.quantity;
-    } else if (type === "OUTGOING") {
-      entry.left -= item.quantity;
-    } else if (type === "RETURN") {
-      entry.left += item.quantity;
-    }
-  }
-
-  return Array.from(map.entries())
-    .map(([key, v]) => ({
-      id: key,
-      productName: v.productName,
-      warehouse: v.warehouseName,
-      qtyRecorded: v.recorded,
-      qtyLeft: Math.max(0, v.left),
+  return levels
+    .map((l) => ({
+      id: `${l.productId}::${l.locationId}`,
+      productName: productNameMap.get(l.productId) ?? l.productId,
+      warehouse: whMap.get(l.locationId) ?? l.locationId,
+      qtyRecorded: l.quantity,
+      qtyLeft: l.quantity,
     }))
-    .filter((r) => r.qtyRecorded > 0)
     .sort((a, b) => a.productName.localeCompare(b.productName));
 }
 
@@ -529,7 +486,10 @@ export async function getStockSuppliers(): Promise<StockSupplierRow[]> {
 }
 
 export async function getStockWarehouses(): Promise<StockWarehouseRow[]> {
-  const warehouses = await prisma.warehouse.findMany({ orderBy: { createdAt: "desc" } });
+  const warehouses = await prisma.warehouse.findMany({
+    where: { deletedAt: null },
+    orderBy: { createdAt: "desc" },
+  });
   return warehouses.map((w) => ({
     id: w.id,
     name: w.name,
@@ -540,29 +500,14 @@ export async function getStockWarehouses(): Promise<StockWarehouseRow[]> {
 }
 
 export async function getStockProducts(): Promise<StockProductRow[]> {
-  const [products, allMovementItems] = await Promise.all([
+  const [products, totalsMap] = await Promise.all([
     prisma.product.findMany({
       where: { isActive: true, deletedAt: null },
       include: { category: true },
       orderBy: { name: "asc" },
     }),
-    prisma.stockMovementItem.findMany({
-      include: { stockMovement: { select: { type: true, status: true } } },
-    }),
+    getProductTotalsMap(),
   ]);
-
-  const stockMap = new Map<string, number>();
-  for (const item of allMovementItems) {
-    const { type, status } = item.stockMovement;
-    const cur = stockMap.get(item.productId) ?? 0;
-    if (type === "INCOMING" && ["RECORDED", "RECEIVED", "SHELVED"].includes(status)) {
-      stockMap.set(item.productId, cur + item.quantity);
-    } else if (type === "OUTGOING") {
-      stockMap.set(item.productId, cur - item.quantity);
-    } else if (type === "RETURN") {
-      stockMap.set(item.productId, cur + item.quantity);
-    }
-  }
 
   return products.map((p) => ({
     id: p.id,
@@ -572,12 +517,15 @@ export async function getStockProducts(): Promise<StockProductRow[]> {
     sku: p.sku,
     costPrice: Number(p.costPrice),
     sellingPrice: Number(p.sellingPrice),
-    stockLeft: Math.max(0, stockMap.get(p.id) ?? 0),
+    stockLeft: totalsMap[p.id] ?? 0,
   }));
 }
 
 export async function getStockCategories(): Promise<StockCategoryRow[]> {
-  const cats = await prisma.productCategory.findMany({ orderBy: { createdAt: "desc" } });
+  const cats = await prisma.productCategory.findMany({
+    where: { deletedAt: null },
+    orderBy: { createdAt: "desc" },
+  });
   return cats.map((c) => ({
     id: c.id,
     categoryName: c.categoryName,
@@ -685,11 +633,33 @@ export async function getIncomingMovementById(id: string): Promise<IncomingMovem
   };
 }
 
+export async function getIncomingMovementForEdit(id: string) {
+  const m = await prisma.stockMovement.findUnique({
+    where: { id },
+    include: {
+      items: true,
+    },
+  });
+  if (!m || m.type !== "INCOMING") return null;
+
+  return {
+    ...m,
+    date: m.date.toISOString().split("T")[0],
+    items: m.items.map((item) => ({
+      id: item.id,
+      productId: item.productId,
+      productCode: item.productCode,
+      quantity: item.quantity,
+    })),
+  };
+}
+
 export async function getOutgoingMovementById(id: string): Promise<OutgoingMovementDetail | null> {
   const m = await prisma.stockMovement.findUnique({
     where: { id },
     include: {
       agent: true,
+      toAgent: true,
       createdBy: true,
       items: { include: { product: true } },
     },
@@ -703,9 +673,11 @@ export async function getOutgoingMovementById(id: string): Promise<OutgoingMovem
   return {
     id: m.id,
     soId: m.referenceNumber,
-    state: m.state ?? m.agent?.state ?? "—",
-    country: m.agent?.country ?? "Nigeria",
-    agent: m.agent?.companyName ?? "—",
+    state: m.state ?? m.agent?.state ?? m.toAgent?.state ?? "—",
+    country: m.agent?.country ?? m.toAgent?.country ?? "Nigeria",
+    agent: m.isAgentToAgentTransfer 
+      ? `${m.agent?.companyName ?? "Unknown"} → ${m.toAgent?.companyName ?? "Unknown"}`
+      : (m.toAgent?.companyName ?? m.agent?.companyName ?? "—"),
     supplierReference: m.supplierReference ?? "—",
     addedBy: m.createdBy.name,
     date: formatMovementDate(m.date),
@@ -726,6 +698,7 @@ export async function getReturnedMovementById(id: string): Promise<ReturnedMovem
     where: { id },
     include: {
       agent: true,
+      toAgent: true,
       createdBy: true,
       items: { include: { product: true } },
     },
@@ -811,66 +784,152 @@ export async function getStockTransferById(id: string): Promise<StockTransferDet
   };
 }
 
+// ── Stock in Warehouse (grouped by warehouse) ─────────────────────────────────
+
+export type WarehouseStockItem = {
+  productId: string;
+  productName: string;
+  qtyRecorded: number;
+  qtyLeft: number;
+};
+
+export type WarehouseSummary = {
+  id: string;
+  name: string;
+  managerName: string;
+  totalProducts: number;
+  totalQty: number;
+  items: WarehouseStockItem[];
+};
+
+export async function getWarehousesWithStock(): Promise<WarehouseSummary[]> {
+  const [warehouseStock, warehouses, products] = await Promise.all([
+    getWarehouseStockMap(),
+    prisma.warehouse.findMany({
+      where: { deletedAt: null },
+      select: { id: true, name: true, managerName: true },
+      orderBy: { name: "asc" },
+    }),
+    prisma.product.findMany({
+      where: { isActive: true, deletedAt: null },
+      select: { id: true, name: true },
+    }),
+  ]);
+
+  const productNameMap = new Map(products.map((p) => [p.id, p.name]));
+
+  return warehouses.map((w) => {
+    const wMap = warehouseStock[w.id] ?? {};
+    const stockItems: WarehouseStockItem[] = Object.entries(wMap)
+      .map(([productId, qty]) => ({
+        productId,
+        productName: productNameMap.get(productId) ?? productId,
+        qtyRecorded: qty,
+        qtyLeft: qty,
+      }))
+      .filter((i) => i.qtyLeft > 0)
+      .sort((a, b) => a.productName.localeCompare(b.productName));
+
+    return {
+      id: w.id,
+      name: w.name,
+      managerName: w.managerName ?? "—",
+      totalProducts: stockItems.length,
+      totalQty: stockItems.reduce((s, i) => s + i.qtyLeft, 0),
+      items: stockItems,
+    };
+  });
+}
+
+// ── Stock Left with Agents (grouped by agent) ─────────────────────────────────
+
+export type AgentStockItem = {
+  productId: string;
+  productName: string;
+  qtySent: number;
+  qtyLeft: number;
+};
+
+export type AgentStockSummary = {
+  id: string;
+  name: string;
+  state: string;
+  totalProducts: number;
+  totalQty: number;
+  items: AgentStockItem[];
+};
+
+export async function getAgentsWithStock(): Promise<AgentStockSummary[]> {
+  const [agentStock, agents, products] = await Promise.all([
+    getAgentStockMap(),
+    prisma.agent.findMany({
+      where: { deletedAt: null },
+      select: { id: true, companyName: true, state: true },
+      orderBy: { companyName: "asc" },
+    }),
+    prisma.product.findMany({
+      where: { isActive: true, deletedAt: null },
+      select: { id: true, name: true },
+    }),
+  ]);
+
+  const productNameMap = new Map(products.map((p) => [p.id, p.name]));
+
+  return agents
+    .map((agent) => {
+      const aMap = agentStock[agent.id] ?? {};
+      const stockItems: AgentStockItem[] = Object.entries(aMap)
+        .map(([productId, qty]) => ({
+          productId,
+          productName: productNameMap.get(productId) ?? productId,
+          qtySent: qty,
+          qtyLeft: qty,
+        }))
+        .filter((i) => i.qtyLeft > 0)
+        .sort((a, b) => a.productName.localeCompare(b.productName));
+
+      return {
+        id: agent.id,
+        name: agent.companyName,
+        state: agent.state ?? "—",
+        totalProducts: stockItems.length,
+        totalQty: stockItems.reduce((s, i) => s + i.qtyLeft, 0),
+        items: stockItems,
+      };
+    })
+    .filter((a) => a.items.length > 0);
+}
+
 // ── Stock Left with Agents ────────────────────────────────────────────────────
 
 export async function getStockLeftWithAgents(): Promise<AgentStockRow[]> {
-  const [outgoing, returned, agents] = await Promise.all([
-    prisma.stockMovementItem.findMany({
-      where: { stockMovement: { type: "OUTGOING", agentId: { not: null } } },
-      include: {
-        stockMovement: { select: { agentId: true } },
-        product: true,
-      },
-    }),
-    prisma.stockMovementItem.findMany({
-      where: { stockMovement: { type: "RETURN", agentId: { not: null } } },
-      include: {
-        stockMovement: { select: { agentId: true } },
-        product: true,
-      },
+  const [levels, agents, products] = await Promise.all([
+    prisma.stockLevel.findMany({
+      where: { locationKind: "AGENT", quantity: { gt: 0 } },
+      select: { productId: true, locationId: true, quantity: true },
     }),
     prisma.agent.findMany({ where: { deletedAt: null }, select: { id: true, companyName: true, state: true } }),
+    prisma.product.findMany({ select: { id: true, name: true } }),
   ]);
 
   const agentMap = new Map(agents.map((a) => [a.id, a]));
-  type Key = `${string}::${string}`;
-
-  const map = new Map<Key, { productName: string; agentName: string; state: string; sent: number; returned: number }>();
-
-  for (const item of outgoing) {
-    const agentId = item.stockMovement.agentId!;
-    const key: Key = `${agentId}::${item.productId}`;
-    if (!map.has(key)) {
-      const agent = agentMap.get(agentId);
-      map.set(key, { productName: item.product.name, agentName: agent?.companyName ?? "—", state: agent?.state ?? "—", sent: 0, returned: 0 });
-    }
-    map.get(key)!.sent += item.quantity;
-  }
-
-  for (const item of returned) {
-    const agentId = item.stockMovement.agentId!;
-    const key: Key = `${agentId}::${item.productId}`;
-    if (map.has(key)) map.get(key)!.returned += item.quantity;
-  }
+  const productNameMap = new Map(products.map((p) => [p.id, p.name]));
 
   let idx = 1;
-  return Array.from(map.entries())
-    .map(([, v]) => {
-      // qtyLeft = what's still with agent (not yet returned)
-      // qtySold = sent - qtyLeft (what has been disposed of = returned stock, best approximation)
-      const qtyLeft = Math.max(0, v.sent - v.returned);
-      const qtySold = v.sent - qtyLeft; // = v.returned
-      return {
-        id: String(idx++),
-        productName: v.productName,
-        state: v.state,
-        agentName: v.agentName,
-        qtySent: v.sent,
-        qtySold,
-        qtyLeft,
-      };
-    })
-    .filter((r) => r.qtySent > 0 || r.qtyLeft > 0);
+  return levels.map((l) => {
+    const agent = agentMap.get(l.locationId);
+    // We no longer track "sent" vs "returned" separately — qtyLeft is the
+    // live balance. qtySent matches it (best-effort), qtySold is derived 0.
+    return {
+      id: String(idx++),
+      productName: productNameMap.get(l.productId) ?? l.productId,
+      state: agent?.state ?? "—",
+      agentName: agent?.companyName ?? "—",
+      qtySent: l.quantity,
+      qtySold: 0,
+      qtyLeft: l.quantity,
+    };
+  });
 }
 
 // ── Adjustments ──────────────────────────────────────────────────────────────
@@ -984,6 +1043,7 @@ export type TransferNodeOption = { id: string; name: string; type: "WAREHOUSE" |
 
 export async function getWarehousesForDropdown(): Promise<DropdownOption[]> {
   return prisma.warehouse.findMany({
+    where: { deletedAt: null },
     select: { id: true, name: true },
     orderBy: { name: "asc" },
   });
@@ -999,7 +1059,14 @@ export async function getSuppliersForDropdown(): Promise<DropdownOption[]> {
 
 export async function getAgentsForDropdown(): Promise<DropdownOption[]> {
   const rows = await prisma.agent.findMany({
-    where: { deletedAt: null, status: "ACTIVE" },
+    where: {
+      deletedAt: null,
+      status: "ACTIVE",
+      OR: [
+        { user: null },
+        { user: { role: "DELIVERY_AGENT" } },
+      ],
+    },
     select: { id: true, companyName: true },
     orderBy: { companyName: "asc" },
   });
@@ -1015,16 +1082,95 @@ export async function getProductsForDropdown(): Promise<ProductDropdownOption[]>
 }
 
 export async function getTransferNodesForDropdown(): Promise<TransferNodeOption[]> {
-  const [warehouses, agents] = await Promise.all([
-    prisma.warehouse.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
-    prisma.agent.findMany({
-      where: { deletedAt: null, status: "ACTIVE" },
-      select: { id: true, companyName: true },
-      orderBy: { companyName: "asc" },
-    }),
-  ]);
-  return [
-    ...warehouses.map((w) => ({ id: w.id, name: w.name, type: "WAREHOUSE" as const })),
-    ...agents.map((a) => ({ id: a.id, name: a.companyName, type: "AGENT" as const })),
-  ];
+  const warehouses = await prisma.warehouse.findMany({
+    where: { deletedAt: null },
+    select: { id: true, name: true },
+    orderBy: { name: "asc" },
+  });
+  return warehouses.map((w) => ({ id: w.id, name: w.name, type: "WAREHOUSE" as const }));
+}
+
+export async function getAgentProductStockMap(): Promise<Record<string, Record<string, number>>> {
+  return getAgentStockMap();
+}
+
+export async function getWarehouseProductStockMap(): Promise<Record<string, Record<string, number>>> {
+  return getWarehouseStockMap();
+}
+
+export type LocationForAdjustment = {
+  id: string;
+  locationCode: string;
+  currentStock: number;
+};
+
+/** Returns every warehouse's shelf locations grouped by warehouseId. */
+export async function getWarehouseLocationsGrouped(): Promise<Record<string, LocationForAdjustment[]>> {
+  const locations = await prisma.warehouseLocation.findMany({
+    select: { id: true, warehouseId: true, locationCode: true, currentStock: true },
+    orderBy: [{ warehouseId: "asc" }, { locationCode: "asc" }],
+  });
+  const map: Record<string, LocationForAdjustment[]> = {};
+  for (const loc of locations) {
+    map[loc.warehouseId] ??= [];
+    map[loc.warehouseId].push({ id: loc.id, locationCode: loc.locationCode, currentStock: loc.currentStock });
+  }
+  return map;
+}
+
+/** Returns per-shelf per-product quantities: locationId → productId → qty. */
+export async function getShelfProductStockMap(): Promise<Record<string, Record<string, number>>> {
+  const stocks = await prisma.shelfProductStock.findMany({
+    select: { locationId: true, productId: true, quantity: true },
+  });
+  const map: Record<string, Record<string, number>> = {};
+  for (const s of stocks) {
+    map[s.locationId] ??= {};
+    map[s.locationId][s.productId] = s.quantity;
+  }
+  return map;
+}
+
+export async function getProductById(id: string) {
+  return prisma.product.findFirst({
+    where: { id, deletedAt: null },
+    include: { category: true },
+  });
+}
+
+export type WarehouseLocationOption = {
+  id: string;
+  warehouseId: string;
+  locationCode: string;
+  currentStock: number;
+  zone: string | null;
+};
+
+export async function getAllWarehouseLocations(): Promise<WarehouseLocationOption[]> {
+  return prisma.warehouseLocation.findMany({
+    select: { id: true, warehouseId: true, locationCode: true, currentStock: true, zone: true },
+    orderBy: [{ warehouseId: "asc" }, { locationCode: "asc" }],
+  });
+}
+
+export async function getProductStockMap(): Promise<Record<string, number>> {
+  return getProductTotalsMap();
+}
+
+export async function getWarehouseById(id: string) {
+  return prisma.warehouse.findFirst({
+    where: { id, deletedAt: null },
+  });
+}
+
+export async function getSupplierById(id: string) {
+  return prisma.supplier.findFirst({
+    where: { id, deletedAt: null },
+  });
+}
+
+export async function getCategoryById(id: string) {
+  return prisma.productCategory.findFirst({
+    where: { id, deletedAt: null },
+  });
 }

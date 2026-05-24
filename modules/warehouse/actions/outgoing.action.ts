@@ -5,6 +5,10 @@ import { prisma } from "@/lib/db/prisma";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
+import {
+  reverseWarehouseToAgent,
+  transferAgentToAgent,
+} from "@/modules/inventory/services/stock-level.service";
 
 // ── Delete Outgoing Movement ──────────────────────────────────────────────────
 
@@ -14,10 +18,29 @@ export async function deleteOutgoingMovementAction(
   const session = await auth();
   if (!session?.user?.id) throw new Error("Unauthorized");
 
-  const movement = await prisma.stockMovement.findUnique({ where: { id } });
+  const movement = await prisma.stockMovement.findUnique({
+    where: { id },
+    include: { items: { select: { productId: true, quantity: true } } },
+  });
   if (!movement || movement.type !== "OUTGOING") return { error: "Movement not found" };
 
-  await prisma.stockMovement.delete({ where: { id } });
+  await prisma.$transaction(async (tx) => {
+    if (
+      movement.status !== "REVERSED" &&
+      movement.isAgentToAgentTransfer &&
+      movement.agentId &&
+      movement.toAgentId
+    ) {
+      await transferAgentToAgent(tx, movement.toAgentId, movement.agentId, movement.items);
+    } else if (
+      movement.status === "SHELVED" &&
+      movement.warehouseId &&
+      movement.toAgentId
+    ) {
+      await reverseWarehouseToAgent(tx, movement.warehouseId, movement.toAgentId, movement.items);
+    }
+    await tx.stockMovement.delete({ where: { id } });
+  });
 
   revalidatePath("/warehouse/outgoing");
   redirect("/warehouse/outgoing");
@@ -32,13 +55,23 @@ export async function reverseOutgoingMovementWarehouseAction(
   const session = await auth();
   if (!session?.user?.id) throw new Error("Unauthorized");
 
-  const movement = await prisma.stockMovement.findUnique({ where: { id } });
+  const movement = await prisma.stockMovement.findUnique({
+    where: { id },
+    include: { items: { select: { productId: true, quantity: true } } },
+  });
   if (!movement || movement.type !== "OUTGOING") return { error: "Movement not found" };
   if (movement.status === "REVERSED") return { error: "Movement is already reversed" };
 
-  await prisma.stockMovement.update({
-    where: { id },
-    data: { status: "REVERSED", remarks: reason.trim() || null },
+  await prisma.$transaction(async (tx) => {
+    await tx.stockMovement.update({
+      where: { id },
+      data: { status: "REVERSED", remarks: reason.trim() || null },
+    });
+    if (movement.isAgentToAgentTransfer && movement.agentId && movement.toAgentId) {
+      await transferAgentToAgent(tx, movement.toAgentId, movement.agentId, movement.items);
+    } else if (movement.status === "SHELVED" && movement.warehouseId && movement.toAgentId) {
+      await reverseWarehouseToAgent(tx, movement.warehouseId, movement.toAgentId, movement.items);
+    }
   });
 
   revalidatePath(`/warehouse/outgoing/${id}`);

@@ -30,6 +30,7 @@ export default function AddAgentPage() {
   const [country, setCountry] = useState("Nigeria");
   const [state, setState] = useState("");
   const [email, setEmail] = useState("");
+  const [deliveryFee, setDeliveryFee] = useState("");
   const [locations, setLocations] = useState([""]);
 
   const [loading, setLoading] = useState(false);
@@ -48,7 +49,7 @@ export default function AddAgentPage() {
   const handleReset = () => {
     setName(""); setAddress(""); setPhone(""); setPhone2(""); setPhone3("");
     setPicksFromOffice(""); setCountry("Nigeria"); setState(""); setEmail("");
-    setLocations([""]); setError("");
+    setDeliveryFee(""); setLocations([""]); setError("");
   };
 
   const handleSubmit = async () => {
@@ -71,6 +72,7 @@ export default function AddAgentPage() {
       country: country.trim() || undefined,
       statesCovered,
       picksFromOfficeStock: picksFromOffice === "yes",
+      deliveryFee: deliveryFee.trim() ? parseFloat(deliveryFee) : undefined,
     });
 
     setLoading(false);
@@ -280,7 +282,25 @@ export default function AddAgentPage() {
           </div>
         </div>
 
-        {/* Row 4: Locations */}
+        {/* Row 4: Delivery Fee */}
+        <div className="grid grid-cols-3 gap-8">
+          <div className="space-y-2">
+            <label className="text-[10px] font-bold text-gray-700 uppercase">
+              Delivery Fee (₦)
+            </label>
+            <Input
+              type="number"
+              min="0"
+              step="0.01"
+              value={deliveryFee}
+              onChange={(e) => setDeliveryFee(e.target.value)}
+              placeholder="e.g. 1500.00"
+              className="bg-white border-gray-200 h-11 text-xs focus:ring-[#ad1df4]"
+            />
+          </div>
+        </div>
+
+        {/* Row 5: Locations */}
         <div className="grid grid-cols-3 gap-8 pt-2">
           <div className="col-span-2 space-y-3">
             <div className="flex items-center justify-between">

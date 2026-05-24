@@ -115,7 +115,11 @@ export function DispatchClient({
           {/* Order / Reference ID */}
           <div className="space-y-1.5">
             <label className="text-[10px] font-bold text-gray-800 uppercase">{itemLabel}</label>
-            <Select value={selectedItemId} onValueChange={(val) => setSelectedItemId(val ?? "")}>
+            <Select
+              value={selectedItemId}
+              onValueChange={(val) => setSelectedItemId(val ?? "")}
+              items={orders.map((o) => ({ value: o.id, label: `[${SOURCE_LABEL[o.sourceType]}] ${o.orderNumber}` }))}
+            >
               <SelectTrigger className="h-10 text-xs text-gray-500 border-gray-200">
                 <SelectValue placeholder="Select an order or reference" />
               </SelectTrigger>
@@ -144,7 +148,11 @@ export function DispatchClient({
           {/* Assign Driver */}
           <div className="space-y-1.5">
             <label className="text-[10px] font-bold text-gray-800 uppercase">Assign Driver</label>
-            <Select value={selectedDriverId} onValueChange={(val) => setSelectedDriverId(val ?? "")}>
+            <Select
+              value={selectedDriverId}
+              onValueChange={(val) => setSelectedDriverId(val ?? "")}
+              items={drivers.map((d) => ({ value: d.id, label: `${d.name} — ${d.state !== "—" ? d.state : d.phone}` }))}
+            >
               <SelectTrigger className="h-10 text-xs text-gray-400 border-gray-200">
                 <SelectValue placeholder="Select a driver (optional)" />
               </SelectTrigger>

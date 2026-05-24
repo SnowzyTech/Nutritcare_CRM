@@ -13,6 +13,9 @@ export type SignupActionState = {
     role?: string;
     phone?: string;
     whatsapp?: string;
+    avatarUrl?: string;
+    warehouseId?: string;
+    teamId?: string;
   };
 };
 
@@ -28,10 +31,21 @@ export async function signupAction(
     role: formData.get("role") as string,
     phone: (formData.get("phone") as string) || undefined,
     whatsapp: (formData.get("whatsapp") as string) || undefined,
+    avatarUrl: (formData.get("avatarUrl") as string) || undefined,
+    warehouseId: (formData.get("warehouseId") as string) || undefined,
+    teamId: (formData.get("teamId") as string) || undefined,
   };
 
-  // Fields to echo back so the form doesn't wipe on error
-  const fields = { name: raw.name, email: raw.email, role: raw.role, phone: raw.phone, whatsapp: raw.whatsapp };
+  const fields = {
+    name: raw.name,
+    email: raw.email,
+    role: raw.role,
+    phone: raw.phone,
+    whatsapp: raw.whatsapp,
+    avatarUrl: raw.avatarUrl,
+    warehouseId: raw.warehouseId,
+    teamId: raw.teamId,
+  };
 
   const parsed = registerSchema.safeParse(raw);
   if (!parsed.success) {
@@ -47,6 +61,9 @@ export async function signupAction(
       role: parsed.data.role as UserRole,
       phone: parsed.data.phone,
       whatsapp: parsed.data.whatsapp,
+      avatarUrl: parsed.data.avatarUrl || undefined,
+      warehouseId: parsed.data.warehouseId || undefined,
+      teamId: parsed.data.teamId || undefined,
     });
   } catch (err) {
     if (err instanceof Error && err.message === "EMAIL_TAKEN") {

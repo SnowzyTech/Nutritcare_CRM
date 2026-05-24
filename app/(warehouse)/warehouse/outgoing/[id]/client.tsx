@@ -19,6 +19,7 @@ export default function OutgoingDetailClient({ item }: Props) {
   const [isPendingDelete, startDelete] = useTransition();
   const [isPendingReverse, startReverse] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showReverseDialog, setShowReverseDialog] = useState(false);
   const [reverseReason, setReverseReason] = useState("");
 
@@ -34,10 +35,13 @@ export default function OutgoingDetailClient({ item }: Props) {
       : "bg-gray-400 text-white";
 
   const handleDelete = () => {
-    if (!confirm("Delete this outgoing stock movement? This cannot be undone.")) return;
+    setError(null);
     startDelete(async () => {
       const result = await deleteOutgoingMovementAction(item.id);
-      if (result?.error) setError(result.error);
+      if (result?.error) {
+        setError(result.error);
+        setShowDeleteDialog(false);
+      }
     });
   };
 
@@ -190,12 +194,12 @@ export default function OutgoingDetailClient({ item }: Props) {
             </button>
           )}
           <button
-            onClick={handleDelete}
+            onClick={() => { setError(null); setShowDeleteDialog(true); }}
             disabled={isPendingDelete}
             className="flex items-center gap-2 bg-white border border-gray-200 hover:bg-red-50 hover:border-red-300 text-gray-600 hover:text-red-600 text-[13px] font-medium px-5 h-[38px] rounded-md transition-colors disabled:opacity-50"
           >
             <Trash2 className="w-4 h-4" />
-            {isPendingDelete ? "Deleting…" : "Delete"}
+            Delete
           </button>
           <button
             onClick={() => window.print()}
@@ -206,6 +210,38 @@ export default function OutgoingDetailClient({ item }: Props) {
           </button>
         </div>
       </div>
+
+      {/* Delete Confirmation Dialog */}
+      {showDeleteDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-xl shadow-xl p-6 w-[420px]">
+            <h2 className="text-[16px] font-semibold text-gray-800 mb-2">Delete Movement</h2>
+            <p className="text-[13px] text-gray-500 mb-1">
+              Are you sure you want to delete <span className="font-semibold">{item.soId}</span>?
+            </p>
+            <p className="text-[13px] text-red-500 font-medium mb-6">This action cannot be undone.</p>
+            {error && (
+              <p className="text-red-500 text-[13px] font-medium mb-4">{error}</p>
+            )}
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => { setShowDeleteDialog(false); setError(null); }}
+                disabled={isPendingDelete}
+                className="px-5 h-[36px] rounded-md text-[13px] font-medium bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDelete}
+                disabled={isPendingDelete}
+                className="px-5 h-[36px] rounded-md text-[13px] font-medium bg-red-500 text-white hover:bg-red-600 transition-colors disabled:opacity-50"
+              >
+                {isPendingDelete ? "Deleting…" : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Reverse Dialog */}
       {showReverseDialog && (

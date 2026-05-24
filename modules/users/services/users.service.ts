@@ -59,6 +59,25 @@ function trendLabel(current: number, previous: number): string {
  * Admin-only operations for managing system users.
  */
 
+export async function getSelfProfile(userId: string) {
+  return prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, name: true, email: true, phone: true, whatsappNumber: true, role: true, createdAt: true, avatarUrl: true },
+  });
+}
+
+export async function updateSelfProfile(userId: string, data: { name: string; phone?: string; whatsappNumber?: string }) {
+  return prisma.user.update({
+    where: { id: userId },
+    data: {
+      name: data.name.trim(),
+      phone: data.phone?.trim() || null,
+      whatsappNumber: data.whatsappNumber?.trim() || null,
+    },
+    select: { id: true, name: true, email: true, phone: true, whatsappNumber: true },
+  });
+}
+
 export async function getAllUsers() {
   return prisma.user.findMany({
     select: {
@@ -249,6 +268,29 @@ export async function getAllTeams() {
     select: { id: true, name: true, department: true },
     orderBy: { name: "asc" },
   });
+}
+
+export async function getTeamsWithMemberCount() {
+  return prisma.team.findMany({
+    select: {
+      id: true,
+      name: true,
+      department: true,
+      createdAt: true,
+      _count: { select: { members: true } },
+    },
+    orderBy: { name: "asc" },
+  });
+}
+
+export async function createTeam(name: string, department: import("@prisma/client").Department) {
+  return prisma.team.create({ data: { name: name.trim(), department } });
+}
+
+export async function deleteTeam(id: string) {
+  // Unlink members first so the delete doesn't cascade-block on FK
+  await prisma.user.updateMany({ where: { teamId: id }, data: { teamId: null } });
+  return prisma.team.delete({ where: { id } });
 }
 
 export async function getPendingActivationRequests() {

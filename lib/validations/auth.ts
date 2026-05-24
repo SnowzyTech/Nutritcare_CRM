@@ -20,25 +20,47 @@ export const registerSchema = z
       .regex(/[a-zA-Z]/, { message: "Must contain at least one letter." })
       .regex(/[0-9]/, { message: "Must contain at least one number." }),
     confirmPassword: z.string(),
+    // DELIVERY_AGENT removed — they do not sign up via the portal
     role: z.enum(
       [
         "SALES_REP",
-        "DELIVERY_AGENT",
         "DATA_ANALYST",
         "ACCOUNTANT",
         "INVENTORY_MANAGER",
         "WAREHOUSE_MANAGER",
         "LOGISTICS_MANAGER",
+        "SALES_REP_MANAGER",
       ],
       { message: "Please select a valid role." }
     ),
     phone: z.string().optional(),
     whatsapp: z.string().optional(),
+    avatarUrl: z.string().url().optional().or(z.literal("")),
+    warehouseId: z.string().optional(),
+    teamId: z.string().optional(),
   })
   .refine((data) => data.password === data.confirmPassword, {
     message: "Passwords do not match.",
     path: ["confirmPassword"],
-  });
+  })
+  .refine(
+    (data) =>
+      data.role !== "WAREHOUSE_MANAGER" ||
+      (data.warehouseId && data.warehouseId.trim().length > 0),
+    {
+      message: "Please select the warehouse you will manage.",
+      path: ["warehouseId"],
+    }
+  )
+  .refine(
+    (data) =>
+      data.role !== "SALES_REP" ||
+      (data.teamId && data.teamId.trim().length > 0),
+    {
+      message: "Please select your sales team.",
+      path: ["teamId"],
+    }
+  );
 
 export type LoginInput = z.infer<typeof loginSchema>;
 export type RegisterInput = z.infer<typeof registerSchema>;

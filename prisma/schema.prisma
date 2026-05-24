@@ -258,6 +258,7 @@ model ProductCategory {
   smsSenderId         String?
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
+  deletedAt           DateTime?
 
   products Product[]
 
@@ -280,6 +281,9 @@ model Product {
   lowStockAlertQtyTotal Int?
   alertEmails           String?
   sku                   String    @unique
+  unit                  String?
+  imageUrl              String?
+  quantity              Int       @default(0)
   isActive              Boolean   @default(true)
   deletedAt             DateTime?
   createdAt             DateTime  @default(now())
@@ -297,11 +301,37 @@ model Product {
   stockAdjustmentItems StockAdjustmentItem[]
   purchaseOrderItems   PurchaseOrderItem[]
   invoiceItems         InvoiceItem[]
+  stockLevels          StockLevel[]
+  shelfProductStocks   ShelfProductStock[]
 
   @@index([categoryId])
   @@index([sku])
   @@index([isActive])
   @@map("products")
+}
+
+// Materialized per-(product, location) stock balance.
+// Maintained transactionally by writes; queries read from here instead of
+// aggregating StockMovement/StockTransfer history.
+// locationKind: "WAREHOUSE" | "AGENT" | "UNASSIGNED"
+//   - WAREHOUSE: locationId = warehouseId
+//   - AGENT:     locationId = agentId
+//   - UNASSIGNED: locationId = "system" (e.g. returns with no warehouse)
+model StockLevel {
+  id           String   @id @default(cuid())
+  productId    String
+  locationKind String
+  locationId   String
+  quantity     Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, locationKind, locationId])
+  @@index([productId])
+  @@index([locationKind, locationId])
+  @@map("stock_levels")
 }
 
 model ProductOffer {
@@ -386,6 +416,7 @@ model Agent {
   picksFromOfficeStock Boolean     @default(false)
   country              String?
   vehicleNo            String?
+  deliveryFee          Decimal?    @db.Decimal(10, 2)
   reviewStatus         String?
   addedById            String
   deletedAt            DateTime?
@@ -412,6 +443,7 @@ model Agent {
 model Warehouse {
   id             String   @id @default(cuid())
   name           String
+  referenceCode  String?  @unique
   address        String?
   phone          String?
   email          String?
@@ -422,6 +454,7 @@ model Warehouse {
   managerEmail   String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
+  deletedAt      DateTime?
 
   managers         User[]              @relation("WarehouseManagers")
   locations        WarehouseLocation[]
@@ -437,15 +470,39 @@ model WarehouseLocation {
   locationCode    String
   occupancyStatus OccupancyStatus @default(EMPTY)
   zone            String?
+  currentStock    Int             @default(0)
+  maxCapacity     Int?
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
 
-  warehouse     Warehouse      @relation(fields: [warehouseId], references: [id])
-  damageReports DamageReport[]
+  warehouse            Warehouse             @relation(fields: [warehouseId], references: [id])
+  damageReports        DamageReport[]
+  stockMovements       StockMovement[]       @relation("StockMovementShelfLocation")
+  shelfProductStocks   ShelfProductStock[]
+  stockAdjustmentItems StockAdjustmentItem[]
 
   @@index([warehouseId])
   @@index([occupancyStatus])
   @@map("warehouse_locations")
+}
+
+// Per-product stock count for each warehouse bin/shelf.
+// Updated whenever goods are received into or picked from a specific bin.
+model ShelfProductStock {
+  id         String   @id @default(cuid())
+  locationId String
+  productId  String
+  quantity   Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  location WarehouseLocation @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  product  Product           @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([locationId, productId])
+  @@index([locationId])
+  @@index([productId])
+  @@map("shelf_product_stocks")
 }
 
 model Order {
@@ -522,6 +579,11 @@ model StockMovement {
   toAgentId              String?
   driverAgentId          String?
   scheduledTime          DateTime?
+  shelfLocationId        String?
+  shelfQuantity          Int?
+  shelfAssignments       Json?
+  isReserved             Boolean             @default(false)
+  isDamaged              Boolean             @default(false)
   createdById            String
   createdAt              DateTime            @default(now())
   updatedAt              DateTime            @updatedAt
@@ -532,8 +594,10 @@ model StockMovement {
   toAgent         Agent?              @relation("StockMovementToAgent", fields: [toAgentId], references: [id])
   driverAgent     Agent?              @relation("StockMovementDriver", fields: [driverAgentId], references: [id])
   createdBy       User                @relation("StockMovementCreatedBy", fields: [createdById], references: [id])
+  shelfLocation   WarehouseLocation?  @relation("StockMovementShelfLocation", fields: [shelfLocationId], references: [id])
   items           StockMovementItem[]
   goodsReceivings GoodsReceiving[]
+  pickPacks       PickPack[]          @relation("PickPackStockMovement")
 
   @@index([type])
   @@index([status])
@@ -543,6 +607,7 @@ model StockMovement {
   @@index([createdById])
   @@index([referenceNumber])
   @@index([createdAt])
+  @@index([shelfLocationId])
   @@map("stock_movements")
 }
 
@@ -582,6 +647,7 @@ model StockTransfer {
   createdBy   User                @relation("StockTransferCreatedBy", fields: [createdById], references: [id])
   driverAgent Agent?              @relation("StockTransferDriver", fields: [driverAgentId], references: [id])
   items       StockTransferItem[]
+  pickPacks   PickPack[]          @relation("PickPackStockTransfer")
 
   @@index([status])
   @@index([createdById])
@@ -644,21 +710,27 @@ model PurchaseOrderItem {
 }
 
 model PickPack {
-  id           String         @id @default(cuid())
-  orderId      String
-  pickerId     String?
-  locationCode String
-  itemsCount   Int
-  status       PickPackStatus @default(QUEUED)
-  assignedAt   DateTime?
-  completedAt  DateTime?
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
+  id              String         @id @default(cuid())
+  orderId         String?
+  stockMovementId String?
+  stockTransferId String?
+  pickerId        String?
+  locationCode    String         @default("")
+  itemsCount      Int
+  status          PickPackStatus @default(QUEUED)
+  assignedAt      DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
 
-  order  Order @relation(fields: [orderId], references: [id])
-  picker User? @relation("PickerAssignments", fields: [pickerId], references: [id])
+  order         Order?         @relation(fields: [orderId], references: [id])
+  stockMovement StockMovement? @relation("PickPackStockMovement", fields: [stockMovementId], references: [id])
+  stockTransfer StockTransfer? @relation("PickPackStockTransfer", fields: [stockTransferId], references: [id])
+  picker        User?          @relation("PickerAssignments", fields: [pickerId], references: [id])
 
   @@index([orderId])
+  @@index([stockMovementId])
+  @@index([stockTransferId])
   @@index([pickerId])
   @@index([status])
   @@map("pick_packs")
@@ -846,6 +918,7 @@ model AgentSettlement {
   balance            Decimal  @db.Decimal(10, 2)
   overpayment        Decimal  @default(0) @db.Decimal(10, 2)
   underpayment       Decimal  @default(0) @db.Decimal(10, 2)
+  ordersJson         Json?
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
@@ -1018,16 +1091,19 @@ model StockAdjustmentItem {
   id                String   @id @default(cuid())
   stockAdjustmentId String
   productId         String
+  locationId        String?
   quantityBefore    Int
   quantityAfter     Int
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
-  stockAdjustment StockAdjustment @relation(fields: [stockAdjustmentId], references: [id], onDelete: Cascade)
-  product         Product         @relation(fields: [productId], references: [id])
+  stockAdjustment StockAdjustment    @relation(fields: [stockAdjustmentId], references: [id], onDelete: Cascade)
+  product         Product            @relation(fields: [productId], references: [id])
+  location        WarehouseLocation? @relation(fields: [locationId], references: [id])
 
   @@index([stockAdjustmentId])
   @@index([productId])
+  @@index([locationId])
   @@map("stock_adjustment_items")
 }
 
