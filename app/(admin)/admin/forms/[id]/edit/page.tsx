@@ -4,7 +4,7 @@ import { ArrowLeft } from "lucide-react";
 import { notFound } from "next/navigation";
 import { FormBuilder } from "@/components/dashboard/forms/FormBuilder";
 import { getFormById } from "@/modules/admin/services/forms.service";
-import { getProductsWithOffers } from "@/modules/orders/services/products.service";
+import { getProductsWithPackages } from "@/modules/orders/services/products.service";
 
 export const metadata: Metadata = { title: "Edit Form" };
 
@@ -12,13 +12,13 @@ type Props = { params: Promise<{ id: string }> };
 
 export default async function EditFormPage({ params }: Props) {
   const { id } = await params;
-  const [form, products] = await Promise.all([getFormById(id), getProductsWithOffers()]);
+  const [form, products] = await Promise.all([getFormById(id), getProductsWithPackages()]);
   if (!form) notFound();
 
   const productsForBuilder = products.map((p) => ({
     ...p,
     sellingPrice: Number(p.sellingPrice),
-    offers: p.offers.map((o) => ({ ...o, sellingPrice: Number(o.sellingPrice) })),
+    packages: p.packages.map((pkg) => ({ ...pkg, price: Number(pkg.price) })),
   }));
 
   return (

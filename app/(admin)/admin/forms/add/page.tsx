@@ -2,16 +2,16 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { FormBuilder } from "@/components/dashboard/forms/FormBuilder";
-import { getProductsWithOffers } from "@/modules/orders/services/products.service";
+import { getProductsWithPackages } from "@/modules/orders/services/products.service";
 
 export const metadata: Metadata = { title: "Add Form" };
 
 export default async function AddFormPage() {
-  const products = await getProductsWithOffers();
+  const products = await getProductsWithPackages();
   const productsForBuilder = products.map((p) => ({
     ...p,
     sellingPrice: Number(p.sellingPrice),
-    offers: p.offers.map((o) => ({ ...o, sellingPrice: Number(o.sellingPrice) })),
+    packages: p.packages.map((pkg) => ({ ...pkg, price: Number(pkg.price) })),
   }));
 
   return (

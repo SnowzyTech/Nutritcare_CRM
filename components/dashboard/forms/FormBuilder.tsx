@@ -5,20 +5,18 @@ import { useRouter } from "next/navigation";
 import { MessageCircle, ChevronDown, X } from "lucide-react";
 import { createFormAction, updateFormAction } from "@/modules/admin/actions/forms.action";
 
-export type ProductOffer = {
+export type ProductPackage = {
   id: string;
-  offerName: string;
-  offerQuantity: number;
-  offerUnit: string;
-  sellingPrice: number;
-  showQuantityAndUnit: boolean;
+  name: string;
+  quantity: number;
+  price: number;
 };
 
 export type ProductWithOffers = {
   id: string;
   name: string;
   sellingPrice: number;
-  offers: ProductOffer[];
+  packages: ProductPackage[];
 };
 
 export type PriceVariation = {
@@ -26,6 +24,8 @@ export type PriceVariation = {
   name: string;
   price: number;
   formattedPrice: string;
+  productId: string;  // which product this variation belongs to
+  quantity: number;   // package quantity (units in this package)
 };
 
 function formatNaira(amount: number) {
@@ -33,19 +33,21 @@ function formatNaira(amount: number) {
 }
 
 function computeVariations(product: ProductWithOffers, usePriceVariation: string): PriceVariation[] {
-  if (usePriceVariation === "Yes" && product.offers.length > 0) {
-    return product.offers.map((o) => ({
-      id: o.id,
-      name: o.showQuantityAndUnit
-        ? `${o.offerName} (${o.offerQuantity} ${o.offerUnit})`
-        : o.offerName,
-      price: Number(o.sellingPrice),
-      formattedPrice: formatNaira(Number(o.sellingPrice)),
+  if (usePriceVariation === "Yes" && product.packages.length > 0) {
+    return product.packages.map((pkg) => ({
+      id: pkg.id,
+      productId: product.id,
+      quantity: pkg.quantity > 0 ? pkg.quantity : 1,
+      name: pkg.quantity > 0 ? `${pkg.name} (${pkg.quantity} units)` : pkg.name,
+      price: Number(pkg.price),
+      formattedPrice: formatNaira(Number(pkg.price)),
     }));
   }
   return [
     {
       id: product.id,
+      productId: product.id,
+      quantity: 1,
       name: product.name,
       price: Number(product.sellingPrice),
       formattedPrice: formatNaira(Number(product.sellingPrice)),
@@ -923,9 +925,9 @@ export function FormBuilder({
                     onChange={(v) => updateField("orderBumpPriceVariation", v)}
                     options={
                       formData.orderBumpProduct
-                        ? (products.find((p) => p.id === formData.orderBumpProduct)?.offers.map((o) => ({
-                            label: o.showQuantityAndUnit ? `${o.offerName} (${o.offerQuantity} ${o.offerUnit})` : o.offerName,
-                            value: o.id,
+                        ? (products.find((p) => p.id === formData.orderBumpProduct)?.packages.map((pkg) => ({
+                            label: pkg.quantity > 0 ? `${pkg.name} (${pkg.quantity} units)` : pkg.name,
+                            value: pkg.id,
                           })) ?? [])
                         : []
                     }

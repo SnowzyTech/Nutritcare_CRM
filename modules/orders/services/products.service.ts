@@ -8,25 +8,26 @@ export async function getActiveProducts() {
   });
 }
 
-export async function getProductsWithOffers() {
+export async function getProductsWithPackages() {
   return prisma.product.findMany({
     where: { isActive: true, deletedAt: null },
     select: {
       id: true,
       name: true,
       sellingPrice: true,
-      offers: {
+      packages: {
         select: {
           id: true,
-          offerName: true,
-          offerQuantity: true,
-          offerUnit: true,
-          sellingPrice: true,
-          showQuantityAndUnit: true,
+          name: true,
+          quantity: true,
+          price: true,
         },
-        orderBy: { sellingPrice: "asc" },
+        orderBy: { price: "asc" },
       },
     },
     orderBy: { name: "asc" },
   });
 }
+
+/** @deprecated Use getProductsWithPackages instead */
+export const getProductsWithOffers = getProductsWithPackages;

@@ -1240,8 +1240,8 @@ export async function updateProductAction(
         },
       });
 
-      // Replace all packages (ProductOffer records)
-      await tx.productOffer.deleteMany({ where: { productId: id } });
+      // Replace all packages (ProductPackage records — distinct from ProductOffer)
+      await tx.productPackage.deleteMany({ where: { productId: id } });
       const pkgNames = formData.getAll("pkgName") as string[];
       const pkgQtys = formData.getAll("pkgQty") as string[];
       const pkgPrices = formData.getAll("pkgPrice") as string[];
@@ -1249,14 +1249,12 @@ export async function updateProductAction(
         .map((name, i) => ({ name, qty: pkgQtys[i] ?? "", price: pkgPrices[i] ?? "" }))
         .filter((p) => p.name.trim() || p.qty.trim() || p.price.trim());
       if (validPackages.length > 0) {
-        await tx.productOffer.createMany({
+        await tx.productPackage.createMany({
           data: validPackages.map((p) => ({
             productId: id,
-            offerName: p.name || "Package",
-            offerQuantity: parseInt(p.qty, 10) || 0,
-            offerUnit: parsed.data.unit || "Unit",
-            sellingPrice: parseFloat(p.price) || 0,
-            showQuantityAndUnit: true,
+            name: p.name || "Package",
+            quantity: parseInt(p.qty, 10) || 0,
+            price: parseFloat(p.price) || 0,
           })),
         });
       }

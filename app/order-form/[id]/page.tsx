@@ -317,7 +317,7 @@ function FormField({
   );
 }
 
-type PriceVariation = { id: string; name: string; price: number; formattedPrice: string };
+type PriceVariation = { id: string; name: string; price: number; formattedPrice: string; productId?: string; quantity?: number; };
 
 export default function OrderFormPreview() {
   const params = useParams();
@@ -352,6 +352,9 @@ export default function OrderFormPreview() {
 
   // Toast notification state
   const [toast, setToast] = useState<{ message: string; type: "success" | "info" } | null>(null);
+
+  // Submission loading state
+  const [submitting, setSubmitting] = useState(false);
 
   const showToast = (message: string, type: "success" | "info" = "success") => {
     setToast({ message, type });
@@ -562,7 +565,7 @@ export default function OrderFormPreview() {
     }
   };
 
-  const submitOrder = (e: React.FormEvent) => {
+  const submitOrder = async (e: React.FormEvent) => {
     e.preventDefault();
 
     // Explicit Validation Check
@@ -580,20 +583,83 @@ export default function OrderFormPreview() {
       return;
     }
 
-    if (data.thankYouUrl) {
-      showToast("✓ Order Placed Successfully! Redirecting to Thank You URL...", "success");
-      setTimeout(() => {
-        safeRedirect(data.thankYouUrl);
-      }, 1000);
-    } else if (hasUpsells) {
-      showToast("✓ Checkout Form Submitted! Reviewing Special Upsell Offer...", "success");
-      setActiveTab("upsell");
-      setActiveUpsellIndex(0);
-    } else {
-      showToast("✓ Order Placed Successfully! (Preview Mode)", "success");
-      setFunnelStep("success");
+    // Resolve the selected package variation
+    const variations = (data.priceVariations as PriceVariation[] | undefined) ?? [];
+    const selectedVariation =
+      variations.find((v) => v.name === selectedPackage) ?? variations[0];
+
+    // productId: prefer variation's productId (new forms), fall back to form's selectedProduct
+    const productId: string =
+      selectedVariation?.productId ?? (data.selectedProduct as string) ?? "";
+
+    if (!productId) {
+      showToast("⚠️ No product is linked to this form. Please contact the seller.", "info");
+      return;
+    }
+
+    // Build customer phone with country code
+    const phone = showCountryCodeEnabled
+      ? `${phoneCountryCode}${(formValues.phone ?? "").replace(/^0/, "")}`.replace(/\s+/g, "")
+      : (formValues.phone ?? "").replace(/\s+/g, "");
+
+    const whatsapp = showCountryCodeEnabled
+      ? `${whatsappCountryCode}${(formValues.whatsapp ?? "").replace(/^0/, "")}`.replace(/\s+/g, "")
+      : (formValues.whatsapp ?? "").replace(/\s+/g, "");
+
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/orders/form-submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          formId,
+          customerName: formValues.name ?? "",
+          customerPhone: phone,
+          customerWhatsapp: whatsapp || undefined,
+          customerEmail: formValues.email ?? "",
+          deliveryAddress: formValues.address ?? "",
+          state: formValues.state ?? "",
+          lga: "",
+          productId,
+          packageName: selectedVariation?.name ?? "",
+          packagePrice: selectedVariation?.price ?? 0,
+          packageQty: selectedVariation?.quantity ?? 1,
+          // Order bump (if checked and configured)
+          ...(orderBumpChecked && data.orderBumpProduct
+            ? {
+                orderBumpProductId: data.orderBumpProduct as string,
+                orderBumpPrice: 0,
+                orderBumpQty: 1,
+              }
+            : {}),
+        }),
+      });
+
+      const result = await res.json();
+
+      if (result.error) {
+        showToast(`❌ ${result.error}`, "info");
+        return;
+      }
+
+      showToast(`✓ Order ${result.orderNumber} placed! Thank you.`, "success");
+
+      // Advance the funnel
+      if (data.thankYouUrl) {
+        setTimeout(() => safeRedirect(data.thankYouUrl), 1200);
+      } else if (hasUpsells) {
+        setActiveTab("upsell");
+        setActiveUpsellIndex(0);
+      } else {
+        setFunnelStep("success");
+      }
+    } catch {
+      showToast("❌ Failed to place order. Please check your connection and try again.", "info");
+    } finally {
+      setSubmitting(false);
     }
   };
+
 
   const acceptUpsell = (product: string) => {
     showToast(`✓ Added ${product} to your order!`, "success");
@@ -1303,7 +1369,8 @@ export default function OrderFormPreview() {
                 <div className="pt-2">
                   <button
                     type="submit"
-                    className="w-full font-black uppercase transition-all transform hover:scale-[1.01] active:scale-[0.99] shadow-lg hover:shadow-xl flex items-center justify-center gap-2"
+                    disabled={submitting}
+                    className="w-full font-black uppercase transition-all transform hover:scale-[1.01] active:scale-[0.99] shadow-lg hover:shadow-xl flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-wait disabled:scale-100"
                     style={{
                       background: btnBg,
                       color: btnText,
@@ -1313,7 +1380,17 @@ export default function OrderFormPreview() {
                       padding: "14px 24px",
                     }}
                   >
-                    <ShoppingBag size={18} /> {data.submitButtonText || "ORDER NOW"}
+                    {submitting ? (
+                      <>
+                        <svg className="animate-spin w-5 h-5" viewBox="0 0 24 24" fill="none">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                        </svg>
+                        Placing Order...
+                      </>
+                    ) : (
+                      <><ShoppingBag size={18} /> {data.submitButtonText || "ORDER NOW"}</>
+                    )}
                   </button>
                 </div>
 

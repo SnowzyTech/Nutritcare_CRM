@@ -138,18 +138,19 @@ export function AddProductClient({
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
-  // Packages (saved as ProductOffer records)
+  // Packages (saved as ProductPackage records — distinct from ProductOffer)
   const [packages, setPackages] = useState<Package[]>(() => {
-    if (product && product.offers && product.offers.length > 0) {
-      return product.offers.map((o: any, i: number) => ({
+    if (product && product.packages && product.packages.length > 0) {
+      return product.packages.map((p: any, i: number) => ({
         id: i + 1,
-        name: o.offerName ?? "",
-        quantity: o.offerQuantity?.toString() ?? "",
-        price: o.sellingPrice?.toString() ?? "",
+        name: p.name ?? "",
+        quantity: p.quantity?.toString() ?? "",
+        price: p.price?.toString() ?? "",
       }));
     }
     if (product) {
-      return [{ id: 1, name: "", quantity: product.quantity?.toString() ?? "", price: product.sellingPrice?.toString() ?? "" }];
+      // Edit mode but no packages yet — start with one blank row
+      return [{ id: 1, name: "", quantity: "", price: "" }];
     }
     return [
       { id: 1, name: "", quantity: "", price: "" },
