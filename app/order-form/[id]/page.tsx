@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { getForms, type SavedForm } from "@/lib/formsStore";
+import type { SavedForm } from "@/lib/formsStore";
 import { ArrowLeft, Check, Copy, Sparkles, ShoppingBag, CreditCard, ArrowRight, ChevronDown } from "lucide-react";
 import Link from "next/link";
 
@@ -317,24 +317,7 @@ function FormField({
   );
 }
 
-/* ── Product Packages Definition ── */
-const PRODUCT_PACKAGES: Record<string, Array<{ name: string; price: number; formattedPrice: string }>> = {
-  "Product 1": [
-    { name: "2 Basic Plan", price: 25000, formattedPrice: "₦25,000" },
-    { name: "4 Standard Plan", price: 35000, formattedPrice: "₦35,000" },
-    { name: "6 Premium Plan", price: 45000, formattedPrice: "₦45,000" }
-  ],
-  "Product 2": [
-    { name: "1 Bottle Pack", price: 12000, formattedPrice: "₦12,000" },
-    { name: "2 Bottles Pack", price: 22000, formattedPrice: "₦22,000" },
-    { name: "4 Bottles Pack", price: 40000, formattedPrice: "₦40,000" }
-  ],
-  "Product 3": [
-    { name: "Trial Size", price: 8500, formattedPrice: "₦8,500" },
-    { name: "Regular Pack", price: 16000, formattedPrice: "₦16,000" },
-    { name: "Family Pack", price: 30000, formattedPrice: "₦30,000" }
-  ]
-};
+type PriceVariation = { id: string; name: string; price: number; formattedPrice: string; productId?: string; quantity?: number; };
 
 export default function OrderFormPreview() {
   const params = useParams();
@@ -370,59 +353,68 @@ export default function OrderFormPreview() {
   // Toast notification state
   const [toast, setToast] = useState<{ message: string; type: "success" | "info" } | null>(null);
 
+  // Submission loading state
+  const [submitting, setSubmitting] = useState(false);
+
   const showToast = (message: string, type: "success" | "info" = "success") => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
   };
 
   useEffect(() => {
-    const found = getForms().find((f) => f.id === formId);
-    if (found) {
-      setForm(found);
-      const data = found.data as Record<string, any>;
-      
-      // Auto-set the active tab based on query parameters or whether optin is enabled
-      const searchParams = new URLSearchParams(window.location.search);
-      const tabParam = searchParams.get("tab"); // "optin" | "order" | "upsell"
-      const indexParam = parseInt(searchParams.get("index") || "0", 10);
+    async function loadForm() {
+      try {
+        const res = await fetch(`/api/forms/${formId}`);
+        if (!res.ok) { setNotFound(true); return; }
+        const dbForm = await res.json();
 
-      if (tabParam === "optin" || tabParam === "order" || tabParam === "upsell") {
-        setActiveTab(tabParam);
-        if (tabParam === "upsell") {
-          setActiveUpsellIndex(indexParam);
+        const found: SavedForm = {
+          id: dbForm.id,
+          formName: dbForm.name,
+          createdAt: dbForm.createdAt,
+          hits: dbForm.hits,
+          orders: dbForm.orders,
+          data: dbForm.data,
+        };
+
+        setForm(found);
+        const data = found.data as Record<string, any>;
+
+        const searchParams = new URLSearchParams(window.location.search);
+        const tabParam = searchParams.get("tab") as "optin" | "order" | "upsell" | null;
+        const indexParam = parseInt(searchParams.get("index") || "0", 10);
+
+        if (tabParam === "optin" || tabParam === "order" || tabParam === "upsell") {
+          setActiveTab(tabParam);
+          if (tabParam === "upsell") setActiveUpsellIndex(indexParam);
+        } else if (data.createOptinForm === "Yes") {
+          setActiveTab("optin");
+        } else {
+          setActiveTab("order");
         }
-      } else if (data.createOptinForm === "Yes") {
-        setActiveTab("optin");
-      } else {
-        setActiveTab("order");
-      }
 
-      // Auto-select first enabled payment method
-      if (data.paystackEnabled) setSelectedPayment("paystack");
-      else if (data.flutterwaveEnabled) setSelectedPayment("flutterwave");
-      else if (data.bankTransferEnabled) setSelectedPayment("bank_transfer");
-      else if (data.payOnDeliveryEnabled) setSelectedPayment("pay_on_delivery");
+        if (data.paystackEnabled) setSelectedPayment("paystack");
+        else if (data.flutterwaveEnabled) setSelectedPayment("flutterwave");
+        else if (data.bankTransferEnabled) setSelectedPayment("bank_transfer");
+        else if (data.payOnDeliveryEnabled) setSelectedPayment("pay_on_delivery");
 
-      // Auto-select first package option
-      const prod = data.selectedProduct || "Product 1";
-      const pkgs = PRODUCT_PACKAGES[prod] || PRODUCT_PACKAGES["Product 1"];
-      if (pkgs && pkgs.length > 0) {
-        setSelectedPackage(pkgs[0].name);
-      }
+        const mainVariations = (data.priceVariations as PriceVariation[] | undefined) ?? [];
+        if (mainVariations.length > 0) setSelectedPackage(mainVariations[0].name);
 
-      // Auto-select first upsell package option if there are upsells
-      if (data.addUpsell === "Yes" && data.upsellItems && data.upsellItems.length > 0) {
-        const activeIdx = (tabParam === "upsell" && indexParam >= 0 && indexParam < data.upsellItems.length) ? indexParam : 0;
-        const activeUpsellProd = data.upsellItems[activeIdx].product || "Product 2";
-        const upsellPkgs = PRODUCT_PACKAGES[activeUpsellProd] || PRODUCT_PACKAGES["Product 2"];
-        if (upsellPkgs && upsellPkgs.length > 0) {
-          setSelectedUpsellPackage(upsellPkgs[0].name);
+        if (data.addUpsell === "Yes" && data.upsellItems && data.upsellItems.length > 0) {
+          const activeIdx =
+            tabParam === "upsell" && indexParam >= 0 && indexParam < data.upsellItems.length
+              ? indexParam
+              : 0;
+          const upsellVariations = (data.upsellItems[activeIdx]?.priceVariations as PriceVariation[] | undefined) ?? [];
+          if (upsellVariations.length > 0) setSelectedUpsellPackage(upsellVariations[0].name);
         }
+      } catch {
+        setNotFound(true);
       }
-
-    } else {
-      setNotFound(true);
     }
+
+    loadForm();
   }, [formId]);
 
   if (notFound) {
@@ -573,7 +565,7 @@ export default function OrderFormPreview() {
     }
   };
 
-  const submitOrder = (e: React.FormEvent) => {
+  const submitOrder = async (e: React.FormEvent) => {
     e.preventDefault();
 
     // Explicit Validation Check
@@ -591,20 +583,83 @@ export default function OrderFormPreview() {
       return;
     }
 
-    if (data.thankYouUrl) {
-      showToast("✓ Order Placed Successfully! Redirecting to Thank You URL...", "success");
-      setTimeout(() => {
-        safeRedirect(data.thankYouUrl);
-      }, 1000);
-    } else if (hasUpsells) {
-      showToast("✓ Checkout Form Submitted! Reviewing Special Upsell Offer...", "success");
-      setActiveTab("upsell");
-      setActiveUpsellIndex(0);
-    } else {
-      showToast("✓ Order Placed Successfully! (Preview Mode)", "success");
-      setFunnelStep("success");
+    // Resolve the selected package variation
+    const variations = (data.priceVariations as PriceVariation[] | undefined) ?? [];
+    const selectedVariation =
+      variations.find((v) => v.name === selectedPackage) ?? variations[0];
+
+    // productId: prefer variation's productId (new forms), fall back to form's selectedProduct
+    const productId: string =
+      selectedVariation?.productId ?? (data.selectedProduct as string) ?? "";
+
+    if (!productId) {
+      showToast("⚠️ No product is linked to this form. Please contact the seller.", "info");
+      return;
+    }
+
+    // Build customer phone with country code
+    const phone = showCountryCodeEnabled
+      ? `${phoneCountryCode}${(formValues.phone ?? "").replace(/^0/, "")}`.replace(/\s+/g, "")
+      : (formValues.phone ?? "").replace(/\s+/g, "");
+
+    const whatsapp = showCountryCodeEnabled
+      ? `${whatsappCountryCode}${(formValues.whatsapp ?? "").replace(/^0/, "")}`.replace(/\s+/g, "")
+      : (formValues.whatsapp ?? "").replace(/\s+/g, "");
+
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/orders/form-submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          formId,
+          customerName: formValues.name ?? "",
+          customerPhone: phone,
+          customerWhatsapp: whatsapp || undefined,
+          customerEmail: formValues.email ?? "",
+          deliveryAddress: formValues.address ?? "",
+          state: formValues.state ?? "",
+          lga: "",
+          productId,
+          packageName: selectedVariation?.name ?? "",
+          packagePrice: selectedVariation?.price ?? 0,
+          packageQty: selectedVariation?.quantity ?? 1,
+          // Order bump (if checked and configured)
+          ...(orderBumpChecked && data.orderBumpProduct
+            ? {
+                orderBumpProductId: data.orderBumpProduct as string,
+                orderBumpPrice: 0,
+                orderBumpQty: 1,
+              }
+            : {}),
+        }),
+      });
+
+      const result = await res.json();
+
+      if (result.error) {
+        showToast(`❌ ${result.error}`, "info");
+        return;
+      }
+
+      showToast(`✓ Order ${result.orderNumber} placed! Thank you.`, "success");
+
+      // Advance the funnel
+      if (data.thankYouUrl) {
+        setTimeout(() => safeRedirect(data.thankYouUrl), 1200);
+      } else if (hasUpsells) {
+        setActiveTab("upsell");
+        setActiveUpsellIndex(0);
+      } else {
+        setFunnelStep("success");
+      }
+    } catch {
+      showToast("❌ Failed to place order. Please check your connection and try again.", "info");
+    } finally {
+      setSubmitting(false);
     }
   };
+
 
   const acceptUpsell = (product: string) => {
     showToast(`✓ Added ${product} to your order!`, "success");
@@ -620,11 +675,8 @@ export default function OrderFormPreview() {
     const nextIdx = activeUpsellIndex + 1;
     if (data.upsellItems && nextIdx < data.upsellItems.length) {
       setActiveUpsellIndex(nextIdx);
-      const nextProd = data.upsellItems[nextIdx].product || "Product 2";
-      const pkgs = PRODUCT_PACKAGES[nextProd] || PRODUCT_PACKAGES["Product 2"];
-      if (pkgs && pkgs.length > 0) {
-        setSelectedUpsellPackage(pkgs[0].name);
-      }
+      const nextVariations = (data.upsellItems[nextIdx]?.priceVariations as PriceVariation[] | undefined) ?? [];
+      if (nextVariations.length > 0) setSelectedUpsellPackage(nextVariations[0].name);
     } else {
       if (data.thankYouUrl) {
         showToast("✓ Funnel Completed! Redirecting to Thank You URL...", "success");
@@ -644,12 +696,11 @@ export default function OrderFormPreview() {
   };
 
   const renderProductPackages = () => {
-    const productKey = data.selectedProduct || "Product 1";
-    const packages = PRODUCT_PACKAGES[productKey] || PRODUCT_PACKAGES["Product 1"];
+    const packages = (data.priceVariations as PriceVariation[] | undefined) ?? [];
     const headingText = data.typeProductText || "Choose Your Preferred Packages";
     const displayStyle = data.productQuantityDisplay || "Radio Button Option";
 
-    // Support flexible legacy casing
+    if (packages.length === 0) return null;
     const isRadio = displayStyle.toLowerCase().includes("radio");
 
     if (isRadio) {
@@ -727,11 +778,11 @@ export default function OrderFormPreview() {
   };
 
   const renderUpsellProductPackages = (item: any) => {
-    const productKey = item.product || "Product 2";
-    const packages = PRODUCT_PACKAGES[productKey] || PRODUCT_PACKAGES["Product 2"];
+    const packages = (item.priceVariations as PriceVariation[] | undefined) ?? [];
     const headingText = data.typeProductText || "Choose Your Preferred Packages";
     const displayStyle = data.productQuantityDisplay || "Radio Button Option";
 
+    if (packages.length === 0) return null;
     const isRadio = displayStyle.toLowerCase().includes("radio");
 
     if (isRadio) {
@@ -1318,7 +1369,8 @@ export default function OrderFormPreview() {
                 <div className="pt-2">
                   <button
                     type="submit"
-                    className="w-full font-black uppercase transition-all transform hover:scale-[1.01] active:scale-[0.99] shadow-lg hover:shadow-xl flex items-center justify-center gap-2"
+                    disabled={submitting}
+                    className="w-full font-black uppercase transition-all transform hover:scale-[1.01] active:scale-[0.99] shadow-lg hover:shadow-xl flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-wait disabled:scale-100"
                     style={{
                       background: btnBg,
                       color: btnText,
@@ -1328,7 +1380,17 @@ export default function OrderFormPreview() {
                       padding: "14px 24px",
                     }}
                   >
-                    <ShoppingBag size={18} /> {data.submitButtonText || "ORDER NOW"}
+                    {submitting ? (
+                      <>
+                        <svg className="animate-spin w-5 h-5" viewBox="0 0 24 24" fill="none">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                        </svg>
+                        Placing Order...
+                      </>
+                    ) : (
+                      <><ShoppingBag size={18} /> {data.submitButtonText || "ORDER NOW"}</>
+                    )}
                   </button>
                 </div>
 

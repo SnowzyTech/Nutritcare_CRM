@@ -3,7 +3,57 @@
 import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { MessageCircle, ChevronDown, X } from "lucide-react";
-import { saveForm, getForms } from "@/lib/formsStore";
+import { createFormAction, updateFormAction } from "@/modules/admin/actions/forms.action";
+
+export type ProductPackage = {
+  id: string;
+  name: string;
+  quantity: number;
+  price: number;
+};
+
+export type ProductWithOffers = {
+  id: string;
+  name: string;
+  sellingPrice: number;
+  packages: ProductPackage[];
+};
+
+export type PriceVariation = {
+  id: string;
+  name: string;
+  price: number;
+  formattedPrice: string;
+  productId: string;  // which product this variation belongs to
+  quantity: number;   // package quantity (units in this package)
+};
+
+function formatNaira(amount: number) {
+  return `₦${amount.toLocaleString("en-NG")}`;
+}
+
+function computeVariations(product: ProductWithOffers, usePriceVariation: string): PriceVariation[] {
+  if (usePriceVariation === "Yes" && product.packages.length > 0) {
+    return product.packages.map((pkg) => ({
+      id: pkg.id,
+      productId: product.id,
+      quantity: pkg.quantity > 0 ? pkg.quantity : 1,
+      name: pkg.quantity > 0 ? `${pkg.name} (${pkg.quantity} units)` : pkg.name,
+      price: Number(pkg.price),
+      formattedPrice: formatNaira(Number(pkg.price)),
+    }));
+  }
+  return [
+    {
+      id: product.id,
+      productId: product.id,
+      quantity: 1,
+      name: product.name,
+      price: Number(product.sellingPrice),
+      formattedPrice: formatNaira(Number(product.sellingPrice)),
+    },
+  ];
+}
 
 /* ── Nigerian States List ── */
 const NIGERIAN_STATES = [
@@ -52,7 +102,11 @@ function ColorPicker({ value, onChange }: { value: string; onChange: (v: string)
 }
 
 /* ─ Custom Select Component ── */
-function CustomSelect({ value, onChange, options, placeholder }: { value: string; onChange: (v: string) => void; options: string[]; placeholder: string }) {
+type SelectOption = string | { label: string; value: string };
+function CustomSelect({ value, onChange, options, placeholder }: { value: string; onChange: (v: string) => void; options: SelectOption[]; placeholder: string }) {
+  const normalized = (options as SelectOption[]).map((o) =>
+    typeof o === "string" ? { label: o, value: o } : o
+  );
   return (
     <select
       value={value}
@@ -61,22 +115,33 @@ function CustomSelect({ value, onChange, options, placeholder }: { value: string
       style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23999' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`, backgroundRepeat: "no-repeat", backgroundPosition: "right 10px center" }}
     >
       <option value="">{placeholder}</option>
-      {options.map((opt) => (
-        <option key={opt} value={opt}>{opt}</option>
+      {normalized.map((opt) => (
+        <option key={opt.value} value={opt.value}>{opt.label}</option>
       ))}
     </select>
   );
 }
 
 /* ─ Main FormBuilder Component ── */
-export function FormBuilder({ editId }: { editId?: string } = {}) {
+export function FormBuilder({
+  editId,
+  initialData,
+  products = [],
+}: {
+  editId?: string;
+  initialData?: Record<string, unknown>;
+  products?: ProductWithOffers[];
+} = {}) {
+  const productOptions = products.map((p) => ({ label: p.name, value: p.id }));
   const defaultFormData = {
     formName: "",
     hasWebsite: false,
     formHeaderText: "",
     formSubHeaderText: "",
-    selectedProduct: "",
+    selectedProduct: "",        // stores product ID
+    selectedProductName: "",    // stores product display name
     usePriceVariation: "",
+    priceVariations: [] as PriceVariation[],
 
     fields: {
       name: { label: "", required: false, show: false },
@@ -133,15 +198,16 @@ export function FormBuilder({ editId }: { editId?: string } = {}) {
     orderBumpCtaCheckbox: "",
     orderBumpBgColor: "FFFF99",
     orderBumpProductTextColor: "0000B2",
-    orderBumpProduct: "",
+    orderBumpProduct: "",       // product ID
+    orderBumpProductName: "",   // product display name
     orderBumpPriceVariation: "",
     orderBumpImageUrl: "",
     orderBumpVideoUrl: "",
 
     addUpsell: "No",
     upsellItems: [
-      { product: "", pageUrl: "", formWidth: "Normal", buttonText: "YES ADD TO MY ORDER", declineText: "No I dont want this huge give-away discount", declineTextSize: "18", scarcityText: "", scarcityTextSize: "18" }
-    ] as Array<{ product: string; pageUrl: string; formWidth: string; buttonText: string; declineText: string; declineTextSize: string; scarcityText: string; scarcityTextSize: string }>,
+      { productId: "", product: "", priceVariations: [] as PriceVariation[], pageUrl: "", formWidth: "Normal", buttonText: "YES ADD TO MY ORDER", declineText: "No I dont want this huge give-away discount", declineTextSize: "18", scarcityText: "", scarcityTextSize: "18" }
+    ] as Array<{ productId: string; product: string; priceVariations: PriceVariation[]; pageUrl: string; formWidth: string; buttonText: string; declineText: string; declineTextSize: string; scarcityText: string; scarcityTextSize: string }>,
 
     thankYouUrl: "",
 
@@ -173,21 +239,13 @@ export function FormBuilder({ editId }: { editId?: string } = {}) {
     termsAndConditions: "",
   };
 
-  // Lazy initializer: immediately loads saved data when editing
   const [formData, setFormData] = useState<typeof defaultFormData>(() => {
-    if (editId) {
-      try {
-        const saved = JSON.parse(localStorage.getItem("nutritcare_forms") || "[]");
-        const existing = saved.find((f: { id: string }) => f.id === editId);
-        if (existing?.data) {
-          return { ...defaultFormData, ...existing.data } as typeof defaultFormData;
-        }
-      } catch {
-        // fall through to default
-      }
+    if (initialData) {
+      return { ...defaultFormData, ...initialData } as typeof defaultFormData;
     }
     return defaultFormData;
   });
+  const [saving, setSaving] = useState(false);
 
 
   const updateField = (key: string, value: any) => {
@@ -239,6 +297,51 @@ export function FormBuilder({ editId }: { editId?: string } = {}) {
     });
   };
 
+  const handleProductSelect = (productId: string) => {
+    const product = products.find((p) => p.id === productId);
+    if (!product) {
+      setFormData((prev) => ({ ...prev, selectedProduct: "", selectedProductName: "", priceVariations: [] }));
+      return;
+    }
+    const variations = computeVariations(product, formData.usePriceVariation);
+    setFormData((prev) => ({
+      ...prev,
+      selectedProduct: productId,
+      selectedProductName: product.name,
+      priceVariations: variations,
+    }));
+  };
+
+  const handleVariationToggle = (val: string) => {
+    const product = products.find((p) => p.id === formData.selectedProduct);
+    setFormData((prev) => ({
+      ...prev,
+      usePriceVariation: val,
+      priceVariations: product ? computeVariations(product, val) : prev.priceVariations,
+    }));
+  };
+
+  const handleOrderBumpProductSelect = (productId: string) => {
+    const product = products.find((p) => p.id === productId);
+    setFormData((prev) => ({
+      ...prev,
+      orderBumpProduct: productId,
+      orderBumpProductName: product?.name ?? "",
+    }));
+  };
+
+  const handleUpsellProductSelect = (idx: number, productId: string) => {
+    const product = products.find((p) => p.id === productId);
+    const items = [...formData.upsellItems];
+    items[idx] = {
+      ...items[idx],
+      productId,
+      product: product?.name ?? "",
+      priceVariations: product ? computeVariations(product, "Yes") : [],
+    };
+    updateField("upsellItems", items);
+  };
+
   const handleReset = () => {
     setFormData({
       formName: "",
@@ -246,7 +349,9 @@ export function FormBuilder({ editId }: { editId?: string } = {}) {
       formHeaderText: "",
       formSubHeaderText: "",
       selectedProduct: "",
+      selectedProductName: "",
       usePriceVariation: "",
+      priceVariations: [],
       fields: {
         name: { label: "", required: false, show: false },
         phone: { label: "", required: false, show: false },
@@ -299,13 +404,14 @@ export function FormBuilder({ editId }: { editId?: string } = {}) {
       orderBumpBgColor: "FFFF99",
       orderBumpProductTextColor: "0000B2",
       orderBumpProduct: "",
+      orderBumpProductName: "",
       orderBumpPriceVariation: "",
       orderBumpImageUrl: "",
       orderBumpVideoUrl: "",
       addUpsell: "No",
       upsellItems: [
-        { product: "", pageUrl: "", formWidth: "Normal", buttonText: "YES ADD TO MY ORDER", declineText: "No I dont want this huge give-away discount", declineTextSize: "18", scarcityText: "", scarcityTextSize: "18" }
-      ] as Array<{ product: string; pageUrl: string; formWidth: string; buttonText: string; declineText: string; declineTextSize: string; scarcityText: string; scarcityTextSize: string }>,
+        { productId: "", product: "", priceVariations: [] as PriceVariation[], pageUrl: "", formWidth: "Normal", buttonText: "YES ADD TO MY ORDER", declineText: "No I dont want this huge give-away discount", declineTextSize: "18", scarcityText: "", scarcityTextSize: "18" }
+      ] as Array<{ productId: string; product: string; priceVariations: PriceVariation[]; pageUrl: string; formWidth: string; buttonText: string; declineText: string; declineTextSize: string; scarcityText: string; scarcityTextSize: string }>,
       thankYouUrl: "",
       paystackEnabled: false,
       paystackKey: "",
@@ -334,20 +440,21 @@ export function FormBuilder({ editId }: { editId?: string } = {}) {
 
   const router = useRouter();
 
-
-  const handleAddForm = () => {
-    if (editId) {
-      // Update existing: replace in localStorage
-      const forms = getForms();
-      const idx = forms.findIndex((f) => f.id === editId);
-      if (idx !== -1) {
-        forms[idx] = { ...forms[idx], formName: formData.formName || forms[idx].formName, data: formData as Record<string, unknown> };
-        localStorage.setItem("nutritcare_forms", JSON.stringify(forms));
+  const handleAddForm = async () => {
+    setSaving(true);
+    try {
+      const name = formData.formName?.trim() || "Untitled Form";
+      if (editId) {
+        const res = await updateFormAction(editId, name, formData as Record<string, unknown>);
+        if ("error" in res) { alert(res.error); return; }
+      } else {
+        const res = await createFormAction(name, formData as Record<string, unknown>);
+        if ("error" in res) { alert(res.error); return; }
       }
-    } else {
-      saveForm(formData as Record<string, unknown>);
+      router.push("/admin/forms");
+    } finally {
+      setSaving(false);
     }
-    router.push("/admin/forms");
   };
 
   const yesNoOptions = ["Yes", "No"];
@@ -416,11 +523,26 @@ export function FormBuilder({ editId }: { editId?: string } = {}) {
             </div>
             <div>
               <label className="block text-xs font-semibold text-amber-600 mb-1">Select Product*</label>
-              <CustomSelect value={formData.selectedProduct} onChange={(v) => updateField("selectedProduct", v)} options={["Product 1", "Product 2", "Product 3"]} placeholder="Select an Option" />
+              <CustomSelect
+                value={formData.selectedProduct}
+                onChange={handleProductSelect}
+                options={productOptions.length > 0 ? productOptions : [{ label: "No active products found", value: "" }]}
+                placeholder="Select a Product"
+              />
+              {formData.selectedProductName && (
+                <p className="mt-1 text-xs text-purple-600 font-medium">Selected: {formData.selectedProductName}</p>
+              )}
             </div>
             <div>
               <label className="block text-xs font-semibold text-amber-600 mb-1">Use Price Variation Template?</label>
-              <CustomSelect value={formData.usePriceVariation} onChange={(v) => updateField("usePriceVariation", v)} options={["Yes", "No"]} placeholder="Select an Option" />
+              <CustomSelect value={formData.usePriceVariation} onChange={handleVariationToggle} options={["Yes", "No"]} placeholder="Select an Option" />
+              {formData.priceVariations.length > 0 && (
+                <div className="mt-2 space-y-0.5">
+                  {formData.priceVariations.map((v) => (
+                    <p key={v.id} className="text-[11px] text-gray-500 leading-tight">• {v.name} — {v.formattedPrice}</p>
+                  ))}
+                </div>
+              )}
             </div>
             <div>
               <label className="block text-xs font-semibold text-gray-600 mb-1">Form Header Text</label>
@@ -786,11 +908,31 @@ export function FormBuilder({ editId }: { editId?: string } = {}) {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Select Order Bump Product</label>
-                  <CustomSelect value={formData.orderBumpProduct} onChange={(v) => updateField("orderBumpProduct", v)} options={["Product 1", "Product 2"]} placeholder="None" />
+                  <CustomSelect
+                    value={formData.orderBumpProduct}
+                    onChange={handleOrderBumpProductSelect}
+                    options={productOptions}
+                    placeholder="None"
+                  />
+                  {formData.orderBumpProductName && (
+                    <p className="mt-1 text-[11px] text-purple-600 font-medium">{formData.orderBumpProductName}</p>
+                  )}
                 </div>
                 <div>
-                  <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Use Price Variation Template?</label>
-                  <CustomSelect value={formData.orderBumpPriceVariation} onChange={(v) => updateField("orderBumpPriceVariation", v)} options={["None", "Yes", "No"]} placeholder="None" />
+                  <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Offer / Price Variation</label>
+                  <CustomSelect
+                    value={formData.orderBumpPriceVariation}
+                    onChange={(v) => updateField("orderBumpPriceVariation", v)}
+                    options={
+                      formData.orderBumpProduct
+                        ? (products.find((p) => p.id === formData.orderBumpProduct)?.packages.map((pkg) => ({
+                            label: pkg.quantity > 0 ? `${pkg.name} (${pkg.quantity} units)` : pkg.name,
+                            value: pkg.id,
+                          })) ?? [])
+                        : []
+                    }
+                    placeholder="None"
+                  />
                 </div>
               </div>
               <div>
@@ -832,7 +974,15 @@ export function FormBuilder({ editId }: { editId?: string } = {}) {
                   <div className="grid grid-cols-4 gap-3">
                     <div>
                       <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Select Upsell Product</label>
-                      <CustomSelect value={item.product} onChange={(v) => { const items = [...formData.upsellItems]; items[idx] = { ...items[idx], product: v }; updateField("upsellItems", items); }} options={["Product 1", "Product 2"]} placeholder="None" />
+                      <CustomSelect
+                        value={item.productId}
+                        onChange={(v) => handleUpsellProductSelect(idx, v)}
+                        options={productOptions}
+                        placeholder="None"
+                      />
+                      {item.product && (
+                        <p className="mt-1 text-[11px] text-purple-600 font-medium">{item.product}</p>
+                      )}
                     </div>
                     <div>
                       <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Upsell Page URL &nbsp;<span className="normal-case font-normal text-gray-400">Ensure you add http:// or https:// to your URL</span></label>
@@ -870,7 +1020,7 @@ export function FormBuilder({ editId }: { editId?: string } = {}) {
               <div className="flex justify-end">
                 <button
                   type="button"
-                  onClick={() => updateField("upsellItems", [...formData.upsellItems, { product: "", pageUrl: "", formWidth: "Normal", buttonText: "YES ADD TO MY ORDER", declineText: "No I dont want this huge give-away discount", declineTextSize: "18", scarcityText: "", scarcityTextSize: "18" }])}
+                  onClick={() => updateField("upsellItems", [...formData.upsellItems, { productId: "", product: "", priceVariations: [], pageUrl: "", formWidth: "Normal", buttonText: "YES ADD TO MY ORDER", declineText: "No I dont want this huge give-away discount", declineTextSize: "18", scarcityText: "", scarcityTextSize: "18" }])}
                   className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-md transition-colors"
                 >
                   Add More Upsell
@@ -1174,9 +1324,10 @@ export function FormBuilder({ editId }: { editId?: string } = {}) {
         <div className="flex justify-end gap-4 pt-4">
           <button
             onClick={handleAddForm}
-            className="px-8 py-2.5 bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-md text-sm transition-colors"
+            disabled={saving}
+            className="px-8 py-2.5 bg-purple-600 hover:bg-purple-700 disabled:opacity-60 text-white font-semibold rounded-md text-sm transition-colors"
           >
-            {editId ? "Save Changes" : "Add Form"}
+            {saving ? "Saving…" : editId ? "Save Changes" : "Add Form"}
           </button>
           <button
             onClick={handleReset}

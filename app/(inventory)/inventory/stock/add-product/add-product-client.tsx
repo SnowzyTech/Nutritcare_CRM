@@ -138,17 +138,19 @@ export function AddProductClient({
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
-  // Packages (1st is always the primary saved to DB)
+  // Packages (saved as ProductPackage records — distinct from ProductOffer)
   const [packages, setPackages] = useState<Package[]>(() => {
+    if (product && product.packages && product.packages.length > 0) {
+      return product.packages.map((p: any, i: number) => ({
+        id: i + 1,
+        name: p.name ?? "",
+        quantity: p.quantity?.toString() ?? "",
+        price: p.price?.toString() ?? "",
+      }));
+    }
     if (product) {
-      return [
-        {
-          id: 1,
-          name: "",
-          quantity: product.quantity?.toString() ?? "",
-          price: product.sellingPrice?.toString() ?? "",
-        },
-      ];
+      // Edit mode but no packages yet — start with one blank row
+      return [{ id: 1, name: "", quantity: "", price: "" }];
     }
     return [
       { id: 1, name: "", quantity: "", price: "" },
@@ -657,6 +659,14 @@ export function AddProductClient({
                 </div>
               ))}
             </div>
+            {/* Hidden inputs to serialize package data into FormData */}
+            {packages.map((pkg) => (
+              <div key={pkg.id} style={{ display: "none" }}>
+                <input type="hidden" name="pkgName" value={pkg.name} />
+                <input type="hidden" name="pkgQty" value={pkg.quantity} />
+                <input type="hidden" name="pkgPrice" value={pkg.price} />
+              </div>
+            ))}
           </div>
 
           <div className="mb-6">

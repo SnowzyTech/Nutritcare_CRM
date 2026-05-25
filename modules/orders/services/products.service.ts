@@ -7,3 +7,27 @@ export async function getActiveProducts() {
     orderBy: { name: "asc" },
   });
 }
+
+export async function getProductsWithPackages() {
+  return prisma.product.findMany({
+    where: { isActive: true, deletedAt: null },
+    select: {
+      id: true,
+      name: true,
+      sellingPrice: true,
+      packages: {
+        select: {
+          id: true,
+          name: true,
+          quantity: true,
+          price: true,
+        },
+        orderBy: { price: "asc" },
+      },
+    },
+    orderBy: { name: "asc" },
+  });
+}
+
+/** @deprecated Use getProductsWithPackages instead */
+export const getProductsWithOffers = getProductsWithPackages;

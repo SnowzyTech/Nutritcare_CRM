@@ -32,7 +32,10 @@
       "Bash(Select-String -Path \"C:\\\\Users\\\\emmauel\\\\Desktop\\\\organizations\\\\Nutritcare_CRM\\\\node_modules\\\\.prisma\\\\client\\\\index.d.ts\" -Pattern \"ShelfProductStock\" -SimpleMatch)",
       "Bash(Select-Object -First 3)",
       "Bash(Get-ChildItem *)",
-      "Bash(xargs grep -l \"getReturnedMovements\")"
+      "Bash(xargs grep -l \"getReturnedMovements\")",
+      "Bash(xargs grep -l \"form.*action\\\\|zod.*form\")",
+      "Bash(xargs grep -l \"form\")",
+      "Bash(NEXT_TELEMETRY_DISABLED=1 npx next build)"
     ]
   }
 }

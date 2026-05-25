@@ -126,8 +126,6 @@ export function CreateInvoiceClient({ title = "Invoice", invoiceType = 'INVOICE'
       showDiscount: toggles.discount,
       showTerms: toggles.terms,
       items,
-      paymentMethod: isReceipt ? paymentMethod : undefined,
-      referenceNo: isReceipt ? referenceNo : undefined,
     });
     setSaving(false);
     if ('error' in res) { alert(res.error); return; }
