@@ -138,17 +138,18 @@ export function AddProductClient({
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
-  // Packages (1st is always the primary saved to DB)
+  // Packages (saved as ProductOffer records)
   const [packages, setPackages] = useState<Package[]>(() => {
+    if (product && product.offers && product.offers.length > 0) {
+      return product.offers.map((o: any, i: number) => ({
+        id: i + 1,
+        name: o.offerName ?? "",
+        quantity: o.offerQuantity?.toString() ?? "",
+        price: o.sellingPrice?.toString() ?? "",
+      }));
+    }
     if (product) {
-      return [
-        {
-          id: 1,
-          name: "",
-          quantity: product.quantity?.toString() ?? "",
-          price: product.sellingPrice?.toString() ?? "",
-        },
-      ];
+      return [{ id: 1, name: "", quantity: product.quantity?.toString() ?? "", price: product.sellingPrice?.toString() ?? "" }];
     }
     return [
       { id: 1, name: "", quantity: "", price: "" },
@@ -657,6 +658,14 @@ export function AddProductClient({
                 </div>
               ))}
             </div>
+            {/* Hidden inputs to serialize package data into FormData */}
+            {packages.map((pkg) => (
+              <div key={pkg.id} style={{ display: "none" }}>
+                <input type="hidden" name="pkgName" value={pkg.name} />
+                <input type="hidden" name="pkgQty" value={pkg.quantity} />
+                <input type="hidden" name="pkgPrice" value={pkg.price} />
+              </div>
+            ))}
           </div>
 
           <div className="mb-6">

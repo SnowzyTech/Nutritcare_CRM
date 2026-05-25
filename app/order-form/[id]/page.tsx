@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { getForms, type SavedForm } from "@/lib/formsStore";
+import type { SavedForm } from "@/lib/formsStore";
 import { ArrowLeft, Check, Copy, Sparkles, ShoppingBag, CreditCard, ArrowRight, ChevronDown } from "lucide-react";
 import Link from "next/link";
 
@@ -317,24 +317,7 @@ function FormField({
   );
 }
 
-/* ── Product Packages Definition ── */
-const PRODUCT_PACKAGES: Record<string, Array<{ name: string; price: number; formattedPrice: string }>> = {
-  "Product 1": [
-    { name: "2 Basic Plan", price: 25000, formattedPrice: "₦25,000" },
-    { name: "4 Standard Plan", price: 35000, formattedPrice: "₦35,000" },
-    { name: "6 Premium Plan", price: 45000, formattedPrice: "₦45,000" }
-  ],
-  "Product 2": [
-    { name: "1 Bottle Pack", price: 12000, formattedPrice: "₦12,000" },
-    { name: "2 Bottles Pack", price: 22000, formattedPrice: "₦22,000" },
-    { name: "4 Bottles Pack", price: 40000, formattedPrice: "₦40,000" }
-  ],
-  "Product 3": [
-    { name: "Trial Size", price: 8500, formattedPrice: "₦8,500" },
-    { name: "Regular Pack", price: 16000, formattedPrice: "₦16,000" },
-    { name: "Family Pack", price: 30000, formattedPrice: "₦30,000" }
-  ]
-};
+type PriceVariation = { id: string; name: string; price: number; formattedPrice: string };
 
 export default function OrderFormPreview() {
   const params = useParams();
@@ -376,53 +359,59 @@ export default function OrderFormPreview() {
   };
 
   useEffect(() => {
-    const found = getForms().find((f) => f.id === formId);
-    if (found) {
-      setForm(found);
-      const data = found.data as Record<string, any>;
-      
-      // Auto-set the active tab based on query parameters or whether optin is enabled
-      const searchParams = new URLSearchParams(window.location.search);
-      const tabParam = searchParams.get("tab"); // "optin" | "order" | "upsell"
-      const indexParam = parseInt(searchParams.get("index") || "0", 10);
+    async function loadForm() {
+      try {
+        const res = await fetch(`/api/forms/${formId}`);
+        if (!res.ok) { setNotFound(true); return; }
+        const dbForm = await res.json();
 
-      if (tabParam === "optin" || tabParam === "order" || tabParam === "upsell") {
-        setActiveTab(tabParam);
-        if (tabParam === "upsell") {
-          setActiveUpsellIndex(indexParam);
+        const found: SavedForm = {
+          id: dbForm.id,
+          formName: dbForm.name,
+          createdAt: dbForm.createdAt,
+          hits: dbForm.hits,
+          orders: dbForm.orders,
+          data: dbForm.data,
+        };
+
+        setForm(found);
+        const data = found.data as Record<string, any>;
+
+        const searchParams = new URLSearchParams(window.location.search);
+        const tabParam = searchParams.get("tab") as "optin" | "order" | "upsell" | null;
+        const indexParam = parseInt(searchParams.get("index") || "0", 10);
+
+        if (tabParam === "optin" || tabParam === "order" || tabParam === "upsell") {
+          setActiveTab(tabParam);
+          if (tabParam === "upsell") setActiveUpsellIndex(indexParam);
+        } else if (data.createOptinForm === "Yes") {
+          setActiveTab("optin");
+        } else {
+          setActiveTab("order");
         }
-      } else if (data.createOptinForm === "Yes") {
-        setActiveTab("optin");
-      } else {
-        setActiveTab("order");
-      }
 
-      // Auto-select first enabled payment method
-      if (data.paystackEnabled) setSelectedPayment("paystack");
-      else if (data.flutterwaveEnabled) setSelectedPayment("flutterwave");
-      else if (data.bankTransferEnabled) setSelectedPayment("bank_transfer");
-      else if (data.payOnDeliveryEnabled) setSelectedPayment("pay_on_delivery");
+        if (data.paystackEnabled) setSelectedPayment("paystack");
+        else if (data.flutterwaveEnabled) setSelectedPayment("flutterwave");
+        else if (data.bankTransferEnabled) setSelectedPayment("bank_transfer");
+        else if (data.payOnDeliveryEnabled) setSelectedPayment("pay_on_delivery");
 
-      // Auto-select first package option
-      const prod = data.selectedProduct || "Product 1";
-      const pkgs = PRODUCT_PACKAGES[prod] || PRODUCT_PACKAGES["Product 1"];
-      if (pkgs && pkgs.length > 0) {
-        setSelectedPackage(pkgs[0].name);
-      }
+        const mainVariations = (data.priceVariations as PriceVariation[] | undefined) ?? [];
+        if (mainVariations.length > 0) setSelectedPackage(mainVariations[0].name);
 
-      // Auto-select first upsell package option if there are upsells
-      if (data.addUpsell === "Yes" && data.upsellItems && data.upsellItems.length > 0) {
-        const activeIdx = (tabParam === "upsell" && indexParam >= 0 && indexParam < data.upsellItems.length) ? indexParam : 0;
-        const activeUpsellProd = data.upsellItems[activeIdx].product || "Product 2";
-        const upsellPkgs = PRODUCT_PACKAGES[activeUpsellProd] || PRODUCT_PACKAGES["Product 2"];
-        if (upsellPkgs && upsellPkgs.length > 0) {
-          setSelectedUpsellPackage(upsellPkgs[0].name);
+        if (data.addUpsell === "Yes" && data.upsellItems && data.upsellItems.length > 0) {
+          const activeIdx =
+            tabParam === "upsell" && indexParam >= 0 && indexParam < data.upsellItems.length
+              ? indexParam
+              : 0;
+          const upsellVariations = (data.upsellItems[activeIdx]?.priceVariations as PriceVariation[] | undefined) ?? [];
+          if (upsellVariations.length > 0) setSelectedUpsellPackage(upsellVariations[0].name);
         }
+      } catch {
+        setNotFound(true);
       }
-
-    } else {
-      setNotFound(true);
     }
+
+    loadForm();
   }, [formId]);
 
   if (notFound) {
@@ -620,11 +609,8 @@ export default function OrderFormPreview() {
     const nextIdx = activeUpsellIndex + 1;
     if (data.upsellItems && nextIdx < data.upsellItems.length) {
       setActiveUpsellIndex(nextIdx);
-      const nextProd = data.upsellItems[nextIdx].product || "Product 2";
-      const pkgs = PRODUCT_PACKAGES[nextProd] || PRODUCT_PACKAGES["Product 2"];
-      if (pkgs && pkgs.length > 0) {
-        setSelectedUpsellPackage(pkgs[0].name);
-      }
+      const nextVariations = (data.upsellItems[nextIdx]?.priceVariations as PriceVariation[] | undefined) ?? [];
+      if (nextVariations.length > 0) setSelectedUpsellPackage(nextVariations[0].name);
     } else {
       if (data.thankYouUrl) {
         showToast("✓ Funnel Completed! Redirecting to Thank You URL...", "success");
@@ -644,12 +630,11 @@ export default function OrderFormPreview() {
   };
 
   const renderProductPackages = () => {
-    const productKey = data.selectedProduct || "Product 1";
-    const packages = PRODUCT_PACKAGES[productKey] || PRODUCT_PACKAGES["Product 1"];
+    const packages = (data.priceVariations as PriceVariation[] | undefined) ?? [];
     const headingText = data.typeProductText || "Choose Your Preferred Packages";
     const displayStyle = data.productQuantityDisplay || "Radio Button Option";
 
-    // Support flexible legacy casing
+    if (packages.length === 0) return null;
     const isRadio = displayStyle.toLowerCase().includes("radio");
 
     if (isRadio) {
@@ -727,11 +712,11 @@ export default function OrderFormPreview() {
   };
 
   const renderUpsellProductPackages = (item: any) => {
-    const productKey = item.product || "Product 2";
-    const packages = PRODUCT_PACKAGES[productKey] || PRODUCT_PACKAGES["Product 2"];
+    const packages = (item.priceVariations as PriceVariation[] | undefined) ?? [];
     const headingText = data.typeProductText || "Choose Your Preferred Packages";
     const displayStyle = data.productQuantityDisplay || "Radio Button Option";
 
+    if (packages.length === 0) return null;
     const isRadio = displayStyle.toLowerCase().includes("radio");
 
     if (isRadio) {

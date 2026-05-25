@@ -1118,6 +1118,25 @@ export async function addProductAction(
     },
   });
 
+  // Save packages as ProductPackage records
+  const pkgNames = formData.getAll("pkgName") as string[];
+  const pkgQtys = formData.getAll("pkgQty") as string[];
+  const pkgPrices = formData.getAll("pkgPrice") as string[];
+  const validPackages = pkgNames
+    .map((name, i) => ({ name, qty: pkgQtys[i] ?? "", price: pkgPrices[i] ?? "" }))
+    .filter((p) => p.name.trim() || p.qty.trim() || p.price.trim());
+
+  if (validPackages.length > 0) {
+    await prisma.productPackage.createMany({
+      data: validPackages.map((p) => ({
+        productId: product.id,
+        name: p.name || "Package",
+        quantity: parseInt(p.qty, 10) || 0,
+        price: parseFloat(p.price) || 0,
+      })),
+    });
+  }
+
   if (parsed.data.hasOffer === "Yes" && parsed.data.offerName) {
     await prisma.productOffer.create({
       data: {
@@ -1221,53 +1240,48 @@ export async function updateProductAction(
         },
       });
 
-      // Handle offer update
-      if (parsed.data.hasOffer === "Yes" && parsed.data.offerName) {
-        const offerData = {
-          offerName: parsed.data.offerName,
-          offerQuantity: parseInt(parsed.data.offerQuantity || "0", 10),
-          offerUnit: parsed.data.offerUnit || "Unit",
-          recurring: parsed.data.offerRecurring || null,
-          sellingPrice: parseFloat(parsed.data.offerSellingPrice || "0"),
-          showQuantityAndUnit: parsed.data.showQuantityAndUnit === "true",
-        };
+      // Replace all packages (ProductOffer records)
+      await tx.productOffer.deleteMany({ where: { productId: id } });
+      const pkgNames = formData.getAll("pkgName") as string[];
+      const pkgQtys = formData.getAll("pkgQty") as string[];
+      const pkgPrices = formData.getAll("pkgPrice") as string[];
+      const validPackages = pkgNames
+        .map((name, i) => ({ name, qty: pkgQtys[i] ?? "", price: pkgPrices[i] ?? "" }))
+        .filter((p) => p.name.trim() || p.qty.trim() || p.price.trim());
+      if (validPackages.length > 0) {
+        await tx.productOffer.createMany({
+          data: validPackages.map((p) => ({
+            productId: id,
+            offerName: p.name || "Package",
+            offerQuantity: parseInt(p.qty, 10) || 0,
+            offerUnit: parsed.data.unit || "Unit",
+            sellingPrice: parseFloat(p.price) || 0,
+            showQuantityAndUnit: true,
+          })),
+        });
+      }
 
-        const existingOffer = await tx.productOffer.findFirst({ where: { productId: id } });
-        if (existingOffer) {
-          await tx.productOffer.update({ where: { id: existingOffer.id }, data: offerData });
-        } else {
-          await tx.productOffer.create({ data: { ...offerData, productId: id } });
-        }
-
-        // Replace combo products
-        const { validCombos, validGifts } = extractCombosAndGifts(formData);
-        await tx.productCombo.deleteMany({ where: { productId: id } });
-        if (validCombos.length > 0) {
-          await tx.productCombo.createMany({
-            data: validCombos.map((c) => ({
-              productId: id,
-              comboProductId: c.productId,
-              quantity: c.quantity,
-            })),
-          });
-        }
-
-        // Replace gift products
-        await tx.productGift.deleteMany({ where: { productId: id } });
-        if (validGifts.length > 0) {
-          await tx.productGift.createMany({
-            data: validGifts.map((g) => ({
-              productId: id,
-              giftProductId: g.productId,
-              quantity: g.quantity,
-            })),
-          });
-        }
-      } else {
-        // hasOffer is No — clear everything
-        await tx.productOffer.deleteMany({ where: { productId: id } });
-        await tx.productCombo.deleteMany({ where: { productId: id } });
-        await tx.productGift.deleteMany({ where: { productId: id } });
+      // Replace combo and gift products
+      const { validCombos, validGifts } = extractCombosAndGifts(formData);
+      await tx.productCombo.deleteMany({ where: { productId: id } });
+      if (validCombos.length > 0) {
+        await tx.productCombo.createMany({
+          data: validCombos.map((c) => ({
+            productId: id,
+            comboProductId: c.productId,
+            quantity: c.quantity,
+          })),
+        });
+      }
+      await tx.productGift.deleteMany({ where: { productId: id } });
+      if (validGifts.length > 0) {
+        await tx.productGift.createMany({
+          data: validGifts.map((g) => ({
+            productId: id,
+            giftProductId: g.productId,
+            quantity: g.quantity,
+          })),
+        });
       }
     });
 

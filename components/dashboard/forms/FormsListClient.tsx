@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -16,7 +16,8 @@ import {
   Files,
   EyeOff,
 } from "lucide-react";
-import { getForms, deleteForm, duplicateForm, type SavedForm } from "@/lib/formsStore";
+import type { SavedForm } from "@/lib/formsStore";
+import { deleteFormAction, duplicateFormAction } from "@/modules/admin/actions/forms.action";
 
 /* ─── tiny helpers ─────────────────────────────────────────── */
 function copyToClipboard(text: string, label: string) {
@@ -81,26 +82,13 @@ function IconBtn({
 }
 
 /* ─── Main Component ───────────────────────────────────────── */
-export default function FormsListClient() {
+export default function FormsListClient({ initialForms }: { initialForms: SavedForm[] }) {
   const router = useRouter();
-  const [forms, setForms] = useState<SavedForm[]>([]);
   const [search, setSearch] = useState("");
   const [selectedForms, setSelectedForms] = useState<Set<string>>(new Set());
   const [selectAction, setSelectAction] = useState("");
 
-  const loadForms = useCallback(() => {
-    setForms(getForms());
-  }, []);
-
-  useEffect(() => {
-    loadForms();
-    // refresh whenever the tab becomes active (e.g. navigating back)
-    const onFocus = () => loadForms();
-    window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
-  }, [loadForms]);
-
-  const filtered = forms.filter((f) =>
+  const filtered = initialForms.filter((f) =>
     f.formName.toLowerCase().includes(search.toLowerCase())
   );
 
@@ -120,24 +108,26 @@ export default function FormsListClient() {
     }
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (!confirm("Delete this form? This cannot be undone.")) return;
-    deleteForm(id);
-    loadForms();
+    const res = await deleteFormAction(id);
+    if ("error" in res) { alert(res.error); return; }
+    router.refresh();
   };
 
-  const handleDuplicate = (id: string) => {
-    duplicateForm(id);
-    loadForms();
+  const handleDuplicate = async (id: string) => {
+    const res = await duplicateFormAction(id);
+    if ("error" in res) { alert(res.error); return; }
+    router.refresh();
   };
 
-  const handleBulkAction = () => {
+  const handleBulkAction = async () => {
     if (!selectAction || selectedForms.size === 0) return;
     if (selectAction === "delete") {
       if (!confirm(`Delete ${selectedForms.size} form(s)?`)) return;
-      selectedForms.forEach((id) => deleteForm(id));
+      await Promise.all([...selectedForms].map((id) => deleteFormAction(id)));
       setSelectedForms(new Set());
-      loadForms();
+      router.refresh();
     }
     setSelectAction("");
   };
@@ -147,7 +137,7 @@ export default function FormsListClient() {
       {/* ── Page title ── */}
       <div className="flex items-center gap-3">
         <h2 className="text-[2rem] font-black text-slate-800 leading-tight">
-          Forms ({forms.length})
+          Forms ({initialForms.length})
         </h2>
         <button className="w-6 h-6 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center text-xs font-bold hover:bg-purple-200 transition-colors">
           ?
@@ -162,7 +152,7 @@ export default function FormsListClient() {
           <div className="relative w-full sm:w-56">
             <select className="w-full appearance-none border border-gray-200 rounded-md px-3 py-2.5 text-sm text-gray-500 outline-none focus:border-purple-400 pr-8 bg-white">
               <option value="">Select Form</option>
-              {forms.map((f) => (
+              {initialForms.map((f) => (
                 <option key={f.id} value={f.id}>
                   {f.formName}
                 </option>
@@ -262,7 +252,7 @@ export default function FormsListClient() {
         {/* Rows */}
         {filtered.length === 0 ? (
           <div className="px-6 py-16 text-center text-gray-400 text-sm bg-white rounded-xl border border-gray-100 shadow-sm">
-            {forms.length === 0
+            {initialForms.length === 0
               ? 'No forms yet. Click "Add Form" to create one.'
               : "No forms match your search."}
           </div>

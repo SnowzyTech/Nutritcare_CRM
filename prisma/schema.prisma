@@ -203,6 +203,7 @@ model User {
   auditLogs             AuditLog[]             @relation("UserAuditLogs")
   damageReports         DamageReport[]         @relation("DamageReportedBy")
   journalEntries        JournalEntry[]         @relation("JournalEntryCreator")
+  forms                 Form[]                 @relation("FormCreatedBy")
 
   @@index([email])
   @@index([role])
@@ -291,6 +292,7 @@ model Product {
 
   category             ProductCategory       @relation(fields: [categoryId], references: [id])
   offers               ProductOffer[]
+  packages             ProductPackage[]
   combos               ProductCombo[]        @relation("ParentProductCombos")
   comboOf              ProductCombo[]        @relation("ComboProduct")
   gifts                ProductGift[]         @relation("ParentProductGifts")
@@ -350,6 +352,21 @@ model ProductOffer {
 
   @@index([productId])
   @@map("product_offers")
+}
+
+model ProductPackage {
+  id        String   @id @default(cuid())
+  productId String
+  name      String
+  quantity  Int      @default(0)
+  price     Decimal  @db.Decimal(10, 2)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@map("product_packages")
 }
 
 model ProductCombo {
@@ -1169,6 +1186,23 @@ model JournalEntry {
   @@index([createdById])
   @@index([date])
   @@map("journal_entries")
+}
+
+model Form {
+  id          String    @id @default(cuid())
+  name        String
+  hits        Int       @default(0)
+  orders      Int       @default(0)
+  data        Json
+  createdById String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  createdBy User @relation("FormCreatedBy", fields: [createdById], references: [id])
+
+  @@index([createdById])
+  @@map("forms")
 }
 
 model JournalEntryRow {
