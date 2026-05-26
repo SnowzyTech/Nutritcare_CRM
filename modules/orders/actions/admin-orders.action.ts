@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db/prisma";
 import { revalidatePath } from "next/cache";
 import { recordDeliveryFeeEntry } from "@/modules/finance/services/agent-settlement.service";
 import type { OrderStatus } from "@prisma/client";
+import { findEligibleAgentForOrder } from "@/modules/delivery/services/agents.service";
 
 async function checkAdmin() {
   const session = await auth();
@@ -22,11 +23,43 @@ function revalidate(orderId: string) {
   revalidatePath(`/admin/orders/${orderId}`);
 }
 
-export async function adminConfirmOrderAction(orderId: string) {
+export async function adminConfirmOrderAction(orderId: string, deliveryDate?: string) {
   await checkAdmin();
-  const order = await getOrder(orderId);
+
+  if (!deliveryDate) throw new Error("Please select a delivery date before confirming.");
+
+  const order = await prisma.order.findFirst({
+    where: { id: orderId, deletedAt: null },
+    include: {
+      customer: { select: { state: true } },
+      items: { select: { productId: true, quantity: true } },
+    },
+  });
   if (!order || order.status !== "PENDING") throw new Error("Cannot confirm this order");
-  await prisma.order.update({ where: { id: orderId }, data: { status: "CONFIRMED" } });
+
+  const agentId = await findEligibleAgentForOrder(order.customer.state, order.items);
+
+  if (!agentId) {
+    throw new Error(
+      "No delivery agent is currently available in this area with the required stock. Please try again later.",
+    );
+  }
+
+  await prisma.$transaction([
+    prisma.order.update({
+      where: { id: orderId },
+      data: { status: "CONFIRMED", agentId },
+    }),
+    prisma.delivery.create({
+      data: {
+        orderId,
+        agentId,
+        scheduledTime: new Date(deliveryDate),
+        status: "PENDING_DISPATCH",
+      },
+    }),
+  ]);
+
   revalidate(orderId);
 }
 

@@ -246,6 +246,7 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
   const [isReassignOpen, setIsReassignOpen] = useState(false);
   const [selectedAgentId, setSelectedAgentId] = useState("");
   const [prescription, setPrescription] = useState(order.notes ?? "");
+  const [deliveryDate, setDeliveryDate] = useState("");
   const [totalInput, setTotalInput] = useState(order.totalAmount);
   const [productRows, setProductRows] = useState([
     { id: Date.now(), productId: products[0]?.id ?? "", qty: "1" },
@@ -493,25 +494,43 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
             </div>
 
             {order.status === "PENDING" && (
-              <div className="grid grid-cols-2 gap-3 mt-1">
-                <button
-                  disabled={isPending}
-                  onClick={() =>
-                    handleAction(() => cancelOrderAction(order.id))
-                  }
-                  className="bg-purple-100 border border-purple-200 px-4 py-2 rounded-lg text-purple-600 font-semibold text-sm hover:bg-purple-50 transition disabled:opacity-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  disabled={isPending}
-                  onClick={() =>
-                    handleAction(() => confirmOrderAction(order.id, prescription))
-                  }
-                  className="bg-purple-600 text-white px-4 py-2 rounded-lg font-semibold text-sm hover:bg-purple-700 transition disabled:opacity-50"
-                >
-                  Confirm →
-                </button>
+              <div className="space-y-3 mt-1">
+                <div>
+                  <label className="text-xs text-gray-500 font-semibold">
+                    Delivery Date <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    value={deliveryDate}
+                    min={new Date().toISOString().split("T")[0]}
+                    onChange={(e) => setDeliveryDate(e.target.value)}
+                    className="w-full mt-1 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 outline-none focus:border-purple-400"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    disabled={isPending}
+                    onClick={() => handleAction(() => cancelOrderAction(order.id))}
+                    className="bg-purple-100 border border-purple-200 px-4 py-2 rounded-lg text-purple-600 font-semibold text-sm hover:bg-purple-50 transition disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    disabled={isPending}
+                    onClick={() => {
+                      if (!deliveryDate) {
+                        alert("Please select a delivery date before confirming.");
+                        return;
+                      }
+                      handleAction(() =>
+                        confirmOrderAction(order.id, prescription, deliveryDate)
+                      );
+                    }}
+                    className="bg-purple-600 text-white px-4 py-2 rounded-lg font-semibold text-sm hover:bg-purple-700 transition disabled:opacity-50"
+                  >
+                    Confirm →
+                  </button>
+                </div>
               </div>
             )}
 

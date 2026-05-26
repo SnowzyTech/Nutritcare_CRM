@@ -1,5 +1,71 @@
 import { prisma } from "@/lib/db/prisma";
 
+/**
+ * Finds the best available delivery agent for an order using:
+ *  1. State match (agent.state or statesCovered must include customerState)
+ *  2. Agent must hold sufficient stock for every order item
+ *  3. Tie-break: fewest active CONFIRMED orders (load balancing)
+ * Returns the agent ID or null if none qualify.
+ */
+export async function findEligibleAgentForOrder(
+  customerState: string,
+  orderItems: { productId: string; quantity: number }[],
+): Promise<string | null> {
+  const agents = await prisma.agent.findMany({
+    where: { status: "ACTIVE", deletedAt: null },
+    select: { id: true, state: true, statesCovered: true },
+  });
+
+  const normalised = customerState.trim().toLowerCase();
+
+  const stateMatched = agents.filter((agent) => {
+    if (agent.state?.trim().toLowerCase() === normalised) return true;
+    if (Array.isArray(agent.statesCovered)) {
+      return (agent.statesCovered as string[]).some(
+        (s) => typeof s === "string" && s.trim().toLowerCase() === normalised,
+      );
+    }
+    return false;
+  });
+
+  if (stateMatched.length === 0) return null;
+
+  const agentIds = stateMatched.map((a) => a.id);
+  const productIds = orderItems.map((i) => i.productId);
+
+  const stockRows = await prisma.stockLevel.findMany({
+    where: { locationKind: "AGENT", locationId: { in: agentIds }, productId: { in: productIds } },
+    select: { locationId: true, productId: true, quantity: true },
+  });
+
+  // agentId → productId → qty
+  const stockMap: Record<string, Record<string, number>> = {};
+  for (const row of stockRows) {
+    stockMap[row.locationId] ??= {};
+    stockMap[row.locationId][row.productId] = Math.max(0, row.quantity);
+  }
+
+  const stockEligible = agentIds.filter((agentId) => {
+    const agentStock = stockMap[agentId] ?? {};
+    return orderItems.every((item) => (agentStock[item.productId] ?? 0) >= item.quantity);
+  });
+
+  if (stockEligible.length === 0) return null;
+
+  const orderCounts = await prisma.order.groupBy({
+    by: ["agentId"],
+    where: { agentId: { in: stockEligible }, status: "CONFIRMED", deletedAt: null },
+    _count: { id: true },
+  });
+
+  const countMap: Record<string, number> = {};
+  for (const row of orderCounts) {
+    if (row.agentId) countMap[row.agentId] = row._count.id;
+  }
+
+  return stockEligible.sort((a, b) => (countMap[a] ?? 0) - (countMap[b] ?? 0))[0];
+}
+
 function trendLabel(current: number, previous: number): string {
   if (previous === 0) return current > 0 ? "+100%" : "—";
   const pct = Math.round(((current - previous) / previous) * 100);

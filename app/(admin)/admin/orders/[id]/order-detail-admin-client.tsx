@@ -150,6 +150,7 @@ export function AdminOrderDetailClient({
   const [selectedAgentId, setSelectedAgentId] = useState("");
   const [totalInput, setTotalInput] = useState(order.totalAmount);
   const [prescription, setPrescription] = useState(order.notes ?? "");
+  const [deliveryDate, setDeliveryDate] = useState("");
   const [productRows, setProductRows] = useState([
     { id: Date.now(), productId: products[0]?.id ?? "", qty: "1" },
   ]);
@@ -537,21 +538,41 @@ export function AdminOrderDetailClient({
 
             {/* Admin action buttons */}
             {order.status === "PENDING" && (
-              <div className="grid grid-cols-2 gap-3 mt-4">
-                <button
-                  disabled={isPending}
-                  onClick={() => handleAction(() => adminCancelOrderAction(order.id))}
-                  className="bg-rose-50 border border-rose-200 px-4 py-3 rounded-xl text-rose-600 font-bold text-sm hover:bg-rose-100 transition disabled:opacity-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  disabled={isPending}
-                  onClick={() => handleAction(() => adminConfirmOrderAction(order.id))}
-                  className="bg-purple-600 text-white px-4 py-3 rounded-xl font-bold text-sm hover:bg-purple-700 transition disabled:opacity-50"
-                >
-                  Confirm →
-                </button>
+              <div className="space-y-3 mt-4">
+                <div>
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">
+                    Delivery Date <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    value={deliveryDate}
+                    min={new Date().toISOString().split("T")[0]}
+                    onChange={(e) => setDeliveryDate(e.target.value)}
+                    className="w-full mt-1 border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-700 outline-none focus:border-purple-400"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    disabled={isPending}
+                    onClick={() => handleAction(() => adminCancelOrderAction(order.id))}
+                    className="bg-rose-50 border border-rose-200 px-4 py-3 rounded-xl text-rose-600 font-bold text-sm hover:bg-rose-100 transition disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    disabled={isPending}
+                    onClick={() => {
+                      if (!deliveryDate) {
+                        alert("Please select a delivery date before confirming.");
+                        return;
+                      }
+                      handleAction(() => adminConfirmOrderAction(order.id, deliveryDate));
+                    }}
+                    className="bg-purple-600 text-white px-4 py-3 rounded-xl font-bold text-sm hover:bg-purple-700 transition disabled:opacity-50"
+                  >
+                    Confirm →
+                  </button>
+                </div>
               </div>
             )}
 

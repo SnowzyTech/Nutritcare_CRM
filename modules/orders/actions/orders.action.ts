@@ -7,6 +7,7 @@ import type { OrderStatus } from "@prisma/client";
 import { recordDeliveryFeeEntry } from "@/modules/finance/services/agent-settlement.service";
 import { getSalesRepWeeklyAnalytics } from "@/modules/orders/services/analytics.service";
 import type { MonthMetrics } from "@/modules/orders/services/analytics.service";
+import { findEligibleAgentForOrder } from "@/modules/delivery/services/agents.service";
 
 export async function getWeeklyAnalyticsAction(): Promise<MonthMetrics | { error: string }> {
   const session = await auth();
@@ -53,17 +54,52 @@ function revalidateOrderPaths(orderId: string) {
   revalidatePath(`/sales-rep/orders/${orderId}`);
 }
 
-export async function confirmOrderAction(orderId: string, notes?: string) {
+export async function confirmOrderAction(
+  orderId: string,
+  notes?: string,
+  deliveryDate?: string,
+) {
   const session = await auth();
   if (!session?.user?.id) throw new Error("Unauthorized");
 
-  const order = await getOwnedOrder(orderId, session.user.id);
+  if (!deliveryDate) throw new Error("Please select a delivery date before confirming.");
+
+  const order = await prisma.order.findFirst({
+    where: { id: orderId, salesRepId: session.user.id, deletedAt: null },
+    include: {
+      customer: { select: { state: true } },
+      items: { select: { productId: true, quantity: true } },
+    },
+  });
   if (!order || order.status !== "PENDING") throw new Error("Cannot confirm this order");
 
-  await prisma.order.update({
-    where: { id: orderId },
-    data: { status: "CONFIRMED", ...(notes !== undefined && { notes: notes || null }) },
-  });
+  const agentId = await findEligibleAgentForOrder(order.customer.state, order.items);
+
+  if (!agentId) {
+    throw new Error(
+      "No delivery agent is currently available in this area with the required stock. Please try again later or contact your manager.",
+    );
+  }
+
+  await prisma.$transaction([
+    prisma.order.update({
+      where: { id: orderId },
+      data: {
+        status: "CONFIRMED",
+        agentId,
+        ...(notes !== undefined && { notes: notes || null }),
+      },
+    }),
+    prisma.delivery.create({
+      data: {
+        orderId,
+        agentId,
+        scheduledTime: new Date(deliveryDate),
+        status: "PENDING_DISPATCH",
+      },
+    }),
+  ]);
+
   revalidateOrderPaths(orderId);
 }
 
