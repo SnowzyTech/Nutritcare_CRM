@@ -422,6 +422,20 @@ export default function OrderFormPreview() {
     loadForm();
   }, [formId]);
 
+  // Post content height to parent frame for auto-resizing iframes.
+  // Must stay here — before any conditional returns — to satisfy Rules of Hooks.
+  useEffect(() => {
+    const el = document.getElementById("nc-order-form-root");
+    if (!el) return;
+    const postHeight = () => {
+      window.parent.postMessage({ type: "nc-resize", height: el.scrollHeight }, "*");
+    };
+    postHeight();
+    const ro = new ResizeObserver(postHeight);
+    ro.observe(el);
+    return () => ro.disconnect();
+  });
+
   if (notFound) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-100 p-4">
@@ -865,7 +879,7 @@ export default function OrderFormPreview() {
     }
   };
 
-  // ── Full-page success takeover ──
+  // ── Full-page success takeover (early return — all hooks are already above) ──
   if (funnelStep === "success") {
     const customerName = formValues.name || optinValues.name || "";
     const customerPhone = formValues.phone
@@ -966,21 +980,6 @@ export default function OrderFormPreview() {
       </div>
     );
   }
-
-  // Post content height to parent frame for auto-resizing iframes
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const el = document.getElementById("nc-order-form-root");
-    if (!el) return;
-    const postHeight = () => {
-      const height = el.scrollHeight;
-      window.parent.postMessage({ type: "nc-resize", height }, "*");
-    };
-    postHeight();
-    const ro = new ResizeObserver(postHeight);
-    ro.observe(el);
-    return () => ro.disconnect();
-  });
 
   return (
     <div
