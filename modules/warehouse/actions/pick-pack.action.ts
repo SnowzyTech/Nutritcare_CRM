@@ -10,6 +10,7 @@ import {
   transferWarehouseToWarehouse,
   debitShelfProducts,
   creditShelfProducts,
+  applyWarehouseLocationDeltas,
   type ShelfAllocationItem,
 } from "@/modules/inventory/services/stock-level.service";
 
@@ -151,25 +152,14 @@ async function applyExplicitShelfDeductions(
   // Deduct from ShelfProductStock
   await debitShelfProducts(tx, allocations as ShelfAllocationItem[]);
 
-  // Decrement WarehouseLocation.currentStock per affected bin
-  const qtyByLocation = new Map<string, number>();
+  // Decrement WarehouseLocation.currentStock per affected bin.
+  // applyWarehouseLocationDeltas does 1 findMany + N updates (vs. the old 2N
+  // sequential findUnique+update pairs that caused Neon transaction timeouts).
+  const debitDeltas = new Map<string, number>();
   for (const a of allocations) {
-    qtyByLocation.set(a.locationId, (qtyByLocation.get(a.locationId) ?? 0) + a.quantity);
+    debitDeltas.set(a.locationId, (debitDeltas.get(a.locationId) ?? 0) - a.quantity);
   }
-  for (const [locationId, qty] of qtyByLocation) {
-    const loc = await tx.warehouseLocation.findUnique({
-      where: { id: locationId },
-      select: { currentStock: true },
-    });
-    const newStock = Math.max(0, (loc?.currentStock ?? 0) - qty);
-    await tx.warehouseLocation.update({
-      where: { id: locationId },
-      data: {
-        currentStock: newStock,
-        ...(newStock === 0 ? { occupancyStatus: "EMPTY" } : {}),
-      },
-    });
-  }
+  await applyWarehouseLocationDeltas(tx, debitDeltas);
 }
 
 export async function assignPickerAction(
@@ -331,25 +321,12 @@ export async function assignPickerAction(
             // Deduct from ShelfProductStock per allocation
             await debitShelfProducts(tx, transferAllocations as ShelfAllocationItem[]);
 
-            // Update WarehouseLocation.currentStock per affected bin
-            const qtyByLocation = new Map<string, number>();
+            // Decrement WarehouseLocation.currentStock per affected bin.
+            const wtwDebitDeltas = new Map<string, number>();
             for (const a of transferAllocations) {
-              qtyByLocation.set(a.locationId, (qtyByLocation.get(a.locationId) ?? 0) + a.quantity);
+              wtwDebitDeltas.set(a.locationId, (wtwDebitDeltas.get(a.locationId) ?? 0) - a.quantity);
             }
-            for (const [locationId, qty] of qtyByLocation) {
-              const loc = await tx.warehouseLocation.findUnique({
-                where: { id: locationId },
-                select: { currentStock: true },
-              });
-              const newStock = Math.max(0, (loc?.currentStock ?? 0) - qty);
-              await tx.warehouseLocation.update({
-                where: { id: locationId },
-                data: {
-                  currentStock: newStock,
-                  ...(newStock === 0 ? { occupancyStatus: "EMPTY" } : {}),
-                },
-              });
-            }
+            await applyWarehouseLocationDeltas(tx, wtwDebitDeltas);
           } else {
             // ── Legacy cascade deduction (no explicit shelf allocations) ───
             const totalQty = items.reduce((s, i) => s + i.quantity, 0);

@@ -8,6 +8,39 @@ import { recordDeliveryFeeEntry } from "@/modules/finance/services/agent-settlem
 import { getSalesRepWeeklyAnalytics } from "@/modules/orders/services/analytics.service";
 import type { MonthMetrics } from "@/modules/orders/services/analytics.service";
 import { findEligibleAgentForOrder } from "@/modules/delivery/services/agents.service";
+import {
+  sendWhatsAppTextMessage,
+  buildOrderConfirmationMessage,
+} from "@/lib/whatsapp/whatsapp";
+import { formatCurrency, formatDate } from "@/lib/utils";
+
+/** Generates a cryptographically random 6-digit numeric delivery code. */
+function generateDeliveryCode(): string {
+  const min = 100_000;
+  const max = 999_999;
+  return String(Math.floor(min + Math.random() * (max - min + 1)));
+}
+
+/**
+ * Deducts order items from the assigned agent's StockLevel rows inside a
+ * transaction. Safe to call even if a StockLevel row doesn't exist yet
+ * (updateMany with 0 matches is a no-op).
+ */
+function buildStockDeductionOps(
+  items: { productId: string; quantity: number }[],
+  agentId: string,
+) {
+  return items.map((item) =>
+    prisma.stockLevel.updateMany({
+      where: {
+        productId: item.productId,
+        locationKind: "AGENT",
+        locationId: agentId,
+      },
+      data: { quantity: { decrement: item.quantity } },
+    }),
+  );
+}
 
 export async function getWeeklyAnalyticsAction(): Promise<MonthMetrics | { error: string }> {
   const session = await auth();
@@ -67,8 +100,22 @@ export async function confirmOrderAction(
   const order = await prisma.order.findFirst({
     where: { id: orderId, salesRepId: session.user.id, deletedAt: null },
     include: {
-      customer: { select: { state: true } },
-      items: { select: { productId: true, quantity: true } },
+      customer: {
+        select: {
+          state: true,
+          name: true,
+          whatsappNumber: true,
+          phone: true,
+          deliveryAddress: true,
+        },
+      },
+      items: {
+        select: {
+          productId: true,
+          quantity: true,
+          product: { select: { name: true } },
+        },
+      },
     },
   });
   if (!order || order.status !== "PENDING") throw new Error("Cannot confirm this order");
@@ -80,6 +127,8 @@ export async function confirmOrderAction(
       "No delivery agent is currently available in this area with the required stock. Please try again later or contact your manager.",
     );
   }
+
+  const deliveryCode = generateDeliveryCode();
 
   await prisma.$transaction([
     prisma.order.update({
@@ -96,9 +145,30 @@ export async function confirmOrderAction(
         agentId,
         scheduledTime: new Date(deliveryDate),
         status: "PENDING_DISPATCH",
+        deliveryCode,
       },
     }),
   ]);
+
+  // Send WhatsApp confirmation to customer (fire-and-forget — never throws)
+  const waPhone = order.customer.whatsappNumber || order.customer.phone;
+  if (waPhone) {
+    const message = buildOrderConfirmationMessage({
+      customerName: order.customer.name,
+      orderNumber: order.orderNumber,
+      deliveryAddress: order.customer.deliveryAddress,
+      deliveryDate: formatDate(new Date(deliveryDate)),
+      items: order.items.map((i) => ({
+        name: i.product.name,
+        quantity: i.quantity,
+      })),
+      totalAmount: formatCurrency(Number(order.netAmount)),
+      deliveryCode,
+    });
+    sendWhatsAppTextMessage({ to: waPhone, message }).catch((err) =>
+      console.error("[WhatsApp] confirmOrder send error:", err),
+    );
+  }
 
   revalidateOrderPaths(orderId);
 }
@@ -142,10 +212,26 @@ export async function deliverOrderAction(orderId: string) {
   const session = await auth();
   if (!session?.user?.id) throw new Error("Unauthorized");
 
-  const order = await getOwnedOrder(orderId, session.user.id);
+  // Fetch with items so we can deduct stock
+  const order = await prisma.order.findFirst({
+    where: { id: orderId, salesRepId: session.user.id, deletedAt: null },
+    include: { items: { select: { productId: true, quantity: true } } },
+  });
   if (!order || order.status !== "CONFIRMED") throw new Error("Cannot mark order as delivered");
 
-  await prisma.order.update({ where: { id: orderId }, data: { status: "DELIVERED" } });
+  const now = new Date();
+  const stockOps = order.agentId
+    ? buildStockDeductionOps(order.items, order.agentId)
+    : [];
+
+  await prisma.$transaction([
+    prisma.order.update({ where: { id: orderId }, data: { status: "DELIVERED" } }),
+    prisma.delivery.updateMany({
+      where: { orderId },
+      data: { status: "DELIVERED", deliveredTime: now },
+    }),
+    ...stockOps,
+  ]);
 
   if (order.agentId) {
     await recordDeliveryFeeEntry({
@@ -187,6 +273,107 @@ export async function reassignOrderAgentAction(orderId: string, agentId: string)
     data: { agentId, ...(order.status === "FAILED" ? { status: "CONFIRMED" } : {}) },
   });
   revalidateOrderPaths(orderId);
+}
+
+export async function createOrderAction(input: {
+  customerName: string;
+  phone: string;
+  whatsappNumber: string;
+  email?: string;
+  deliveryAddress: string;
+  state: string;
+  landmark?: string;
+  products: Array<{ productId: string; quantity: number }>;
+}): Promise<{ orderId: string; orderNumber: string } | { error: string }> {
+  const session = await auth();
+  if (!session?.user?.id) return { error: "Unauthorized" };
+
+  const { customerName, phone, whatsappNumber, email, deliveryAddress, state, landmark, products } = input;
+
+  if (!products.length) return { error: "At least one product is required." };
+
+  const cleanPhone = phone.replace(/\s+/g, "");
+
+  let customer = await prisma.customer.findFirst({ where: { phone: cleanPhone } });
+  if (customer) {
+    customer = await prisma.customer.update({
+      where: { id: customer.id },
+      data: {
+        name: customerName.trim(),
+        whatsappNumber: whatsappNumber?.trim() || null,
+        email: email?.trim() || null,
+        deliveryAddress: deliveryAddress.trim(),
+        state: state.trim(),
+        landmark: landmark?.trim() || null,
+      },
+    });
+  } else {
+    customer = await prisma.customer.create({
+      data: {
+        name: customerName.trim(),
+        phone: cleanPhone,
+        whatsappNumber: whatsappNumber?.trim() || null,
+        email: email?.trim() || null,
+        deliveryAddress: deliveryAddress.trim(),
+        state: state.trim(),
+        lga: "",
+        landmark: landmark?.trim() || null,
+      },
+    });
+  }
+
+  const orderNumber = `ORD-${Date.now()}-${Math.floor(Math.random() * 1000)
+    .toString()
+    .padStart(3, "0")}`;
+
+  const dbProducts = await prisma.product.findMany({
+    where: { id: { in: products.map((p) => p.productId) }, deletedAt: null },
+    select: { id: true, sellingPrice: true, costPrice: true },
+  });
+  const productMap = new Map(dbProducts.map((p) => [p.id, p]));
+
+  for (const item of products) {
+    if (!productMap.has(item.productId)) {
+      return { error: "One or more selected products are unavailable." };
+    }
+  }
+
+  const orderItemsData = products.map((item) => {
+    const product = productMap.get(item.productId)!;
+    const unitPrice = Number(product.sellingPrice);
+    const lineTotal = unitPrice * item.quantity;
+    return {
+      productId: item.productId,
+      quantity: item.quantity,
+      unitPrice,
+      lineTotal,
+      costPriceAtSale: Number(product.costPrice),
+    };
+  });
+
+  const totalAmount = orderItemsData.reduce((sum, i) => sum + i.lineTotal, 0);
+
+  try {
+    const order = await prisma.$transaction(async (tx) => {
+      return tx.order.create({
+        data: {
+          orderNumber,
+          customerId: customer.id,
+          salesRepId: session.user.id,
+          totalAmount,
+          netAmount: totalAmount,
+          status: "PENDING",
+          items: { create: orderItemsData },
+        },
+      });
+    });
+
+    revalidatePath("/sales-rep/orders");
+    return { orderId: order.id, orderNumber: order.orderNumber };
+  } catch (err) {
+    console.error("[createOrderAction] Error:", err);
+    return { error: "Failed to create order. Please try again." };
+  }
 }
 
 export async function addOrderItemsAction(

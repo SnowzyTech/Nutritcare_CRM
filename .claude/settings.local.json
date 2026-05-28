@@ -35,7 +35,8 @@
       "Bash(xargs grep -l \"getReturnedMovements\")",
       "Bash(xargs grep -l \"form.*action\\\\|zod.*form\")",
       "Bash(xargs grep -l \"form\")",
-      "Bash(NEXT_TELEMETRY_DISABLED=1 npx next build)"
+      "Bash(NEXT_TELEMETRY_DISABLED=1 npx next build)",
+      "Bash(grep -E \"\\\\.\\(ts|js|tsx|jsx\\)$\")"
     ]
   }
 }

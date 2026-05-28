@@ -10,6 +10,7 @@ import {
   reverseReturn,
   creditShelfProducts,
   debitShelfProducts,
+  applyWarehouseLocationDeltas,
 } from "@/modules/inventory/services/stock-level.service";
 import {
   getAgentProductStocks,
@@ -196,26 +197,14 @@ export async function createReturnMovementAction(
         },
       });
 
-      // Credit each shelf bin: update currentStock and occupancyStatus
-      const qtyByLocation = new Map<string, number>();
+      // Credit each shelf bin: update currentStock and occupancyStatus.
+      // applyWarehouseLocationDeltas does 1 findMany + N updates (vs. the old
+      // 2N sequential findUnique+update pairs that caused Neon timeouts).
+      const creditDeltas = new Map<string, number>();
       for (const e of parsed.data.shelfAssignments) {
-        qtyByLocation.set(e.locationId, (qtyByLocation.get(e.locationId) ?? 0) + e.quantity);
+        creditDeltas.set(e.locationId, (creditDeltas.get(e.locationId) ?? 0) + e.quantity);
       }
-      for (const [locationId, qty] of qtyByLocation) {
-        const loc = await tx.warehouseLocation.findUnique({
-          where: { id: locationId },
-          select: { currentStock: true, maxCapacity: true },
-        });
-        const newStock = (loc?.currentStock ?? 0) + qty;
-        const isFull = loc?.maxCapacity != null && newStock >= loc.maxCapacity;
-        await tx.warehouseLocation.update({
-          where: { id: locationId },
-          data: {
-            currentStock: { increment: qty },
-            occupancyStatus: isFull ? "FULL" : "PARTIAL",
-          },
-        });
-      }
+      await applyWarehouseLocationDeltas(tx, creditDeltas);
 
       // Credit per-product per-shelf stock
       await creditShelfProducts(
@@ -262,21 +251,11 @@ export async function deleteReturnMovementAction(id: string): Promise<{ error?: 
   await prisma.$transaction(async (tx) => {
     if (movement.status !== "REVERSED") {
       if (storedAssignments.length > 0) {
-        const qtyByLocation = new Map<string, number>();
+        const debitDeltas = new Map<string, number>();
         for (const e of storedAssignments) {
-          qtyByLocation.set(e.locationId, (qtyByLocation.get(e.locationId) ?? 0) + e.quantity);
+          debitDeltas.set(e.locationId, (debitDeltas.get(e.locationId) ?? 0) - e.quantity);
         }
-        for (const [locationId, qty] of qtyByLocation) {
-          const loc = await tx.warehouseLocation.findUnique({
-            where: { id: locationId },
-            select: { currentStock: true },
-          });
-          const newStock = Math.max(0, (loc?.currentStock ?? 0) - qty);
-          await tx.warehouseLocation.update({
-            where: { id: locationId },
-            data: { currentStock: newStock, ...(newStock === 0 ? { occupancyStatus: "EMPTY" } : {}) },
-          });
-        }
+        await applyWarehouseLocationDeltas(tx, debitDeltas);
         await debitShelfProducts(
           tx,
           storedAssignments.map((e) => ({
@@ -327,24 +306,11 @@ export async function reverseReturnMovementAction(
     });
 
     if (storedAssignments.length > 0) {
-      const qtyByLocation = new Map<string, number>();
+      const debitDeltas = new Map<string, number>();
       for (const e of storedAssignments) {
-        qtyByLocation.set(e.locationId, (qtyByLocation.get(e.locationId) ?? 0) + e.quantity);
+        debitDeltas.set(e.locationId, (debitDeltas.get(e.locationId) ?? 0) - e.quantity);
       }
-      for (const [locationId, qty] of qtyByLocation) {
-        const loc = await tx.warehouseLocation.findUnique({
-          where: { id: locationId },
-          select: { currentStock: true },
-        });
-        const newStock = Math.max(0, (loc?.currentStock ?? 0) - qty);
-        await tx.warehouseLocation.update({
-          where: { id: locationId },
-          data: {
-            currentStock: newStock,
-            ...(newStock === 0 ? { occupancyStatus: "EMPTY" } : {}),
-          },
-        });
-      }
+      await applyWarehouseLocationDeltas(tx, debitDeltas);
       await debitShelfProducts(
         tx,
         storedAssignments.map((e) => ({

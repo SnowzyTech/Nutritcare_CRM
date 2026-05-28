@@ -196,6 +196,51 @@ export async function reverseAdjustment(
   }
 }
 
+// ── WarehouseLocation bin helpers ───────────────────────────────────────────
+
+/**
+ * Apply signed quantity deltas to WarehouseLocation rows (positive = credit,
+ * negative = debit) and recompute occupancyStatus in one pass.
+ *
+ * WHY THIS EXISTS:
+ * The naïve pattern of `findUnique + update` inside a loop causes 2 N round-
+ * trips per call inside an interactive $transaction. On Neon serverless each
+ * round-trip is a separate HTTP request; with N ≥ 4 locations the transaction
+ * regularly exceeds the 5-second timeout → "Transaction not found" crash.
+ *
+ * This helper does ONE findMany (all locations in a single query), then N
+ * individual updates (writes only, no reads) — reducing total round-trips from
+ * 2N → N+1.
+ */
+export async function applyWarehouseLocationDeltas(
+  tx: Tx,
+  deltas: Map<string, number>, // locationId → signed delta
+): Promise<void> {
+  if (deltas.size === 0) return;
+
+  // 1 round-trip: fetch all current stocks at once
+  const locationIds = Array.from(deltas.keys());
+  const locs = await tx.warehouseLocation.findMany({
+    where: { id: { in: locationIds } },
+    select: { id: true, currentStock: true, maxCapacity: true },
+  });
+  const stockMap = new Map(
+    locs.map((l) => [l.id, { currentStock: l.currentStock, maxCapacity: l.maxCapacity }]),
+  );
+
+  // N round-trips: one update per location, no reads
+  for (const [locationId, delta] of deltas) {
+    const cur = stockMap.get(locationId);
+    const newStock = Math.max(0, (cur?.currentStock ?? 0) + delta);
+    const isFull = cur?.maxCapacity != null && newStock >= cur.maxCapacity;
+    const occupancyStatus = newStock === 0 ? "EMPTY" : isFull ? "FULL" : "PARTIAL";
+    await tx.warehouseLocation.update({
+      where: { id: locationId },
+      data: { currentStock: newStock, occupancyStatus },
+    });
+  }
+}
+
 // ── Shelf-level (bin) product tracking ──────────────────────────────────────
 // ShelfProductStock tracks per-product quantities in specific warehouse bins.
 // These are updated atomically alongside StockLevel and WarehouseLocation.currentStock.
@@ -340,7 +385,7 @@ export async function getAgentProductStock(
 type Delta = { productId: string; locationKind: StockLocationKind; locationId: string; delta: number };
 
 export async function rebuildStockLevels(): Promise<{ rows: number }> {
-  const [movementItems, transferItems, adjustments, packedPicks] = await Promise.all([
+  const [movementItems, transferItems, adjustments, packedPicks, deliveredOrders] = await Promise.all([
     prisma.stockMovementItem.findMany({
       include: {
         stockMovement: {
@@ -373,6 +418,14 @@ export async function rebuildStockLevels(): Promise<{ rows: number }> {
     prisma.pickPack.findMany({
       where: { stockMovementId: { not: null }, status: { in: ["PACKED", "DISPATCHED"] } },
       select: { stockMovementId: true },
+    }),
+    // Delivered orders reduce the assigned agent's stock balance
+    prisma.order.findMany({
+      where: { status: "DELIVERED", agentId: { not: null }, deletedAt: null },
+      select: {
+        agentId: true,
+        items: { select: { productId: true, quantity: true } },
+      },
     }),
   ]);
 
@@ -426,6 +479,19 @@ export async function rebuildStockLevels(): Promise<{ rows: number }> {
       if (d !== 0) {
         deltas.push({ productId: it.productId, locationKind: "WAREHOUSE", locationId: adj.warehouseId, delta: d });
       }
+    }
+  }
+
+  // Delivered orders consume agent stock — deduct from the agent's balance.
+  for (const order of deliveredOrders) {
+    if (!order.agentId) continue;
+    for (const item of order.items) {
+      deltas.push({
+        productId: item.productId,
+        locationKind: "AGENT",
+        locationId: order.agentId,
+        delta: -item.quantity,
+      });
     }
   }
 

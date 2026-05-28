@@ -2,6 +2,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
+import { createOrderAction } from '@/modules/orders/actions/orders.action';
 import {
   ChevronLeft,
   ChevronRight,
@@ -37,10 +38,17 @@ export type OrderCounts = {
   failed: number;
 };
 
+export type ProductItem = {
+  id: string;
+  name: string;
+  sellingPrice: number;
+};
+
 interface OrdersClientProps {
   orders: OrderListItem[];
   counts: OrderCounts;
   userName: string;
+  products: ProductItem[];
 }
 
 const STATUS_STYLES: Record<OrderStatus, { dot: string; bg: string; text: string; label: string }> = {
@@ -69,7 +77,7 @@ const NIGERIAN_STATES = [
   "Zamfara", "Federal Capital Territory (FCT)"
 ];
 
-export function OrdersClient({ orders, counts, userName }: OrdersClientProps) {
+export function OrdersClient({ orders, counts, userName, products }: OrdersClientProps) {
   const router = useRouter();
   
   // Interactive Local Orders state
@@ -90,9 +98,13 @@ export function OrdersClient({ orders, counts, userName }: OrdersClientProps) {
   const [landmark, setLandmark] = useState('');
   
   // Multi-product fields inside Add Order
-  const [formProducts, setFormProducts] = useState<Array<{ product: string; quantity: number }>>([
-    { product: 'Shred Belly', quantity: 6 }
+  const [formProducts, setFormProducts] = useState<Array<{ productId: string; quantity: number }>>([
+    { productId: products[0]?.id ?? '', quantity: 6 }
   ]);
+
+  // Form submission state
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
   // Success indicator for newly added orders
   const [successToast, setSuccessToast] = useState<string | null>(null);
@@ -134,7 +146,7 @@ export function OrdersClient({ orders, counts, userName }: OrdersClientProps) {
 
   // Product Row helpers
   const addProductRow = () => {
-    setFormProducts([...formProducts, { product: 'Shred Belly', quantity: 1 }]);
+    setFormProducts([...formProducts, { productId: products[0]?.id ?? '', quantity: 1 }]);
   };
 
   const removeProductRow = (index: number) => {
@@ -142,43 +154,13 @@ export function OrdersClient({ orders, counts, userName }: OrdersClientProps) {
     setFormProducts(formProducts.filter((_, i) => i !== index));
   };
 
-  const updateProductRow = (index: number, field: 'product' | 'quantity', value: any) => {
+  const updateProductRow = (index: number, field: 'productId' | 'quantity', value: any) => {
     const updated = [...formProducts];
     updated[index] = { ...updated[index], [field]: value };
     setFormProducts(updated);
   };
 
-  const handleAddOrderSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!customerName.trim()) return;
-
-    const newOrder: OrderListItem = {
-      id: Math.random().toString(),
-      orderNumber: `ORD-${Math.floor(100000 + Math.random() * 900000)}`,
-      status: 'PENDING',
-      createdAt: new Date().toISOString(),
-      customer: {
-        name: customerName.trim(),
-        email: email.trim() || null
-      },
-      agent: {
-        companyName: 'Direct Outreach',
-        state: selectedState
-      },
-      items: formProducts.map(fp => ({
-        quantity: fp.quantity,
-        product: { name: fp.product }
-      }))
-    };
-
-    setLocalOrders([newOrder, ...localOrders]);
-    setIsAddOrderOpen(false);
-
-    // Trigger Success Notification
-    setSuccessToast(`Order ${newOrder.orderNumber} added successfully!`);
-    setTimeout(() => setSuccessToast(null), 4000);
-
-    // Reset fields
+  const resetForm = () => {
     setCustomerName('');
     setPhoneNumber('');
     setWhatsappNumber('');
@@ -186,7 +168,52 @@ export function OrdersClient({ orders, counts, userName }: OrdersClientProps) {
     setAddress('');
     setSelectedState('Lagos');
     setLandmark('');
-    setFormProducts([{ product: 'Shred Belly', quantity: 6 }]);
+    setFormProducts([{ productId: products[0]?.id ?? '', quantity: 6 }]);
+    setFormError(null);
+  };
+
+  const handleAddOrderSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFormError(null);
+    setIsSubmitting(true);
+
+    const result = await createOrderAction({
+      customerName,
+      phone: phoneNumber,
+      whatsappNumber,
+      email: email || undefined,
+      deliveryAddress: address,
+      state: selectedState,
+      landmark: landmark || undefined,
+      products: formProducts,
+    });
+
+    setIsSubmitting(false);
+
+    if ('error' in result) {
+      setFormError(result.error);
+      return;
+    }
+
+    const newOrder: OrderListItem = {
+      id: result.orderId,
+      orderNumber: result.orderNumber,
+      status: 'PENDING',
+      createdAt: new Date().toISOString(),
+      customer: { name: customerName.trim(), email: email.trim() || null },
+      agent: null,
+      items: formProducts.map((fp) => ({
+        quantity: fp.quantity,
+        product: { name: products.find((p) => p.id === fp.productId)?.name ?? fp.productId },
+      })),
+    };
+
+    setLocalOrders([newOrder, ...localOrders]);
+    setIsAddOrderOpen(false);
+    resetForm();
+
+    setSuccessToast(`Order ${result.orderNumber} added successfully!`);
+    setTimeout(() => setSuccessToast(null), 4000);
   };
 
   return (
@@ -390,17 +417,17 @@ export function OrdersClient({ orders, counts, userName }: OrdersClientProps) {
       {isAddOrderOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
           {/* Backdrop blur & fade */}
-          <div 
+          <div
             className="fixed inset-0 bg-gray-900/50 backdrop-blur-sm transition-opacity duration-300"
-            onClick={() => setIsAddOrderOpen(false)}
+            onClick={() => { setIsAddOrderOpen(false); setFormError(null); }}
           ></div>
 
           {/* Modal Container Card (Responsive wide size) */}
           <div className="relative bg-white rounded-[32px] shadow-2xl w-full max-w-4xl p-8 md:p-10 overflow-hidden border border-gray-100 animate-in fade-in zoom-in-95 duration-200 my-8">
             
             {/* Header circular X button */}
-            <button 
-              onClick={() => setIsAddOrderOpen(false)}
+            <button
+              onClick={() => { setIsAddOrderOpen(false); setFormError(null); }}
               className="absolute top-8 right-8 w-8 h-8 rounded-full border border-gray-200 flex items-center justify-center text-gray-400 hover:bg-gray-50 hover:text-gray-600 active:scale-95 transition-all duration-150"
             >
               <X className="w-4 h-4 stroke-[2.5]" />
@@ -538,15 +565,13 @@ export function OrdersClient({ orders, counts, userName }: OrdersClientProps) {
                       </label>
                       <div className="relative">
                         <select
-                          value={item.product}
-                          onChange={e => updateProductRow(index, 'product', e.target.value)}
+                          value={item.productId}
+                          onChange={e => updateProductRow(index, 'productId', e.target.value)}
                           className="w-full bg-white border border-gray-100 shadow-[0_2px_10px_rgb(0,0,0,0.01)] rounded-xl h-12 px-4 pr-10 text-xs text-gray-700 appearance-none focus:outline-none focus:ring-1 focus:ring-purple-200 cursor-pointer"
                         >
-                          <option value="Shred Belly">Shred Belly</option>
-                          <option value="Flat Tummy Tea">Flat Tummy Tea</option>
-                          <option value="Kedi Healthcare">Kedi Healthcare</option>
-                          <option value="Slimming Tea">Slimming Tea</option>
-                          <option value="Nutritcare Blend">Nutritcare Blend</option>
+                          {products.map((p) => (
+                            <option key={p.id} value={p.id}>{p.name}</option>
+                          ))}
                         </select>
                         <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
                       </div>
@@ -595,13 +620,21 @@ export function OrdersClient({ orders, counts, userName }: OrdersClientProps) {
                 </button>
               </div>
 
+              {/* Error message */}
+              {formError && (
+                <p className="text-xs font-semibold text-red-600 bg-red-50 border border-red-100 rounded-xl px-4 py-3">
+                  {formError}
+                </p>
+              )}
+
               {/* Submit Main Button */}
               <div className="pt-2">
                 <button
                   type="submit"
-                  className="w-full bg-[#A020F0] hover:bg-[#8B1ED2] active:scale-[0.99] text-white font-extrabold py-4 rounded-xl text-xs tracking-wider uppercase transition-all duration-200 shadow-lg shadow-purple-100 cursor-pointer"
+                  disabled={isSubmitting}
+                  className="w-full bg-[#A020F0] hover:bg-[#8B1ED2] active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed text-white font-extrabold py-4 rounded-xl text-xs tracking-wider uppercase transition-all duration-200 shadow-lg shadow-purple-100 cursor-pointer"
                 >
-                  Add Order
+                  {isSubmitting ? 'Adding Order…' : 'Add Order'}
                 </button>
               </div>
 

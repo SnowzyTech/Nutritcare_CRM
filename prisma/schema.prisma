@@ -786,6 +786,7 @@ model Delivery {
   deliveredTime DateTime?
   zoneId        String?
   failureReason String?
+  deliveryCode  String?
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 

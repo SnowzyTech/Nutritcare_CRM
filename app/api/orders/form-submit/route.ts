@@ -129,8 +129,9 @@ export async function POST(req: NextRequest) {
     );
 
     // ── 3. Generate Order Number ────────────────────────────────────────────
-    const orderCount = await prisma.order.count();
-    const orderNumber = `ORD-${String(orderCount + 1).padStart(5, "0")}`;
+    // Use timestamp + random suffix to avoid race-condition collisions that
+    // occur when two concurrent requests read the same count.
+    const orderNumber = `ORD-${Date.now()}-${Math.floor(Math.random() * 1000).toString().padStart(3, "0")}`;
 
     // ── 4. Validate product(s) exist ───────────────────────────────────────
     const productIdsToFetch = [productId];

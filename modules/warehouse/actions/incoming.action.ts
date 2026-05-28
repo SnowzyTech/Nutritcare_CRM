@@ -10,6 +10,7 @@ import {
   debitWarehouse,
   creditShelfProducts,
   debitShelfProducts,
+  applyWarehouseLocationDeltas,
   type ShelfAllocationItem,
 } from "@/modules/inventory/services/stock-level.service";
 
@@ -136,20 +137,16 @@ export async function confirmIncomingReceiptAction(
     });
 
     if (shelfEntries.length > 0) {
-      // Group by locationId to update WarehouseLocation.currentStock once per bin
-      const qtyByLocation = new Map<string, number>();
+      // Group by locationId → credit delta map, then apply in one helper call.
+      // applyWarehouseLocationDeltas does 1 findMany + N updates and correctly
+      // recomputes occupancyStatus — replacing the old 3N sequential round-trips
+      // (increment + findUnique + occupancy-update) that caused Neon timeouts.
+      const creditDeltas = new Map<string, number>();
       for (const e of shelfEntries) {
-        qtyByLocation.set(e.locationId, (qtyByLocation.get(e.locationId) ?? 0) + e.quantity);
+        creditDeltas.set(e.locationId, (creditDeltas.get(e.locationId) ?? 0) + e.quantity);
       }
-      for (const [locationId, qty] of qtyByLocation) {
-        await tx.warehouseLocation.update({
-          where: { id: locationId },
-          data: { currentStock: { increment: qty } },
-        });
-        // Recompute occupancy after update
-        const occupancy = await deriveOccupancyForLocation(tx, locationId);
-        await tx.warehouseLocation.update({ where: { id: locationId }, data: { occupancyStatus: occupancy } });
-      }
+      await applyWarehouseLocationDeltas(tx, creditDeltas);
+
       // Update per-product per-shelf stock
       const shelfItems: ShelfAllocationItem[] = shelfEntries.map((e) => ({
         locationId: e.locationId,
@@ -320,21 +317,11 @@ export async function deleteIncomingMovementAction(
   await prisma.$transaction(async (tx) => {
     if (movement.status !== "REVERSED") {
       if (storedAssignments.length > 0) {
-        const qtyByLocation = new Map<string, number>();
+        const debitDeltas = new Map<string, number>();
         for (const e of storedAssignments) {
-          qtyByLocation.set(e.locationId, (qtyByLocation.get(e.locationId) ?? 0) + e.quantity);
+          debitDeltas.set(e.locationId, (debitDeltas.get(e.locationId) ?? 0) - e.quantity);
         }
-        for (const [locationId, qty] of qtyByLocation) {
-          const loc = await tx.warehouseLocation.findUnique({
-            where: { id: locationId },
-            select: { currentStock: true },
-          });
-          const newStock = Math.max(0, (loc?.currentStock ?? 0) - qty);
-          await tx.warehouseLocation.update({
-            where: { id: locationId },
-            data: { currentStock: newStock, ...(newStock === 0 ? { occupancyStatus: "EMPTY" } : {}) },
-          });
-        }
+        await applyWarehouseLocationDeltas(tx, debitDeltas);
         await debitShelfProducts(
           tx,
           storedAssignments.map((e) => ({
@@ -345,15 +332,10 @@ export async function deleteIncomingMovementAction(
         );
       } else if (movement.shelfLocationId) {
         const totalQty = movement.items.reduce((sum, i) => sum + i.quantity, 0);
-        const shelfLoc = await tx.warehouseLocation.findUnique({
-          where: { id: movement.shelfLocationId },
-          select: { currentStock: true },
-        });
-        const newStock = Math.max(0, (shelfLoc?.currentStock ?? 0) - totalQty);
-        await tx.warehouseLocation.update({
-          where: { id: movement.shelfLocationId },
-          data: { currentStock: newStock, ...(newStock === 0 ? { occupancyStatus: "EMPTY" } : {}) },
-        });
+        await applyWarehouseLocationDeltas(
+          tx,
+          new Map([[movement.shelfLocationId, -totalQty]]),
+        );
       }
     }
     // Undo the stock credit if this receipt was already counted.
@@ -407,25 +389,11 @@ export async function reverseIncomingMovementWarehouseAction(
     });
 
     if (storedAssignments.length > 0) {
-      // Reverse per-shelf per-product quantities
-      const qtyByLocation = new Map<string, number>();
+      const debitDeltas = new Map<string, number>();
       for (const e of storedAssignments) {
-        qtyByLocation.set(e.locationId, (qtyByLocation.get(e.locationId) ?? 0) + e.quantity);
+        debitDeltas.set(e.locationId, (debitDeltas.get(e.locationId) ?? 0) - e.quantity);
       }
-      for (const [locationId, qty] of qtyByLocation) {
-        const loc = await tx.warehouseLocation.findUnique({
-          where: { id: locationId },
-          select: { currentStock: true },
-        });
-        const newStock = Math.max(0, (loc?.currentStock ?? 0) - qty);
-        await tx.warehouseLocation.update({
-          where: { id: locationId },
-          data: {
-            currentStock: newStock,
-            ...(newStock === 0 ? { occupancyStatus: "EMPTY" } : {}),
-          },
-        });
-      }
+      await applyWarehouseLocationDeltas(tx, debitDeltas);
       await debitShelfProducts(
         tx,
         storedAssignments.map((e) => ({
@@ -435,20 +403,11 @@ export async function reverseIncomingMovementWarehouseAction(
         })),
       );
     } else if (movement.shelfLocationId) {
-      // Legacy single-shelf reversal
       const totalQty = movement.items.reduce((sum, i) => sum + i.quantity, 0);
-      const loc = await tx.warehouseLocation.findUnique({
-        where: { id: movement.shelfLocationId },
-        select: { currentStock: true },
-      });
-      const newStock = Math.max(0, (loc?.currentStock ?? 0) - totalQty);
-      await tx.warehouseLocation.update({
-        where: { id: movement.shelfLocationId },
-        data: {
-          currentStock: newStock,
-          ...(newStock === 0 ? { occupancyStatus: "EMPTY" } : {}),
-        },
-      });
+      await applyWarehouseLocationDeltas(
+        tx,
+        new Map([[movement.shelfLocationId, -totalQty]]),
+      );
     }
 
     if (wasCredited && movement.warehouseId) {

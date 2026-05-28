@@ -305,16 +305,12 @@ export async function getAgentPageData(agentId: string): Promise<AgentPageData |
   const prevYearEnd = new Date(now.getFullYear(), 0, 1);
 
   // Fetch all data in parallel
-  const [deliveredOrders, prevOrders, ledgerEntries, stockMovements, pendingOrders] =
+  const [deliveredOrders, prevOrders, ledgerEntries, stockLevels, pendingOrders] =
     await Promise.all([
-      // Current year delivered orders (include items for inventory calc)
+      // Current year delivered orders — for chart only (no longer used for inventory)
       prisma.order.findMany({
         where: { agentId, status: "DELIVERED", deletedAt: null, date: { gte: yearStart } },
-        select: {
-          netAmount: true,
-          date: true,
-          items: { include: { product: { select: { id: true } } } },
-        },
+        select: { netAmount: true, date: true },
       }),
       // Previous year for % comparison
       prisma.order.findMany({
@@ -327,19 +323,21 @@ export async function getAgentPageData(agentId: string): Promise<AgentPageData |
         orderBy: { date: "desc" },
         take: 50,
       }),
-      // Stock movements for this agent
-      prisma.stockMovement.findMany({
-        where: { agentId },
-        include: {
-          items: {
-            include: { product: { select: { id: true, name: true, sellingPrice: true } } },
-          },
+      // Materialized stock balance — replaces the old OUTGOING movement tally.
+      // StockLevel is decremented on every delivery completion, return, and
+      // agent-to-agent transfer, so it is always the accurate "stock at hand".
+      prisma.stockLevel.findMany({
+        where: { locationKind: "AGENT", locationId: agentId },
+        select: {
+          productId: true,
+          quantity: true,
+          product: { select: { name: true, sellingPrice: true } },
         },
       }),
-      // Pending orders (scheduled for delivery)
+      // Pending orders — for "scheduled" count only
       prisma.order.findMany({
         where: { agentId, status: { in: ["PENDING", "CONFIRMED"] }, deletedAt: null },
-        include: { items: { include: { product: { select: { id: true } } } } },
+        select: { items: { select: { quantity: true, product: { select: { id: true } } } } },
       }),
     ]);
 
@@ -370,42 +368,22 @@ export async function getAgentPageData(agentId: string): Promise<AgentPageData |
   }));
 
   // ── Inventory ────────────────────────────────────────────────────────────────
-  // Tally stock sent to agent (OUTGOING from warehouse to agent)
-  const stockMap: Record<string, { name: string; qty: number; price: number }> = {};
-  for (const mv of stockMovements) {
-    for (const item of mv.items) {
-      const pid = item.product.id;
-      if (!stockMap[pid]) {
-        stockMap[pid] = { name: item.product.name, qty: 0, price: Number(item.product.sellingPrice) };
-      }
-      if (mv.type === "OUTGOING") stockMap[pid].qty += item.quantity;
-      if (mv.type === "RETURN") stockMap[pid].qty -= item.quantity;
-    }
-  }
-
-  // Subtract sold items (delivered orders)
-  for (const o of deliveredOrders) {
-    for (const item of o.items) {
-      const pid = item.product.id;
-      if (stockMap[pid]) stockMap[pid].qty -= item.quantity;
-    }
-  }
-
-  // Count scheduled (pending) per product
+  // StockLevel is the materialized balance — already accounts for all incoming
+  // movements, transfers, returns, AND delivery completions.  No manual
+  // aggregation needed.
   const scheduledQty: Record<string, number> = {};
   for (const o of pendingOrders) {
     for (const item of o.items) {
-      const pid = item.product.id;
-      scheduledQty[pid] = (scheduledQty[pid] ?? 0) + item.quantity;
+      scheduledQty[item.product.id] = (scheduledQty[item.product.id] ?? 0) + item.quantity;
     }
   }
 
-  const inventory = Object.entries(stockMap)
-    .map(([pid, v]) => ({
-      product: v.name,
-      left: Math.max(0, v.qty),
-      scheduled: scheduledQty[pid] ?? 0,
-      value: fmt(Math.max(0, v.qty) * v.price),
+  const inventory = stockLevels
+    .map((sl) => ({
+      product: sl.product.name,
+      left: Math.max(0, sl.quantity),
+      scheduled: scheduledQty[sl.productId] ?? 0,
+      value: fmt(Math.max(0, sl.quantity) * Number(sl.product.sellingPrice)),
     }))
     .filter((row) => row.left > 0 || row.scheduled > 0);
 

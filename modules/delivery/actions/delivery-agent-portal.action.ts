@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db/prisma";
 import { revalidatePath } from "next/cache";
 import bcryptjs from "bcryptjs";
 import { getAgentIdByUserId } from "@/modules/delivery/services/delivery-agent-portal.service";
+import { recordDeliveryFeeEntry } from "@/modules/finance/services/agent-settlement.service";
 
 export async function updateAgentProfileAction(data: {
   name: string;
@@ -55,6 +56,79 @@ export async function changePasswordAction(data: {
     data: { password: hashed },
   });
 
+  return { success: true };
+}
+
+/**
+ * Agent marks an order as delivered after the customer provides the 6-digit
+ * delivery code that was sent to them via WhatsApp on order confirmation.
+ *
+ * On success:
+ *  1. Order status → DELIVERED
+ *  2. Delivery record status → DELIVERED (deliveredTime stamped)
+ *  3. Agent's StockLevel decremented for every item in the order
+ *  4. AgentLedgerEntry created (agent collected cash, owes company)
+ */
+export async function markOrderDeliveredAction(orderId: string, deliveryCode: string) {
+  const session = await auth();
+  if (!session?.user?.id) return { error: "Unauthorized" };
+
+  const agentId = await getAgentIdByUserId(session.user.id);
+  if (!agentId) return { error: "Agent not found" };
+
+  const order = await prisma.order.findFirst({
+    where: { id: orderId, agentId, deletedAt: null },
+    include: { items: { select: { productId: true, quantity: true } } },
+  });
+  if (!order) return { error: "Order not found" };
+  if (order.status !== "CONFIRMED") return { error: "Only confirmed orders can be marked as delivered" };
+
+  // ── Verify delivery code ──────────────────────────────────────────────────
+  const delivery = await prisma.delivery.findFirst({
+    where: { orderId, agentId },
+    select: { id: true, deliveryCode: true },
+  });
+  if (!delivery) return { error: "Delivery record not found" };
+
+  const codeMatches =
+    delivery.deliveryCode && delivery.deliveryCode === deliveryCode.trim();
+  if (!codeMatches) {
+    return { error: "Incorrect delivery code. Please ask the customer to check the WhatsApp message sent at time of order confirmation." };
+  }
+
+  // ── Commit all changes in one transaction ─────────────────────────────────
+  const now = new Date();
+
+  const stockDeductions = order.items.map((item) =>
+    prisma.stockLevel.updateMany({
+      where: {
+        productId: item.productId,
+        locationKind: "AGENT",
+        locationId: agentId,
+      },
+      data: { quantity: { decrement: item.quantity } },
+    }),
+  );
+
+  await prisma.$transaction([
+    prisma.order.update({ where: { id: orderId }, data: { status: "DELIVERED" } }),
+    prisma.delivery.update({
+      where: { id: delivery.id },
+      data: { status: "DELIVERED", deliveredTime: now },
+    }),
+    ...stockDeductions,
+  ]);
+
+  // Record ledger entry (idempotent)
+  await recordDeliveryFeeEntry({
+    agentId,
+    netAmount: Number(order.netAmount),
+    orderNumber: order.orderNumber,
+    date: order.date,
+  });
+
+  revalidatePath("/delivery-agents");
+  revalidatePath(`/delivery-agents/${orderId}`);
   return { success: true };
 }
 

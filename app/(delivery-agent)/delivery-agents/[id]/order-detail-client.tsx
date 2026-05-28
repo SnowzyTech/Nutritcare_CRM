@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import {
+  markOrderDeliveredAction,
   markOrderFailedAction,
   rescheduleOrderAction,
   updateDeliveryFeeAction,
@@ -38,6 +39,7 @@ interface Order {
   netAmount: number;
   notes: string | null;
   failureReason: string | null;
+  deliveryCode: string | null;
   customer: {
     name: string;
     phone: string;
@@ -81,6 +83,7 @@ export function OrderDetailClient({ order, user }: Props) {
   const [selectedDate, setSelectedDate] = useState<number | null>(new Date().getDate());
   const [viewDate, setViewDate] = useState(new Date());
   const [verifyCode, setVerifyCode] = useState<string[]>(Array(6).fill(""));
+  const [verifyError, setVerifyError] = useState<string | null>(null);
   const [feeInput, setFeeInput] = useState(order.deliveryFee > 0 ? String(order.deliveryFee) : "");
   const [feeSaved, setFeeSaved] = useState(order.deliveryFee > 0);
   const [isPending, startTransition] = useTransition();
@@ -103,6 +106,23 @@ export function OrderDetailClient({ order, user }: Props) {
     if (val && idx < 5) {
       document.getElementById(`verify-${idx + 1}`)?.focus();
     }
+  }
+
+  function handleDeliver() {
+    const code = verifyCode.join("");
+    if (code.length < 6) {
+      setVerifyError("Please enter all 6 digits of the delivery code.");
+      return;
+    }
+    setVerifyError(null);
+    startTransition(async () => {
+      const result = await markOrderDeliveredAction(order.id, code);
+      if (result.error) {
+        setVerifyError(result.error);
+      } else {
+        setActiveModal(null);
+      }
+    });
   }
 
   function handleFail() {
@@ -176,7 +196,9 @@ export function OrderDetailClient({ order, user }: Props) {
               <div className="space-y-8 text-center py-4">
                 <div className="space-y-2">
                   <h2 className="text-xl font-black text-[#1e1e2d]">Verification Code</h2>
-                  <p className="text-sm text-gray-400">Enter the 6-digit code sent to customer</p>
+                  <p className="text-sm text-gray-400">
+                    Ask the customer for the 6-digit code sent to their WhatsApp
+                  </p>
                 </div>
                 <div className="flex justify-between gap-2 px-2">
                   {verifyCode.map((v, i) => (
@@ -184,6 +206,7 @@ export function OrderDetailClient({ order, user }: Props) {
                       key={i}
                       id={`verify-${i}`}
                       type="text"
+                      inputMode="numeric"
                       maxLength={1}
                       value={v}
                       onChange={(e) => handleVerifyInput(i, e.target.value)}
@@ -191,12 +214,19 @@ export function OrderDetailClient({ order, user }: Props) {
                     />
                   ))}
                 </div>
-                <div className="space-y-3 pt-4">
-                  <button className="w-full bg-[#ad1df4] text-white font-bold h-14 rounded-2xl hover:bg-[#8e14cc] transition-colors shadow-lg shadow-purple-100">
-                    Verify & Deliver
+                {verifyError && (
+                  <p className="text-xs text-red-500 font-medium -mt-4 px-1">{verifyError}</p>
+                )}
+                <div className="space-y-3 pt-2">
+                  <button
+                    onClick={handleDeliver}
+                    disabled={isPending}
+                    className="w-full bg-[#ad1df4] text-white font-bold h-14 rounded-2xl hover:bg-[#8e14cc] transition-colors shadow-lg shadow-purple-100 disabled:opacity-50"
+                  >
+                    {isPending ? "Verifying…" : "Verify & Deliver"}
                   </button>
                   <button
-                    onClick={() => setActiveModal(null)}
+                    onClick={() => { setActiveModal(null); setVerifyError(null); setVerifyCode(Array(6).fill("")); }}
                     className="w-full text-gray-400 font-bold hover:text-gray-600 transition-colors"
                   >
                     Cancel

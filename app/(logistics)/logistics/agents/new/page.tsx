@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -38,6 +38,11 @@ export default function AddAgentPage() {
   const [credentials, setCredentials] = useState<Credentials | null>(null);
   const [copied, setCopied] = useState(false);
 
+  // Synchronous guard — prevents duplicate submissions caused by React 18's
+  // async state batching (setLoading(true) doesn't disable the button until the
+  // next render, so rapid clicks can fire handleSubmit multiple times).
+  const submittingRef = useRef(false);
+
   const addLocation = () => setLocations([...locations, ""]);
   const removeLocation = (index: number) => {
     if (locations.length > 1) setLocations(locations.filter((_, i) => i !== index));
@@ -53,35 +58,54 @@ export default function AddAgentPage() {
   };
 
   const handleSubmit = async () => {
+    // Synchronous latch — blocks before any state update or async work
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+
     setError("");
-    if (!name.trim()) return setError("Agent name is required.");
-    if (!phone.trim()) return setError("Phone 1 is required.");
-    if (!email.trim()) return setError("Email is required.");
+    if (!name.trim()) {
+      setError("Agent name is required.");
+      submittingRef.current = false;
+      return;
+    }
+    if (!phone.trim()) {
+      setError("Phone 1 is required.");
+      submittingRef.current = false;
+      return;
+    }
+    if (!email.trim()) {
+      setError("Email is required.");
+      submittingRef.current = false;
+      return;
+    }
 
     setLoading(true);
-    const statesCovered = locations.filter((l) => l.trim() !== "");
+    try {
+      const statesCovered = locations.filter((l) => l.trim() !== "");
 
-    const result = await createAgentAction({
-      name: name.trim(),
-      email: email.trim(),
-      phone: phone.trim(),
-      phone2: phone2.trim() || undefined,
-      phone3: phone3.trim() || undefined,
-      address: address.trim() || undefined,
-      state: state.trim() || undefined,
-      country: country.trim() || undefined,
-      statesCovered,
-      picksFromOfficeStock: picksFromOffice === "yes",
-      deliveryFee: deliveryFee.trim() ? parseFloat(deliveryFee) : undefined,
-    });
+      const result = await createAgentAction({
+        name: name.trim(),
+        email: email.trim(),
+        phone: phone.trim(),
+        phone2: phone2.trim() || undefined,
+        phone3: phone3.trim() || undefined,
+        address: address.trim() || undefined,
+        state: state.trim() || undefined,
+        country: country.trim() || undefined,
+        statesCovered,
+        picksFromOfficeStock: picksFromOffice === "yes",
+        deliveryFee: deliveryFee.trim() ? parseFloat(deliveryFee) : undefined,
+      });
 
-    setLoading(false);
-
-    if ("error" in result) {
-      setError(result.error);
-    } else {
-      setCredentials(result.data);
-      handleReset();
+      if ("error" in result) {
+        setError(result.error);
+      } else {
+        setCredentials(result.data);
+        handleReset();
+      }
+    } finally {
+      setLoading(false);
+      submittingRef.current = false;
     }
   };
 

@@ -74,78 +74,32 @@ export async function getAgentOrderById(orderId: string, agentId: string) {
       deliveries: {
         orderBy: { createdAt: "desc" },
         take: 1,
-        select: { failureReason: true },
+        select: { failureReason: true, deliveryCode: true },
       },
     },
   });
 }
 
 export async function getAgentInventory(agentId: string) {
-  const [
-    incomingMovements,
-    incomingTransfers,
-    outgoingMovements,
-    outgoingTransfers,
-    returns,
-    pendingOrders,
-  ] = await Promise.all([
-    // Outgoing StockMovements where this agent is the recipient
-    prisma.stockMovement.findMany({
+  // Read the materialized StockLevel balance — maintained transactionally by
+  // every stock movement, transfer, return, AND delivery completion.  This
+  // replaces the old 5-query movement aggregation which (a) was O(all history),
+  // (b) ignored delivered orders, and (c) diverged from what the delivery
+  // completion code actually decrements.
+  const [stockLevels, pendingOrders] = await Promise.all([
+    prisma.stockLevel.findMany({
       where: {
-        toAgentId: agentId,
-        type: "OUTGOING",
-        status: { notIn: ["DRAFT", "REVERSED"] },
+        locationKind: "AGENT",
+        locationId: agentId,
+        quantity: { gt: 0 },
       },
       select: {
-        items: { select: { quantity: true, product: { select: { id: true, name: true } } } },
+        productId: true,
+        quantity: true,
+        product: { select: { name: true } },
       },
     }),
-    // StockTransfers where this agent is the target
-    prisma.stockTransfer.findMany({
-      where: {
-        targetType: "AGENT",
-        targetId: agentId,
-        status: { in: ["SUBMITTED", "IN_TRANSIT", "COMPLETED"] },
-      },
-      select: {
-        items: { select: { quantity: true, product: { select: { id: true, name: true } } } },
-      },
-    }),
-    // Agent-to-agent outgoing movements (stock going out FROM this agent)
-    prisma.stockMovement.findMany({
-      where: {
-        agentId,
-        type: "OUTGOING",
-        isAgentToAgentTransfer: true,
-        status: { notIn: ["DRAFT", "REVERSED"] },
-      },
-      select: {
-        items: { select: { quantity: true, product: { select: { id: true } } } },
-      },
-    }),
-    // StockTransfers going out FROM this agent
-    prisma.stockTransfer.findMany({
-      where: {
-        sourceType: "AGENT",
-        sourceId: agentId,
-        status: { in: ["SUBMITTED", "IN_TRANSIT", "COMPLETED"] },
-      },
-      select: {
-        items: { select: { quantity: true, product: { select: { id: true } } } },
-      },
-    }),
-    // Returns from this agent
-    prisma.stockMovement.findMany({
-      where: {
-        agentId,
-        type: "RETURN",
-        status: { notIn: ["DRAFT", "REVERSED"] },
-      },
-      select: {
-        items: { select: { quantity: true, product: { select: { id: true } } } },
-      },
-    }),
-    // Pending orders — for scheduled count display only
+    // Scheduled = quantities committed to confirmed-but-undelivered orders
     prisma.order.findMany({
       where: { agentId, status: { in: ["PENDING", "CONFIRMED"] }, deletedAt: null },
       select: {
@@ -154,48 +108,6 @@ export async function getAgentInventory(agentId: string) {
     }),
   ]);
 
-  const stockMap: Record<string, { name: string; qty: number }> = {};
-
-  for (const movement of incomingMovements) {
-    for (const item of movement.items) {
-      const pid = item.product.id;
-      stockMap[pid] ??= { name: item.product.name, qty: 0 };
-      stockMap[pid].qty += item.quantity;
-    }
-  }
-
-  for (const transfer of incomingTransfers) {
-    for (const item of transfer.items) {
-      const pid = item.product.id;
-      stockMap[pid] ??= { name: item.product.name, qty: 0 };
-      stockMap[pid].qty += item.quantity;
-    }
-  }
-
-  for (const movement of outgoingMovements) {
-    for (const item of movement.items) {
-      const pid = item.product.id;
-      stockMap[pid] ??= { name: "Unknown", qty: 0 };
-      stockMap[pid].qty -= item.quantity;
-    }
-  }
-
-  for (const transfer of outgoingTransfers) {
-    for (const item of transfer.items) {
-      const pid = item.product.id;
-      stockMap[pid] ??= { name: "Unknown", qty: 0 };
-      stockMap[pid].qty -= item.quantity;
-    }
-  }
-
-  for (const movement of returns) {
-    for (const item of movement.items) {
-      const pid = item.product.id;
-      stockMap[pid] ??= { name: "Unknown", qty: 0 };
-      stockMap[pid].qty -= item.quantity;
-    }
-  }
-
   const scheduledMap: Record<string, number> = {};
   for (const order of pendingOrders) {
     for (const item of order.items) {
@@ -203,11 +115,30 @@ export async function getAgentInventory(agentId: string) {
     }
   }
 
-  return Object.entries(stockMap)
-    .map(([productId, { name, qty }]) => ({
+  // Merge: include products that appear in pending orders even if StockLevel
+  // shows 0 (e.g. stock not yet received but order already confirmed)
+  const allProductIds = new Set([
+    ...stockLevels.map((s) => s.productId),
+    ...Object.keys(scheduledMap),
+  ]);
+
+  // Build a name lookup from whatever we already have
+  const nameMap: Record<string, string> = {};
+  for (const sl of stockLevels) nameMap[sl.productId] = sl.product.name;
+  for (const order of pendingOrders) {
+    for (const item of order.items) {
+      nameMap[item.product.id] ??= item.product.name;
+    }
+  }
+
+  const stockQty: Record<string, number> = {};
+  for (const sl of stockLevels) stockQty[sl.productId] = Math.max(0, sl.quantity);
+
+  return Array.from(allProductIds)
+    .map((productId) => ({
       productId,
-      productName: name,
-      totalStock: Math.max(0, qty),
+      productName: nameMap[productId] ?? "Unknown",
+      totalStock: stockQty[productId] ?? 0,
       scheduled: scheduledMap[productId] ?? 0,
     }))
     .filter((item) => item.totalStock > 0 || item.scheduled > 0);

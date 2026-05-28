@@ -23,6 +23,7 @@ export default async function OrderDetailsPage({ params }: { params: Promise<{ i
     deliveryFee: Number(raw.deliveryFee),
     netAmount: Number(raw.netAmount),
     failureReason: raw.deliveries[0]?.failureReason ?? null,
+    deliveryCode: raw.deliveries[0]?.deliveryCode ?? null,
     items: raw.items.map((item) => ({
       ...item,
       unitPrice: Number(item.unitPrice),
