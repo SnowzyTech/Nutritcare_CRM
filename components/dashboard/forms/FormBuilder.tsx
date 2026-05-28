@@ -57,11 +57,13 @@ function computeVariations(product: ProductWithOffers, usePriceVariation: string
 
 /* ── Nigerian States List ── */
 const NIGERIAN_STATES = [
-  "Abia", "Adamawa", "Akwa Ibom", "Anambra", "Bauchi", "Bayelsa", "Benue",
-  "Borno", "Cross River", "Delta", "Ebonyi", "Edo", "Ekiti", "Enugu",
-  "FCT (Abuja)", "Gombe", "Imo", "Jigawa", "Kaduna", "Kano", "Katsina",
-  "Kebbi", "Kogi", "Kwara", "Lagos", "Nasarawa", "Niger", "Ogun", "Ondo",
-  "Osun", "Oyo", "Plateau", "Rivers", "Sokoto", "Taraba", "Yobe", "Zamfara"
+  "Abia State", "Adamawa State", "Akwa Ibom State", "Anambra State", "Bauchi State",
+  "Bayelsa State", "Benue State", "Borno State", "Cross River State", "Delta State",
+  "Ebonyi State", "Edo State", "Ekiti State", "Enugu State", "Gombe State", "Imo State",
+  "Jigawa State", "Kaduna State", "Kano State", "Katsina State", "Kebbi State", "Kogi State",
+  "Kwara State", "Lagos State", "Nasarawa State", "Niger State", "Ogun State", "Ondo State",
+  "Osun State", "Oyo State", "Plateau State", "Rivers State", "Sokoto State", "Taraba State",
+  "Yobe State", "Zamfara State", "Federal Capital Territory (FCT)",
 ];
 
 /* ── Custom Toggle Component ── */

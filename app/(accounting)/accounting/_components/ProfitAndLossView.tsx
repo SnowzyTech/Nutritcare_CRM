@@ -5,7 +5,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Calendar } from '@/components/ui/calendar';
 import { Calendar as CalendarIcon } from 'lucide-react';
 import { format } from 'date-fns';
-import type { ProfitAndLossReport } from '@/modules/finance/services/reports-accounting.service';
+import type { ProfitAndLossReport, CategoryExpenseGroup } from '@/modules/finance/services/reports-accounting.service';
 
 interface Props {
   data?: ProfitAndLossReport;
@@ -154,12 +154,27 @@ export function ProfitAndLossView({ data, currentDate, priorDate, onDateChange }
               </td>
             </tr>
           )}
-          {report.operatingExpenses.map((item, idx) => (
-            <tr key={`opex-${idx}`} className="border-b border-gray-50 hover:bg-gray-50">
-              <td className="py-2 px-4 text-gray-700">{item.name}</td>
-              <td className="py-2 px-4 text-right text-gray-600">{formatCurrency(item.current)}</td>
-              <td className="py-2 px-4 text-right text-gray-600">{formatCurrency(item.prior)}</td>
-            </tr>
+          {report.operatingExpenses.map((group: CategoryExpenseGroup, gi: number) => (
+            <React.Fragment key={`opex-group-${gi}`}>
+              <tr>
+                <td className="py-2 px-4 font-bold text-gray-700 text-[13px] uppercase tracking-wide" colSpan={3}>
+                  {group.categoryName}
+                </td>
+              </tr>
+              {group.items.map((item, ii) => (
+                <tr key={`opex-item-${gi}-${ii}`} className="border-b border-gray-50 hover:bg-gray-50">
+                  <td className="py-2 px-8 text-gray-600">{item.name}</td>
+                  <td className="py-2 px-4 text-right text-gray-600">{formatCurrency(item.current)}</td>
+                  <td className="py-2 px-4 text-right text-gray-600">{formatCurrency(item.prior)}</td>
+                </tr>
+              ))}
+              <tr className="bg-gray-50">
+                <td className="py-2 px-4 italic text-gray-500 text-[13px]">Total {group.categoryName}</td>
+                <td className="py-2 px-4 text-right text-[13px] font-medium text-gray-600">{formatCurrency(group.total.current)}</td>
+                <td className="py-2 px-4 text-right text-[13px] font-medium text-gray-600">{formatCurrency(group.total.prior)}</td>
+              </tr>
+              <tr><td colSpan={3} className="py-1"></td></tr>
+            </React.Fragment>
           ))}
           <tr className="bg-[#E6F0FA] font-bold text-[#1E3A8A]">
             <td className="py-3 px-4 uppercase">TOTAL OPERATING EXPENSES</td>

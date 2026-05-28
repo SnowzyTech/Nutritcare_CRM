@@ -21,8 +21,8 @@ export default async function BalanceSheetPage({
   const cur = parseDate(searchParams.current, now);
   const pri = parseDate(searchParams.prior, previousMonthRange(cur).from);
   const data = await getBalanceSheet({
-    currentAsOf: monthRange(cur).to,
-    priorAsOf: monthRange(pri).to,
+    current: monthRange(cur),
+    prior: monthRange(pri),
   });
   return (
     <Suspense>

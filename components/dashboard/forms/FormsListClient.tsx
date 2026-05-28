@@ -263,8 +263,10 @@ export default function FormsListClient({ initialForms }: { initialForms: SavedF
             const hasOptin = data.createOptinForm === "Yes";
             const hasUpsell = data.addUpsell === "Yes" && Array.isArray(data.upsellItems) && data.upsellItems.length > 0;
 
-            const optinIframeCode = `<iframe src="${origin}/order-form/${form.id}?tab=optin" width="100%" height="700" frameborder="0" scrolling="no" style="border:none; overflow:hidden;"></iframe>`;
-            const iframeCode = `<iframe src="${origin}/order-form/${form.id}?tab=order" width="100%" height="700" frameborder="0" scrolling="no" style="border:none; overflow:hidden;"></iframe>`;
+            const resizeScript = `<script>window.addEventListener('message',function(e){if(e.data&&e.data.type==='nc-resize'){var f=document.querySelector('iframe[data-nc-id="${form.id}-optin"]');if(f)f.style.height=e.data.height+'px';}});<\/script>`;
+            const resizeScriptOrder = `<script>window.addEventListener('message',function(e){if(e.data&&e.data.type==='nc-resize'){var f=document.querySelector('iframe[data-nc-id="${form.id}-order"]');if(f)f.style.height=e.data.height+'px';}});<\/script>`;
+            const optinIframeCode = `<iframe data-nc-id="${form.id}-optin" src="${origin}/order-form/${form.id}?tab=optin" width="100%" style="border:none; overflow:hidden; min-height:500px; display:block;" frameborder="0" scrolling="no"></iframe>\n${resizeScript}`;
+            const iframeCode = `<iframe data-nc-id="${form.id}-order" src="${origin}/order-form/${form.id}?tab=order" width="100%" style="border:none; overflow:hidden; min-height:500px; display:block;" frameborder="0" scrolling="no"></iframe>\n${resizeScriptOrder}`;
             const formCode = `<div data-form-id="${form.id}"></div><script src="${origin}/embed.js"></script>`;
             const formId = form.id;
 
@@ -364,7 +366,7 @@ export default function FormsListClient({ initialForms }: { initialForms: SavedF
                 <div className="flex flex-col gap-3 pt-1">
                   {hasUpsell ? (
                     (data.upsellItems as Array<any>).map((item: any, idx: number) => {
-                      const upsellIframe = `<iframe src="${origin}/order-form/${form.id}?tab=upsell&index=${idx}" width="100%" height="700" frameborder="0" scrolling="no" style="border:none; overflow:hidden;"></iframe>`;
+                      const upsellIframe = `<iframe data-nc-id="${form.id}-upsell-${idx}" src="${origin}/order-form/${form.id}?tab=upsell&index=${idx}" width="100%" style="border:none; overflow:hidden; min-height:500px; display:block;" frameborder="0" scrolling="no"></iframe>\n<script>window.addEventListener('message',function(e){if(e.data&&e.data.type==='nc-resize'){var f=document.querySelector('iframe[data-nc-id="${form.id}-upsell-${idx}"]');if(f)f.style.height=e.data.height+'px';}});<\/script>`;
                       return (
                         <div key={idx} className="flex flex-col gap-2 bg-slate-50/60 p-3 rounded-lg border border-slate-100 w-full">
                           <span className="text-xs font-extrabold text-slate-700">Upsell {idx + 1}</span>

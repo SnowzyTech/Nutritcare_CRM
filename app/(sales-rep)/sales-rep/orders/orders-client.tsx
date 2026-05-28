@@ -68,13 +68,15 @@ const TABS: Array<{ label: string; key: OrderStatus | null; countKey: keyof Orde
   { label: 'Failed',    key: 'FAILED',    countKey: 'failed' },
 ];
 
-// List of all 36 States in Nigeria + Federal Capital Territory (FCT)
+// All 36 Nigerian states + FCT, each with " State" suffix to match delivery agent registration format
 const NIGERIAN_STATES = [
-  "Abia", "Adamawa", "Akwa Ibom", "Anambra", "Bauchi", "Bayelsa", "Benue", "Borno", 
-  "Cross River", "Delta", "Ebonyi", "Edo", "Ekiti", "Enugu", "Gombe", "Imo", "Jigawa", 
-  "Kaduna", "Kano", "Katsina", "Kebbi", "Kogi", "Kwara", "Lagos", "Nasarawa", "Niger", 
-  "Ogun", "Ondo", "Osun", "Oyo", "Plateau", "Rivers", "Sokoto", "Taraba", "Yobe", 
-  "Zamfara", "Federal Capital Territory (FCT)"
+  "Abia State", "Adamawa State", "Akwa Ibom State", "Anambra State", "Bauchi State",
+  "Bayelsa State", "Benue State", "Borno State", "Cross River State", "Delta State",
+  "Ebonyi State", "Edo State", "Ekiti State", "Enugu State", "Gombe State", "Imo State",
+  "Jigawa State", "Kaduna State", "Kano State", "Katsina State", "Kebbi State", "Kogi State",
+  "Kwara State", "Lagos State", "Nasarawa State", "Niger State", "Ogun State", "Ondo State",
+  "Osun State", "Oyo State", "Plateau State", "Rivers State", "Sokoto State", "Taraba State",
+  "Yobe State", "Zamfara State", "Federal Capital Territory (FCT)",
 ];
 
 export function OrdersClient({ orders, counts, userName, products }: OrdersClientProps) {
@@ -94,7 +96,7 @@ export function OrdersClient({ orders, counts, userName, products }: OrdersClien
   const [whatsappNumber, setWhatsappNumber] = useState('');
   const [email, setEmail] = useState('');
   const [address, setAddress] = useState('');
-  const [selectedState, setSelectedState] = useState('Lagos');
+  const [selectedState, setSelectedState] = useState('Lagos State');
   const [landmark, setLandmark] = useState('');
   
   // Multi-product fields inside Add Order
@@ -166,7 +168,7 @@ export function OrdersClient({ orders, counts, userName, products }: OrdersClien
     setWhatsappNumber('');
     setEmail('');
     setAddress('');
-    setSelectedState('Lagos');
+    setSelectedState('Lagos State');
     setLandmark('');
     setFormProducts([{ productId: products[0]?.id ?? '', quantity: 6 }]);
     setFormError(null);

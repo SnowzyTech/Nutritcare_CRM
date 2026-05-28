@@ -22,7 +22,7 @@ import {
 
 const reportSubItems = [
   { href: '/accounting/reports/profit-loss', label: 'Profit & Loss' },
-  { href: '/accounting/reports/statement-of-financial-position', label: 'Fin. Position' },
+  { href: '/accounting/reports/statement-of-financial-position', label: 'Balance Sheet' },
   { href: '/accounting/reports/statement-of-cash-flow', label: 'Cash Flow' },
   { href: '/accounting/reports/revenue-by-product', label: 'Revenue by Product' },
   { href: '/accounting/reports/inventory-valuation', label: 'Inventory Valuation' },

@@ -1,11 +1,11 @@
 'use client';
 
-import React from 'react';
+import React, { Fragment } from 'react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { Calendar as CalendarIcon } from 'lucide-react';
 import { format } from 'date-fns';
-import type { BalanceSheetReport, NamedAmount } from '@/modules/finance/services/reports-accounting.service';
+import type { BalanceSheetReport, CategoryExpenseGroup } from '@/modules/finance/services/reports-accounting.service';
 
 interface Props {
   data?: BalanceSheetReport;
@@ -14,35 +14,18 @@ interface Props {
   onDateChange?: (key: 'current' | 'prior', iso: string) => void;
 }
 
-const EMPTY: BalanceSheetReport = {
-  currentAssets: [],
-  nonCurrentAssets: [],
-  currentLiabilities: [],
-  nonCurrentLiabilities: [],
-  equity: [],
-};
-
-function sum(rows: NamedAmount[]) {
-  return rows.reduce(
-    (acc, r) => ({ current: acc.current + r.current, prior: acc.prior + r.prior }),
-    { current: 0, prior: 0 }
-  );
-}
+const EMPTY: BalanceSheetReport = { expenseGroups: [] };
 
 export function BalanceSheetView({ data, currentDate, priorDate, onDateChange }: Props) {
   const report = data ?? EMPTY;
 
-  const totalCA = sum(report.currentAssets);
-  const totalNCA = sum(report.nonCurrentAssets);
-  const totalA = { current: totalCA.current + totalNCA.current, prior: totalCA.prior + totalNCA.prior };
-  const totalCL = sum(report.currentLiabilities);
-  const totalNCL = sum(report.nonCurrentLiabilities);
-  const totalL = { current: totalCL.current + totalNCL.current, prior: totalCL.prior + totalNCL.prior };
-  const totalE = sum(report.equity);
-  const totalLE = { current: totalL.current + totalE.current, prior: totalL.prior + totalE.prior };
-
   const formatCurrency = (val: number) =>
     (val < 0 ? '-' : '') + '₦' + new Intl.NumberFormat('en-NG').format(Math.abs(val));
+
+  const grandTotal = report.expenseGroups.reduce(
+    (acc, g) => ({ current: acc.current + g.total.current, prior: acc.prior + g.total.prior }),
+    { current: 0, prior: 0 }
+  );
 
   return (
     <div className="bg-white border border-gray-100 shadow-sm p-7 overflow-x-auto w-full">
@@ -110,77 +93,47 @@ export function BalanceSheetView({ data, currentDate, priorDate, onDateChange }:
           </tr>
         </thead>
         <tbody>
-          {renderSection('CURRENT ASSETS', report.currentAssets, totalCA, formatCurrency)}
-          {renderSection('NON-CURRENT ASSETS', report.nonCurrentAssets, totalNCA, formatCurrency)}
-
-          <tr><td colSpan={3} className="py-2"></td></tr>
-          <tr className="bg-[#107C41] text-white font-bold">
-            <td className="py-3 px-4 uppercase">TOTAL ASSETS</td>
-            <td className="py-3 px-4 text-right">{formatCurrency(totalA.current)}</td>
-            <td className="py-3 px-4 text-right">{formatCurrency(totalA.prior)}</td>
-          </tr>
-
-          {renderSection('CURRENT LIABILITIES', report.currentLiabilities, totalCL, formatCurrency)}
-          {renderSection('NON-CURRENT LIABILITIES', report.nonCurrentLiabilities, totalNCL, formatCurrency)}
-
-          <tr><td colSpan={3} className="py-2"></td></tr>
-          <tr className="bg-[#107C41] text-white font-bold">
-            <td className="py-3 px-4 uppercase">TOTAL LIABILITIES</td>
-            <td className="py-3 px-4 text-right">{formatCurrency(totalL.current)}</td>
-            <td className="py-3 px-4 text-right">{formatCurrency(totalL.prior)}</td>
-          </tr>
-
-          {renderSection('EQUITY', report.equity, totalE, formatCurrency)}
-
-          <tr><td colSpan={3} className="py-2"></td></tr>
-          <tr className="bg-[#5C2B90] text-white font-bold">
-            <td className="py-3 px-4 uppercase">TOTAL EQUITY</td>
-            <td className="py-3 px-4 text-right">{formatCurrency(totalE.current)}</td>
-            <td className="py-3 px-4 text-right">{formatCurrency(totalE.prior)}</td>
-          </tr>
-          <tr className="bg-[#107C41] text-white font-bold">
-            <td className="py-3 px-4 uppercase">TOTAL LIABILITIES + EQUITY</td>
-            <td className="py-3 px-4 text-right">{formatCurrency(totalLE.current)}</td>
-            <td className="py-3 px-4 text-right">{formatCurrency(totalLE.prior)}</td>
-          </tr>
+          {report.expenseGroups.length === 0 ? (
+            <tr>
+              <td colSpan={3} className="py-10 px-4 text-center italic text-gray-400 text-[13px]">
+                No balance sheet expenses recorded for the selected period. Create expense categories
+                tagged as &quot;Balance Sheet&quot; and record expenses against them.
+              </td>
+            </tr>
+          ) : (
+            <>
+              {report.expenseGroups.map((group: CategoryExpenseGroup, gi: number) => (
+                <Fragment key={`bs-group-${gi}`}>
+                  <tr><td colSpan={3} className="py-3"></td></tr>
+                  <tr>
+                    <td className="py-3 px-4 font-black text-[#1E3A8A] uppercase text-[15px]" colSpan={3}>
+                      {group.categoryName}
+                    </td>
+                  </tr>
+                  {group.items.map((item, ii) => (
+                    <tr key={`bs-item-${gi}-${ii}`} className="border-b border-gray-50 hover:bg-gray-50">
+                      <td className="py-2 px-4 text-gray-700">{item.name}</td>
+                      <td className="py-2 px-4 text-right text-gray-600">{formatCurrency(item.current)}</td>
+                      <td className="py-2 px-4 text-right text-gray-600">{formatCurrency(item.prior)}</td>
+                    </tr>
+                  ))}
+                  <tr className="bg-[#E6F0FA] font-bold text-[#1E3A8A]">
+                    <td className="py-3 px-4 uppercase">Total {group.categoryName}</td>
+                    <td className="py-3 px-4 text-right">{formatCurrency(group.total.current)}</td>
+                    <td className="py-3 px-4 text-right">{formatCurrency(group.total.prior)}</td>
+                  </tr>
+                </Fragment>
+              ))}
+              <tr><td colSpan={3} className="py-2"></td></tr>
+              <tr className="bg-[#107C41] text-white font-bold">
+                <td className="py-3 px-4 uppercase">TOTAL</td>
+                <td className="py-3 px-4 text-right">{formatCurrency(grandTotal.current)}</td>
+                <td className="py-3 px-4 text-right">{formatCurrency(grandTotal.prior)}</td>
+              </tr>
+            </>
+          )}
         </tbody>
       </table>
     </div>
-  );
-}
-
-function renderSection(
-  title: string,
-  rows: NamedAmount[],
-  total: { current: number; prior: number },
-  fmt: (v: number) => string
-) {
-  return (
-    <>
-      <tr><td colSpan={3} className="py-4"></td></tr>
-      <tr>
-        <td className="py-3 px-4 font-black text-[#1E3A8A] uppercase text-[15px]" colSpan={3}>
-          {title}
-        </td>
-      </tr>
-      {rows.map((item, idx) => (
-        <tr key={`${title}-${idx}`} className="border-b border-gray-50 hover:bg-gray-50">
-          <td
-            className={`py-2 px-4 text-gray-700 ${
-              item.name.startsWith('Less:') ? 'pl-8 text-gray-500 italic' : ''
-            }`}
-          >
-            {item.name}
-          </td>
-          <td className="py-2 px-4 text-right text-gray-600">{fmt(item.current)}</td>
-          <td className="py-2 px-4 text-right text-gray-600">{fmt(item.prior)}</td>
-        </tr>
-      ))}
-      <tr className="bg-[#E6F0FA] font-bold text-[#1E3A8A]">
-        <td className="py-3 px-4 uppercase">Total {title}</td>
-        <td className="py-3 px-4 text-right">{fmt(total.current)}</td>
-        <td className="py-3 px-4 text-right">{fmt(total.prior)}</td>
-      </tr>
-    </>
   );
 }

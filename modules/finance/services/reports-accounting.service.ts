@@ -26,13 +26,93 @@ const REVENUE_STATUSES = ["DELIVERED", "CONFIRMED"] as const;
 const DEC = (v: any) => Number(v ?? 0);
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Expense grouping by financial statement
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface CategoryExpenseGroup {
+  categoryName: string;
+  items: NamedAmount[];
+  total: { current: number; prior: number };
+}
+
+async function fetchExpensesForPeriod(
+  categoryIds: string[],
+  period: Period
+): Promise<Map<string, Map<string, number>>> {
+  const expenses = await prisma.expense.findMany({
+    where: {
+      expenseCategoryId: { in: categoryIds },
+      date: { gte: period.from, lte: period.to },
+    },
+    select: {
+      amount: true,
+      expenseCategoryId: true,
+      expenseName: { select: { name: true } },
+    },
+  });
+  const grouped = new Map<string, Map<string, number>>();
+  for (const e of expenses) {
+    const catId = e.expenseCategoryId;
+    const label = e.expenseName?.name ?? "General";
+    if (!grouped.has(catId)) grouped.set(catId, new Map());
+    const m = grouped.get(catId)!;
+    m.set(label, (m.get(label) ?? 0) + DEC(e.amount));
+  }
+  return grouped;
+}
+
+export async function getExpensesGroupedByCategoryForStatement(
+  financialStatement: string,
+  periods: ComparePeriods
+): Promise<CategoryExpenseGroup[]> {
+  const categories = await prisma.expenseCategory.findMany({
+    where: { financialStatement },
+    select: { id: true, name: true },
+  });
+  if (categories.length === 0) return [];
+
+  const categoryIds = categories.map(c => c.id);
+  const catNameOf = new Map(categories.map(c => [c.id, c.name]));
+
+  const [curGrouped, priGrouped] = await Promise.all([
+    fetchExpensesForPeriod(categoryIds, periods.current),
+    fetchExpensesForPeriod(categoryIds, periods.prior),
+  ]);
+
+  const activeCatIds = new Set([...curGrouped.keys(), ...priGrouped.keys()]);
+  const result: CategoryExpenseGroup[] = [];
+
+  for (const catId of activeCatIds) {
+    const catName = catNameOf.get(catId) ?? "Uncategorized";
+    const curItems = curGrouped.get(catId) ?? new Map();
+    const priItems = priGrouped.get(catId) ?? new Map();
+    const allNames = new Set([...curItems.keys(), ...priItems.keys()]);
+
+    const items: NamedAmount[] = [...allNames].map(name => ({
+      name,
+      current: curItems.get(name) ?? 0,
+      prior: priItems.get(name) ?? 0,
+    }));
+
+    const total = items.reduce(
+      (acc, i) => ({ current: acc.current + i.current, prior: acc.prior + i.prior }),
+      { current: 0, prior: 0 }
+    );
+
+    result.push({ categoryName: catName, items, total });
+  }
+
+  return result.sort((a, b) => b.total.current - a.total.current);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Profit & Loss
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface ProfitAndLossReport {
   revenue: NamedAmount[];
   costOfSales: NamedAmount[];
-  operatingExpenses: NamedAmount[];
+  operatingExpenses: CategoryExpenseGroup[];
   totals: {
     revenue: { current: number; prior: number };
     cos: { current: number; prior: number };
@@ -70,31 +150,11 @@ async function getProductPnL(period: Period) {
   return byProduct;
 }
 
-async function getOpexByCategory(period: Period) {
-  const rows = await prisma.expense.groupBy({
-    by: ["expenseCategoryId"],
-    where: { date: { gte: period.from, lte: period.to } },
-    _sum: { amount: true },
-  });
-  const ids = rows.map(r => r.expenseCategoryId);
-  const cats = ids.length
-    ? await prisma.expenseCategory.findMany({ where: { id: { in: ids } } })
-    : [];
-  const nameOf = new Map(cats.map(c => [c.id, c.name]));
-  const result = new Map<string, number>();
-  for (const r of rows) {
-    const name = nameOf.get(r.expenseCategoryId) ?? "Uncategorized";
-    result.set(name, (result.get(name) ?? 0) + DEC(r._sum.amount));
-  }
-  return result;
-}
-
 export async function getProfitAndLoss(periods: ComparePeriods): Promise<ProfitAndLossReport> {
-  const [curProd, priProd, curOpex, priOpex] = await Promise.all([
+  const [curProd, priProd, operatingExpenses] = await Promise.all([
     getProductPnL(periods.current),
     getProductPnL(periods.prior),
-    getOpexByCategory(periods.current),
-    getOpexByCategory(periods.prior),
+    getExpensesGroupedByCategoryForStatement("Profit & Loss Statement", periods),
   ]);
 
   const productNames = new Set<string>();
@@ -112,16 +172,15 @@ export async function getProfitAndLoss(periods: ComparePeriods): Promise<ProfitA
   revenue.sort((a, b) => b.current - a.current);
   costOfSales.sort((a, b) => b.current - a.current);
 
-  const opexNames = new Set<string>([...curOpex.keys(), ...priOpex.keys()]);
-  const operatingExpenses: NamedAmount[] = [...opexNames]
-    .map(name => ({ name, current: curOpex.get(name) ?? 0, prior: priOpex.get(name) ?? 0 }))
-    .sort((a, b) => b.current - a.current);
-
   const sum = (arr: NamedAmount[], k: "current" | "prior") => arr.reduce((s, r) => s + r[k], 0);
   const totRev = { current: sum(revenue, "current"), prior: sum(revenue, "prior") };
   const totCos = { current: sum(costOfSales, "current"), prior: sum(costOfSales, "prior") };
   const grossProfit = { current: totRev.current - totCos.current, prior: totRev.prior - totCos.prior };
-  const totOpex = { current: sum(operatingExpenses, "current"), prior: sum(operatingExpenses, "prior") };
+
+  const totOpex = operatingExpenses.reduce(
+    (acc, g) => ({ current: acc.current + g.total.current, prior: acc.prior + g.total.prior }),
+    { current: 0, prior: 0 }
+  );
   const operatingProfit = {
     current: grossProfit.current - totOpex.current,
     prior: grossProfit.prior - totOpex.prior,
@@ -188,126 +247,12 @@ export async function getTrialBalance(period: Period): Promise<TrialBalanceRow[]
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface BalanceSheetReport {
-  currentAssets: NamedAmount[];
-  nonCurrentAssets: NamedAmount[];
-  currentLiabilities: NamedAmount[];
-  nonCurrentLiabilities: NamedAmount[];
-  equity: NamedAmount[];
+  expenseGroups: CategoryExpenseGroup[];
 }
 
-async function computeCashAndBank(asOf: Date) {
-  // Sum of journal entry debits-credits for accounts whose name matches a payment account.
-  // Falls back to 0 if no journals exist.
-  const accounts = await prisma.paymentAccount.findMany({ where: { isActive: true } });
-  if (accounts.length === 0) return 0;
-  const names = accounts.map(a => a.name);
-  const db = prisma as any;
-  const rows = await db.journalEntryRow.findMany({
-    where: {
-      account: { in: names },
-      journalEntry: { date: { lte: asOf } },
-    },
-    select: { debits: true, credits: true },
-  });
-  return rows.reduce((s: number, r: any) => s + DEC(r.debits) - DEC(r.credits), 0);
-}
-
-async function computeReceivables(asOf: Date) {
-  const invoices = await prisma.invoice.findMany({
-    where: {
-      status: { in: ["SENT", "OVERDUE"] },
-      invoiceDate: { lte: asOf },
-    },
-    select: { invoiceTotal: true },
-  });
-  return invoices.reduce((s, i) => s + DEC(i.invoiceTotal), 0);
-}
-
-async function computeInventoryValue(asOf: Date) {
-  const products = await prisma.product.findMany({
-    where: { deletedAt: null, isActive: true },
-    select: {
-      costPrice: true,
-      stockMovementItems: {
-        where: { stockMovement: { date: { lte: asOf } } },
-        select: {
-          quantity: true,
-          stockMovement: { select: { type: true } },
-        },
-      },
-    },
-  });
-  let total = 0;
-  for (const p of products) {
-    let qty = 0;
-    for (const item of p.stockMovementItems) {
-      const t = item.stockMovement.type;
-      qty += item.quantity * (t === "INCOMING" ? 1 : t === "OUTGOING" ? -1 : 1);
-    }
-    total += Math.max(0, qty) * DEC(p.costPrice);
-  }
-  return total;
-}
-
-async function computePayables(asOf: Date) {
-  // Proxy: total of expenses recorded in the period (no AP tracking yet).
-  // Returning 0 until we have a real AP workflow.
-  return 0;
-}
-
-export async function getBalanceSheet(periods: { currentAsOf: Date; priorAsOf: Date }): Promise<BalanceSheetReport> {
-  const [cashC, cashP, arC, arP, invC, invP, apC, apP] = await Promise.all([
-    computeCashAndBank(periods.currentAsOf),
-    computeCashAndBank(periods.priorAsOf),
-    computeReceivables(periods.currentAsOf),
-    computeReceivables(periods.priorAsOf),
-    computeInventoryValue(periods.currentAsOf),
-    computeInventoryValue(periods.priorAsOf),
-    computePayables(periods.currentAsOf),
-    computePayables(periods.priorAsOf),
-  ]);
-
-  // Net profit for equity — sum revenue − cogs − opex over a long window ending at asOf
-  // (treat the period as YTD ending at currentAsOf vs priorAsOf for simplicity)
-  const epoch = new Date(0);
-  const pnlCur = await getProfitAndLoss({
-    current: { from: epoch, to: periods.currentAsOf },
-    prior: { from: epoch, to: periods.priorAsOf },
-  });
-  const netProfit = pnlCur.totals.operatingProfit;
-
-  return {
-    currentAssets: [
-      { name: "Cash & Bank Balances", current: cashC, prior: cashP },
-      { name: "Accounts Receivable (Trade Debtors)", current: arC, prior: arP },
-      { name: "Inventory — Finished Goods", current: invC, prior: invP },
-      { name: "Prepaid Expenses", current: 0, prior: 0 },
-      { name: "Other Current Assets", current: 0, prior: 0 },
-    ],
-    nonCurrentAssets: [
-      { name: "Property, Plant & Equipment (Cost)", current: 0, prior: 0 },
-      { name: "Less: Accumulated Depreciation", current: 0, prior: 0 },
-      { name: "Intangible Assets (Branding / IP)", current: 0, prior: 0 },
-      { name: "Long-term Deposits", current: 0, prior: 0 },
-    ],
-    currentLiabilities: [
-      { name: "Accounts Payable (Trade Creditors)", current: apC, prior: apP },
-      { name: "Accrued Expenses", current: 0, prior: 0 },
-      { name: "Deferred Revenue", current: 0, prior: 0 },
-      { name: "VAT / Tax Payable", current: 0, prior: 0 },
-      { name: "Short-term Loans", current: 0, prior: 0 },
-    ],
-    nonCurrentLiabilities: [
-      { name: "Long-term Loans / Borrowings", current: 0, prior: 0 },
-      { name: "Deferred Tax Liability", current: 0, prior: 0 },
-    ],
-    equity: [
-      { name: "Share Capital", current: 0, prior: 0 },
-      { name: "Retained Earnings (Opening)", current: 0, prior: 0 },
-      { name: "Net Profit / (Loss) for Period", current: netProfit.current, prior: netProfit.prior },
-      { name: "Other Comprehensive Income", current: 0, prior: 0 },
-    ],
-  };
+export async function getBalanceSheet(periods: ComparePeriods): Promise<BalanceSheetReport> {
+  const expenseGroups = await getExpensesGroupedByCategoryForStatement("Balance Sheet", periods);
+  return { expenseGroups };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -315,71 +260,12 @@ export async function getBalanceSheet(periods: { currentAsOf: Date; priorAsOf: D
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface CashFlowReport {
-  operating: NamedAmount[];
-  investing: NamedAmount[];
-  financing: NamedAmount[];
-  openingCash: { current: number; prior: number };
-  closingCash: { current: number; prior: number };
+  expenseGroups: CategoryExpenseGroup[];
 }
 
 export async function getCashFlow(periods: ComparePeriods): Promise<CashFlowReport> {
-  const pnl = await getProfitAndLoss(periods);
-
-  const openingCurr = await computeCashAndBank(periods.current.from);
-  const closingCurr = await computeCashAndBank(periods.current.to);
-  const openingPrior = await computeCashAndBank(periods.prior.from);
-  const closingPrior = await computeCashAndBank(periods.prior.to);
-
-  // Inventory change (negative = cash outflow when inventory grows)
-  const invOpenCurr = await computeInventoryValue(periods.current.from);
-  const invCloseCurr = await computeInventoryValue(periods.current.to);
-  const invOpenPrior = await computeInventoryValue(periods.prior.from);
-  const invClosePrior = await computeInventoryValue(periods.prior.to);
-
-  // Receivables change
-  const arOpenCurr = await computeReceivables(periods.current.from);
-  const arCloseCurr = await computeReceivables(periods.current.to);
-  const arOpenPrior = await computeReceivables(periods.prior.from);
-  const arClosePrior = await computeReceivables(periods.prior.to);
-
-  const operating: NamedAmount[] = [
-    {
-      name: "Net Profit / (Loss) Before Tax",
-      current: pnl.totals.operatingProfit.current,
-      prior: pnl.totals.operatingProfit.prior,
-    },
-    { name: "Add: Depreciation & Amortisation", current: 0, prior: 0 },
-    {
-      name: "(Increase) / Decrease in Inventory",
-      current: -(invCloseCurr - invOpenCurr),
-      prior: -(invClosePrior - invOpenPrior),
-    },
-    {
-      name: "(Increase) / Decrease in Receivables",
-      current: -(arCloseCurr - arOpenCurr),
-      prior: -(arClosePrior - arOpenPrior),
-    },
-    { name: "Increase / (Decrease) in Payables", current: 0, prior: 0 },
-    { name: "Increase / (Decrease) in Accruals", current: 0, prior: 0 },
-    { name: "Tax Paid", current: 0, prior: 0 },
-  ];
-
-  return {
-    operating,
-    investing: [
-      { name: "Purchase of Equipment / Machinery", current: 0, prior: 0 },
-      { name: "Proceeds from Asset Disposal", current: 0, prior: 0 },
-      { name: "Investment in R&D", current: 0, prior: 0 },
-    ],
-    financing: [
-      { name: "Proceeds from Loans / Borrowings", current: 0, prior: 0 },
-      { name: "Repayment of Loans", current: 0, prior: 0 },
-      { name: "Capital Injection by Owners", current: 0, prior: 0 },
-      { name: "Dividends Paid", current: 0, prior: 0 },
-    ],
-    openingCash: { current: openingCurr, prior: openingPrior },
-    closingCash: { current: closingCurr, prior: closingPrior },
-  };
+  const expenseGroups = await getExpensesGroupedByCategoryForStatement("Cash Flow Statement", periods);
+  return { expenseGroups };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

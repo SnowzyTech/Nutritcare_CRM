@@ -3,16 +3,18 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import type { SavedForm } from "@/lib/formsStore";
-import { ArrowLeft, Check, Copy, Sparkles, ShoppingBag, CreditCard, ArrowRight, ChevronDown } from "lucide-react";
+import { Check, Copy, Sparkles, ShoppingBag, CreditCard, ArrowRight, ChevronDown } from "lucide-react";
 import Link from "next/link";
 
 /* ── Nigerian States List ── */
 const NIGERIAN_STATES = [
-  "Abia", "Adamawa", "Akwa Ibom", "Anambra", "Bauchi", "Bayelsa", "Benue",
-  "Borno", "Cross River", "Delta", "Ebonyi", "Edo", "Ekiti", "Enugu",
-  "FCT (Abuja)", "Gombe", "Imo", "Jigawa", "Kaduna", "Kano", "Katsina",
-  "Kebbi", "Kogi", "Kwara", "Lagos", "Nasarawa", "Niger", "Ogun", "Ondo",
-  "Osun", "Oyo", "Plateau", "Rivers", "Sokoto", "Taraba", "Yobe", "Zamfara"
+  "Abia State", "Adamawa State", "Akwa Ibom State", "Anambra State", "Bauchi State",
+  "Bayelsa State", "Benue State", "Borno State", "Cross River State", "Delta State",
+  "Ebonyi State", "Edo State", "Ekiti State", "Enugu State", "Gombe State", "Imo State",
+  "Jigawa State", "Kaduna State", "Kano State", "Katsina State", "Kebbi State", "Kogi State",
+  "Kwara State", "Lagos State", "Nasarawa State", "Niger State", "Ogun State", "Ondo State",
+  "Osun State", "Oyo State", "Plateau State", "Rivers State", "Sokoto State", "Taraba State",
+  "Yobe State", "Zamfara State", "Federal Capital Territory (FCT)",
 ];
 
 
@@ -356,6 +358,9 @@ export default function OrderFormPreview() {
   // Submission loading state
   const [submitting, setSubmitting] = useState(false);
 
+  // Confirmed order number from API
+  const [orderNumber, setOrderNumber] = useState<string>("");
+
   const showToast = (message: string, type: "success" | "info" = "success") => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
@@ -642,6 +647,7 @@ export default function OrderFormPreview() {
         return;
       }
 
+      setOrderNumber(result.orderNumber ?? "");
       showToast(`✓ Order ${result.orderNumber} placed! Thank you.`, "success");
 
       // Advance the funnel
@@ -859,9 +865,127 @@ export default function OrderFormPreview() {
     }
   };
 
+  // ── Full-page success takeover ──
+  if (funnelStep === "success") {
+    const customerName = formValues.name || optinValues.name || "";
+    const customerPhone = formValues.phone
+      ? `${showCountryCodeEnabled ? phoneCountryCode + " " : ""}${formValues.phone}`
+      : optinValues.whatsapp
+      ? `${showCountryCodeEnabled ? optinWhatsappCountryCode + " " : ""}${optinValues.whatsapp}`
+      : "";
+
+    return (
+      <div
+        id="nc-order-form-root"
+        className="w-full min-h-screen flex flex-col items-center justify-center py-12 px-4"
+        style={{ background: bgColor }}
+      >
+        <div
+          className="w-full max-w-md rounded-2xl shadow-xl overflow-hidden"
+          style={{ background: innerBg }}
+        >
+          {/* Green top bar */}
+          <div className="h-2 bg-gradient-to-r from-emerald-400 to-teal-500" />
+
+          <div className="p-8 text-center space-y-6">
+            {/* Check icon */}
+            <div className="w-20 h-20 bg-emerald-50 text-emerald-500 rounded-full flex items-center justify-center mx-auto shadow-sm border-4 border-emerald-100">
+              <Check size={38} className="stroke-[2.5]" />
+            </div>
+
+            <div className="space-y-1.5">
+              <h2 className="text-2xl font-black text-gray-900 tracking-tight">
+                Order Confirmed!
+              </h2>
+              <p className="text-sm text-gray-500 leading-relaxed">
+                Thank you{customerName ? `, ${customerName}` : ""}. Your order has been received and is being processed.
+              </p>
+            </div>
+
+            {/* Receipt */}
+            <div className="bg-gray-50 rounded-xl border border-gray-100 overflow-hidden text-left text-xs text-gray-600">
+              {orderNumber && (
+                <div className="flex items-center justify-between px-4 py-3 bg-emerald-50 border-b border-emerald-100">
+                  <span className="font-bold text-emerald-800 text-[11px] uppercase tracking-wide">Order Reference</span>
+                  <span className="font-mono font-black text-emerald-900 text-sm">{orderNumber}</span>
+                </div>
+              )}
+              <div className="divide-y divide-gray-100 px-4">
+                {customerName && (
+                  <div className="flex justify-between py-2.5">
+                    <span className="text-gray-500">Name</span>
+                    <span className="font-semibold text-gray-800">{customerName}</span>
+                  </div>
+                )}
+                {customerPhone && (
+                  <div className="flex justify-between py-2.5">
+                    <span className="text-gray-500">Phone</span>
+                    <span className="font-semibold text-gray-800 font-mono">{customerPhone}</span>
+                  </div>
+                )}
+                {formValues.whatsapp && (
+                  <div className="flex justify-between py-2.5">
+                    <span className="text-gray-500">WhatsApp</span>
+                    <span className="font-semibold text-gray-800 font-mono">
+                      {showCountryCodeEnabled ? whatsappCountryCode + " " : ""}{formValues.whatsapp}
+                    </span>
+                  </div>
+                )}
+                {formValues.state && (
+                  <div className="flex justify-between py-2.5">
+                    <span className="text-gray-500">State</span>
+                    <span className="font-semibold text-gray-800">{formValues.state}</span>
+                  </div>
+                )}
+                {selectedPackage && (
+                  <div className="flex justify-between py-2.5">
+                    <span className="text-gray-500">Package</span>
+                    <span className="font-semibold text-purple-700">{selectedPackage}</span>
+                  </div>
+                )}
+                {selectedPayment && (
+                  <div className="flex justify-between py-2.5">
+                    <span className="text-gray-500">Payment</span>
+                    <span className="font-semibold text-gray-800 capitalize">{selectedPayment.replace(/_/g, " ")}</span>
+                  </div>
+                )}
+                {orderBumpChecked && data.orderBumpProduct && (
+                  <div className="flex justify-between py-2.5">
+                    <span className="text-gray-500">Add-on</span>
+                    <span className="font-semibold text-indigo-700">{data.orderBumpProduct}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <p className="text-[11px] text-gray-400 leading-relaxed">
+              Our team will reach out to you shortly to confirm delivery details.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Post content height to parent frame for auto-resizing iframes
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const el = document.getElementById("nc-order-form-root");
+    if (!el) return;
+    const postHeight = () => {
+      const height = el.scrollHeight;
+      window.parent.postMessage({ type: "nc-resize", height }, "*");
+    };
+    postHeight();
+    const ro = new ResizeObserver(postHeight);
+    ro.observe(el);
+    return () => ro.disconnect();
+  });
+
   return (
     <div
-      className="min-h-screen flex flex-col items-center py-6 px-4 relative transition-colors duration-300"
+      id="nc-order-form-root"
+      className="w-full flex flex-col items-center py-6 px-4 relative transition-colors duration-300"
       style={{ background: bgColor }}
     >
       {/* Toast Notification */}
@@ -875,16 +999,6 @@ export default function OrderFormPreview() {
           {toast.message}
         </div>
       )}
-
-      {/* Floating back to admin button */}
-      <div className="w-full max-w-2xl mb-4 flex items-center justify-start">
-        <Link
-          href="/admin/forms"
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-white bg-opacity-80 backdrop-blur border border-gray-200 rounded-lg text-xs font-semibold text-gray-700 hover:bg-gray-100 transition-all hover:scale-[1.02]"
-        >
-          <ArrowLeft size={14} /> Back to Forms
-        </Link>
-      </div>
 
       <div className="w-full max-w-2xl">
         {/* Banner with step selector if Optin or Upsell are present */}
@@ -934,109 +1048,7 @@ export default function OrderFormPreview() {
           className="overflow-hidden w-full"
           style={{ background: innerBg }}
         >
-          {funnelStep === "success" ? (
-            /* ── SUCCESSFUL ORDER SCREEN ── */
-            <div className="p-8 text-center space-y-6">
-              <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto shadow-inner">
-                <Check size={36} className="stroke-[3]" />
-              </div>
-              <div className="space-y-2">
-                <h2 className="text-2xl font-black text-gray-800 uppercase tracking-tight">Order Placed Successfully!</h2>
-                <p className="text-sm text-gray-500 max-w-md mx-auto">
-                  Your order has been captured in simulation. Below is your customer receipt and simulated order summary.
-                </p>
-              </div>
-
-              {/* Receipt card */}
-              <div className="bg-gray-50 rounded-xl p-5 text-left border border-gray-100 max-w-md mx-auto space-y-3.5 text-xs text-gray-600">
-                <div className="flex justify-between border-b border-gray-200 pb-2">
-                  <span className="font-bold text-gray-800">Order ID:</span>
-                  <span className="font-mono bg-gray-200 px-1.5 rounded">NTR-{Date.now().toString().slice(-6)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="font-semibold">Simulated Customer:</span>
-                  <span className="text-gray-800 font-bold">{formValues.name || optinValues.name || "Test Buyer"}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="font-semibold">Phone Number:</span>
-                  <span className="text-gray-800 font-bold font-mono">
-                    {formValues.phone
-                      ? `${showCountryCodeEnabled ? phoneCountryCode + " " : ""}${formValues.phone}`
-                      : optinValues.whatsapp
-                      ? `${showCountryCodeEnabled ? optinWhatsappCountryCode + " " : ""}${optinValues.whatsapp}`
-                      : "08012345678"}
-                  </span>
-                </div>
-                {formValues.whatsapp && (
-                  <div className="flex justify-between">
-                    <span className="font-semibold">WhatsApp Number:</span>
-                    <span className="text-gray-800 font-bold font-mono">
-                      {showCountryCodeEnabled ? whatsappCountryCode + " " : ""}{formValues.whatsapp}
-                    </span>
-                  </div>
-                )}
-                {formValues.state && (
-                  <div className="flex justify-between">
-                    <span className="font-semibold">State / Location:</span>
-                    <span className="text-gray-800 font-bold">{formValues.state}</span>
-                  </div>
-                )}
-                <div className="flex justify-between">
-                  <span className="font-semibold">Payment Mode:</span>
-                  <span className="text-gray-800 font-bold uppercase tracking-wider">{selectedPayment.replace("_", " ")}</span>
-                </div>
-                {selectedPackage && (
-                  <div className="flex justify-between text-purple-700 font-semibold bg-purple-50 px-2 py-1 rounded">
-                    <span>Selected Package:</span>
-                    <span>{selectedPackage}</span>
-                  </div>
-                )}
-                {orderBumpChecked && (
-                  <div className="flex justify-between text-indigo-700 font-semibold bg-indigo-50 px-2 py-1 rounded">
-                    <span>Order Bump Product:</span>
-                    <span>{data.orderBumpProduct || "Bump Added"}</span>
-                  </div>
-                )}
-                {selectedUpsellPackage && (
-                  <div className="flex justify-between text-teal-700 font-semibold bg-teal-50 px-2 py-1 rounded">
-                    <span>Simulated Upsell Selection:</span>
-                    <span>{selectedUpsellPackage}</span>
-                  </div>
-                )}
-                {data.thankYouUrl && (
-                  <div className="pt-2 border-t border-gray-200 flex flex-col gap-1 text-[10px]">
-                    <span className="font-bold text-gray-500">Thank You Page Redirect Link:</span>
-                    <a
-                      href={data.thankYouUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-purple-600 font-semibold underline break-all flex items-center gap-1"
-                    >
-                      {data.thankYouUrl} <ArrowRight size={10} />
-                    </a>
-                  </div>
-                )}
-              </div>
-
-              <button
-                onClick={() => {
-                  setFunnelStep("active");
-                  setFormValues({});
-                  setOptinValues({});
-                  setOrderBumpChecked(false);
-                  setSelectedUpsellPackage("");
-                  setPhoneCountryCode("+234");
-                  setWhatsappCountryCode("+234");
-                  setOptinWhatsappCountryCode("+234");
-                  if (hasOptin) setActiveTab("optin");
-                  else setActiveTab("order");
-                }}
-                className="px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold transition-all shadow-lg hover:shadow-xl uppercase tracking-wider"
-              >
-                🔄 Reset & Test Again
-              </button>
-            </div>
-          ) : activeTab === "optin" ? (
+          {activeTab === "optin" ? (
             /* ── OPT-IN FORM PREVIEW ── */
             <form onSubmit={submitOptin} className="px-8 py-8 space-y-6">
               {/* Header */}

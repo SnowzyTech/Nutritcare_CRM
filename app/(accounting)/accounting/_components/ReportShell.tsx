@@ -12,7 +12,7 @@ import { TrialBalanceView } from './TrialBalanceView';
 
 const TAB_LABELS: Record<string, string> = {
   'profit-loss': 'Profit & Loss',
-  'statement-of-financial-position': 'Statement of Financial Position',
+  'statement-of-financial-position': 'Balance Sheet',
   'statement-of-cash-flow': 'Statement of Cash Flow',
   'revenue-by-product': 'Revenue By Product',
   'inventory-valuation': 'Inventory Valuation',
