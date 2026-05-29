@@ -9,8 +9,9 @@ import { getSalesRepWeeklyAnalytics } from "@/modules/orders/services/analytics.
 import type { MonthMetrics } from "@/modules/orders/services/analytics.service";
 import { findEligibleAgentForOrder } from "@/modules/delivery/services/agents.service";
 import {
-  sendWhatsAppTextMessage,
-  buildOrderConfirmationMessage,
+  sendOrderConfirmationTemplate,
+  sendDeliveryCodeTemplate,
+  sendOrderDeliveredTemplate,
 } from "@/lib/whatsapp/whatsapp";
 import { formatCurrency, formatDate } from "@/lib/utils";
 
@@ -152,22 +153,33 @@ export async function confirmOrderAction(
 
   // Send WhatsApp confirmation to customer (fire-and-forget — never throws)
   const waPhone = order.customer.whatsappNumber || order.customer.phone;
+  console.log("[WhatsApp] ── confirmOrder: starting WhatsApp step ──");
+  console.log("[WhatsApp] orderId:", orderId);
+  console.log("[WhatsApp] customer.whatsappNumber:", order.customer.whatsappNumber);
+  console.log("[WhatsApp] customer.phone:", order.customer.phone);
+  console.log("[WhatsApp] resolved waPhone:", waPhone);
+
   if (waPhone) {
-    const message = buildOrderConfirmationMessage({
+    // Message 1: order confirmation (no delivery code)
+    sendOrderConfirmationTemplate({
+      to: waPhone,
       customerName: order.customer.name,
       orderNumber: order.orderNumber,
       deliveryAddress: order.customer.deliveryAddress,
       deliveryDate: formatDate(new Date(deliveryDate)),
-      items: order.items.map((i) => ({
-        name: i.product.name,
-        quantity: i.quantity,
-      })),
+      items: order.items.map((i) => ({ name: i.product.name, quantity: i.quantity })),
+      productDetails: notes || "-",
       totalAmount: formatCurrency(Number(order.netAmount)),
-      deliveryCode,
-    });
-    sendWhatsAppTextMessage({ to: waPhone, message }).catch((err) =>
-      console.error("[WhatsApp] confirmOrder send error:", err),
-    );
+    })
+      .then((result) => {
+        console.log("[WhatsApp] order confirmation result:", JSON.stringify(result));
+        // Message 2: delivery verification code (sent after confirmation)
+        return sendDeliveryCodeTemplate({ to: waPhone, deliveryCode });
+      })
+      .then((result) => console.log("[WhatsApp] delivery code result:", JSON.stringify(result)))
+      .catch((err) => console.error("[WhatsApp] confirmOrder send error:", err));
+  } else {
+    console.warn("[WhatsApp] no phone available — skipping send");
   }
 
   revalidateOrderPaths(orderId);
@@ -212,10 +224,13 @@ export async function deliverOrderAction(orderId: string) {
   const session = await auth();
   if (!session?.user?.id) throw new Error("Unauthorized");
 
-  // Fetch with items so we can deduct stock
+  // Fetch with items (stock deduction) and customer (WhatsApp notification)
   const order = await prisma.order.findFirst({
     where: { id: orderId, salesRepId: session.user.id, deletedAt: null },
-    include: { items: { select: { productId: true, quantity: true } } },
+    include: {
+      items: { select: { productId: true, quantity: true } },
+      customer: { select: { name: true, whatsappNumber: true, phone: true } },
+    },
   });
   if (!order || order.status !== "CONFIRMED") throw new Error("Cannot mark order as delivered");
 
@@ -240,6 +255,18 @@ export async function deliverOrderAction(orderId: string) {
       orderNumber: order.orderNumber,
       date: order.date,
     });
+  }
+
+  // Send WhatsApp delivery notification (fire-and-forget — never throws)
+  const waPhone = order.customer.whatsappNumber || order.customer.phone;
+  if (waPhone) {
+    sendOrderDeliveredTemplate({
+      to: waPhone,
+      customerName: order.customer.name,
+      orderNumber: order.orderNumber,
+    })
+      .then((result) => console.log("[WhatsApp] delivery notification result:", JSON.stringify(result)))
+      .catch((err) => console.error("[WhatsApp] deliverOrder send error:", err));
   }
 
   revalidateOrderPaths(orderId);
