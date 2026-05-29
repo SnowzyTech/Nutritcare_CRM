@@ -1134,7 +1134,13 @@ export async function getShelfProductStockMap(): Promise<Record<string, Record<s
 export async function getProductById(id: string) {
   return prisma.product.findFirst({
     where: { id, deletedAt: null },
-    include: { category: true },
+    include: {
+      category: true,
+      offers: true,
+      packages: { orderBy: { createdAt: "asc" } },
+      combos: { include: { comboProduct: { select: { id: true, name: true } } }, orderBy: { createdAt: "asc" } },
+      gifts: { include: { giftProduct: { select: { id: true, name: true } } }, orderBy: { createdAt: "asc" } },
+    },
   });
 }
 

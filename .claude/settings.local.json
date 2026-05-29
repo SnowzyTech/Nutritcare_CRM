@@ -36,7 +36,12 @@
       "Bash(xargs grep -l \"form.*action\\\\|zod.*form\")",
       "Bash(xargs grep -l \"form\")",
       "Bash(NEXT_TELEMETRY_DISABLED=1 npx next build)",
-      "Bash(grep -E \"\\\\.\\(ts|js|tsx|jsx\\)$\")"
+      "Bash(grep -E \"\\\\.\\(ts|js|tsx|jsx\\)$\")",
+      "Bash(xargs grep -l \"state.*nigeria\\\\|nigerian.*state\\\\|STATES\\\\|nigerianState\" -i)",
+      "Bash(xargs grep -l \"state\\\\|State\")",
+      "Bash(xargs grep -l \"Select\\\\|dropdown\\\\|nigeria\" -i)",
+      "Bash(xargs grep -l \"NIGERIAN_STATES\\\\|nigerianStates\\\\|nigeria.*state\\\\|states.*nigeria\" -i)",
+      "Bash(xargs grep -l \"new.*order\\\\|create.*order\\\\|add.*order\" -i)"
     ]
   }
 }

@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Edit2, Trash2, Package, Tag, Globe, BarChart2 } from "lucide-react";
+import { ArrowLeft, Edit2, Trash2, Package, Tag, Globe, BarChart2, Gift, Layers, Star } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { deleteProductAction } from "@/modules/inventory/actions/stock.action";
 
@@ -141,6 +141,115 @@ export default function ProductDetailClient({ product }: { product: any }) {
           </div>
         </div>
       </div>
+
+      {/* Packages Section */}
+      {product.packages && product.packages.length > 0 && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden mt-6">
+          <div className="px-8 py-5 border-b border-gray-50">
+            <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider flex items-center gap-2">
+              <Layers className="w-4 h-4" />
+              Pricing Packages
+            </h3>
+          </div>
+          <div className="p-8">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+              {product.packages.map((pkg: any, idx: number) => (
+                <div key={pkg.id} className="bg-gray-50 rounded-xl p-4 border border-gray-100">
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
+                    Package {idx + 1}
+                  </p>
+                  <p className="text-base font-bold text-gray-900 mb-2">{pkg.name || "—"}</p>
+                  <div className="flex justify-between text-sm mt-1">
+                    <span className="text-gray-500">Quantity</span>
+                    <span className="font-semibold text-gray-800">{pkg.quantity}</span>
+                  </div>
+                  <div className="flex justify-between text-sm mt-1">
+                    <span className="text-gray-500">Price</span>
+                    <span className="font-semibold text-[#9D00FF]">{formatCurrency(pkg.price)}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Offers Section */}
+      {product.offers && product.offers.length > 0 && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden mt-6">
+          <div className="px-8 py-5 border-b border-gray-50">
+            <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider flex items-center gap-2">
+              <Star className="w-4 h-4" />
+              Product Offers
+            </h3>
+          </div>
+          <div className="p-8 space-y-6">
+            {product.offers.map((offer: any) => (
+              <div key={offer.id} className="border border-[#9D00FF]/15 rounded-xl p-6 bg-[#FAF5FF]">
+                <div className="flex items-start justify-between mb-4">
+                  <div>
+                    <p className="text-lg font-bold text-gray-900">{offer.offerName}</p>
+                    {offer.recurring && (
+                      <span className="inline-block mt-1 text-xs font-semibold text-[#9D00FF] bg-[#9D00FF]/10 px-2 py-0.5 rounded-full capitalize">
+                        {offer.recurring}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xl font-black text-[#9D00FF]">{formatCurrency(offer.sellingPrice)}</p>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
+                  <div className="bg-white rounded-lg p-3 border border-gray-100">
+                    <p className="text-gray-400 text-xs mb-0.5">Offer Quantity</p>
+                    <p className="font-semibold text-gray-800">{offer.offerQuantity}</p>
+                  </div>
+                  <div className="bg-white rounded-lg p-3 border border-gray-100">
+                    <p className="text-gray-400 text-xs mb-0.5">Offer Unit</p>
+                    <p className="font-semibold text-gray-800">{offer.offerUnit || "—"}</p>
+                  </div>
+                  <div className="bg-white rounded-lg p-3 border border-gray-100">
+                    <p className="text-gray-400 text-xs mb-0.5">Show Qty & Unit</p>
+                    <p className="font-semibold text-gray-800">{offer.showQuantityAndUnit ? "Yes" : "No"}</p>
+                  </div>
+                </div>
+
+                {/* Combo products */}
+                {product.combos && product.combos.length > 0 && (
+                  <div className="mt-4">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                      <Package className="w-3.5 h-3.5" /> Combo Products
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                      {product.combos.map((combo: any) => (
+                        <div key={combo.id} className="flex justify-between items-center bg-white rounded-lg px-3 py-2 border border-gray-100 text-sm">
+                          <span className="text-gray-700 font-medium">{combo.comboProduct?.name ?? "—"}</span>
+                          <span className="text-gray-400 text-xs ml-2">×{combo.quantity}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Gift products */}
+                {product.gifts && product.gifts.length > 0 && (
+                  <div className="mt-4">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                      <Gift className="w-3.5 h-3.5" /> Free Gift Products
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                      {product.gifts.map((gift: any) => (
+                        <div key={gift.id} className="flex justify-between items-center bg-white rounded-lg px-3 py-2 border border-gray-100 text-sm">
+                          <span className="text-gray-700 font-medium">{gift.giftProduct?.name ?? "—"}</span>
+                          <span className="text-gray-400 text-xs ml-2">×{gift.quantity}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Confirmation Dialog */}
       {showConfirm && (
