@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Edit2, Trash2, Home, Phone, Mail, Info, MapPin } from "lucide-react";
+import { toast } from "sonner";
 import { deleteWarehouseAction } from "@/modules/inventory/actions/stock.action";
 
 export default function WarehouseDetailClient({ warehouse }: { warehouse: any }) {
@@ -14,10 +15,11 @@ export default function WarehouseDetailClient({ warehouse }: { warehouse: any })
     setIsDeleting(true);
     const result = await deleteWarehouseAction(warehouse.id);
     if (result?.error) {
-      alert(result.error);
+      toast.error(result.error);
       setIsDeleting(false);
       setShowConfirm(false);
     } else {
+      toast.success("Warehouse deleted successfully");
       router.push("/inventory/stock?tab=Warehouse");
     }
   };

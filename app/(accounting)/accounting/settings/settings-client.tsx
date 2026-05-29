@@ -11,6 +11,7 @@ import {
   Phone,
   Calendar,
 } from "lucide-react";
+import { toast } from "sonner";
 import { updateProfileAction } from "@/modules/users/actions/users.action";
 
 type Profile = {
@@ -95,7 +96,9 @@ export function AccountingSettingsClient({ profile }: { profile: Profile }) {
     setLoading(false);
     if ("error" in result) {
       setError(result.error);
+      toast.error(result.error);
     } else {
+      toast.success("Profile updated successfully");
       setSuccess(true);
       setTimeout(() => setSuccess(false), 4000);
     }

@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Filter, ArrowUpDown, ChevronDown, Trash2, Plus, Copy, ArrowLeft } from "lucide-react";
+import { toast } from "sonner";
 import { createIncomingMovementAction } from "@/modules/inventory/actions/stock.action";
 
 const inputClass =
@@ -103,8 +104,10 @@ export default function IncomingCreateClient({ warehouses, suppliers, products }
 
     if (result?.error) {
       setError(result.error);
+      toast.error(result.error);
       setLoading(false);
     } else {
+      toast.success(status === "DRAFT" ? "Draft saved" : "Incoming movement recorded");
       if (status === "DRAFT" && result.id) {
         router.push(`/inventory/incoming/${result.id}/edit`);
       } else {

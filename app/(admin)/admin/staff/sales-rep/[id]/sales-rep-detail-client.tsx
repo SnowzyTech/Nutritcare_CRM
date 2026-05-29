@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { X, AlertTriangle, Copy, Check } from "lucide-react";
+import { toast } from "sonner";
 import {
   deleteUserAction,
   suspendUserAction,
@@ -65,7 +66,9 @@ export default function SalesRepDetailClient({
       const result = await deleteUserAction(staffId);
       if ("error" in result) {
         setError(result.error);
+        toast.error(result.error);
       } else {
+        toast.success("Sales rep deleted");
         router.push("/admin/staff/sales-rep");
       }
     });
@@ -79,7 +82,9 @@ export default function SalesRepDetailClient({
         : await activateUserAction(staffId);
       if ("error" in result) {
         setError(result.error);
+        toast.error(result.error);
       } else {
+        toast.success(isActive ? "Account suspended" : "Account activated");
         setIsActive(!isActive);
         closeModal();
       }
@@ -92,7 +97,9 @@ export default function SalesRepDetailClient({
       const result = await toggleTeamLeadAction(staffId, !isTeamLead);
       if ("error" in result) {
         setError(result.error);
+        toast.error(result.error);
       } else {
+        toast.success(isTeamLead ? "Team lead removed" : "Set as team lead");
         setIsTeamLead(!isTeamLead);
         closeModal();
       }
@@ -105,7 +112,9 @@ export default function SalesRepDetailClient({
       const result = await changeTeamAction(staffId, selectedTeamId || null);
       if ("error" in result) {
         setError(result.error);
+        toast.error(result.error);
       } else {
+        toast.success("Team updated");
         closeModal();
       }
     });
@@ -117,7 +126,9 @@ export default function SalesRepDetailClient({
       const result = await resetUserPasswordAction(staffId);
       if ("error" in result) {
         setError(result.error);
+        toast.error(result.error);
       } else {
+        toast.success("Password reset successfully");
         setTempPassword(result.tempPassword);
       }
     });

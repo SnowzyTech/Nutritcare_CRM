@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useActionState } from "react";
+import React, { useActionState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
+import { toast } from "sonner";
 import { updateProductCategoryAction } from "@/modules/inventory/actions/stock.action";
 
 const inputClass =
@@ -11,6 +12,10 @@ const inputClass =
 export default function EditCategoryClient({ category }: { category: any }) {
   const router = useRouter();
   const [state, formAction, pending] = useActionState(updateProductCategoryAction, null);
+
+  useEffect(() => {
+    if (state?.error) toast.error(state.error);
+  }, [state]);
 
   return (
     <div className="max-w-[1400px] mx-auto">

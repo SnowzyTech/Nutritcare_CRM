@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useActionState, useRef, useState } from "react";
+import React, { useActionState, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { Trash2, Upload, X } from "lucide-react";
 import {
   addProductAction,
@@ -89,6 +90,10 @@ export function AddProductClient({
     isEdit ? updateProductAction : addProductAction,
     null
   );
+
+  useEffect(() => {
+    if (state?.error) toast.error(state.error);
+  }, [state]);
 
   const [hasOffer, setHasOffer] = useState<string>(
     product?.hasOffer ? "Yes" : "No"

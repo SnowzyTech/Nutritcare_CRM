@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -69,7 +70,9 @@ export function DispatchClient({
       );
       if (!result.success) {
         setError(result.error);
+        toast.error(result.error ?? "Dispatch failed");
       } else {
+        toast.success("Order dispatched successfully");
         router.push("/logistics/deliveries");
       }
     });

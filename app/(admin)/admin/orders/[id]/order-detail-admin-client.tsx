@@ -3,6 +3,7 @@
 import React, { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronLeft, MessageCircle, X } from "lucide-react";
+import { toast } from "sonner";
 import { AgentInfoDrawer } from "@/components/ui/agent-info-drawer";
 import Image from "next/image";
 import type { OrderStatus } from "@prisma/client";
@@ -189,12 +190,13 @@ export function AdminOrderDetailClient({
     );
   }
 
-  function handleAction(action: () => Promise<void>) {
+  function handleAction(action: () => Promise<void>, successMsg?: string) {
     startTransition(async () => {
       try {
         await action();
+        if (successMsg) toast.success(successMsg);
       } catch (err) {
-        alert(err instanceof Error ? err.message : "Action failed");
+        toast.error(err instanceof Error ? err.message : "Action failed");
       }
     });
   }
@@ -213,7 +215,7 @@ export function AdminOrderDetailClient({
         }, 0);
       setTotalInput(String(Number(totalInput) + added));
       setIsAddProductOpen(false);
-    });
+    }, "Products added to order");
   }
 
   return (
@@ -441,8 +443,9 @@ export function AdminOrderDetailClient({
                     value={totalInput}
                     onChange={(e) => setTotalInput(e.target.value)}
                     onBlur={() =>
-                      handleAction(() =>
-                        adminUpdateOrderTotalAction(order.id, parseFloat(totalInput) || 0)
+                      handleAction(
+                        () => adminUpdateOrderTotalAction(order.id, parseFloat(totalInput) || 0),
+                        "Total updated"
                       )
                     }
                     className="w-36 text-right text-lg font-bold text-slate-800 border border-slate-200 rounded-lg px-2 py-1 outline-none focus:border-purple-400"
@@ -554,7 +557,7 @@ export function AdminOrderDetailClient({
                 <div className="grid grid-cols-2 gap-3">
                   <button
                     disabled={isPending}
-                    onClick={() => handleAction(() => adminCancelOrderAction(order.id))}
+                    onClick={() => handleAction(() => adminCancelOrderAction(order.id), "Order cancelled")}
                     className="bg-rose-50 border border-rose-200 px-4 py-3 rounded-xl text-rose-600 font-bold text-sm hover:bg-rose-100 transition disabled:opacity-50"
                   >
                     Cancel
@@ -563,10 +566,13 @@ export function AdminOrderDetailClient({
                     disabled={isPending}
                     onClick={() => {
                       if (!deliveryDate) {
-                        alert("Please select a delivery date before confirming.");
+                        toast.warning("Please select a delivery date before confirming.");
                         return;
                       }
-                      handleAction(() => adminConfirmOrderAction(order.id, deliveryDate));
+                      handleAction(
+                        () => adminConfirmOrderAction(order.id, deliveryDate),
+                        "Order confirmed successfully"
+                      );
                     }}
                     className="bg-purple-600 text-white px-4 py-3 rounded-xl font-bold text-sm hover:bg-purple-700 transition disabled:opacity-50"
                   >
@@ -580,14 +586,14 @@ export function AdminOrderDetailClient({
               <div className="grid grid-cols-2 gap-3 mt-4">
                 <button
                   disabled={isPending}
-                  onClick={() => handleAction(() => adminFailOrderAction(order.id))}
+                  onClick={() => handleAction(() => adminFailOrderAction(order.id), "Order marked as failed")}
                   className="bg-red-50 border border-red-200 px-4 py-3 rounded-xl text-red-600 font-bold text-sm hover:bg-red-100 transition disabled:opacity-50"
                 >
                   ✕ Fail
                 </button>
                 <button
                   disabled={isPending}
-                  onClick={() => handleAction(() => adminDeliverOrderAction(order.id))}
+                  onClick={() => handleAction(() => adminDeliverOrderAction(order.id), "Order marked as delivered")}
                   className="bg-emerald-600 text-white px-4 py-3 rounded-xl font-bold text-sm hover:bg-emerald-700 transition disabled:opacity-50"
                 >
                   ✓ Delivered
@@ -613,8 +619,9 @@ export function AdminOrderDetailClient({
                     <button
                       disabled={isPending}
                       onClick={() =>
-                        handleAction(() =>
-                          adminUpdateOrderNotesAction(order.id, prescription)
+                        handleAction(
+                          () => adminUpdateOrderNotesAction(order.id, prescription),
+                          "Notes saved"
                         )
                       }
                       className="mt-3 w-full bg-purple-600 text-white py-2 rounded-lg text-sm font-bold hover:bg-purple-700 transition disabled:opacity-50"
@@ -701,7 +708,7 @@ export function AdminOrderDetailClient({
                 handleAction(async () => {
                   await adminReassignOrderAgentAction(order.id, selectedAgentId);
                   setIsReassignOpen(false);
-                })
+                }, "Agent reassigned successfully")
               }
               className="w-full bg-purple-600 text-white py-4 rounded-2xl text-[1rem] font-black hover:bg-purple-700 transition-all shadow-lg shadow-purple-100 flex items-center justify-center gap-2 disabled:opacity-50"
             >

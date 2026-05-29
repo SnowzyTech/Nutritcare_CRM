@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Filter, ArrowUpDown, ChevronDown, ArrowLeft, Plus, MessageCircle, Check, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 import { createOutgoingMovementAction } from "@/modules/inventory/actions/stock.action";
 
 const inputClass =
@@ -160,8 +161,10 @@ export default function OutgoingCreateClient({ agents, products, warehouses, war
 
     if (result?.error) {
       setError(result.error);
+      toast.error(result.error);
       setLoading(false);
     } else {
+      toast.success("Outgoing movement recorded");
       router.push("/inventory/outgoing");
     }
   };

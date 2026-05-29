@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Edit2, Trash2, Tag, Phone, Mail, MessageSquare, Send } from "lucide-react";
+import { toast } from "sonner";
 import { deleteProductCategoryAction } from "@/modules/inventory/actions/stock.action";
 
 export default function CategoryDetailClient({ category }: { category: any }) {
@@ -14,10 +15,11 @@ export default function CategoryDetailClient({ category }: { category: any }) {
     setIsDeleting(true);
     const result = await deleteProductCategoryAction(category.id);
     if (result?.error) {
-      alert(result.error);
+      toast.error(result.error);
       setIsDeleting(false);
       setShowConfirm(false);
     } else {
+      toast.success("Category deleted successfully");
       router.push("/inventory/stock?tab=Product+Categories");
     }
   };

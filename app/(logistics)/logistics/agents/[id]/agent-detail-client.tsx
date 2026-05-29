@@ -4,6 +4,7 @@ import React, { useState, useTransition } from "react";
 import Link from "next/link";
 import { ArrowLeft, Search, Trash2, Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 import { deleteAgentLogisticsAction } from "@/modules/delivery/actions/logistics-agents.action";
 
 type Agent = {
@@ -34,7 +35,10 @@ export default function AgentDetailClient({ agent }: { agent: Agent }) {
       const result = await deleteAgentLogisticsAction(agent.id);
       if (result && "error" in result) {
         setError(result.error);
+        toast.error(result.error);
         setShowDeleteDialog(false);
+      } else {
+        toast.success("Agent deleted");
       }
     });
   };

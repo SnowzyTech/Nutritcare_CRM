@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Edit2, Trash2, Package, Tag, Globe, BarChart2, Gift, Layers, Star } from "lucide-react";
+import { toast } from "sonner";
 import { formatCurrency } from "@/lib/utils";
 import { deleteProductAction } from "@/modules/inventory/actions/stock.action";
 
@@ -15,10 +16,11 @@ export default function ProductDetailClient({ product }: { product: any }) {
     setIsDeleting(true);
     const result = await deleteProductAction(product.id);
     if (result?.error) {
-      alert(result.error);
+      toast.error(result.error);
       setIsDeleting(false);
       setShowConfirm(false);
     } else {
+      toast.success("Product deleted successfully");
       router.push("/inventory/stock?tab=Product");
     }
   };

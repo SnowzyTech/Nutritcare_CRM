@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { Search } from "lucide-react";
+import { toast } from "sonner";
 import type { DeliveryStatus } from "@prisma/client";
 import type { LogisticsDeliveryRow } from "@/modules/delivery/services/logistics-orders.service";
 import { updateDeliveryStatusAction } from "@/modules/delivery/actions/logistics-update-status.action";
@@ -56,7 +57,9 @@ function EditStatusModal({ delivery, onClose }: EditModalProps) {
       );
       if (!result.success) {
         setError(result.error);
+        toast.error(result.error ?? "Failed to update delivery status");
       } else {
+        toast.success(`Delivery marked as ${finalStatus === "DELIVERED" ? "delivered" : "failed"}`);
         onClose();
       }
     });

@@ -2,6 +2,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
+import { toast } from 'sonner';
 import { createOrderAction } from '@/modules/orders/actions/orders.action';
 import {
   ChevronLeft,
@@ -15,7 +16,6 @@ import {
   X,
   ChevronDown,
   Trash2,
-  CheckCircle2
 } from 'lucide-react';
 import type { OrderStatus } from '@prisma/client';
 
@@ -108,9 +108,6 @@ export function OrdersClient({ orders, counts, userName, products }: OrdersClien
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
-  // Success indicator for newly added orders
-  const [successToast, setSuccessToast] = useState<string | null>(null);
-
   // Dynamic counts derived from state
   const dynamicCounts = useMemo(() => {
     return {
@@ -194,6 +191,7 @@ export function OrdersClient({ orders, counts, userName, products }: OrdersClien
 
     if ('error' in result) {
       setFormError(result.error);
+      toast.error(result.error);
       return;
     }
 
@@ -214,19 +212,11 @@ export function OrdersClient({ orders, counts, userName, products }: OrdersClien
     setIsAddOrderOpen(false);
     resetForm();
 
-    setSuccessToast(`Order ${result.orderNumber} added successfully!`);
-    setTimeout(() => setSuccessToast(null), 4000);
+    toast.success(`Order ${result.orderNumber} added successfully!`);
   };
 
   return (
     <div className="max-w-[1200px] mx-auto space-y-6">
-      {/* Success Notification */}
-      {successToast && (
-        <div className="fixed top-6 right-6 z-50 flex items-center gap-3 bg-emerald-50 border border-emerald-100 rounded-2xl px-5 py-4 shadow-xl animate-in fade-in slide-in-from-top-4 duration-300">
-          <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
-          <p className="text-sm font-bold text-emerald-800">{successToast}</p>
-        </div>
-      )}
 
       {/* Top Navigation Icons */}
       <div className="flex items-center gap-4 mb-2">

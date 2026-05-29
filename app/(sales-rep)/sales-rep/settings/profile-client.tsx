@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { 
@@ -106,7 +107,9 @@ export function ProfileClient({ profile }: { profile: Profile }) {
     setLoading(false);
     if ("error" in result) {
       setError(result.error);
+      toast.error(result.error);
     } else {
+      toast.success("Profile updated successfully");
       setSuccess(true);
       setIsEditModalOpen(false);
       setTimeout(() => setSuccess(false), 4000);

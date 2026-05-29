@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { CheckCircle, XCircle, X, AlertTriangle } from "lucide-react";
+import { toast } from "sonner";
 import {
   approveAccountAction,
   rejectAccountAction,
@@ -37,7 +38,9 @@ export default function ManageAccountDetailClient({ userId, userName }: Props) {
       const result = await approveAccountAction(userId);
       if ("error" in result) {
         setError(result.error);
+        toast.error(result.error);
       } else {
+        toast.success("Account approved");
         router.push("/admin/staff/manage-account");
       }
     });
@@ -49,7 +52,9 @@ export default function ManageAccountDetailClient({ userId, userName }: Props) {
       const result = await rejectAccountAction(userId);
       if ("error" in result) {
         setError(result.error);
+        toast.error(result.error);
       } else {
+        toast.success("Account rejected");
         router.push("/admin/staff/manage-account");
       }
     });

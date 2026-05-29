@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Edit2, Trash2, User, Phone, MapPin, Globe, CreditCard } from "lucide-react";
+import { toast } from "sonner";
 import { formatCurrency } from "@/lib/utils";
 import { deleteAgentAction } from "@/modules/inventory/actions/stock.action";
 
@@ -15,10 +16,11 @@ export default function AgentDetailClient({ agent }: { agent: any }) {
     setIsDeleting(true);
     const result = await deleteAgentAction(agent.id);
     if (result?.error) {
-      alert(result.error);
+      toast.error(result.error);
       setIsDeleting(false);
       setShowConfirm(false);
     } else {
+      toast.success("Agent deleted successfully");
       router.push("/inventory/stock?tab=Agents");
     }
   };

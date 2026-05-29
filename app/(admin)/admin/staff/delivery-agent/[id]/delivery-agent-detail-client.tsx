@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { X, AlertTriangle } from "lucide-react";
+import { toast } from "sonner";
 import {
   suspendAgentAction,
   activateAgentAction,
@@ -34,7 +35,9 @@ export default function DeliveryAgentDetailClient({ agentName, agentId, agentSta
       const result = await deleteAgentAction(agentId);
       if ("error" in result) {
         setError(result.error);
+        toast.error(result.error);
       } else {
+        toast.success("Delivery agent deleted");
         router.push("/admin/staff/delivery-agent");
       }
     });
@@ -48,7 +51,9 @@ export default function DeliveryAgentDetailClient({ agentName, agentId, agentSta
         : await activateAgentAction(agentId);
       if ("error" in result) {
         setError(result.error);
+        toast.error(result.error);
       } else {
+        toast.success(agentStatus === "ACTIVE" ? "Agent suspended" : "Agent activated");
         setAgentStatus(agentStatus === "ACTIVE" ? "INACTIVE" : "ACTIVE");
         closeModal();
       }

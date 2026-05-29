@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Filter, ArrowUpDown, ChevronDown, Trash2, Plus, Copy, ArrowLeft } from "lucide-react";
+import { toast } from "sonner";
 import { updateIncomingMovementAction } from "@/modules/inventory/actions/stock.action";
 
 const inputClass =
@@ -108,8 +109,10 @@ export default function IncomingEditClient({ movement, warehouses, suppliers, pr
 
     if (result?.error) {
       setError(result.error);
+      toast.error(result.error);
       setLoading(false);
     } else {
+      toast.success("Incoming movement updated");
       router.push("/inventory/incoming");
     }
   };

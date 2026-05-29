@@ -3,6 +3,7 @@
 import React, { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { RefreshCw, Search, Trash2, Printer } from "lucide-react";
+import { toast } from "sonner";
 import type { AdjustmentDetail } from "@/modules/inventory/services/inventory.service";
 import {
   reverseAdjustmentAction,
@@ -26,8 +27,10 @@ export function AdjustmentDetailClient({ record }: { record: AdjustmentDetail })
       const result = await reverseAdjustmentAction(record.id, reversalReason);
       if (result.error) {
         setActionError(result.error);
+        toast.error(result.error);
         return;
       }
+      toast.success("Adjustment reversed");
       setIsReverseModalOpen(false);
       setReversalReason("");
       router.refresh();
@@ -40,9 +43,11 @@ export function AdjustmentDetailClient({ record }: { record: AdjustmentDetail })
       const result = await deleteAdjustmentAction(record.id);
       if (result.error) {
         setActionError(result.error);
+        toast.error(result.error);
         setIsDeleteModalOpen(false);
         return;
       }
+      toast.success("Adjustment deleted");
       router.push("/inventory/adjustment");
     });
   };

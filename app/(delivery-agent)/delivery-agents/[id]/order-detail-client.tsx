@@ -2,6 +2,7 @@
 
 import React, { useState, useTransition } from "react";
 import Link from "next/link";
+import { toast } from "sonner";
 import {
   Settings,
   Bell,
@@ -119,7 +120,9 @@ export function OrderDetailClient({ order, user }: Props) {
       const result = await markOrderDeliveredAction(order.id, code);
       if (result.error) {
         setVerifyError(result.error);
+        toast.error(result.error);
       } else {
+        toast.success("Order marked as delivered");
         setActiveModal(null);
       }
     });

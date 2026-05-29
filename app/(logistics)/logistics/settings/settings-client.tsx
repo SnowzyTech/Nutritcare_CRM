@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { User, Mail, Phone, Briefcase, Calendar, MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { toast } from "sonner";
 import { updateProfileAction } from "@/modules/users/actions/users.action";
 import { formatDate, getInitials } from "@/lib/utils";
 
@@ -55,7 +56,9 @@ export default function SettingsClient({ profile }: { profile: Profile }) {
 
     if ("error" in result) {
       setError(result.error);
+      toast.error(result.error);
     } else {
+      toast.success("Profile updated successfully");
       setSuccess(true);
     }
   };
