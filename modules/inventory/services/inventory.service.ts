@@ -489,13 +489,14 @@ export async function getStockWarehouses(): Promise<StockWarehouseRow[]> {
   const warehouses = await prisma.warehouse.findMany({
     where: { deletedAt: null },
     orderBy: { createdAt: "desc" },
+    include: { managers: { select: { name: true } } },
   });
   return warehouses.map((w) => ({
     id: w.id,
     name: w.name,
     phone: w.phone ?? "—",
     createdAt: w.createdAt.toLocaleDateString("en-NG"),
-    managerName: w.managerName ?? "—",
+    managerName: w.managers[0]?.name ?? w.managerName ?? "—",
   }));
 }
 
@@ -1062,10 +1063,7 @@ export async function getAgentsForDropdown(): Promise<DropdownOption[]> {
     where: {
       deletedAt: null,
       status: "ACTIVE",
-      OR: [
-        { user: null },
-        { user: { role: "DELIVERY_AGENT" } },
-      ],
+      user: { role: "DELIVERY_AGENT" },
     },
     select: { id: true, companyName: true },
     orderBy: { companyName: "asc" },
@@ -1166,6 +1164,7 @@ export async function getProductStockMap(): Promise<Record<string, number>> {
 export async function getWarehouseById(id: string) {
   return prisma.warehouse.findFirst({
     where: { id, deletedAt: null },
+    include: { managers: { select: { id: true, name: true } } },
   });
 }
 

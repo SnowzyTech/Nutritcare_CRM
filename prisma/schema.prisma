@@ -189,6 +189,7 @@ model User {
   warehouse             Warehouse?             @relation("WarehouseManagers", fields: [warehouseId], references: [id])
   orders                Order[]                @relation("SalesRepOrders")
   agentsAdded           Agent[]                @relation("AgentAddedBy")
+  driversAdded          Driver[]               @relation("DriverAddedBy")
   agent                 Agent?                 @relation("UserAgent", fields: [agentId], references: [id])
   stockMovements        StockMovement[]        @relation("StockMovementCreatedBy")
   stockTransfers        StockTransfer[]        @relation("StockTransferCreatedBy")
@@ -458,6 +459,32 @@ model Agent {
   @@map("agents")
 }
 
+model Driver {
+  id        String      @id @default(cuid())
+  name      String
+  phone1    String      @unique
+  phone2    String?
+  phone3    String?
+  address   String?
+  state     String?
+  country   String?
+  vehicleNo String?
+  status    AgentStatus @default(ACTIVE)
+  addedById String
+  deletedAt DateTime?
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  addedBy        User            @relation("DriverAddedBy", fields: [addedById], references: [id])
+  stockMovements StockMovement[] @relation("StockMovementDriverEntity")
+  stockTransfers StockTransfer[] @relation("StockTransferDriverEntity")
+  deliveries     Delivery[]      @relation("TruckDriverDeliveries")
+
+  @@index([status])
+  @@index([addedById])
+  @@map("drivers")
+}
+
 model Warehouse {
   id             String    @id @default(cuid())
   name           String
@@ -597,6 +624,7 @@ model StockMovement {
   isAgentToAgentTransfer Boolean?            @default(false)
   toAgentId              String?
   driverAgentId          String?
+  driverId               String?
   scheduledTime          DateTime?
   shelfLocationId        String?
   shelfQuantity          Int?
@@ -612,6 +640,7 @@ model StockMovement {
   agent           Agent?              @relation("StockMovementAgent", fields: [agentId], references: [id])
   toAgent         Agent?              @relation("StockMovementToAgent", fields: [toAgentId], references: [id])
   driverAgent     Agent?              @relation("StockMovementDriver", fields: [driverAgentId], references: [id])
+  driver          Driver?             @relation("StockMovementDriverEntity", fields: [driverId], references: [id])
   createdBy       User                @relation("StockMovementCreatedBy", fields: [createdById], references: [id])
   shelfLocation   WarehouseLocation?  @relation("StockMovementShelfLocation", fields: [shelfLocationId], references: [id])
   items           StockMovementItem[]
@@ -623,6 +652,7 @@ model StockMovement {
   @@index([warehouseId])
   @@index([supplierId])
   @@index([agentId])
+  @@index([driverId])
   @@index([createdById])
   @@index([referenceNumber])
   @@index([createdAt])
@@ -658,6 +688,7 @@ model StockTransfer {
   status          StockTransferStatus   @default(DRAFT)
   notes           String?
   driverAgentId   String?
+  driverId        String?
   scheduledTime   DateTime?
   createdById     String
   createdAt       DateTime              @default(now())
@@ -665,10 +696,12 @@ model StockTransfer {
 
   createdBy   User                @relation("StockTransferCreatedBy", fields: [createdById], references: [id])
   driverAgent Agent?              @relation("StockTransferDriver", fields: [driverAgentId], references: [id])
+  driver      Driver?             @relation("StockTransferDriverEntity", fields: [driverId], references: [id])
   items       StockTransferItem[]
   pickPacks   PickPack[]          @relation("PickPackStockTransfer")
 
   @@index([status])
+  @@index([driverId])
   @@index([createdById])
   @@index([referenceNumber])
   @@map("stock_transfers")
@@ -734,6 +767,7 @@ model PickPack {
   stockMovementId String?
   stockTransferId String?
   pickerId        String?
+  packerId        String?
   locationCode    String         @default("")
   itemsCount      Int
   status          PickPackStatus @default(QUEUED)
@@ -746,13 +780,29 @@ model PickPack {
   stockMovement StockMovement? @relation("PickPackStockMovement", fields: [stockMovementId], references: [id])
   stockTransfer StockTransfer? @relation("PickPackStockTransfer", fields: [stockTransferId], references: [id])
   picker        User?          @relation("PickerAssignments", fields: [pickerId], references: [id])
+  packer        PickPacker?    @relation(fields: [packerId], references: [id])
 
   @@index([orderId])
   @@index([stockMovementId])
   @@index([stockTransferId])
   @@index([pickerId])
+  @@index([packerId])
   @@index([status])
   @@map("pick_packs")
+}
+
+model PickPacker {
+  id          String     @id @default(cuid())
+  name        String
+  warehouseId String?
+  isActive    Boolean    @default(true)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  pickPacks   PickPack[]
+
+  @@index([warehouseId])
+  @@map("pick_packers")
 }
 
 model GoodsReceiving {
@@ -780,6 +830,7 @@ model Delivery {
   orderId       String
   driverId      String?
   agentId       String?
+  truckDriverId String?
   vehicleId     String?
   status        DeliveryStatus @default(PENDING_DISPATCH)
   scheduledTime DateTime?
@@ -790,15 +841,17 @@ model Delivery {
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 
-  order   Order         @relation(fields: [orderId], references: [id])
-  driver  User?         @relation("DriverDeliveries", fields: [driverId], references: [id])
-  agent   Agent?        @relation("AgentDeliveries", fields: [agentId], references: [id])
-  vehicle Vehicle?      @relation(fields: [vehicleId], references: [id])
-  zone    DeliveryZone? @relation(fields: [zoneId], references: [id])
+  order       Order         @relation(fields: [orderId], references: [id])
+  driver      User?         @relation("DriverDeliveries", fields: [driverId], references: [id])
+  agent       Agent?        @relation("AgentDeliveries", fields: [agentId], references: [id])
+  truckDriver Driver?       @relation("TruckDriverDeliveries", fields: [truckDriverId], references: [id])
+  vehicle     Vehicle?      @relation(fields: [vehicleId], references: [id])
+  zone        DeliveryZone? @relation(fields: [zoneId], references: [id])
 
   @@index([orderId])
   @@index([driverId])
   @@index([agentId])
+  @@index([truckDriverId])
   @@index([status])
   @@map("deliveries")
 }

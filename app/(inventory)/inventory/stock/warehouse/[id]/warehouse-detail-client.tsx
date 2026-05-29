@@ -99,7 +99,9 @@ export default function WarehouseDetailClient({ warehouse }: { warehouse: any })
                </div>
                <div className="p-6 bg-gray-50 rounded-2xl">
                  <p className="text-gray-500 text-xs mb-1 uppercase font-bold tracking-tight">Manager</p>
-                 <p className="text-xl font-bold text-gray-900">{warehouse.managerName || "Not Assigned"}</p>
+                 <p className="text-xl font-bold text-gray-900">
+                   {warehouse.managers?.[0]?.name ?? warehouse.managerName ?? "Not Assigned"}
+                 </p>
                </div>
             </div>
           </div>

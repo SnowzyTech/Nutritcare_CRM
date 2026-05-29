@@ -362,7 +362,7 @@ export async function assignPickerAction(
       // Flip the pickpacks last so all validations have run first
       await tx.pickPack.updateMany({
         where: { id: { in: pickPackIds }, status: "QUEUED" },
-        data: { pickerId, locationCode, status: "PACKED", assignedAt: now, completedAt: now },
+        data: { packerId: pickerId, locationCode, status: "PACKED", assignedAt: now, completedAt: now },
       });
     });
 
@@ -372,6 +372,31 @@ export async function assignPickerAction(
     revalidatePath("/inventory/outgoing");
     revalidatePath("/inventory/transfer");
     return { success: true };
+  } catch (e) {
+    return { success: false, error: (e as Error).message };
+  }
+}
+
+export async function createPickPackerAction(
+  name: string,
+  warehouseId: string | null,
+): Promise<{ success: true; packer: { id: string; name: string; activeTasks: number } } | { success: false; error: string }> {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) return { success: false, error: "Unauthorized" };
+    const trimmed = name.trim();
+    if (!trimmed) return { success: false, error: "Name is required" };
+
+    const packer = await prisma.pickPacker.create({
+      data: {
+        name: trimmed,
+        warehouseId: warehouseId || null,
+      },
+      select: { id: true, name: true },
+    });
+
+    revalidatePath("/warehouse/pick-and-pack");
+    return { success: true, packer: { ...packer, activeTasks: 0 } };
   } catch (e) {
     return { success: false, error: (e as Error).message };
   }

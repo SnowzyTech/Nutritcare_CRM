@@ -302,6 +302,7 @@ export async function getPickPackOrders(warehouseId: string | null): Promise<Pic
         },
       },
       picker: { select: { name: true } },
+      packer: { select: { name: true } },
     },
   });
 
@@ -424,8 +425,8 @@ export async function getPickPackOrders(warehouseId: string | null): Promise<Pic
         pp.stockTransfer?.driverAgent?.companyName ??
         "—",
       itemsCount: pp.itemsCount,
-      picker: pp.picker?.name ?? "—",
-      pickerId: pp.pickerId,
+      picker: pp.packer?.name ?? pp.picker?.name ?? "—",
+      pickerId: pp.packerId ?? pp.pickerId,
       locationCode: pp.locationCode || "—",
       assignedAt: pp.assignedAt
         ? pp.assignedAt
@@ -446,23 +447,26 @@ export type PickerOption = {
   activeTasks: number;
 };
 
-export async function getAvailablePickers(): Promise<PickerOption[]> {
-  const [pickers, activeCounts] = await Promise.all([
-    prisma.user.findMany({
-      where: { isActive: true, role: "WAREHOUSE_MANAGER" },
+export async function getPickPackers(warehouseId?: string | null): Promise<PickerOption[]> {
+  const [packers, activeCounts] = await Promise.all([
+    prisma.pickPacker.findMany({
+      where: {
+        isActive: true,
+        ...(warehouseId ? { warehouseId } : {}),
+      },
       select: { id: true, name: true },
       orderBy: { name: "asc" },
     }),
     prisma.pickPack.groupBy({
-      by: ["pickerId"],
-      where: { status: "PACKED", pickerId: { not: null } },
+      by: ["packerId"],
+      where: { status: "PACKED", packerId: { not: null } },
       _count: { id: true },
     }),
   ]);
 
-  const taskMap = new Map(activeCounts.map((t) => [t.pickerId as string, t._count.id]));
+  const taskMap = new Map(activeCounts.map((t) => [t.packerId as string, t._count.id]));
 
-  return pickers.map((p) => ({
+  return packers.map((p) => ({
     id: p.id,
     name: p.name,
     activeTasks: taskMap.get(p.id) ?? 0,
