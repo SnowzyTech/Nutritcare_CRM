@@ -27,6 +27,7 @@ export default async function OrdersPage() {
     id: o.id,
     orderNumber: o.orderNumber,
     status: o.status,
+    isReorder: o.isReorder,
     createdAt: o.createdAt.toISOString(),
     customer: { name: o.customer.name, email: o.customer.email ?? null },
     agent: o.agent

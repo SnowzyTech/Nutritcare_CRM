@@ -12,6 +12,7 @@ async function checkAdmin() {
   if (!session?.user?.id || session.user.role !== "ADMIN") {
     throw new Error("Unauthorized");
   }
+  return session;
 }
 
 async function getOrder(orderId: string) {
@@ -160,7 +161,7 @@ export async function adminAddOrderItemsAction(
   orderId: string,
   items: Array<{ productId: string; quantity: number }>
 ) {
-  await checkAdmin();
+  const session = await checkAdmin();
   const order = await getOrder(orderId);
   if (!order || order.status !== "PENDING") throw new Error("Cannot modify this order");
 
@@ -178,7 +179,7 @@ export async function adminAddOrderItemsAction(
     const unitPrice = Number(product.sellingPrice);
     const lineTotal = unitPrice * item.quantity;
     addedTotal += lineTotal;
-    return { orderId, productId: item.productId, quantity: item.quantity, unitPrice, lineTotal, costPriceAtSale: Number(product.costPrice) };
+    return { orderId, productId: item.productId, quantity: item.quantity, unitPrice, lineTotal, costPriceAtSale: Number(product.costPrice), isUpsell: true, addedById: session.user.id };
   });
 
   await prisma.$transaction([

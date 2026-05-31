@@ -42,7 +42,12 @@
       "Bash(xargs grep -l \"Select\\\\|dropdown\\\\|nigeria\" -i)",
       "Bash(xargs grep -l \"NIGERIAN_STATES\\\\|nigerianStates\\\\|nigeria.*state\\\\|states.*nigeria\" -i)",
       "Bash(xargs grep -l \"new.*order\\\\|create.*order\\\\|add.*order\" -i)",
-      "Bash(Select-Object -First 30)"
+      "Bash(Select-Object -First 30)",
+      "PowerShell(npx tsc --noEmit)",
+      "PowerShell(npm install *)",
+      "PowerShell(node -e \"console.log\\('jspdf', require\\('jspdf/package.json'\\).version\\); console.log\\('autotable', require\\('jspdf-autotable/package.json'\\).version\\)\")",
+      "PowerShell(npx next lint --file \"app/\\(sales-rep\\)/sales-rep/analytics/report-buttons.tsx\" 2>&1 | Select-Object -First 20)",
+      "PowerShell(npx eslint \"app/\\(sales-rep\\)/sales-rep/analytics/report-buttons.tsx\")"
     ]
   }
 }

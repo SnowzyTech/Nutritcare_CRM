@@ -22,6 +22,7 @@ export type SerializedOrder = {
   id: string;
   orderNumber: string;
   status: OrderStatus;
+  isReorder: boolean;
   totalAmount: string;
   netAmount: string;
   deliveryFee: string;
@@ -51,7 +52,8 @@ export type SerializedOrder = {
     quantity: number;
     unitPrice: string;
     lineTotal: string;
-    product: { id: string; name: string };
+    isUpsell: boolean;
+    product: { id: string; name: string; imageUrl: string | null };
   }>;
   salesRep: { id: string; name: string };
   deliveries: Array<{
@@ -162,6 +164,8 @@ export function AdminOrderDetailClient({
   const formattedTotal = `₦${Number(order.totalAmount).toLocaleString("en-NG")}`;
   const totalQty = order.items.reduce((sum, i) => sum + i.quantity, 0);
   const productNames = order.items.map((i) => i.product.name).join(", ") || "—";
+  const primaryImage =
+    order.items.find((i) => i.product.imageUrl)?.product.imageUrl ?? null;
 
   function addRow() {
     setProductRows([
@@ -262,6 +266,11 @@ export function AdminOrderDetailClient({
         >
           {badge.label}
         </span>
+        {order.isReorder && (
+          <span className="bg-purple-100 text-purple-700 px-4 py-1 rounded-full text-sm font-bold">
+            Reorder
+          </span>
+        )}
       </div>
 
       {/* Stepper */}
@@ -327,14 +336,25 @@ export function AdminOrderDetailClient({
 
               {/* Products */}
               <div className="flex flex-col gap-4">
-                {order.items.map((item, idx) => (
+                {order.items.map((item) => (
                   <div
                     key={item.id}
-                    className="bg-slate-50 p-6 rounded-2xl flex justify-between items-center border border-slate-100"
+                    className={`p-6 rounded-2xl flex justify-between items-center border ${
+                      item.isUpsell
+                        ? "bg-purple-50 border-purple-200"
+                        : "bg-slate-50 border-slate-100"
+                    }`}
                   >
                     <div>
-                      <p className="text-[0.7rem] font-bold text-slate-400 uppercase mb-1">
-                        {idx === 0 ? "Product(s)" : "Added Product"}
+                      <p className="text-[0.7rem] font-bold uppercase mb-1 flex items-center gap-2">
+                        <span className="text-slate-400">
+                          {item.isUpsell ? "Upsold Product" : "Product(s)"}
+                        </span>
+                        {item.isUpsell && (
+                          <span className="bg-purple-600 text-white px-2 py-0.5 rounded-full text-[0.6rem] tracking-wide">
+                            UPSELL
+                          </span>
+                        )}
                       </p>
                       <p className="text-xl font-bold text-slate-700">
                         {item.product.name}
@@ -404,14 +424,20 @@ export function AdminOrderDetailClient({
         {/* Sidebar */}
         <div className="flex flex-col gap-6">
           {/* Product Image Card */}
-          <div className="relative h-[240px] rounded-[2rem] overflow-hidden group">
-            <Image
-              src="https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?q=80&w=2070&auto=format&fit=crop"
-              alt="Product"
-              fill
-              className="object-cover transition-transform group-hover:scale-105"
-              sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
-            />
+          <div className="relative h-[240px] rounded-[2rem] overflow-hidden group bg-slate-100">
+            {primaryImage ? (
+              <Image
+                src={primaryImage}
+                alt={productNames}
+                fill
+                className="object-cover transition-transform group-hover:scale-105"
+                sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+              />
+            ) : (
+              <div className="absolute inset-0 flex items-center justify-center text-5xl">
+                📦
+              </div>
+            )}
             <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent flex items-end p-8">
               <p className="text-white text-2xl font-bold">{productNames}</p>
             </div>
@@ -539,49 +565,6 @@ export function AdminOrderDetailClient({
               </div>
             </div>
 
-            {/* Admin action buttons */}
-            {order.status === "PENDING" && (
-              <div className="space-y-3 mt-4">
-                <div>
-                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">
-                    Delivery Date <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="date"
-                    value={deliveryDate}
-                    min={new Date().toISOString().split("T")[0]}
-                    onChange={(e) => setDeliveryDate(e.target.value)}
-                    className="w-full mt-1 border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-700 outline-none focus:border-purple-400"
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    disabled={isPending}
-                    onClick={() => handleAction(() => adminCancelOrderAction(order.id), "Order cancelled")}
-                    className="bg-rose-50 border border-rose-200 px-4 py-3 rounded-xl text-rose-600 font-bold text-sm hover:bg-rose-100 transition disabled:opacity-50"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    disabled={isPending}
-                    onClick={() => {
-                      if (!deliveryDate) {
-                        toast.warning("Please select a delivery date before confirming.");
-                        return;
-                      }
-                      handleAction(
-                        () => adminConfirmOrderAction(order.id, deliveryDate),
-                        "Order confirmed successfully"
-                      );
-                    }}
-                    className="bg-purple-600 text-white px-4 py-3 rounded-xl font-bold text-sm hover:bg-purple-700 transition disabled:opacity-50"
-                  >
-                    Confirm →
-                  </button>
-                </div>
-              </div>
-            )}
-
             {order.status === "CONFIRMED" && (
               <div className="grid grid-cols-2 gap-3 mt-4">
                 <button
@@ -636,6 +619,49 @@ export function AdminOrderDetailClient({
                 )}
               </div>
             </div>
+
+            {/* Order confirmation card (rendered last) */}
+            {order.status === "PENDING" && (
+              <div className="space-y-3 mt-4">
+                <div>
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">
+                    Delivery Date <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    value={deliveryDate}
+                    min={new Date().toISOString().split("T")[0]}
+                    onChange={(e) => setDeliveryDate(e.target.value)}
+                    className="w-full mt-1 border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-700 outline-none focus:border-purple-400"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    disabled={isPending}
+                    onClick={() => handleAction(() => adminCancelOrderAction(order.id), "Order cancelled")}
+                    className="bg-rose-50 border border-rose-200 px-4 py-3 rounded-xl text-rose-600 font-bold text-sm hover:bg-rose-100 transition disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    disabled={isPending}
+                    onClick={() => {
+                      if (!deliveryDate) {
+                        toast.warning("Please select a delivery date before confirming.");
+                        return;
+                      }
+                      handleAction(
+                        () => adminConfirmOrderAction(order.id, deliveryDate),
+                        "Order confirmed successfully"
+                      );
+                    }}
+                    className="bg-purple-600 text-white px-4 py-3 rounded-xl font-bold text-sm hover:bg-purple-700 transition disabled:opacity-50"
+                  >
+                    Confirm →
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>

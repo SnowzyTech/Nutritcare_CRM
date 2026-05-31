@@ -23,6 +23,7 @@ export type OrderListItem = {
   id: string;
   orderNumber: string;
   status: OrderStatus;
+  isReorder: boolean;
   createdAt: string; // ISO string (serialized from server)
   customer: { name: string; email: string | null };
   agent: { companyName: string; state: string | null } | null;
@@ -98,7 +99,8 @@ export function OrdersClient({ orders, counts, userName, products }: OrdersClien
   const [address, setAddress] = useState('');
   const [selectedState, setSelectedState] = useState('Lagos State');
   const [landmark, setLandmark] = useState('');
-  
+  const [isReorder, setIsReorder] = useState(false);
+
   // Multi-product fields inside Add Order
   const [formProducts, setFormProducts] = useState<Array<{ productId: string; quantity: number }>>([
     { productId: products[0]?.id ?? '', quantity: 6 }
@@ -167,6 +169,7 @@ export function OrdersClient({ orders, counts, userName, products }: OrdersClien
     setAddress('');
     setSelectedState('Lagos State');
     setLandmark('');
+    setIsReorder(false);
     setFormProducts([{ productId: products[0]?.id ?? '', quantity: 6 }]);
     setFormError(null);
   };
@@ -184,6 +187,7 @@ export function OrdersClient({ orders, counts, userName, products }: OrdersClien
       deliveryAddress: address,
       state: selectedState,
       landmark: landmark || undefined,
+      isReorder,
       products: formProducts,
     });
 
@@ -199,6 +203,7 @@ export function OrdersClient({ orders, counts, userName, products }: OrdersClien
       id: result.orderId,
       orderNumber: result.orderNumber,
       status: 'PENDING',
+      isReorder,
       createdAt: new Date().toISOString(),
       customer: { name: customerName.trim(), email: email.trim() || null },
       agent: null,
@@ -374,7 +379,14 @@ export function OrdersClient({ orders, counts, userName, products }: OrdersClien
                       </div>
                     </td>
                     <td className="px-6 py-5">
-                      <span className="text-sm font-medium text-gray-700">{order.customer.name}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-gray-700">{order.customer.name}</span>
+                        {order.isReorder && (
+                          <span className="inline-flex items-center gap-1 bg-purple-100 text-[#532194] text-[10px] font-bold px-2 py-0.5 rounded-full">
+                            <RotateCcw size={10} /> Reorder
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-6 py-5">
                       {order.agent ? (
@@ -543,6 +555,31 @@ export function OrdersClient({ orders, counts, userName, products }: OrdersClien
                   />
                 </div>
 
+              </div>
+
+              {/* Reorder toggle */}
+              <div className="flex items-center justify-between bg-[#FAF8FF] border border-purple-100/40 rounded-2xl px-6 py-4">
+                <div className="text-left">
+                  <p className="text-sm font-bold text-gray-800">Mark as Reorder</p>
+                  <p className="text-[11px] text-gray-400 mt-0.5">
+                    Turn on if the customer sent this order in manually (e.g. via WhatsApp).
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={isReorder}
+                  onClick={() => setIsReorder((v) => !v)}
+                  className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors duration-200 ${
+                    isReorder ? 'bg-[#A020F0]' : 'bg-gray-200'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform duration-200 ${
+                      isReorder ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
               </div>
 
               {/* Products Sub-Form Section */}

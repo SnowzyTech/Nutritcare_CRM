@@ -310,12 +310,13 @@ export async function createOrderAction(input: {
   deliveryAddress: string;
   state: string;
   landmark?: string;
+  isReorder?: boolean;
   products: Array<{ productId: string; quantity: number }>;
 }): Promise<{ orderId: string; orderNumber: string } | { error: string }> {
   const session = await auth();
   if (!session?.user?.id) return { error: "Unauthorized" };
 
-  const { customerName, phone, whatsappNumber, email, deliveryAddress, state, landmark, products } = input;
+  const { customerName, phone, whatsappNumber, email, deliveryAddress, state, landmark, isReorder, products } = input;
 
   if (!products.length) return { error: "At least one product is required." };
 
@@ -390,6 +391,7 @@ export async function createOrderAction(input: {
           totalAmount,
           netAmount: totalAmount,
           status: "PENDING",
+          isReorder: isReorder ?? false,
           items: { create: orderItemsData },
         },
       });
@@ -427,7 +429,7 @@ export async function addOrderItemsAction(
     const unitPrice = Number(product.sellingPrice);
     const lineTotal = unitPrice * item.quantity;
     addedTotal += lineTotal;
-    return { orderId, productId: item.productId, quantity: item.quantity, unitPrice, lineTotal, costPriceAtSale: Number(product.costPrice) };
+    return { orderId, productId: item.productId, quantity: item.quantity, unitPrice, lineTotal, costPriceAtSale: Number(product.costPrice), isUpsell: true, addedById: session.user.id };
   });
 
   await prisma.$transaction([

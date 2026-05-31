@@ -3,6 +3,7 @@
 import React, { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { X } from "lucide-react";
+import Image from "next/image";
 import { toast } from "sonner";
 import type { OrderStatus } from "@prisma/client";
 import { AgentInfoDrawer } from "@/components/ui/agent-info-drawer";
@@ -22,6 +23,7 @@ export type SerializedOrder = {
   id: string;
   orderNumber: string;
   status: OrderStatus;
+  isReorder: boolean;
   totalAmount: string;
   netAmount: string;
   deliveryFee: string;
@@ -51,7 +53,8 @@ export type SerializedOrder = {
     quantity: number;
     unitPrice: string;
     lineTotal: string;
-    product: { id: string; name: string };
+    isUpsell: boolean;
+    product: { id: string; name: string; imageUrl: string | null };
   }>;
   salesRep: { id: string; name: string };
   deliveries: Array<{
@@ -262,6 +265,11 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
       ? `₦${Number(order.deliveryFee).toLocaleString("en-NG")}`
       : null;
   const formattedTotal = `₦${Number(order.totalAmount).toLocaleString("en-NG")}`;
+  const primaryImage =
+    order.items.find((i) => i.product.imageUrl)?.product.imageUrl ?? null;
+  const productNames =
+    order.items.map((i) => i.product.name).join(", ") || "No products";
+  const totalUnits = order.items.reduce((s, i) => s + i.quantity, 0);
   const deliveredDate = delivery?.deliveredTime
     ? new Date(delivery.deliveredTime).toLocaleDateString("en-NG", {
         day: "2-digit",
@@ -347,11 +355,18 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
         <h2 className="text-lg font-bold text-gray-900">
           Order ID: {order.orderNumber}
         </h2>
-        <span
-          className={`${badge.bg} text-white px-5 py-2 rounded-full text-sm font-semibold`}
-        >
-          {badge.label}
-        </span>
+        <div className="flex items-center gap-3">
+          {order.isReorder && (
+            <span className="bg-purple-100 text-purple-700 px-4 py-2 rounded-full text-sm font-semibold">
+              Reorder
+            </span>
+          )}
+          <span
+            className={`${badge.bg} text-white px-5 py-2 rounded-full text-sm font-semibold`}
+          >
+            {badge.label}
+          </span>
+        </div>
       </div>
 
       {/* Steps */}
@@ -397,16 +412,44 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
                 value={order.customer.landmark ?? "—"}
               />
             </div>
-            <FieldRow
-              label="Product(s)"
-              value={order.items.map((i) => i.product.name).join(", ") || "—"}
-            />
-            <FieldRow
-              label="Quantity"
-              value={String(
-                order.items.reduce((sum, i) => sum + i.quantity, 0),
-              )}
-            />
+          </div>
+
+          {/* Products — each item on its own card */}
+          <div className="mt-4 flex flex-col gap-4">
+            {order.items.map((item) => (
+              <div
+                key={item.id}
+                className={`p-5 rounded-2xl flex justify-between items-center border ${
+                  item.isUpsell
+                    ? "bg-purple-50 border-purple-200"
+                    : "bg-gray-50 border-gray-100"
+                }`}
+              >
+                <div>
+                  <p className="text-[0.7rem] font-bold uppercase mb-1 flex items-center gap-2">
+                    <span className="text-gray-400">
+                      {item.isUpsell ? "Upsold Product" : "Product(s)"}
+                    </span>
+                    {item.isUpsell && (
+                      <span className="bg-purple-600 text-white px-2 py-0.5 rounded-full text-[0.6rem] tracking-wide">
+                        UPSELL
+                      </span>
+                    )}
+                  </p>
+                  <p className="text-lg font-bold text-gray-800">
+                    {item.product.name}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-[0.7rem] font-bold text-gray-400 uppercase mb-1">
+                    Quantity
+                  </p>
+                  <p className="text-xl font-bold text-gray-800">
+                    {item.quantity}
+                  </p>
+                </div>
+              </div>
+            ))}
           </div>
 
           {order.status === "PENDING" && (
@@ -453,11 +496,29 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
 
         {/* Right: Product & Actions */}
         <div className="col-span-2 flex flex-col gap-6">
-          {/* Product placeholder */}
-          <div className="bg-gray-100 rounded-xl min-h-45 flex items-center justify-center text-gray-400 text-sm border border-gray-200">
-            📦{" "}
-            {order.items.map((i) => i.product.name).join(", ") || "No products"}{" "}
-            — {order.items.reduce((s, i) => s + i.quantity, 0)} units
+          {/* Product image */}
+          <div className="relative min-h-45 rounded-xl overflow-hidden border border-gray-200 bg-gray-100 group">
+            {primaryImage ? (
+              <Image
+                src={primaryImage}
+                alt={productNames}
+                fill
+                className="object-cover transition-transform group-hover:scale-105"
+                sizes="(max-width: 768px) 100vw, 40vw"
+              />
+            ) : (
+              <div className="absolute inset-0 flex items-center justify-center text-5xl text-gray-400">
+                📦
+              </div>
+            )}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent flex items-end p-5">
+              <div>
+                <p className="text-white text-lg font-bold">{productNames}</p>
+                <p className="text-white/80 text-xs font-semibold">
+                  {totalUnits} units
+                </p>
+              </div>
+            </div>
           </div>
 
           {/* Price / Actions */}
@@ -495,48 +556,6 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
                 </span>
               )}
             </div>
-
-            {order.status === "PENDING" && (
-              <div className="space-y-3 mt-1">
-                <div>
-                  <label className="text-xs text-gray-500 font-semibold">
-                    Delivery Date <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="date"
-                    value={deliveryDate}
-                    min={new Date().toISOString().split("T")[0]}
-                    onChange={(e) => setDeliveryDate(e.target.value)}
-                    className="w-full mt-1 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 outline-none focus:border-purple-400"
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    disabled={isPending}
-                    onClick={() => handleAction(() => cancelOrderAction(order.id), "Order cancelled")}
-                    className="bg-purple-100 border border-purple-200 px-4 py-2 rounded-lg text-purple-600 font-semibold text-sm hover:bg-purple-50 transition disabled:opacity-50"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    disabled={isPending}
-                    onClick={() => {
-                      if (!deliveryDate) {
-                        toast.warning("Please select a delivery date before confirming.");
-                        return;
-                      }
-                      handleAction(
-                        () => confirmOrderAction(order.id, prescription, deliveryDate),
-                        "Order confirmed successfully"
-                      );
-                    }}
-                    className="bg-purple-600 text-white px-4 py-2 rounded-lg font-semibold text-sm hover:bg-purple-700 transition disabled:opacity-50"
-                  >
-                    Confirm →
-                  </button>
-                </div>
-              </div>
-            )}
 
             {order.status !== "PENDING" && order.agent && (
                 <>
@@ -669,6 +688,49 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
               )
             )}
           </div>
+
+          {/* Order confirmation card (rendered last) */}
+          {order.status === "PENDING" && (
+            <div className="bg-white rounded-xl p-6 border border-gray-200 flex flex-col gap-3">
+              <div>
+                <label className="text-xs text-gray-500 font-semibold">
+                  Delivery Date <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="date"
+                  value={deliveryDate}
+                  min={new Date().toISOString().split("T")[0]}
+                  onChange={(e) => setDeliveryDate(e.target.value)}
+                  className="w-full mt-1 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 outline-none focus:border-purple-400"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  disabled={isPending}
+                  onClick={() => handleAction(() => cancelOrderAction(order.id), "Order cancelled")}
+                  className="bg-purple-100 border border-purple-200 px-4 py-2 rounded-lg text-purple-600 font-semibold text-sm hover:bg-purple-50 transition disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  disabled={isPending}
+                  onClick={() => {
+                    if (!deliveryDate) {
+                      toast.warning("Please select a delivery date before confirming.");
+                      return;
+                    }
+                    handleAction(
+                      () => confirmOrderAction(order.id, prescription, deliveryDate),
+                      "Order confirmed successfully"
+                    );
+                  }}
+                  className="bg-purple-600 text-white px-4 py-2 rounded-lg font-semibold text-sm hover:bg-purple-700 transition disabled:opacity-50"
+                >
+                  Confirm →
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Confirm/Fail buttons for confirmed orders */}
           {order.status === "CONFIRMED" && (

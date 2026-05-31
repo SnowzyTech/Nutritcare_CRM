@@ -104,7 +104,7 @@ export async function getOrderWithDetails(id: string) {
         },
       },
       items: {
-        include: { product: { select: { id: true, name: true } } },
+        include: { product: { select: { id: true, name: true, imageUrl: true } } },
       },
       salesRep: {
         select: { id: true, name: true },

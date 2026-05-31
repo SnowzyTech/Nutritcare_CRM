@@ -205,6 +205,7 @@ model User {
   damageReports         DamageReport[]         @relation("DamageReportedBy")
   journalEntries        JournalEntry[]         @relation("JournalEntryCreator")
   forms                 Form[]                 @relation("FormCreatedBy")
+  upsoldOrderItems      OrderItem[]            @relation("UpsoldOrderItems")
 
   @@index([email])
   @@index([role])
@@ -562,6 +563,7 @@ model Order {
   discountPercent Decimal     @default(0) @db.Decimal(5, 2)
   netAmount       Decimal     @db.Decimal(10, 2)
   deliveryFee     Decimal     @default(0) @db.Decimal(10, 2)
+  isReorder       Boolean     @default(false)
   notes           String?
   date            DateTime    @default(now())
   deletedAt       DateTime?
@@ -593,14 +595,18 @@ model OrderItem {
   unitPrice        Decimal  @db.Decimal(10, 2)
   lineTotal        Decimal  @db.Decimal(10, 2)
   costPriceAtSale  Decimal  @default(0) @db.Decimal(10, 2)
+  isUpsell         Boolean  @default(false)
+  addedById        String?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
   order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
   product Product @relation(fields: [productId], references: [id])
+  addedBy User?   @relation("UpsoldOrderItems", fields: [addedById], references: [id])
 
   @@index([orderId])
   @@index([productId])
+  @@index([addedById])
   @@map("order_items")
 }
 

@@ -39,6 +39,7 @@ export default async function OrderDetailPage({ params }: Props) {
     id: rawOrder.id,
     orderNumber: rawOrder.orderNumber,
     status: rawOrder.status,
+    isReorder: rawOrder.isReorder,
     totalAmount: rawOrder.totalAmount.toString(),
     netAmount: rawOrder.netAmount.toString(),
     deliveryFee: rawOrder.deliveryFee.toString(),
@@ -70,7 +71,12 @@ export default async function OrderDetailPage({ params }: Props) {
       quantity: item.quantity,
       unitPrice: item.unitPrice.toString(),
       lineTotal: item.lineTotal.toString(),
-      product: { id: item.product.id, name: item.product.name },
+      isUpsell: item.isUpsell,
+      product: {
+        id: item.product.id,
+        name: item.product.name,
+        imageUrl: item.product.imageUrl ?? null,
+      },
     })),
     salesRep: {
       id: rawOrder.salesRep.id,
