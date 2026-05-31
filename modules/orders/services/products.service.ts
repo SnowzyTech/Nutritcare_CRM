@@ -15,6 +15,7 @@ export async function getProductsWithPackages() {
       id: true,
       name: true,
       sellingPrice: true,
+      unit: true,
       packages: {
         select: {
           id: true,
@@ -23,6 +24,16 @@ export async function getProductsWithPackages() {
           price: true,
         },
         orderBy: { price: "asc" },
+      },
+      offers: {
+        select: {
+          id: true,
+          offerName: true,
+          offerQuantity: true,
+          offerUnit: true,
+          sellingPrice: true,
+        },
+        orderBy: { sellingPrice: "asc" },
       },
     },
     orderBy: { name: "asc" },

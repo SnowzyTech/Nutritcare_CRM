@@ -11,7 +11,9 @@ export default async function AddFormPage() {
   const productsForBuilder = products.map((p) => ({
     ...p,
     sellingPrice: Number(p.sellingPrice),
+    unit: p.unit ?? null,
     packages: p.packages.map((pkg) => ({ ...pkg, price: Number(pkg.price) })),
+    offers: p.offers.map((offer) => ({ ...offer, sellingPrice: Number(offer.sellingPrice) })),
   }));
 
   return (

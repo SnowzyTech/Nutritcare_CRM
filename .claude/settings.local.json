@@ -41,7 +41,8 @@
       "Bash(xargs grep -l \"state\\\\|State\")",
       "Bash(xargs grep -l \"Select\\\\|dropdown\\\\|nigeria\" -i)",
       "Bash(xargs grep -l \"NIGERIAN_STATES\\\\|nigerianStates\\\\|nigeria.*state\\\\|states.*nigeria\" -i)",
-      "Bash(xargs grep -l \"new.*order\\\\|create.*order\\\\|add.*order\" -i)"
+      "Bash(xargs grep -l \"new.*order\\\\|create.*order\\\\|add.*order\" -i)",
+      "Bash(Select-Object -First 30)"
     ]
   }
 }

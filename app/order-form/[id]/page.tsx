@@ -616,14 +616,19 @@ export default function OrderFormPreview() {
       return;
     }
 
-    // Build customer phone with country code
-    const phone = showCountryCodeEnabled
-      ? `${phoneCountryCode}${(formValues.phone ?? "").replace(/^0/, "")}`.replace(/\s+/g, "")
-      : (formValues.phone ?? "").replace(/\s+/g, "");
+    // Build customer phone/whatsapp with country code.
+    // Only prepend the country code when an actual number was entered — otherwise
+    // an empty field would become a bare prefix like "+234", which the server
+    // would mistake for a real, shared identifier and collapse every order onto
+    // the same customer record.
+    const withCountryCode = (raw: string, code: string) => {
+      const num = (raw ?? "").replace(/\s+/g, "").replace(/^0/, "");
+      if (!num) return "";
+      return showCountryCodeEnabled ? `${code}${num}`.replace(/\s+/g, "") : num;
+    };
 
-    const whatsapp = showCountryCodeEnabled
-      ? `${whatsappCountryCode}${(formValues.whatsapp ?? "").replace(/^0/, "")}`.replace(/\s+/g, "")
-      : (formValues.whatsapp ?? "").replace(/\s+/g, "");
+    const phone = withCountryCode(formValues.phone ?? "", phoneCountryCode);
+    const whatsapp = withCountryCode(formValues.whatsapp ?? "", whatsappCountryCode);
 
     setSubmitting(true);
     try {

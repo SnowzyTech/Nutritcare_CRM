@@ -232,6 +232,103 @@ export async function getRecordedIncomingVouchers(
   }));
 }
 
+// ── In-transit stock transfers awaiting receipt at this warehouse ─────────────
+
+export type InTransitTransferProductItem = {
+  productId: string;
+  productName: string;
+  productCode: string;
+  requiredQty: number;
+  availableShelves: TransferShelfOption[];
+};
+
+export type InTransitTransferRow = {
+  id: string;
+  referenceNumber: string;
+  sourceWarehouseName: string;
+  scheduledTime: string | null;
+  items: InTransitTransferProductItem[];
+};
+
+export async function getInTransitTransfersForWarehouse(
+  warehouseId: string,
+): Promise<InTransitTransferRow[]> {
+  const transfers = await prisma.stockTransfer.findMany({
+    where: { status: "IN_TRANSIT", targetType: "WAREHOUSE", targetId: warehouseId },
+    include: {
+      items: { include: { product: { select: { id: true, name: true, sku: true } } } },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  if (!transfers.length) return [];
+
+  const sourceWarehouseIds = [...new Set(
+    transfers.filter((t) => t.sourceType === "WAREHOUSE").map((t) => t.sourceId),
+  )];
+  const sourceWarehouses =
+    sourceWarehouseIds.length > 0
+      ? await prisma.warehouse.findMany({
+          where: { id: { in: sourceWarehouseIds } },
+          select: { id: true, name: true },
+        })
+      : [];
+  const whNameMap = new Map(sourceWarehouses.map((w) => [w.id, w.name]));
+
+  // Fetch shelf stock in the target warehouse so the UI can offer shelf selection
+  const productIds = [...new Set(transfers.flatMap((t) => t.items.map((i) => i.productId)))];
+  const shelfStocks =
+    productIds.length > 0
+      ? await prisma.shelfProductStock.findMany({
+          where: { productId: { in: productIds }, location: { warehouseId }, quantity: { gte: 0 } },
+          include: { location: { select: { locationCode: true } } },
+          orderBy: { quantity: "desc" },
+        })
+      : [];
+
+  // Also include warehouse locations that have no shelf stock yet (for shelving onto)
+  const allLocations = await prisma.warehouseLocation.findMany({
+    where: { warehouseId, occupancyStatus: { not: "FULL" } },
+    select: { id: true, locationCode: true },
+    orderBy: { locationCode: "asc" },
+  });
+
+  // Build a shelf map keyed by productId for shelves that already have stock
+  const shelfMap = new Map<string, TransferShelfOption[]>();
+  for (const s of shelfStocks) {
+    const list = shelfMap.get(s.productId) ?? [];
+    list.push({ locationId: s.locationId, locationCode: s.location.locationCode, availableQty: s.quantity });
+    shelfMap.set(s.productId, list);
+  }
+
+  // Add empty/partial locations not yet in the map for any product (qty = 0 means space available)
+  const stockedLocationIds = new Set(shelfStocks.map((s) => s.locationId));
+  const emptyLocations: TransferShelfOption[] = allLocations
+    .filter((l) => !stockedLocationIds.has(l.id))
+    .map((l) => ({ locationId: l.id, locationCode: l.locationCode, availableQty: 0 }));
+
+  return transfers.map((t) => ({
+    id: t.id,
+    referenceNumber: t.referenceNumber,
+    sourceWarehouseName:
+      t.sourceType === "WAREHOUSE" ? (whNameMap.get(t.sourceId) ?? "—") : "—",
+    scheduledTime: t.scheduledTime ? formatDate(t.scheduledTime) : null,
+    items: t.items.map((i) => {
+      const shelfOptions = shelfMap.get(i.productId) ?? [];
+      // Merge in empty locations not already listed
+      const listed = new Set(shelfOptions.map((s) => s.locationId));
+      const extra = emptyLocations.filter((l) => !listed.has(l.locationId));
+      return {
+        productId: i.productId,
+        productName: i.product.name,
+        productCode: i.product.sku,
+        requiredQty: i.quantity,
+        availableShelves: [...shelfOptions, ...extra],
+      };
+    }),
+  }));
+}
+
 // ── Pick & Pack ───────────────────────────────────────────────────────────────
 
 export type TransferShelfOption = {
@@ -287,6 +384,7 @@ export async function getPickPackOrders(warehouseId: string | null): Promise<Pic
         select: {
           referenceNumber: true,
           warehouseId: true,
+          driver: { select: { name: true } },
           driverAgent: { select: { companyName: true } },
           items: { select: { productId: true, quantity: true, product: { select: { id: true, name: true } } } },
         },
@@ -297,6 +395,7 @@ export async function getPickPackOrders(warehouseId: string | null): Promise<Pic
           referenceNumber: true,
           sourceId: true,
           sourceType: true,
+          driver: { select: { name: true } },
           driverAgent: { select: { companyName: true } },
           items: { include: { product: { select: { id: true, name: true } } } },
         },
@@ -421,7 +520,9 @@ export async function getPickPackOrders(warehouseId: string | null): Promise<Pic
       id: pp.id,
       referenceNumber: pp.stockMovement?.referenceNumber ?? pp.stockTransfer?.referenceNumber ?? "—",
       dispatchAgent:
+        pp.stockMovement?.driver?.name ??
         pp.stockMovement?.driverAgent?.companyName ??
+        pp.stockTransfer?.driver?.name ??
         pp.stockTransfer?.driverAgent?.companyName ??
         "—",
       itemsCount: pp.itemsCount,

@@ -7,9 +7,8 @@ import type { Prisma } from "@prisma/client";
 import {
   getWarehouseProductStock,
   transferWarehouseToAgent,
-  transferWarehouseToWarehouse,
+  debitWarehouse,
   debitShelfProducts,
-  creditShelfProducts,
   applyWarehouseLocationDeltas,
   type ShelfAllocationItem,
 } from "@/modules/inventory/services/stock-level.service";
@@ -67,30 +66,6 @@ async function deductFromWarehouseBins(
   }
 
   return remaining > 0 ? { ok: false, shortfall: remaining } : { ok: true };
-}
-
-// Returns the locationId of the credited bin so callers can also update ShelfProductStock.
-async function creditTargetWarehouseBin(tx: Tx, warehouseId: string, qty: number): Promise<string | null> {
-  let target = await tx.warehouseLocation.findFirst({
-    where: { warehouseId, occupancyStatus: { not: "FULL" } },
-    orderBy: { currentStock: "asc" },
-  });
-  if (!target) {
-    target = await tx.warehouseLocation.findFirst({
-      where: { warehouseId },
-      orderBy: { currentStock: "asc" },
-    });
-  }
-  if (!target) {
-    target = await tx.warehouseLocation.create({
-      data: { warehouseId, locationCode: "A1", currentStock: 0, occupancyStatus: "EMPTY" },
-    });
-  }
-  await tx.warehouseLocation.update({
-    where: { id: target.id },
-    data: { currentStock: { increment: qty }, occupancyStatus: "PARTIAL" },
-  });
-  return target.id;
 }
 
 // Per-product per-shelf allocation submitted from the shelf-selection modal.
@@ -206,7 +181,7 @@ export async function assignPickerAction(
       for (const pp of queuedPacks) {
         // ── Warehouse → Agent (StockMovement OUTGOING) ───────────────────────
         if (pp.stockMovement) {
-          const { id: movementId, warehouseId, toAgentId, items } = pp.stockMovement;
+          const { warehouseId, toAgentId, items } = pp.stockMovement;
           if (!warehouseId) {
             throw new Error("Warehouse-to-Agent movement is missing a source warehouse");
           }
@@ -243,18 +218,13 @@ export async function assignPickerAction(
           }
 
           // Materialized balance: warehouse loses, destination agent gains.
+          // Status stays at QC_CHECK (IN_TRANSIT) until logistics manager marks delivered/failed.
           await transferWarehouseToAgent(tx, warehouseId, toAgentId, items);
-
-          // Mark the movement as shelved-out (kept for audit/UI status labels)
-          await tx.stockMovement.update({
-            where: { id: movementId },
-            data: { status: "SHELVED" },
-          });
         }
 
         // ── Warehouse → Warehouse (StockTransfer) ────────────────────────────
         if (pp.stockTransfer) {
-          const { id: transferId, sourceType, sourceId, targetType, targetId, items } = pp.stockTransfer;
+          const { sourceType, sourceId, targetType, items } = pp.stockTransfer;
 
           if (sourceType !== "WAREHOUSE" || targetType !== "WAREHOUSE") {
             throw new Error("Stock transfers must be warehouse-to-warehouse");
@@ -338,24 +308,10 @@ export async function assignPickerAction(
             }
           }
 
-          // Credit a bin in the target warehouse
-          const totalQty = items.reduce((s, i) => s + i.quantity, 0);
-          const targetBin = await creditTargetWarehouseBin(tx, targetId, totalQty);
-          // Also credit ShelfProductStock for the target bin if we got one back
-          if (targetBin) {
-            await creditShelfProducts(
-              tx,
-              items.map((i) => ({ locationId: targetBin, productId: i.productId, quantity: i.quantity })),
-            );
-          }
-
-          // Materialized balance: source warehouse loses, target gains.
-          await transferWarehouseToWarehouse(tx, sourceId, targetId, items);
-
-          await tx.stockTransfer.update({
-            where: { id: transferId },
-            data: { status: "COMPLETED" },
-          });
+          // Materialized balance: source warehouse loses only.
+          // Target warehouse is credited when the receiving warehouse manager shelves the goods.
+          await debitWarehouse(tx, sourceId, items);
+          // StockTransfer remains IN_TRANSIT until the target warehouse confirms receipt.
         }
       }
 

@@ -261,7 +261,7 @@ export function LogisticsDeliveriesClient({ deliveries }: { deliveries: Logistic
                           >
                             Assign
                           </Button>
-                        ) : delivery.status === "IN_TRANSIT" ? (
+                        ) : delivery.status === "IN_TRANSIT" && delivery.sourceType === "stockOut" ? (
                           <Button
                             variant="outline"
                             onClick={() => setEditingDelivery(delivery)}
@@ -269,6 +269,8 @@ export function LogisticsDeliveriesClient({ deliveries }: { deliveries: Logistic
                           >
                             Edit
                           </Button>
+                        ) : delivery.status === "IN_TRANSIT" && delivery.sourceType === "stockTransfer" ? (
+                          <span className="text-[10px] text-gray-400 italic">Awaiting shelving</span>
                         ) : (
                           <span className="text-gray-300 text-[10px]">—</span>
                         )}

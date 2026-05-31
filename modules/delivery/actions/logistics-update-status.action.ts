@@ -37,6 +37,9 @@ export async function updateDeliveryStatusAction(
       data: { status: finalStatus === "DELIVERED" ? "RECEIVED" : "NOT_RECEIVED" },
     });
   } else {
+    if (finalStatus === "DELIVERED") {
+      return { success: false, error: "Stock transfers are completed by the receiving warehouse when they shelve the goods" };
+    }
     const transfer = await prisma.stockTransfer.findUnique({
       where: { id: itemId },
       select: { id: true, status: true },
@@ -47,7 +50,7 @@ export async function updateDeliveryStatusAction(
 
     await prisma.stockTransfer.update({
       where: { id: itemId },
-      data: { status: finalStatus === "DELIVERED" ? "COMPLETED" : "FAILED" },
+      data: { status: "FAILED" },
     });
   }
 

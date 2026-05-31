@@ -13,34 +13,19 @@ export async function createMockOrderAction(data: {
   items: { productId: string; quantity: number }[];
 }) {
   try {
-    // 1. Find or create customer (since phone is not unique in schema, we use findFirst)
-    let customer = await prisma.customer.findFirst({
-      where: { phone: data.customerPhone },
+    // 1. Always create a fresh customer for every order. Each order is a novel
+    // entity with its own details — we never look up or update an existing
+    // customer, so one order can never overwrite another's details.
+    const customer = await prisma.customer.create({
+      data: {
+        name: data.customerName,
+        phone: (data.customerPhone ?? "").replace(/\s+/g, ""),
+        email: data.customerEmail || null,
+        deliveryAddress: data.deliveryAddress,
+        state: data.state,
+        lga: data.lga,
+      },
     });
-
-    if (customer) {
-      customer = await prisma.customer.update({
-        where: { id: customer.id },
-        data: {
-          name: data.customerName,
-          email: data.customerEmail || null,
-          deliveryAddress: data.deliveryAddress,
-          state: data.state,
-          lga: data.lga,
-        },
-      });
-    } else {
-      customer = await prisma.customer.create({
-        data: {
-          name: data.customerName,
-          phone: data.customerPhone,
-          email: data.customerEmail || null,
-          deliveryAddress: data.deliveryAddress,
-          state: data.state,
-          lga: data.lga,
-        },
-      });
-    }
 
     // 2. Auto-assign to the sales rep with the fewest open (PENDING/CONFIRMED) orders
     const salesReps = await prisma.user.findMany({

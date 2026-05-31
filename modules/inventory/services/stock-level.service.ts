@@ -385,7 +385,7 @@ export async function getAgentProductStock(
 type Delta = { productId: string; locationKind: StockLocationKind; locationId: string; delta: number };
 
 export async function rebuildStockLevels(): Promise<{ rows: number }> {
-  const [movementItems, transferItems, adjustments, packedPicks, deliveredOrders] = await Promise.all([
+  const [movementItems, transferItems, adjustments, packedPicks, packedTransferPicks, deliveredOrders] = await Promise.all([
     prisma.stockMovementItem.findMany({
       include: {
         stockMovement: {
@@ -404,7 +404,7 @@ export async function rebuildStockLevels(): Promise<{ rows: number }> {
     prisma.stockTransferItem.findMany({
       include: {
         stockTransfer: {
-          select: { status: true, sourceType: true, sourceId: true, targetType: true, targetId: true },
+          select: { id: true, status: true, sourceType: true, sourceId: true, targetType: true, targetId: true },
         },
       },
     }),
@@ -419,6 +419,11 @@ export async function rebuildStockLevels(): Promise<{ rows: number }> {
       where: { stockMovementId: { not: null }, status: { in: ["PACKED", "DISPATCHED"] } },
       select: { stockMovementId: true },
     }),
+    // Packed W-W transfer PickPacks: source warehouse was debited when picker was assigned
+    prisma.pickPack.findMany({
+      where: { stockTransferId: { not: null }, status: { in: ["PACKED", "DISPATCHED"] } },
+      select: { stockTransferId: true },
+    }),
     // Delivered orders reduce the assigned agent's stock balance
     prisma.order.findMany({
       where: { status: "DELIVERED", agentId: { not: null }, deletedAt: null },
@@ -430,6 +435,8 @@ export async function rebuildStockLevels(): Promise<{ rows: number }> {
   ]);
 
   const packedMovementIds = new Set(packedPicks.map(p => p.stockMovementId!));
+  // W-W transfers where picker was assigned: source debited, target not yet credited
+  const packedTransferIds = new Set(packedTransferPicks.map(p => p.stockTransferId!));
   const deltas: Delta[] = [];
 
   for (const item of movementItems) {
@@ -460,16 +467,26 @@ export async function rebuildStockLevels(): Promise<{ rows: number }> {
 
   for (const item of transferItems) {
     const t = item.stockTransfer;
-    if (t.status !== "COMPLETED") continue;
+    const isCompleted = t.status === "COMPLETED";
+    // IN_TRANSIT W-W transfers with a packed PickPack: source was debited during picker assignment
+    const isSourceDebited = t.status === "IN_TRANSIT" && packedTransferIds.has(t.id);
+
+    if (!isCompleted && !isSourceDebited) continue;
+
+    // Debit source (applies for both IN_TRANSIT-packed and COMPLETED)
     if (t.sourceType === "WAREHOUSE") {
       deltas.push({ productId: item.productId, locationKind: "WAREHOUSE", locationId: t.sourceId, delta: -item.quantity });
     } else {
       deltas.push({ productId: item.productId, locationKind: "AGENT", locationId: t.sourceId, delta: -item.quantity });
     }
-    if (t.targetType === "WAREHOUSE") {
-      deltas.push({ productId: item.productId, locationKind: "WAREHOUSE", locationId: t.targetId, delta: item.quantity });
-    } else {
-      deltas.push({ productId: item.productId, locationKind: "AGENT", locationId: t.targetId, delta: item.quantity });
+
+    // Credit target only when COMPLETED (target warehouse has shelved the goods)
+    if (isCompleted) {
+      if (t.targetType === "WAREHOUSE") {
+        deltas.push({ productId: item.productId, locationKind: "WAREHOUSE", locationId: t.targetId, delta: item.quantity });
+      } else {
+        deltas.push({ productId: item.productId, locationKind: "AGENT", locationId: t.targetId, delta: item.quantity });
+      }
     }
   }
 

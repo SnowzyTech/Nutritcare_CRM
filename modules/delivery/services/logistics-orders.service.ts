@@ -17,7 +17,6 @@ export type LogisticsDeliveryRow = {
 function mapMovementStatus(status: string): DeliveryStatus {
   switch (status) {
     case "RECEIVED":
-    case "SHELVED":
       return "DELIVERED";
     case "NOT_RECEIVED":
       return "FAILED";
