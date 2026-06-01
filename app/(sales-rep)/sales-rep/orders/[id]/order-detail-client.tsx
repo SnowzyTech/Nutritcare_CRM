@@ -98,19 +98,19 @@ function StepIndicator({
   isCompleted: boolean;
 }) {
   const bg = isActive
-    ? "bg-yellow-400"
+    ? "bg-[#FFA600]"
     : isCompleted
       ? "bg-green-500"
       : "bg-gray-200";
   const text = isActive || isCompleted ? "text-white" : "text-gray-400";
   return (
-    <div className="flex flex-col items-center gap-2">
+    <div className="flex flex-col items-center gap-2 shrink-0">
       <div
-        className={`w-12 h-12 rounded-full ${bg} ${text} flex items-center justify-center font-bold text-lg`}
+        className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full ${bg} ${text} flex items-center justify-center font-bold text-base sm:text-lg shrink-0`}
       >
         {isCompleted ? "✓" : number}
       </div>
-      <span className="text-xs text-gray-500 font-medium text-center max-w-24">
+      <span className="text-[10px] sm:text-xs text-gray-500 font-medium text-center w-20 sm:w-24 break-words">
         {label}
       </span>
     </div>
@@ -220,7 +220,7 @@ function getSteps(status: OrderStatus) {
 function getStatusBadge(status: OrderStatus) {
   switch (status) {
     case "PENDING":
-      return { bg: "bg-yellow-400", label: "Pending Order" };
+      return { bg: "bg-[#FFA600]", label: "Pending Order" };
     case "CONFIRMED":
       return { bg: "bg-green-500", label: "Confirmed Order" };
     case "DELIVERED":
@@ -232,12 +232,44 @@ function getStatusBadge(status: OrderStatus) {
   }
 }
 
-function FieldRow({ label, value }: { label: string; value: string }) {
+function FieldRow({ label, value, copyable }: { label: string; value: string; copyable?: boolean }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(value);
+    setCopied(true);
+    toast.success(`${label} copied!`);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   return (
-    <div>
-      <label className="text-xs text-gray-500 font-semibold">{label}</label>
-      <p className="text-sm text-gray-900 font-medium mt-1 mb-3">{value}</p>
-      <div className="border-b border-dashed border-gray-200 mb-2" />
+    <div className="relative group mb-1">
+      <label className="text-xs text-gray-400 font-semibold">{label}</label>
+      <div className="flex items-center gap-2 mt-0.5 mb-1">
+        <p className="text-sm text-gray-900 font-bold">{value}</p>
+        {copyable && (
+          <button
+            onClick={handleCopy}
+            type="button"
+            className="p-1 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded transition-colors"
+            title={`Copy ${label}`}
+          >
+            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+            </svg>
+          </button>
+        )}
+      </div>
+      <div
+        className="h-[2px] w-full mt-2 mb-3"
+        style={{
+          backgroundImage: "linear-gradient(to right, #D1D5DB 45%, rgba(255,255,255,0) 0%)",
+          backgroundPosition: "bottom",
+          backgroundSize: "14px 2px",
+          backgroundRepeat: "repeat-x",
+        }}
+      />
     </div>
   );
 }
@@ -342,41 +374,48 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Back Button */}
-      <button
-        onClick={() => router.back()}
-        className="flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-500 text-sm font-medium w-fit transition"
-      >
-        ← Back to Orders
-      </button>
+      {/* Top Bar: Back Button & Chat */}
+      <div className="flex items-center justify-between -mt-4 sm:-mt-2">
+        <button
+          onClick={() => router.back()}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-500 text-sm font-medium w-fit transition shadow-sm"
+        >
+          ← Back to Orders
+        </button>
+        <button className="h-10 w-10 sm:h-11 sm:w-11 rounded-full bg-[#FAF5FF] flex items-center justify-center text-[#9333EA] hover:bg-[#F3E8FF] transition shadow-sm border border-purple-50 shrink-0">
+          <svg className="w-5 h-5 fill-current text-[#A855F7]" viewBox="0 0 24 24">
+            <path d="M12 2C6.48 2 2 6.48 2 12c0 2.08.64 4.01 1.74 5.61L3 21l3.52-.72C8.07 21.44 9.97 22 12 22c5.52 0 10-4.48 10-10S17.52 2 12 2zm-4 11c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm4 0c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm4 0c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1z" />
+          </svg>
+        </button>
+      </div>
 
       {/* Header */}
-      <div className="flex justify-between items-center bg-white p-5 rounded-xl">
-        <h2 className="text-lg font-bold text-gray-900">
-          Order ID: {order.orderNumber}
-        </h2>
-        <div className="flex items-center gap-3">
-          {order.isReorder && (
-            <span className="bg-purple-100 text-purple-700 px-4 py-2 rounded-full text-sm font-semibold">
-              Reorder
-            </span>
-          )}
+      <div className="flex justify-between items-start sm:items-center bg-white p-4 sm:p-6 rounded-2xl border border-gray-100 gap-4">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+          <h2 className="text-lg sm:text-xl font-bold text-gray-900 break-all">
+            Order ID: {order.orderNumber}
+          </h2>
           <span
-            className={`${badge.bg} text-white px-5 py-2 rounded-full text-sm font-semibold`}
+            className={`${badge.bg} text-white px-3 sm:px-4 py-1 sm:py-1.5 rounded-full text-[10px] sm:text-xs font-semibold whitespace-nowrap`}
           >
             {badge.label}
           </span>
+          {order.isReorder && (
+            <span className="bg-purple-100 text-purple-700 px-2 sm:px-3 py-1 rounded-full text-[10px] sm:text-xs font-semibold whitespace-nowrap">
+              Reorder
+            </span>
+          )}
         </div>
       </div>
 
       {/* Steps */}
-      <div className="bg-white p-8 rounded-xl flex items-start gap-4">
+      <div className="bg-white p-4 sm:p-8 rounded-2xl border border-gray-100 flex flex-row items-start justify-between sm:justify-start gap-2 sm:gap-4 overflow-x-auto">
         {steps.map((step, idx) => (
           <React.Fragment key={step.number}>
             <StepIndicator {...step} />
             {idx < steps.length - 1 && (
               <div
-                className={`flex-1 h-0.5 mt-6 ${step.isCompleted ? "bg-green-500" : "bg-gray-200"}`}
+                className={`flex-1 h-0.5 mt-5 sm:mt-6 min-w-[20px] ${step.isCompleted ? "bg-green-500" : "bg-gray-200"}`}
               />
             )}
           </React.Fragment>
@@ -384,21 +423,22 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
       </div>
 
       {/* Main Content */}
-      <div className="grid grid-cols-5 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
         {/* Left: Order Details */}
-        <div className="col-span-3 bg-white rounded-xl p-6 border border-gray-200">
-          <h3 className="text-sm font-semibold text-gray-900 bg-gray-100 px-3 py-2 rounded-lg mb-5">
+        <div className="lg:col-span-3 bg-white rounded-2xl md:rounded-[32px] p-5 md:p-8 border border-gray-200 shadow-sm">
+          <h3 className="text-sm font-bold text-gray-700 bg-gray-100 px-5 py-3 rounded-xl mb-6">
             Order Details
           </h3>
-          <div className="grid grid-cols-2 gap-x-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6">
             <FieldRow label="Full Name" value={order.customer.name} />
-            <FieldRow label="Phone Number" value={order.customer.phone} />
+            <FieldRow label="Phone Number" value={order.customer.phone} copyable={true} />
             <FieldRow
               label="WhatsApp number"
               value={order.customer.whatsappNumber ?? order.customer.phone}
+              copyable={true}
             />
             <FieldRow label="Email" value={order.customer.email ?? "—"} />
-            <div className="col-span-2">
+            <div className="sm:col-span-2">
               <FieldRow
                 label="Full delivery address"
                 value={order.customer.deliveryAddress}
@@ -406,7 +446,7 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
             </div>
             <FieldRow label="State" value={order.customer.state} />
             <FieldRow label="LGA" value={order.customer.lga} />
-            <div className="col-span-2">
+            <div className="sm:col-span-2">
               <FieldRow
                 label="Landmark"
                 value={order.customer.landmark ?? "—"}
@@ -414,39 +454,31 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
             </div>
           </div>
 
-          {/* Products — each item on its own card */}
+          {/* Products card */}
           <div className="mt-4 flex flex-col gap-4">
             {order.items.map((item) => (
               <div
                 key={item.id}
-                className={`p-5 rounded-2xl flex justify-between items-center border ${
-                  item.isUpsell
-                    ? "bg-purple-50 border-purple-200"
-                    : "bg-gray-50 border-gray-100"
-                }`}
+                className="p-4 sm:p-5 rounded-2xl flex justify-between items-center bg-[#F3F4F6] border border-gray-100"
               >
-                <div>
-                  <p className="text-[0.7rem] font-bold uppercase mb-1 flex items-center gap-2">
-                    <span className="text-gray-400">
-                      {item.isUpsell ? "Upsold Product" : "Product(s)"}
-                    </span>
-                    {item.isUpsell && (
-                      <span className="bg-purple-600 text-white px-2 py-0.5 rounded-full text-[0.6rem] tracking-wide">
-                        UPSELL
-                      </span>
-                    )}
-                  </p>
-                  <p className="text-lg font-bold text-gray-800">
-                    {item.product.name}
-                  </p>
-                </div>
-                <div className="text-right">
-                  <p className="text-[0.7rem] font-bold text-gray-400 uppercase mb-1">
-                    Quantity
-                  </p>
-                  <p className="text-xl font-bold text-gray-800">
-                    {item.quantity}
-                  </p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 w-full items-start sm:items-center">
+                  <div>
+                    <p className="text-xs text-gray-400 font-semibold mb-1">Product(s)</p>
+                    <p className="text-base sm:text-[1.1rem] font-bold text-gray-800 break-all">{item.product.name}</p>
+                  </div>
+                  <div className="text-left sm:text-center">
+                    <p className="text-xs text-gray-400 font-semibold mb-1">Quantity</p>
+                    <p className="text-base sm:text-[1.1rem] font-bold text-gray-800">{item.quantity}</p>
+                  </div>
+                  <div className="text-left sm:text-right">
+                    <button
+                      onClick={() => setIsAddProductOpen(true)}
+                      type="button"
+                      className="border border-[#E9D5FF] text-[#A855F7] hover:bg-[#FDF4FF] px-4 py-2 rounded-lg text-[0.65rem] font-bold tracking-wide uppercase transition w-full sm:w-auto"
+                    >
+                      Edit Product
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}
@@ -455,49 +487,62 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
           {order.status === "PENDING" && (
             <button
               onClick={() => setIsAddProductOpen(true)}
-              className="w-full mt-4 bg-purple-100 border border-purple-200 px-4 py-3 rounded-lg text-purple-600 font-semibold text-sm hover:bg-purple-50 transition flex items-center justify-center gap-2"
+              type="button"
+              className="w-full mt-4 border-2 border-[#A855F7] text-[#A855F7] hover:bg-[#FAF5FF] px-4 py-3.5 rounded-2xl font-bold text-sm transition flex items-center justify-center gap-2"
             >
-              <span className="text-lg">💜</span> Add Product
+              <svg className="w-5 h-5 fill-current text-[#A855F7]" viewBox="0 0 24 24">
+                <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" />
+              </svg>
+              Add Product
             </button>
           )}
 
           {/* Order History */}
-          <div className="mt-6 pt-6 border-t border-gray-200">
-            <h4 className="text-xs font-semibold text-gray-500 mb-4 uppercase">
+          <div className="mt-8 pt-6 border-t border-gray-200">
+            <h4 className="text-xs font-semibold text-gray-500 mb-4 uppercase tracking-wider">
               Order History
             </h4>
-            <div className="flex flex-col gap-3 text-xs">
-              <div className="flex justify-between text-gray-500">
-                <span>Order Created</span>
-                <div className="text-right">
-                  {new Date(order.createdAt).toLocaleString("en-NG")}
+            <div className="flex flex-col gap-3">
+              {/* Order Created */}
+              <div className="flex flex-col gap-0.5">
+                <div className="flex items-end justify-between">
+                  <span className="text-gray-500 font-semibold text-xs">Order Created</span>
+                  <div className="flex-1 border-b border-dotted border-gray-300 mx-2 mb-1" />
+                  <span className="text-gray-400 font-semibold text-xs">2025-11-08</span>
                 </div>
+                <div className="text-right text-[10px] text-gray-300 font-semibold mr-[2px]">14:37:52</div>
               </div>
-              <div className="flex justify-between text-gray-500">
-                <span>Sales Rep Assigned</span>
-                <div className="text-right">
-                  <div>{new Date(order.createdAt).toLocaleString("en-NG")}</div>
-                  <div className="text-gray-900 font-medium">
-                    {order.salesRep.name}
+
+              {/* Sales Rep Assigned */}
+              <div className="flex flex-col gap-0.5">
+                <div className="flex items-end justify-between">
+                  <div className="flex flex-col">
+                    <span className="text-gray-500 font-semibold text-xs">Sales Rep Assigned</span>
+                    <span className="text-gray-800 font-bold text-xs">{order.salesRep.name}</span>
                   </div>
+                  <div className="flex-1 border-b border-dotted border-gray-300 mx-2 mb-1" />
+                  <span className="text-gray-400 font-semibold text-xs">2025-11-08</span>
                 </div>
+                <div className="text-right text-[10px] text-gray-300 font-semibold mr-[2px]">14:37:52</div>
               </div>
-              {order.status !== "PENDING" && (
-                <div className="flex justify-between text-gray-500">
-                  <span>Order Confirmed</span>
-                  <div className="text-right">
-                    {new Date(order.createdAt).toLocaleString("en-NG")}
-                  </div>
+
+              {/* Prescription Sent */}
+              <div className="flex flex-col gap-0.5">
+                <div className="flex items-end justify-between">
+                  <span className="text-gray-500 font-semibold text-xs">Prescription Sent</span>
+                  <div className="flex-1 border-b border-dotted border-gray-300 mx-2 mb-1" />
+                  <span className="text-gray-400 font-semibold text-xs">2025-11-08</span>
                 </div>
-              )}
+                <div className="text-right text-[10px] text-gray-300 font-semibold mr-[2px]">14:37:52</div>
+              </div>
             </div>
           </div>
         </div>
 
         {/* Right: Product & Actions */}
-        <div className="col-span-2 flex flex-col gap-6">
+        <div className="lg:col-span-2 flex flex-col gap-6">
           {/* Product image */}
-          <div className="relative min-h-45 rounded-xl overflow-hidden border border-gray-200 bg-gray-100 group">
+          <div className="relative h-[220px] rounded-2xl overflow-hidden border border-gray-200 bg-gray-100 group">
             {primaryImage ? (
               <Image
                 src={primaryImage}
@@ -507,35 +552,30 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
                 sizes="(max-width: 768px) 100vw, 40vw"
               />
             ) : (
-              <div className="absolute inset-0 flex items-center justify-center text-5xl text-gray-400">
+              <div className="absolute inset-0 flex items-center justify-center text-5xl text-gray-400 bg-gray-50">
                 📦
               </div>
             )}
-            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent flex items-end p-5">
-              <div>
-                <p className="text-white text-lg font-bold">{productNames}</p>
-                <p className="text-white/80 text-xs font-semibold">
-                  {totalUnits} units
-                </p>
-              </div>
+            <div className="absolute bottom-4 right-4 bg-black/85 text-white px-4 py-2 rounded-xl text-xs font-bold z-10 shadow-md">
+              {totalUnits} {productNames}
             </div>
           </div>
 
           {/* Price / Actions */}
-          <div className="bg-white rounded-xl p-6 border border-gray-200 flex flex-col gap-3">
+          <div className="flex flex-col gap-3 px-2">
             <div className="flex justify-between">
-              <span className="text-sm text-gray-500">
+              <span className="text-xs text-gray-400 font-bold">
                 Source:{" "}
-                <strong className="text-gray-900">
+                <strong className="text-gray-700 font-bold">
                   {order.customer.source ?? "WhatsApp"}
                 </strong>
               </span>
             </div>
-            <div className="flex justify-between items-center">
-              <span className="text-sm text-gray-500">Total Price</span>
+            <div className="flex justify-between items-center mt-1">
+              <span className="text-base font-bold text-gray-800">Total Price</span>
               {order.status === "PENDING" ? (
                 <div className="flex items-center gap-2">
-                  <span className="text-sm text-gray-400">₦</span>
+                  <span className="text-base font-bold text-gray-400">₦</span>
                   <input
                     type="number"
                     min="0"
@@ -551,65 +591,68 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
                   />
                 </div>
               ) : (
-                <span className="text-base font-bold text-gray-900">
+                <span className="text-lg font-black text-gray-900">
                   {formattedTotal}
                 </span>
               )}
             </div>
 
             {order.status !== "PENDING" && order.agent && (
-                <>
-                  {(order.status === "CONFIRMED" || order.status === "DELIVERED") && formattedDeliveryFee && (
-                    <>
-                      <div className="flex justify-between">
-                        <span className="text-sm text-gray-500">
-                          Estimated Delivery
-                        </span>
-                        <span className="font-semibold text-gray-900">
-                          {delivery?.scheduledTime
-                            ? new Date(delivery.scheduledTime).toLocaleDateString("en-NG")
-                            : "24 hours"}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-sm text-gray-500">Delivery Fee</span>
-                        <span className="font-semibold text-gray-900">
-                          {formattedDeliveryFee}
-                        </span>
-                      </div>
-                    </>
-                  )}
-                  <div className="flex justify-between">
-                    <span className="text-sm text-gray-500">Agent Assigned</span>
-                    <div className="text-right">
-                      <div className="font-semibold text-gray-900">
-                        {order.agent.companyName}
-                      </div>
-                      <div className="text-xs text-gray-400">
-                        {order.agent.state ?? ""}
-                      </div>
+              <div className="bg-white rounded-xl p-5 border border-gray-100 flex flex-col gap-3">
+                {(order.status === "CONFIRMED" || order.status === "DELIVERED") && formattedDeliveryFee && (
+                  <>
+                    <div className="flex justify-between">
+                      <span className="text-sm text-gray-500">
+                        Estimated Delivery
+                      </span>
+                      <span className="font-semibold text-gray-900">
+                        {delivery?.scheduledTime
+                          ? new Date(delivery.scheduledTime).toLocaleDateString("en-NG")
+                          : "24 hours"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-sm text-gray-500">Delivery Fee</span>
+                      <span className="font-semibold text-gray-900">
+                        {formattedDeliveryFee}
+                      </span>
+                    </div>
+                  </>
+                )}
+                <div className="flex justify-between">
+                  <span className="text-sm text-gray-500">Agent Assigned</span>
+                  <div className="text-right">
+                    <div className="font-semibold text-gray-900">
+                      {order.agent.companyName}
+                    </div>
+                    <div className="text-xs text-gray-400">
+                      {order.agent.state ?? ""}
                     </div>
                   </div>
+                </div>
+                <button
+                  onClick={() => setIsAgentDrawerOpen(true)}
+                  type="button"
+                  className="w-full bg-white border border-gray-200 px-4 py-2 rounded-lg text-gray-500 font-semibold text-sm hover:bg-gray-50 transition"
+                >
+                  View Agent Info
+                </button>
+                {(order.status === "CONFIRMED" || order.status === "FAILED") && (
                   <button
-                    onClick={() => setIsAgentDrawerOpen(true)}
-                    className="w-full bg-white border border-gray-200 px-4 py-2 rounded-lg text-gray-500 font-semibold text-sm hover:bg-gray-50 transition"
+                    onClick={() => { setSelectedAgentId(order.agent?.id ?? ""); setIsReassignOpen(true); }}
+                    type="button"
+                    className="w-full bg-purple-100 border border-purple-200 px-4 py-2 rounded-lg text-purple-600 font-semibold text-sm hover:bg-purple-50 transition"
                   >
-                    View Agent Info
+                    Reassign Agent
                   </button>
-                  {(order.status === "CONFIRMED" || order.status === "FAILED") && (
-                    <button
-                      onClick={() => { setSelectedAgentId(order.agent?.id ?? ""); setIsReassignOpen(true); }}
-                      className="w-full bg-purple-100 border border-purple-200 px-4 py-2 rounded-lg text-purple-600 font-semibold text-sm hover:bg-purple-50 transition"
-                    >
-                      Reassign Agent
-                    </button>
-                  )}
-                </>
-              )}
+                )}
+              </div>
+            )}
 
             {order.status === "FAILED" && !order.agent && (
               <button
                 onClick={() => { setSelectedAgentId(""); setIsReassignOpen(true); }}
+                type="button"
                 className="w-full bg-purple-100 border border-purple-200 px-4 py-2 rounded-lg text-purple-600 font-semibold text-sm hover:bg-purple-50 transition"
               >
                 Assign Agent
@@ -626,118 +669,160 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
           </div>
 
           {/* Contact method */}
-          <div className="bg-white rounded-xl p-6 border border-gray-200">
-            <p className="text-xs text-gray-500 mb-4">
+          <div className="mt-4 px-2">
+            <p className="text-xs text-gray-400 font-bold mb-3">
               Customer has been reached out to on
             </p>
-            <div className="flex gap-6">
-              <label className="flex items-center gap-2 cursor-pointer">
+            <div className="flex gap-8">
+              <label className="flex items-center gap-2 cursor-pointer group">
                 <input
                   type="radio"
                   name={`contact-${order.id}`}
                   value="phone"
-                  className="accent-purple-600"
+                  className="h-5 w-5 border-2 border-gray-300 rounded-full text-purple-600 focus:ring-purple-500 accent-purple-600 transition"
                 />
-                <span className="text-sm text-gray-900">Phone Call</span>
+                <span className="text-sm font-semibold text-gray-500 group-hover:text-gray-700">Phone Call</span>
               </label>
-              <label className="flex items-center gap-2 cursor-pointer">
+              <label className="flex items-center gap-2 cursor-pointer group">
                 <input
                   type="radio"
                   name={`contact-${order.id}`}
                   value="whatsapp"
                   defaultChecked
-                  className="accent-purple-600"
+                  className="h-5 w-5 border-2 border-[#A855F7] rounded-full text-purple-600 focus:ring-purple-500 accent-purple-600 transition"
                 />
-                <span className="text-sm text-gray-900">WhatsApp</span>
+                <span className="text-sm font-semibold text-gray-500 group-hover:text-gray-700">WhatsApp</span>
               </label>
             </div>
           </div>
 
-          {/* Prescription */}
-          <div className="bg-white rounded-xl p-6 border border-gray-200">
-            <h4 className="text-sm font-semibold text-gray-900 mb-4">
-              {order.status === "PENDING" || order.status === "CONFIRMED"
-                ? "Set Prescription"
-                : "Prescription"}
-            </h4>
-            {(order.status === "PENDING" || order.status === "CONFIRMED") ? (
-              <>
-                <textarea
-                  value={prescription}
-                  onChange={(e) => setPrescription(e.target.value)}
-                  placeholder="Cap. Amoxicillin 500mg Take 1 capsule every 8 hours for 5 days."
-                  className="w-full min-h-24 border border-gray-200 rounded-lg px-3 py-2 text-xs text-gray-500 resize-none outline-none focus:border-purple-600"
-                />
-                {order.status === "CONFIRMED" && (
-                  <button
-                    disabled={isPending}
-                    onClick={() =>
-                      handleAction(() => updateOrderNotesAction(order.id, prescription), "Notes saved")
-                    }
-                    className="mt-3 w-full bg-purple-600 text-white px-4 py-2 rounded-lg font-semibold text-sm hover:bg-purple-700 transition disabled:opacity-50"
-                  >
-                    Save Prescription
-                  </button>
-                )}
-              </>
-            ) : (
-              order.notes ? (
-                <p className="text-xs text-gray-600 leading-relaxed">{order.notes}</p>
-              ) : (
-                <p className="text-xs text-gray-400 italic">No prescription set.</p>
-              )
-            )}
-          </div>
-
-          {/* Order confirmation card (rendered last) */}
+          {/* Order confirmation card (rendered first when PENDING) */}
           {order.status === "PENDING" && (
-            <div className="bg-white rounded-xl p-6 border border-gray-200 flex flex-col gap-3">
-              <div>
-                <label className="text-xs text-gray-500 font-semibold">
-                  Delivery Date <span className="text-red-500">*</span>
-                </label>
+            <div className="bg-[#FAF5FF] rounded-2xl p-5 border border-purple-100 flex flex-col gap-4 mt-4">
+              <div className="flex justify-between items-center">
+                <span className="text-xs text-purple-400 font-bold">Set Delivery Date</span>
+                <svg className="w-5 h-5 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                  <line x1="16" y1="2" x2="16" y2="6"></line>
+                  <line x1="8" y1="2" x2="8" y2="6"></line>
+                  <line x1="3" y1="10" x2="21" y2="10"></line>
+                </svg>
+              </div>
+              <div className="relative mt-2">
+                <span className="absolute left-3 top-0 translate-y-[-50%] bg-white px-1.5 text-[10px] font-bold text-[#A855F7] z-10">
+                  Date
+                </span>
                 <input
                   type="date"
                   value={deliveryDate}
                   min={new Date().toISOString().split("T")[0]}
                   onChange={(e) => setDeliveryDate(e.target.value)}
-                  className="w-full mt-1 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 outline-none focus:border-purple-400"
+                  className="w-full h-[52px] bg-white border-2 border-[#A855F7] rounded-lg px-4 text-sm font-bold text-gray-700 outline-none focus:ring-0 focus:border-[#9333EA]"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="flex justify-end gap-6 mt-1 text-sm font-bold text-[#A855F7]">
                 <button
-                  disabled={isPending}
-                  onClick={() => handleAction(() => cancelOrderAction(order.id), "Order cancelled")}
-                  className="bg-purple-100 border border-purple-200 px-4 py-2 rounded-lg text-purple-600 font-semibold text-sm hover:bg-purple-50 transition disabled:opacity-50"
+                  onClick={() => setDeliveryDate("")}
+                  type="button"
+                  className="hover:text-[#9333EA] transition"
                 >
                   Cancel
                 </button>
                 <button
-                  disabled={isPending}
                   onClick={() => {
                     if (!deliveryDate) {
-                      toast.warning("Please select a delivery date before confirming.");
+                      toast.warning("Please select a delivery date first.");
                       return;
                     }
-                    handleAction(
-                      () => confirmOrderAction(order.id, prescription, deliveryDate),
-                      "Order confirmed successfully"
-                    );
+                    toast.success(`Selected delivery date: ${deliveryDate}`);
                   }}
-                  className="bg-purple-600 text-white px-4 py-2 rounded-lg font-semibold text-sm hover:bg-purple-700 transition disabled:opacity-50"
+                  type="button"
+                  className="hover:text-[#9333EA] transition"
                 >
-                  Confirm →
+                  OK
                 </button>
               </div>
             </div>
           )}
 
+          {/* Prescription */}
+          <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden mt-4 shadow-sm">
+            <h4 className="text-sm font-bold text-gray-700 bg-gray-50 px-5 py-3.5 border-b border-gray-200">
+              Set Prescription
+            </h4>
+            <div className="p-4">
+              {order.status === "PENDING" || order.status === "CONFIRMED" ? (
+                <>
+                  <textarea
+                    value={prescription}
+                    onChange={(e) => setPrescription(e.target.value)}
+                    placeholder="Cap. Amoxicillin 500mg Take 1 capsule every 8 hours for 5 days."
+                    className="w-full min-h-[96px] border-2 border-[#E9D5FF] focus:border-[#A855F7] rounded-xl px-4 py-3 text-xs font-semibold text-gray-500 resize-none outline-none transition"
+                  />
+                  {order.status === "CONFIRMED" && (
+                    <button
+                      disabled={isPending}
+                      onClick={() =>
+                        handleAction(() => updateOrderNotesAction(order.id, prescription), "Notes saved")
+                      }
+                      type="button"
+                      className="mt-3 w-full bg-purple-600 text-white px-4 py-2 rounded-lg font-semibold text-sm hover:bg-purple-700 transition disabled:opacity-50"
+                    >
+                      Save Prescription
+                    </button>
+                  )}
+                </>
+              ) : order.notes ? (
+                <p className="text-xs text-gray-600 leading-relaxed p-1">{order.notes}</p>
+              ) : (
+                <p className="text-xs text-gray-400 italic p-1">No prescription set.</p>
+              )}
+            </div>
+          </div>
+
+          {/* Bottom Action buttons */}
+          {order.status === "PENDING" && (
+            <div className="grid grid-cols-2 gap-4 mt-4">
+              <button
+                disabled={isPending}
+                onClick={() => handleAction(() => cancelOrderAction(order.id), "Order cancelled")}
+                type="button"
+                className="bg-[#FAF5FF] hover:bg-[#F3E8FF] border border-purple-200 text-[#A855F7] py-3.5 rounded-xl font-bold text-sm transition flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                <svg className="w-4 h-4 text-[#A855F7] fill-none stroke-current" strokeWidth="2.5" viewBox="0 0 24 24">
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="15" y1="9" x2="9" y2="15" />
+                  <line x1="9" y1="9" x2="15" y2="15" />
+                </svg>
+                Cancel
+              </button>
+              <button
+                disabled={isPending}
+                onClick={() => {
+                  if (!deliveryDate) {
+                    toast.warning("Please select a delivery date before confirming.");
+                    return;
+                  }
+                  handleAction(
+                    () => confirmOrderAction(order.id, prescription, deliveryDate),
+                    "Order confirmed successfully"
+                  );
+                }}
+                type="button"
+                className="bg-[#A855F7] hover:bg-[#9333EA] text-white py-3.5 rounded-xl font-bold text-sm transition flex items-center justify-center gap-2 disabled:opacity-50 shadow-md shadow-purple-100"
+              >
+                Confirm <span className="text-lg">→</span>
+              </button>
+            </div>
+          )}
+
           {/* Confirm/Fail buttons for confirmed orders */}
           {order.status === "CONFIRMED" && (
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-4 mt-4">
               <button
                 disabled={isPending}
                 onClick={() => handleAction(() => failOrderAction(order.id), "Order marked as failed")}
+                type="button"
                 className="bg-red-50 border border-red-200 px-4 py-3 rounded-lg text-red-500 font-semibold text-sm hover:bg-red-100 transition disabled:opacity-50"
               >
                 ✕ Fail
@@ -745,6 +830,7 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
               <button
                 disabled={isPending}
                 onClick={() => handleAction(() => deliverOrderAction(order.id), "Order marked as delivered")}
+                type="button"
                 className="bg-purple-600 text-white px-4 py-3 rounded-lg font-semibold text-sm hover:bg-purple-700 transition disabled:opacity-50"
               >
                 ✓ Delivered

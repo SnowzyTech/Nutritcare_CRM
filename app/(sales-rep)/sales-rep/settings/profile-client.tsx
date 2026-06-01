@@ -117,11 +117,11 @@ export function ProfileClient({ profile }: { profile: Profile }) {
   };
 
   return (
-    <div className="space-y-6 pt-2">
+    <div className="space-y-6 mt-[-10px] ">
       {/* Dynamic Header Section */}
-      <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-extrabold text-gray-900 tracking-tight">My Profile</h1>
-        <div className="flex items-center gap-3">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-0">
+        <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-900 tracking-tight">My Profile</h1>
+        <div className="flex items-center justify-end w-full sm:w-auto gap-3">
           {/* Quick-action 1: Plus Button */}
           <button 
             className="w-10 h-10 rounded-full bg-[#A020F0] text-white flex items-center justify-center shadow-lg shadow-purple-100 hover:bg-[#8B1ED2] active:scale-95 transition-all duration-200"
@@ -141,7 +141,7 @@ export function ProfileClient({ profile }: { profile: Profile }) {
       </div>
 
       {/* Main Profile Area Container (Full Width Open Card) */}
-      <div className="bg-white rounded-[24px] border border-gray-100 shadow-[0_8px_30px_rgb(0,0,0,0.02)] p-8 min-h-[500px]">
+      <div className="bg-white rounded-2xl sm:rounded-[24px] border border-gray-100 shadow-[0_8px_30px_rgb(0,0,0,0.02)] p-4 sm:p-8 min-h-[500px]">
         <div className="flex-1 min-w-0">
           {success && (
             <div className="mb-6 flex items-center gap-3 bg-emerald-50 border border-emerald-100 rounded-2xl px-4 py-3.5 animate-fadeIn">
@@ -152,8 +152,8 @@ export function ProfileClient({ profile }: { profile: Profile }) {
 
           <div className="space-y-8">
             {/* Upper Section: Avatar, Basic Info, and KPI */}
-            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 bg-gradient-to-r from-gray-50/50 to-transparent p-5 rounded-2xl border border-gray-100/50">
-              <div className="flex items-center gap-5">
+      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 sm:gap-6 bg-gradient-to-r from-gray-50/50 to-transparent p-4 sm:p-5 rounded-2xl border border-gray-100/50">
+        <div className="flex flex-col items-center gap-4 sm:gap-5 w-full md:w-auto">
                 {/* Circular Avatar with '+' button overlay */}
                 <div className="relative group shrink-0">
                   <div className="w-20 h-20 rounded-full overflow-hidden border-2 border-white shadow-md bg-purple-50">
@@ -231,20 +231,20 @@ export function ProfileClient({ profile }: { profile: Profile }) {
             </div>
 
             {/* Edit Button */}
-            <div className="pt-2">
+            <div className="pt-2 w-full sm:w-auto">
               <button
                 onClick={() => setIsEditModalOpen(true)}
-                className="px-8 py-2 rounded-xl border-2 border-[#A020F0] text-[#A020F0] font-bold text-sm hover:bg-[#F3E8FF] active:scale-98 transition-all duration-200"
+                className="w-full sm:w-auto px-8 py-2.5 sm:py-2 rounded-xl border-2 border-[#A020F0] text-[#A020F0] font-bold text-sm hover:bg-[#F3E8FF] active:scale-98 transition-all duration-200"
               >
                 Edit
               </button>
             </div>
 
             {/* Metrics Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 pt-4">
               {/* General Performance Card with month switching dropdown */}
-              <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-[0_4px_20px_rgb(0,0,0,0.01)] space-y-4">
-                <div className="flex items-center justify-between">
+              <div className="bg-white p-5 sm:p-6 rounded-2xl border border-gray-100 shadow-[0_4px_20px_rgb(0,0,0,0.01)] space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="text-sm font-bold text-gray-800">General Performance</span>
                   
                   {/* Custom Month Selector Dropdown */}
@@ -286,11 +286,11 @@ export function ProfileClient({ profile }: { profile: Profile }) {
                   </div>
                 </div>
                 
-                <div className="flex items-baseline justify-between pt-2">
-                  <span className="text-5xl font-black text-gray-900 tracking-tight transition-all duration-200">
+                <div className="flex flex-wrap items-baseline justify-between gap-2 pt-2">
+                  <span className="text-4xl sm:text-5xl font-black text-gray-900 tracking-tight transition-all duration-200">
                     {activePerf.value}
                   </span>
-                  <span className={`text-xs font-bold px-2 py-0.5 rounded-md transition-all duration-200 ${
+                  <span className={`text-[10px] sm:text-xs font-bold px-2 py-0.5 rounded-md transition-all duration-200 ${
                     activePerf.isPositive 
                       ? "text-[#10B981] bg-[#EBFDF5]" 
                       : "text-[#EF4444] bg-[#FDF2F2]"
@@ -301,8 +301,8 @@ export function ProfileClient({ profile }: { profile: Profile }) {
               </div>
 
               {/* Delivery Rate Card with month switching dropdown */}
-              <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-[0_4px_20px_rgb(0,0,0,0.01)] space-y-4">
-                <div className="flex items-center justify-between">
+              <div className="bg-white p-5 sm:p-6 rounded-2xl border border-gray-100 shadow-[0_4px_20px_rgb(0,0,0,0.01)] space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="text-sm font-bold text-gray-800">Delivery Rate</span>
                   
                   {/* Delivery Month Selector Dropdown */}
@@ -344,11 +344,11 @@ export function ProfileClient({ profile }: { profile: Profile }) {
                   </div>
                 </div>
 
-                <div className="flex items-baseline justify-between pt-2">
-                  <span className="text-5xl font-black text-gray-900 tracking-tight transition-all duration-200">
+                <div className="flex flex-wrap items-baseline justify-between gap-2 pt-2">
+                  <span className="text-4xl sm:text-5xl font-black text-gray-900 tracking-tight transition-all duration-200">
                     {activeDeliv.value}
                   </span>
-                  <span className={`text-xs font-bold px-2 py-0.5 rounded-md transition-all duration-200 ${
+                  <span className={`text-[10px] sm:text-xs font-bold px-2 py-0.5 rounded-md transition-all duration-200 ${
                     activeDeliv.isPositive 
                       ? "text-[#10B981] bg-[#EBFDF5]" 
                       : "text-[#EF4444] bg-[#FDF2F2]"

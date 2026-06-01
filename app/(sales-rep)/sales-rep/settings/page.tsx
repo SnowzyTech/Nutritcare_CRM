@@ -14,7 +14,7 @@ export default async function SalesRepSettingsPage() {
   if (!profile) redirect("/login");
 
   return (
-    <div className="w-full pb-20">
+    <div className="w-full pb-10">
       <ProfileClient profile={profile} />
     </div>
   );

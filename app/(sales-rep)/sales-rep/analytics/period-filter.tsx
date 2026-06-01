@@ -22,7 +22,7 @@ function PeriodFilterInner() {
   }
 
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex flex-wrap items-center gap-3">
       <div className="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-1">
         {(["month", "week"] as const).map((p) => (
           <button

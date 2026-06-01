@@ -74,12 +74,12 @@ export default async function AnalyticsPage(props: {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <h1 className="text-2xl font-bold text-gray-900">Analytics</h1>
         <PeriodFilter />
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         <KPICard
           label="Total Products Sold (Delivered)"
           value={cur.totalProductsSold.toString()}
@@ -100,7 +100,7 @@ export default async function AnalyticsPage(props: {
         />
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         <KPICard
           label="General Performance"
           value={`${cur.generalPerformance}%`}
@@ -121,7 +121,7 @@ export default async function AnalyticsPage(props: {
         />
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         <KPICard
           label="Delivery Rate"
           value={`${cur.deliveryRate}%`}
@@ -142,7 +142,7 @@ export default async function AnalyticsPage(props: {
         />
       </div>
 
-      <div className="bg-gradient-to-br from-purple-600 to-purple-700 rounded-lg p-6 text-white max-w-xs">
+      <div className="bg-gradient-to-br from-purple-600 to-purple-700 rounded-lg p-6 text-white w-full sm:max-w-xs">
         <div className="text-xs font-semibold text-purple-100 uppercase tracking-wide mb-3">
           KPI — Delivered / Handled
         </div>
@@ -163,7 +163,7 @@ export default async function AnalyticsPage(props: {
         salesRepName={session.user.name ?? "Sales Rep"}
       />
 
-      <div className="grid grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-white rounded-xl p-5 shadow-sm">
           <div className="flex justify-between items-center mb-4">
             <h3 className="text-xs font-semibold text-gray-500 uppercase">
