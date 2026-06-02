@@ -20,6 +20,8 @@ export function AdjustmentDetailClient({ record }: { record: AdjustmentDetail })
   const [isPending, startTransition] = useTransition();
 
   const isReversed = record.status === "Reversed";
+  const isPendingApproval = record.status === "Pending Approval";
+  const isRejected = record.status === "Rejected";
 
   const handleConfirmReverse = () => {
     setActionError(null);
@@ -96,11 +98,25 @@ export function AdjustmentDetailClient({ record }: { record: AdjustmentDetail })
                 ? "bg-amber-400"
                 : record.status === "Reversed"
                 ? "bg-red-500"
+                : record.status === "Pending Approval"
+                ? "bg-orange-500"
+                : record.status === "Rejected"
+                ? "bg-red-600"
                 : "bg-emerald-500"
             }`}
           >
             {record.status.toUpperCase()}
           </span>
+          {isPendingApproval && (
+            <p className="text-sm text-orange-600 font-medium mt-2">
+              Awaiting admin approval. Stock levels will update once approved.
+            </p>
+          )}
+          {isRejected && (
+            <p className="text-sm text-red-600 font-medium mt-2">
+              This adjustment was rejected by admin.
+            </p>
+          )}
         </div>
 
         <div className="bg-gray-50 rounded-xl border border-gray-100 px-6 py-5 space-y-3">
@@ -161,7 +177,7 @@ export function AdjustmentDetailClient({ record }: { record: AdjustmentDetail })
       </div>
 
       {/* Notes section */}
-      {record.notes && !isReversed && (
+      {record.notes && !isReversed && !isRejected && (
         <div className="bg-gray-50/80 rounded-xl px-6 py-4 mb-8">
           <span className="text-sm font-bold text-gray-700">Notes: </span>
           <span className="text-sm text-gray-600">{record.notes}</span>
@@ -171,6 +187,14 @@ export function AdjustmentDetailClient({ record }: { record: AdjustmentDetail })
       {/* Footer */}
       <div className="flex items-start justify-between">
         <div>
+          {isRejected && record.notes && (
+            <div className="bg-red-50 rounded-xl px-6 py-5 space-y-4 min-w-[380px] border border-red-100">
+              <div className="flex items-center gap-4">
+                <span className="text-sm font-bold text-red-700 w-36 shrink-0">Rejection Reason:</span>
+                <span className="text-sm font-medium text-red-600">{record.notes}</span>
+              </div>
+            </div>
+          )}
           {isReversed && (record.dateReversed || record.reversalReason) && (
             <div className="bg-gray-50/80 rounded-xl px-6 py-5 space-y-4 min-w-[380px]">
               {record.dateReversed && (
@@ -193,7 +217,7 @@ export function AdjustmentDetailClient({ record }: { record: AdjustmentDetail })
         </div>
 
         <div className="flex gap-3 print:hidden">
-          {!isReversed && (
+          {!isReversed && !isPendingApproval && !isRejected && (
             <button
               onClick={() => { setActionError(null); setIsReverseModalOpen(true); }}
               disabled={isPending}

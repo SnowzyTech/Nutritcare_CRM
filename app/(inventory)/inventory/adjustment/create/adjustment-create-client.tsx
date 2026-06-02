@@ -147,7 +147,11 @@ export default function AdjustmentCreateClient({
       toast.error(result.error);
       setLoading(false);
     } else {
-      toast.success("Adjustment recorded");
+      toast.success(
+        status === "RECORDED"
+          ? "Adjustment submitted for admin approval"
+          : "Adjustment saved as draft"
+      );
       router.push("/inventory/adjustment");
     }
   };

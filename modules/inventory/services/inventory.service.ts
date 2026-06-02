@@ -980,8 +980,10 @@ export async function getAdjustments(): Promise<AdjustmentRow[]> {
 
   const statusLabel: Record<string, string> = {
     DRAFT: "Draft",
+    PENDING_APPROVAL: "Pending Approval",
     RECORDED: "Recorded",
     REVERSED: "Reversed",
+    REJECTED: "Rejected",
   };
 
   return adjustments.map((a) => ({
@@ -1009,8 +1011,10 @@ export async function getAdjustmentById(id: string): Promise<AdjustmentDetail | 
 
   const statusLabel: Record<string, string> = {
     DRAFT: "Draft",
+    PENDING_APPROVAL: "Pending Approval",
     RECORDED: "Recorded",
     REVERSED: "Reversed",
+    REJECTED: "Rejected",
   };
 
   return {
@@ -1034,6 +1038,40 @@ export async function getAdjustmentById(id: string): Promise<AdjustmentDetail | 
       variance: item.quantityAfter - item.quantityBefore,
     })),
   };
+}
+
+// ── Admin: Pending Approval Adjustments ───────────────────────────────────────
+
+export type PendingAdjustmentRow = {
+  id: string;
+  referenceNumber: string;
+  date: string;
+  warehouse: string;
+  submittedBy: string;
+  products: string;
+  itemCount: number;
+};
+
+export async function getPendingAdjustments(): Promise<PendingAdjustmentRow[]> {
+  const adjustments = await prisma.stockAdjustment.findMany({
+    where: { status: "PENDING_APPROVAL" },
+    include: {
+      warehouse: true,
+      createdBy: true,
+      items: { include: { product: true } },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  return adjustments.map((a) => ({
+    id: a.id,
+    referenceNumber: a.referenceNumber,
+    date: formatMovementDate(a.date),
+    warehouse: a.warehouse.name,
+    submittedBy: a.createdBy.name,
+    products: a.items.map((i) => i.product.name).join(", ") || "—",
+    itemCount: a.items.length,
+  }));
 }
 
 // ── Dropdown Helpers ──────────────────────────────────────────────────────────

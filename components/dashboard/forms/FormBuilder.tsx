@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { MessageCircle, ChevronDown, X } from "lucide-react";
+import { MessageCircle, ChevronDown, X, Trash2 } from "lucide-react";
 import {
   createFormAction,
   updateFormAction,
@@ -41,8 +41,151 @@ export type PriceVariation = {
   quantity: number; // package quantity (units in this package)
 };
 
+// Per-form editable package — values kept as strings while editing (mirrors the
+// inventory add-product package editor). Persisted inside the form's JSON blob so
+// only the packages defined on this form are shown for this form.
+export type FormPackage = {
+  id: string;
+  name: string;
+  quantity: string;
+  price: string;
+};
+
+// Combo / free-gift line: a product reference + quantity (mirrors add-product).
+export type FormCombo = {
+  id: string;
+  productId: string;
+  quantity: string;
+};
+
+// Per-form offer (mirrors the add-product offer fields). Combos and gifts are
+// attached to the offer for this form.
+export type FormOffer = {
+  offerName: string;
+  offerQuantity: string;
+  recurring: string;
+  offerUnit: string;
+  sellingPrice: string;
+  showQuantityAndUnit: boolean;
+  combos: FormCombo[];
+  gifts: FormCombo[];
+};
+
+function makeEmptyOffer(): FormOffer {
+  return {
+    offerName: "",
+    offerQuantity: "",
+    recurring: "",
+    offerUnit: "",
+    sellingPrice: "",
+    showQuantityAndUnit: false,
+    combos: [{ id: genComboId(), productId: "", quantity: "" }],
+    gifts: [{ id: genComboId(), productId: "", quantity: "" }],
+  };
+}
+
 function formatNaira(amount: number) {
   return `₦${amount.toLocaleString("en-NG")}`;
+}
+
+function genPkgId() {
+  return `pkg-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function genComboId() {
+  return `cmb-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+// Seed the editable package list from a product's saved packages (used as a
+// starting template that the admin can then edit/add/remove for this form).
+function seedPackagesFromProduct(product: ProductWithOffers): FormPackage[] {
+  if (product.packages.length === 0) {
+    return [{ id: genPkgId(), name: "", quantity: "", price: "" }];
+  }
+  return product.packages.map((pkg) => ({
+    id: pkg.id,
+    name: pkg.name,
+    quantity: pkg.quantity > 0 ? String(pkg.quantity) : "",
+    price: pkg.price > 0 ? String(pkg.price) : "",
+  }));
+}
+
+// Turn the per-form packages into the priceVariations consumed downstream.
+// Only packages with at least one filled field become a variation.
+function variationsFromPackages(
+  packages: FormPackage[],
+  product: ProductWithOffers | null,
+): PriceVariation[] {
+  return packages
+    .filter((p) => p.name.trim() || p.quantity.trim() || p.price.trim())
+    .map((p) => {
+      const qty = parseInt(p.quantity, 10) || 0;
+      const price = parseFloat(p.price) || 0;
+      return {
+        id: p.id,
+        productId: product?.id ?? "",
+        quantity: qty > 0 ? qty : 1,
+        name: p.name.trim() || "Package",
+        price,
+        formattedPrice: formatNaira(price),
+      };
+    });
+}
+
+// Turn the per-form offer into a priceVariation (only when offers are enabled
+// and the offer has a name or price).
+function variationFromOffer(
+  offer: FormOffer,
+  product: ProductWithOffers | null,
+): PriceVariation[] {
+  if (!offer.offerName.trim() && !offer.sellingPrice.trim()) return [];
+  const qty = parseInt(offer.offerQuantity, 10) || 0;
+  const price = parseFloat(offer.sellingPrice) || 0;
+  const baseName = offer.offerName.trim() || "Offer";
+  const name =
+    offer.showQuantityAndUnit && qty > 0
+      ? `${baseName} - ${qty} ${offer.offerUnit.trim() || "units"}`
+      : baseName;
+  return [
+    {
+      id: `offer-${product?.id ?? "x"}`,
+      productId: product?.id ?? "",
+      quantity: qty > 0 ? qty : 1,
+      name,
+      price,
+      formattedPrice: formatNaira(price),
+    },
+  ];
+}
+
+// Single source of truth for the main product's priceVariations: combines the
+// per-form packages and the per-form offer; falls back to the base product price.
+function buildVariations(
+  product: ProductWithOffers | null,
+  usePriceVariation: string,
+  packages: FormPackage[],
+  hasOffer: string,
+  offer: FormOffer,
+): PriceVariation[] {
+  if (!product) return [];
+  const result: PriceVariation[] = [];
+  if (usePriceVariation === "Yes") {
+    result.push(...variationsFromPackages(packages, product));
+  }
+  if (hasOffer === "Yes") {
+    result.push(...variationFromOffer(offer, product));
+  }
+  if (result.length === 0) {
+    result.push({
+      id: product.id,
+      productId: product.id,
+      quantity: 1,
+      name: product.name,
+      price: Number(product.sellingPrice),
+      formattedPrice: formatNaira(Number(product.sellingPrice)),
+    });
+  }
+  return result;
 }
 
 function computeVariations(
@@ -230,6 +373,9 @@ export function FormBuilder({
     selectedProduct: "", // stores product ID
     selectedProductName: "", // stores product display name
     usePriceVariation: "",
+    productPackages: [] as FormPackage[], // packages defined on THIS form
+    hasOffer: "", // "Yes" | "No" — offers/combos defined on THIS form
+    offer: makeEmptyOffer(), // single offer (mirrors add-product) with combos + gifts
     priceVariations: [] as PriceVariation[],
 
     fields: {
@@ -420,6 +566,21 @@ export function FormBuilder({
     });
   };
 
+  // Recompute the main product's priceVariations from a candidate next state.
+  const withVariations = (next: typeof defaultFormData): typeof defaultFormData => {
+    const product = products.find((p) => p.id === next.selectedProduct) ?? null;
+    return {
+      ...next,
+      priceVariations: buildVariations(
+        product,
+        next.usePriceVariation,
+        next.productPackages,
+        next.hasOffer,
+        next.offer,
+      ),
+    };
+  };
+
   const handleProductSelect = (productId: string) => {
     const product = products.find((p) => p.id === productId);
     if (!product) {
@@ -427,28 +588,145 @@ export function FormBuilder({
         ...prev,
         selectedProduct: "",
         selectedProductName: "",
+        productPackages: [],
         priceVariations: [],
       }));
       return;
     }
-    const variations = computeVariations(product, formData.usePriceVariation);
-    setFormData((prev) => ({
-      ...prev,
-      selectedProduct: productId,
-      selectedProductName: product.name,
-      priceVariations: variations,
-    }));
+    setFormData((prev) =>
+      withVariations({
+        ...prev,
+        selectedProduct: productId,
+        selectedProductName: product.name,
+        // When packages are enabled, seed the editable list from the product.
+        productPackages:
+          prev.usePriceVariation === "Yes"
+            ? seedPackagesFromProduct(product)
+            : prev.productPackages,
+      }),
+    );
   };
 
   const handleVariationToggle = (val: string) => {
-    const product = products.find((p) => p.id === formData.selectedProduct);
-    setFormData((prev) => ({
-      ...prev,
-      usePriceVariation: val,
-      priceVariations: product
-        ? computeVariations(product, val)
-        : prev.priceVariations,
-    }));
+    setFormData((prev) => {
+      const product = products.find((p) => p.id === prev.selectedProduct) ?? null;
+      const packages =
+        val === "Yes"
+          ? prev.productPackages.length > 0
+            ? prev.productPackages
+            : product
+              ? seedPackagesFromProduct(product)
+              : [{ id: genPkgId(), name: "", quantity: "", price: "" }]
+          : [];
+      return withVariations({ ...prev, usePriceVariation: val, productPackages: packages });
+    });
+  };
+
+  // ── Per-form package editor (mirrors inventory add-product packages) ──────────
+  const handlePackageChange = (
+    id: string,
+    field: keyof FormPackage,
+    value: string,
+  ) => {
+    setFormData((prev) =>
+      withVariations({
+        ...prev,
+        productPackages: prev.productPackages.map((p) =>
+          p.id === id ? { ...p, [field]: value } : p,
+        ),
+      }),
+    );
+  };
+
+  const handleAddPackage = () => {
+    setFormData((prev) =>
+      withVariations({
+        ...prev,
+        productPackages: [
+          ...prev.productPackages,
+          { id: genPkgId(), name: "", quantity: "", price: "" },
+        ],
+      }),
+    );
+  };
+
+  const handleDeletePackage = (id: string) => {
+    setFormData((prev) => {
+      if (prev.productPackages.length <= 1) return prev;
+      return withVariations({
+        ...prev,
+        productPackages: prev.productPackages.filter((p) => p.id !== id),
+      });
+    });
+  };
+
+  // ── Per-form offer / combo / gift editor (mirrors add-product offer) ──────────
+  const handleOfferToggle = (val: string) => {
+    setFormData((prev) =>
+      withVariations({
+        ...prev,
+        hasOffer: val,
+        offer:
+          val === "Yes" && prev.offer.combos.length === 0
+            ? makeEmptyOffer()
+            : prev.offer,
+      }),
+    );
+  };
+
+  const handleOfferField = (
+    field: keyof Omit<FormOffer, "combos" | "gifts">,
+    value: string | boolean,
+  ) => {
+    setFormData((prev) =>
+      withVariations({ ...prev, offer: { ...prev.offer, [field]: value } }),
+    );
+  };
+
+  const handleComboChange = (
+    kind: "combos" | "gifts",
+    id: string,
+    field: "productId" | "quantity",
+    value: string,
+  ) => {
+    setFormData((prev) =>
+      withVariations({
+        ...prev,
+        offer: {
+          ...prev.offer,
+          [kind]: prev.offer[kind].map((c) =>
+            c.id === id ? { ...c, [field]: value } : c,
+          ),
+        },
+      }),
+    );
+  };
+
+  const handleAddCombo = (kind: "combos" | "gifts") => {
+    setFormData((prev) =>
+      withVariations({
+        ...prev,
+        offer: {
+          ...prev.offer,
+          [kind]: [
+            ...prev.offer[kind],
+            { id: genComboId(), productId: "", quantity: "" },
+          ],
+        },
+      }),
+    );
+  };
+
+  const handleDeleteCombo = (kind: "combos" | "gifts", id: string) => {
+    setFormData((prev) =>
+      withVariations({
+        ...prev,
+        offer: {
+          ...prev.offer,
+          [kind]: prev.offer[kind].filter((c) => c.id !== id),
+        },
+      }),
+    );
   };
 
   const handleOrderBumpProductSelect = (productId: string) => {
@@ -481,6 +759,9 @@ export function FormBuilder({
       selectedProduct: "",
       selectedProductName: "",
       usePriceVariation: "",
+      productPackages: [],
+      hasOffer: "",
+      offer: makeEmptyOffer(),
       priceVariations: [],
       fields: {
         name: { label: "", required: false, show: false },
@@ -730,7 +1011,7 @@ export function FormBuilder({
             </div>
             <div>
               <label className="block text-xs font-semibold text-amber-600 mb-1">
-                Use Price Variation Template?
+                Add Product Packages For This Form?
               </label>
               <CustomSelect
                 value={formData.usePriceVariation}
@@ -738,19 +1019,320 @@ export function FormBuilder({
                 options={["Yes", "No"]}
                 placeholder="Select an Option"
               />
-              {formData.priceVariations.length > 0 && (
-                <div className="mt-2 space-y-0.5">
-                  {formData.priceVariations.map((v) => (
-                    <p
-                      key={v.id}
-                      className="text-[11px] text-gray-500 leading-tight"
-                    >
-                      • {v.name} — {v.formattedPrice}
+
+              {formData.usePriceVariation === "Yes" && (
+                <div className="mt-3">
+                  {!formData.selectedProduct ? (
+                    <p className="text-[11px] text-gray-400 italic">
+                      Select a product above to add its packages.
                     </p>
-                  ))}
+                  ) : (
+                    <>
+                      <p className="text-[11px] text-gray-500 mb-2">
+                        Only the packages added here will be shown on this form.
+                      </p>
+                      <div
+                        className="grid gap-3"
+                        style={{
+                          gridTemplateColumns: `repeat(${Math.min(
+                            formData.productPackages.length || 1,
+                            2,
+                          )}, minmax(0, 1fr))`,
+                        }}
+                      >
+                        {formData.productPackages.map((pkg, idx) => (
+                          <div
+                            key={pkg.id}
+                            className="border border-gray-200 rounded-lg p-3 relative bg-white"
+                          >
+                            {formData.productPackages.length > 1 && (
+                              <button
+                                type="button"
+                                onClick={() => handleDeletePackage(pkg.id)}
+                                className="absolute top-2 right-2 text-gray-300 hover:text-red-400 transition-colors"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                            <p className="text-[10px] font-semibold text-gray-400 mb-2 uppercase tracking-wide">
+                              Package {idx + 1}
+                            </p>
+                            <div className="space-y-2">
+                              <div>
+                                <label className="block text-[11px] font-medium text-gray-500 mb-0.5">
+                                  Package Name
+                                </label>
+                                <input
+                                  type="text"
+                                  value={pkg.name}
+                                  onChange={(e) =>
+                                    handlePackageChange(pkg.id, "name", e.target.value)
+                                  }
+                                  className="w-full px-2.5 py-1.5 border border-gray-200 rounded-md text-xs outline-none focus:border-purple-300"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[11px] font-medium text-gray-500 mb-0.5">
+                                  Package Quantity
+                                </label>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={pkg.quantity}
+                                  onChange={(e) =>
+                                    handlePackageChange(pkg.id, "quantity", e.target.value)
+                                  }
+                                  className="w-full px-2.5 py-1.5 border border-gray-200 rounded-md text-xs outline-none focus:border-purple-300"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[11px] font-medium text-gray-500 mb-0.5">
+                                  Package Price (₦)
+                                </label>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  value={pkg.price}
+                                  onChange={(e) =>
+                                    handlePackageChange(pkg.id, "price", e.target.value)
+                                  }
+                                  className="w-full px-2.5 py-1.5 border border-gray-200 rounded-md text-xs outline-none focus:border-purple-300"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleAddPackage}
+                        className="mt-3 px-4 py-1.5 rounded-md text-xs font-semibold text-white bg-purple-600 hover:bg-purple-700 transition-colors"
+                      >
+                        Add more
+                      </button>
+                    </>
+                  )}
                 </div>
               )}
             </div>
+
+            {/* ── Offers / Combos (mirrors add-product offer section) ── */}
+            <div>
+              <label className="block text-xs font-semibold text-amber-600 mb-1">
+                Add Offers / Combos For This Form?
+              </label>
+              <CustomSelect
+                value={formData.hasOffer}
+                onChange={handleOfferToggle}
+                options={["Yes", "No"]}
+                placeholder="Select an Option"
+              />
+
+              {formData.hasOffer === "Yes" && (
+                <div className="mt-3">
+                  {!formData.selectedProduct ? (
+                    <p className="text-[11px] text-gray-400 italic">
+                      Select a product above to add an offer.
+                    </p>
+                  ) : (
+                    <div className="border border-gray-200 rounded-lg p-4 bg-white space-y-4">
+                      <p className="text-[11px] text-gray-500 leading-relaxed">
+                        <span className="font-semibold">Offer Name:</span> what customers see
+                        (e.g. Buy 2 Get 1 Free). <span className="font-semibold">Offer Quantity:</span>{" "}
+                        for Buy 2 Get 1 Free, the offer quantity is 3.
+                      </p>
+
+                      {/* Offer Name | Quantity | Recurring */}
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div>
+                          <label className="block text-[11px] font-medium text-gray-500 mb-0.5">
+                            Offer Name
+                          </label>
+                          <input
+                            type="text"
+                            value={formData.offer.offerName}
+                            onChange={(e) => handleOfferField("offerName", e.target.value)}
+                            className="w-full px-2.5 py-1.5 border border-gray-200 rounded-md text-xs outline-none focus:border-purple-300"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-medium text-gray-500 mb-0.5">
+                            Offer Quantity
+                          </label>
+                          <input
+                            type="number"
+                            min="1"
+                            value={formData.offer.offerQuantity}
+                            onChange={(e) => handleOfferField("offerQuantity", e.target.value)}
+                            className="w-full px-2.5 py-1.5 border border-gray-200 rounded-md text-xs outline-none focus:border-purple-300"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-medium text-gray-500 mb-0.5">
+                            Recurring
+                          </label>
+                          <CustomSelect
+                            value={formData.offer.recurring}
+                            onChange={(v) => handleOfferField("recurring", v)}
+                            options={["Daily", "Weekly", "Monthly", "Yearly"]}
+                            placeholder="None"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Offer Unit | Selling Price | Show Qty & Unit */}
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div>
+                          <label className="block text-[11px] font-medium text-gray-500 mb-0.5">
+                            Offer Unit
+                          </label>
+                          <input
+                            type="text"
+                            value={formData.offer.offerUnit}
+                            onChange={(e) => handleOfferField("offerUnit", e.target.value)}
+                            className="w-full px-2.5 py-1.5 border border-gray-200 rounded-md text-xs outline-none focus:border-purple-300"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-medium text-gray-500 mb-0.5">
+                            Selling Price (₦)
+                          </label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={formData.offer.sellingPrice}
+                            onChange={(e) => handleOfferField("sellingPrice", e.target.value)}
+                            className="w-full px-2.5 py-1.5 border border-gray-200 rounded-md text-xs outline-none focus:border-purple-300"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-medium text-gray-500 mb-0.5">
+                            Show Quantity &amp; Unit
+                          </label>
+                          <CustomSelect
+                            value={formData.offer.showQuantityAndUnit ? "Yes" : "No"}
+                            onChange={(v) =>
+                              handleOfferField("showQuantityAndUnit", v === "Yes")
+                            }
+                            options={["Yes", "No"]}
+                            placeholder="Select an Option"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Combo Products */}
+                      <div>
+                        <p className="text-[11px] font-semibold text-gray-600 mb-1.5">
+                          Combo Products
+                        </p>
+                        <div className="space-y-2">
+                          {formData.offer.combos.map((combo) => (
+                            <div key={combo.id} className="flex items-end gap-2">
+                              <div className="flex-1">
+                                <CustomSelect
+                                  value={combo.productId}
+                                  onChange={(v) =>
+                                    handleComboChange("combos", combo.id, "productId", v)
+                                  }
+                                  options={
+                                    productOptions.length > 0
+                                      ? productOptions
+                                      : [{ label: "No active products", value: "" }]
+                                  }
+                                  placeholder="Select a Product"
+                                />
+                              </div>
+                              <input
+                                type="number"
+                                min="1"
+                                placeholder="Qty"
+                                value={combo.quantity}
+                                onChange={(e) =>
+                                  handleComboChange("combos", combo.id, "quantity", e.target.value)
+                                }
+                                className="w-20 px-2.5 py-1.5 border border-gray-200 rounded-md text-xs outline-none focus:border-purple-300"
+                              />
+                              {formData.offer.combos.length > 1 && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteCombo("combos", combo.id)}
+                                  className="p-1.5 text-gray-300 hover:text-red-400 transition-colors"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleAddCombo("combos")}
+                          className="mt-2 px-3 py-1 rounded-md text-[11px] font-semibold text-purple-700 bg-purple-50 hover:bg-purple-100 transition-colors"
+                        >
+                          + Add combo product
+                        </button>
+                      </div>
+
+                      {/* Free Gift Products */}
+                      <div>
+                        <p className="text-[11px] font-semibold text-gray-600 mb-1.5">
+                          Free Gift Products
+                        </p>
+                        <div className="space-y-2">
+                          {formData.offer.gifts.map((gift) => (
+                            <div key={gift.id} className="flex items-end gap-2">
+                              <div className="flex-1">
+                                <CustomSelect
+                                  value={gift.productId}
+                                  onChange={(v) =>
+                                    handleComboChange("gifts", gift.id, "productId", v)
+                                  }
+                                  options={
+                                    productOptions.length > 0
+                                      ? productOptions
+                                      : [{ label: "No active products", value: "" }]
+                                  }
+                                  placeholder="Select a Product"
+                                />
+                              </div>
+                              <input
+                                type="number"
+                                min="1"
+                                placeholder="Qty"
+                                value={gift.quantity}
+                                onChange={(e) =>
+                                  handleComboChange("gifts", gift.id, "quantity", e.target.value)
+                                }
+                                className="w-20 px-2.5 py-1.5 border border-gray-200 rounded-md text-xs outline-none focus:border-purple-300"
+                              />
+                              {formData.offer.gifts.length > 1 && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteCombo("gifts", gift.id)}
+                                  className="p-1.5 text-gray-300 hover:text-red-400 transition-colors"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleAddCombo("gifts")}
+                          className="mt-2 px-3 py-1 rounded-md text-[11px] font-semibold text-purple-700 bg-purple-50 hover:bg-purple-100 transition-colors"
+                        >
+                          + Add free gift product
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
             <div>
               <label className="block text-xs font-semibold text-gray-600 mb-1">
                 Form Header Text

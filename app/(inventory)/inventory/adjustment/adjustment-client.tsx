@@ -145,6 +145,10 @@ export function AdjustmentClient({ initialRows }: { initialRows: AdjustmentRow[]
                             ? "text-amber-500 font-medium"
                             : row.status === "Reversed"
                             ? "text-red-500 font-medium"
+                            : row.status === "Pending Approval"
+                            ? "text-orange-500 font-medium"
+                            : row.status === "Rejected"
+                            ? "text-red-600 font-medium"
                             : "text-gray-600"
                         }
                       >

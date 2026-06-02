@@ -1149,8 +1149,10 @@ enum StockTransferStatus {
 
 enum StockAdjustmentStatus {
   DRAFT
+  PENDING_APPROVAL
   RECORDED
   REVERSED
+  REJECTED
 }
 
 enum PurchaseOrderStatus {

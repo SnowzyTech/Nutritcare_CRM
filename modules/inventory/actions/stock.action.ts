@@ -451,15 +451,19 @@ export async function createAdjustmentAction(
     return { error: "One or more shelf locations belong to a different warehouse" };
 
   try {
-    await prisma.$transaction(async (tx) => {
-      await tx.stockAdjustment.create({
+    // When the inventory manager clicks "Submit" (RECORDED), save as PENDING_APPROVAL
+    // and notify admins. Stock levels are only updated after admin approval.
+    const savedStatus = status === "RECORDED" ? "PENDING_APPROVAL" : "DRAFT";
+
+    const adjustment = await prisma.$transaction(async (tx) => {
+      return tx.stockAdjustment.create({
         data: {
           referenceNumber: generateRefNumber("SA"),
           warehouseId,
           reason,
           notes: notes || null,
           date: new Date(date),
-          status,
+          status: savedStatus,
           createdById: user.id,
           items: {
             create: items.map((item) => ({
@@ -471,18 +475,140 @@ export async function createAdjustmentAction(
           },
         },
       });
-      if (status === "RECORDED") {
-        // Update the materialized warehouse StockLevel balance
-        await recordAdjustment(tx, warehouseId, items);
-        // Also update the physical shelf records (WarehouseLocation + ShelfProductStock)
-        await applyShelfAdjustment(tx, items);
-      }
     });
+
+    if (savedStatus === "PENDING_APPROVAL") {
+      // Notify all admins that a stock adjustment awaits their approval
+      const admins = await prisma.user.findMany({
+        where: { role: "ADMIN" },
+        select: { id: true },
+      });
+      if (admins.length > 0) {
+        await prisma.notification.createMany({
+          data: admins.map((admin) => ({
+            recipientId: admin.id,
+            title: "Stock Adjustment Pending Approval",
+            message: `Inventory Manager ${user.name} submitted stock adjustment ${adjustment.referenceNumber} for your approval.`,
+            type: "stock_adjustment_approval",
+            link: `/admin/inventory/adjustment/${adjustment.id}`,
+            entityType: "StockAdjustment",
+            entityId: adjustment.id,
+          })),
+        });
+      }
+    }
   } catch (e) {
     console.error("createAdjustmentAction error:", e);
     return { error: "Failed to save — please check your data and try again" };
   }
 
+  revalidatePath("/inventory/adjustment");
+  return {};
+}
+
+// ── Approve Stock Adjustment (Admin only) ─────────────────────────────────────
+
+export async function approveAdjustmentAction(
+  id: string
+): Promise<{ error?: string }> {
+  let user: Awaited<ReturnType<typeof requireAuth>>;
+  try {
+    user = await requireAuth();
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Unauthorized" };
+  }
+  if (user.role !== "ADMIN") return { error: "Only admins can approve adjustments" };
+
+  const adj = await prisma.stockAdjustment.findUnique({
+    where: { id },
+    include: {
+      items: { select: { productId: true, locationId: true, quantityBefore: true, quantityAfter: true } },
+    },
+  });
+  if (!adj) return { error: "Adjustment not found" };
+  if (adj.status !== "PENDING_APPROVAL") return { error: "Adjustment is not pending approval" };
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.stockAdjustment.update({
+        where: { id },
+        data: { status: "RECORDED" },
+      });
+      await recordAdjustment(tx, adj.warehouseId, adj.items);
+      const shelfItems = adj.items.filter(
+        (i): i is typeof i & { locationId: string } => i.locationId != null
+      );
+      if (shelfItems.length > 0) {
+        await applyShelfAdjustment(tx, shelfItems);
+      }
+    });
+
+    // Notify the inventory manager who submitted the adjustment
+    await prisma.notification.create({
+      data: {
+        recipientId: adj.createdById,
+        title: "Stock Adjustment Approved",
+        message: `Your stock adjustment ${adj.referenceNumber} has been approved by admin and the warehouse stock has been updated.`,
+        type: "stock_adjustment_approved",
+        link: `/inventory/adjustment/${adj.id}`,
+        entityType: "StockAdjustment",
+        entityId: adj.id,
+      },
+    });
+  } catch (e) {
+    console.error("approveAdjustmentAction error:", e);
+    return { error: "Failed to approve adjustment" };
+  }
+
+  revalidatePath(`/admin/inventory/adjustment/${id}`);
+  revalidatePath("/admin/inventory");
+  revalidatePath(`/inventory/adjustment/${id}`);
+  revalidatePath("/inventory/adjustment");
+  return {};
+}
+
+// ── Reject Stock Adjustment (Admin only) ──────────────────────────────────────
+
+export async function rejectAdjustmentAction(
+  id: string,
+  reason: string
+): Promise<{ error?: string }> {
+  let user: Awaited<ReturnType<typeof requireAuth>>;
+  try {
+    user = await requireAuth();
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Unauthorized" };
+  }
+  if (user.role !== "ADMIN") return { error: "Only admins can reject adjustments" };
+
+  const adj = await prisma.stockAdjustment.findUnique({
+    where: { id },
+    select: { id: true, status: true, referenceNumber: true, createdById: true },
+  });
+  if (!adj) return { error: "Adjustment not found" };
+  if (adj.status !== "PENDING_APPROVAL") return { error: "Adjustment is not pending approval" };
+
+  await prisma.stockAdjustment.update({
+    where: { id },
+    data: { status: "REJECTED", notes: reason.trim() || null },
+  });
+
+  // Notify the inventory manager
+  await prisma.notification.create({
+    data: {
+      recipientId: adj.createdById,
+      title: "Stock Adjustment Rejected",
+      message: `Your stock adjustment ${adj.referenceNumber} was rejected by admin${reason.trim() ? `: ${reason.trim()}` : "."}`,
+      type: "stock_adjustment_rejected",
+      link: `/inventory/adjustment/${adj.id}`,
+      entityType: "StockAdjustment",
+      entityId: adj.id,
+    },
+  });
+
+  revalidatePath(`/admin/inventory/adjustment/${id}`);
+  revalidatePath("/admin/inventory");
+  revalidatePath(`/inventory/adjustment/${id}`);
   revalidatePath("/inventory/adjustment");
   return {};
 }
@@ -507,6 +633,8 @@ export async function reverseAdjustmentAction(
   });
   if (!adj) return { error: "Adjustment not found" };
   if (adj.status === "REVERSED") return { error: "Adjustment is already reversed" };
+  if (adj.status === "PENDING_APPROVAL") return { error: "Cannot reverse an adjustment pending admin approval" };
+  if (adj.status === "REJECTED") return { error: "Cannot reverse a rejected adjustment" };
 
   await prisma.$transaction(async (tx) => {
     await tx.stockAdjustment.update({
