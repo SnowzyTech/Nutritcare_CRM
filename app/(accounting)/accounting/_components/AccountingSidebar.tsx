@@ -18,6 +18,7 @@ import {
   Menu,
   ChevronDown,
   ChevronRight,
+  DollarSign,
 } from 'lucide-react';
 
 const reportSubItems = [
@@ -38,6 +39,7 @@ const navItems = [
   { href: '/accounting/inventory', icon: Building, label: 'Inventory' },
   { href: '/accounting/expenses', icon: Coins, label: 'Expenses & Purchases' },
   { href: '/accounting/accounting-ledger', icon: BookOpen, label: 'Accounting' },
+  { href: '/accounting/salary', icon: DollarSign, label: 'Salary' },
   { href: '/accounting/reports', icon: BarChart2, label: 'Reports' },
 ];
 
