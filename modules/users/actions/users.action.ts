@@ -42,6 +42,7 @@ export async function updateProfileAction(input: {
     await updateSelfProfile(session.user.id, input);
     // Revalidate each role layout too, so the updated avatar/name reflects in
     // the sidebar/navbar (rendered in the layout), not just the settings page.
+    revalidatePath("/admin", "layout");
     revalidatePath("/sales-rep", "layout");
     revalidatePath("/warehouse", "layout");
     revalidatePath("/accounting", "layout");

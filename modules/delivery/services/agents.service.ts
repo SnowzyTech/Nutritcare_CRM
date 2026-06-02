@@ -153,6 +153,7 @@ export async function getDeliveryAgentById(id: string) {
       id: true, companyName: true, state: true, phone1: true, phone2: true,
       phone3: true, status: true, statesCovered: true, createdAt: true,
       addedBy: { select: { name: true } },
+      user: { select: { email: true, avatarUrl: true } },
     },
   });
 }

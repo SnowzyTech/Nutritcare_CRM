@@ -84,9 +84,9 @@ export default async function DeliveryAgentDetailPage({ params, searchParams }: 
           <div className="flex flex-col sm:flex-row gap-6 mb-6">
             {/* Avatar */}
             <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden shrink-0">
-              {agent.avatarUrl ? (
+              {agent.user?.avatarUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={agent.avatarUrl} alt="Profile" className="w-full h-full object-cover" />
+                <img src={agent.user.avatarUrl} alt="Profile" className="w-full h-full object-cover" />
               ) : (
                 <div className="w-10 h-10 bg-gradient-to-br from-blue-100 to-blue-300 rounded-lg flex flex-col gap-1 items-center justify-center">
                   <div className="w-6 h-1.5 bg-white/60 rounded-full"></div>
@@ -128,7 +128,7 @@ export default async function DeliveryAgentDetailPage({ params, searchParams }: 
               )}
               <div>
                 <p className="text-xs text-gray-400 font-medium mb-1">Email</p>
-                <p className="text-lg font-bold text-purple-900 break-all">{agent.email ?? "—"}</p>
+                <p className="text-lg font-bold text-purple-900 break-all">{agent.user?.email ?? "—"}</p>
               </div>
               <div>
                 <p className="text-xs text-gray-400 font-medium mb-1">State</p>

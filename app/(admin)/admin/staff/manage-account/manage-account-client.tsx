@@ -8,17 +8,22 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select";
 import {
   approveAccountAction,
   rejectAccountAction,
 } from "@/modules/users/actions/users.action";
+import {
+  UI_DEPARTMENTS,
+  UI_DEPT_TO_TEAM_DEPT,
+  type UiDepartment,
+} from "@/lib/staff-departments";
 
 type ActivationRequest = {
   id: string;
   name: string;
   role: string;
+  avatarUrl?: string | null;
   createdAt: Date;
 };
 
@@ -100,9 +105,18 @@ function ActivationCard({
       <div
         className={`h-[130px] ${colorClass} flex items-center justify-center relative overflow-hidden`}
       >
-        <span className="text-[2.5rem] font-black text-white/90 relative z-10 transition-transform group-hover:scale-110 duration-500">
-          {getInitials(req.name)}
-        </span>
+        {req.avatarUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={req.avatarUrl}
+            alt={req.name}
+            className="absolute inset-0 w-full h-full object-cover transition-transform group-hover:scale-110 duration-500"
+          />
+        ) : (
+          <span className="text-[2.5rem] font-black text-white/90 relative z-10 transition-transform group-hover:scale-110 duration-500">
+            {getInitials(req.name)}
+          </span>
+        )}
         <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
       </div>
 
@@ -231,8 +245,12 @@ export function ManageAccountToolbar({ teams }: { teams: Team[] }) {
     }, 350);
   }
 
-  const deptTeams = dept ? teams.filter((t) => t.department === dept) : teams;
+  const deptTeams = dept
+    ? teams.filter((t) => t.department === UI_DEPT_TO_TEAM_DEPT[dept as UiDepartment])
+    : teams;
   const sortActive = sort === "asc";
+  const deptLabel = UI_DEPARTMENTS.find((d) => d.value === dept)?.label ?? "All Depts";
+  const teamLabel = teams.find((t) => t.id === team)?.name ?? "All Teams";
 
   return (
     <div className="flex flex-wrap items-center gap-3 mb-8">
@@ -243,14 +261,15 @@ export function ManageAccountToolbar({ teams }: { teams: Team[] }) {
 
       <Select value={dept || "all"} onValueChange={setDept}>
         <SelectTrigger className="w-[130px] h-[38px] border-slate-200 rounded-lg bg-white text-[0.85rem] font-bold text-slate-700 shadow-sm">
-          <SelectValue />
+          <span className="flex-1 text-left truncate">{deptLabel}</span>
         </SelectTrigger>
         <SelectContent>
           <SelectItem value="all">All Depts</SelectItem>
-          <SelectItem value="SALES">Sales</SelectItem>
-          <SelectItem value="INVENTORY_LOGISTICS">Inventory</SelectItem>
-          <SelectItem value="ACCOUNTING">Accounting</SelectItem>
-          <SelectItem value="DATA">Data</SelectItem>
+          {UI_DEPARTMENTS.map((d) => (
+            <SelectItem key={d.value} value={d.value}>
+              {d.label}
+            </SelectItem>
+          ))}
         </SelectContent>
       </Select>
 
@@ -260,7 +279,7 @@ export function ManageAccountToolbar({ teams }: { teams: Team[] }) {
         disabled={deptTeams.length === 0}
       >
         <SelectTrigger className="w-[130px] h-[38px] border-slate-200 rounded-lg bg-white text-[0.85rem] font-bold text-slate-700 shadow-sm">
-          <SelectValue />
+          <span className="flex-1 text-left truncate">{teamLabel}</span>
         </SelectTrigger>
         <SelectContent>
           <SelectItem value="all">All Teams</SelectItem>

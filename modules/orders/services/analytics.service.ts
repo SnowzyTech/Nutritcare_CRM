@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db/prisma";
+import { generalPerformanceScore, kpiScore } from "@/lib/performance";
 
 export type ProductStat = { name: string; qty: number };
 
@@ -81,18 +82,15 @@ function computeMetrics(orders: OrderRow[]): MonthMetrics {
   const upsellRate =
     total > 0 ? Math.round((multiItemOrders.length / total) * 100) : 0;
 
-  // Weighted general performance:
-  // delivery 50%, recovery 12%, upsell 20%, reorder 15%, cancellation 3%
-  const generalPerformance = Math.round(
-    deliveryRate * 0.5 +
-      recoveryRate * 0.12 +
-      upsellRate * 0.2 +
-      reorderRate * 0.15 +
-      cancellationRate * 0.03
-  );
+  const generalPerformance = generalPerformanceScore({
+    deliveryRate,
+    recoveryRate,
+    upsellRate,
+    reorderRate,
+    cancellationRate,
+  });
 
-  // KPI = (Orders delivered in period / Orders handled in period) * 100
-  const kpi = total > 0 ? Math.round((delivered / total) * 100) : 0;
+  const kpi = kpiScore(delivered, total);
 
   // Total products sold = item quantities across DELIVERED orders only
   const totalProductsSold = orders

@@ -127,13 +127,13 @@ export default async function SalesRepAnalyticsPage({ params, searchParams }: Pr
           <div className="flex justify-between items-start mb-4">
             <div>
               <p className="text-[0.85rem] font-black uppercase tracking-widest opacity-80">KPI</p>
-              <h2 className="text-[3.5rem] font-black leading-none mt-2">{current.generalPerformance}%</h2>
+              <h2 className="text-[3.5rem] font-black leading-none mt-2">{current.kpi}%</h2>
             </div>
             <div className="text-right">
               <p className="text-[0.75rem] font-bold opacity-60">This month&apos;s score:</p>
               <p className="text-[1.1rem] font-black tracking-widest">{current.total} orders</p>
               <p className="text-[0.85rem] font-bold mt-2 text-emerald-400">
-                {trends.generalPerformance}{" "}
+                {trends.kpi}{" "}
                 <span className="text-white opacity-60 font-medium">vs last month</span>
               </p>
             </div>

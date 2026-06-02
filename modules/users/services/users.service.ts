@@ -1,12 +1,14 @@
 import { prisma } from "@/lib/db/prisma";
 import type { UserRole } from "@prisma/client";
 import { monthRanges, parseMonthParam, type MonthPeriod } from "@/lib/month-period";
+import { generalPerformanceScore, kpiScore } from "@/lib/performance";
 
 // ── Analytics helpers ─────────────────────────────────────────────────────────
 
 function computeRepMetrics(orders: Array<{
   status: string;
   customerId: string;
+  isReorder: boolean;
   items: Array<{ productId: string; quantity: number; product: { name: string } }>;
 }>) {
   const total = orders.length;
@@ -16,10 +18,16 @@ function computeRepMetrics(orders: Array<{
   const confirmed = orders.filter(o => o.status === "CONFIRMED").length;
   const pending = orders.filter(o => o.status === "PENDING").length;
 
-  const dispatched = delivered + failed;
-  const deliveryRate = dispatched > 0 ? Math.round((delivered / dispatched) * 100) : 0;
-  const confirmationRate = total > 0 ? Math.round(((confirmed + delivered) / total) * 100) : 0;
+  // Rate definitions mirror the sales-rep portal (analytics.service.ts).
+  const attemptedDelivery = confirmed + delivered + failed;
+  const deliveryAttempted = delivered + failed;
+  const reorders = orders.filter(o => o.isReorder).length;
+
+  const confirmationRate = total > 0 ? Math.round((attemptedDelivery / total) * 100) : 0;
+  const deliveryRate = attemptedDelivery > 0 ? Math.round((delivered / attemptedDelivery) * 100) : 0;
+  const recoveryRate = deliveryAttempted > 0 ? Math.round((delivered / deliveryAttempted) * 100) : 0;
   const cancellationRate = total > 0 ? Math.round((cancelled / total) * 100) : 0;
+  const reorderRate = total > 0 ? Math.round((reorders / total) * 100) : 0;
 
   const multiItemOrders = orders.filter(o => {
     const uniqueProducts = new Set(o.items.map(i => i.productId));
@@ -27,7 +35,15 @@ function computeRepMetrics(orders: Array<{
   }).length;
   const upsellRate = total > 0 ? Math.round((multiItemOrders / total) * 100) : 0;
 
-  const generalPerformance = Math.round((deliveryRate * 0.6 + confirmationRate * 0.4));
+  // Weighted general performance + KPI, shared with the sales-rep portal.
+  const generalPerformance = generalPerformanceScore({
+    deliveryRate,
+    recoveryRate,
+    upsellRate,
+    reorderRate,
+    cancellationRate,
+  });
+  const kpi = kpiScore(delivered, total);
 
   const deliveredOrders = orders.filter(o => o.status === "DELIVERED");
   const totalProductsSold = deliveredOrders.reduce(
@@ -45,7 +61,7 @@ function computeRepMetrics(orders: Array<{
 
   const distinctCustomers = new Set(orders.map(o => o.customerId)).size;
 
-  return { total, delivered, failed, cancelled, confirmed, pending, deliveryRate, confirmationRate, cancellationRate, upsellRate, generalPerformance, totalProductsSold, bestProduct, distinctCustomers };
+  return { total, delivered, failed, cancelled, confirmed, pending, deliveryRate, confirmationRate, cancellationRate, recoveryRate, reorderRate, upsellRate, generalPerformance, kpi, totalProductsSold, bestProduct, distinctCustomers };
 }
 
 function trendLabel(current: number, previous: number): string {
@@ -214,7 +230,7 @@ export async function getSalesRepAnalytics(salesRepId: string, period?: MonthPer
   const allOrders = await prisma.order.findMany({
     where: { salesRepId, deletedAt: null },
     select: {
-      status: true, customerId: true, createdAt: true,
+      status: true, customerId: true, createdAt: true, isReorder: true,
       items: { select: { productId: true, quantity: true, product: { select: { name: true } } } },
     },
   });
@@ -231,6 +247,7 @@ export async function getSalesRepAnalytics(salesRepId: string, period?: MonthPer
       totalProductsSold: trendLabel(current.totalProductsSold, previous.totalProductsSold),
       distinctCustomers: trendLabel(current.distinctCustomers, previous.distinctCustomers),
       generalPerformance: trendLabel(current.generalPerformance, previous.generalPerformance),
+      kpi: trendLabel(current.kpi, previous.kpi),
       upsellRate: trendLabel(current.upsellRate, previous.upsellRate),
       confirmationRate: trendLabel(current.confirmationRate, previous.confirmationRate),
       deliveryRate: trendLabel(current.deliveryRate, previous.deliveryRate),
@@ -308,7 +325,7 @@ export async function deleteTeam(id: string) {
 export async function getPendingActivationRequests() {
   return prisma.user.findMany({
     where: { accountActivationStatus: "PENDING" },
-    select: { id: true, name: true, role: true, createdAt: true },
+    select: { id: true, name: true, role: true, avatarUrl: true, createdAt: true },
     orderBy: { createdAt: "desc" },
   });
 }
@@ -337,6 +354,7 @@ export async function getTeamLeads() {
       id: true,
       name: true,
       role: true,
+      avatarUrl: true,
       team: { select: { id: true, name: true, department: true } },
     },
     orderBy: { name: "asc" },
@@ -458,7 +476,7 @@ export async function getTeamAnalytics(teamId: string) {
   const allOrders = await prisma.order.findMany({
     where: { salesRepId: { in: memberIds }, deletedAt: null },
     select: {
-      status: true, customerId: true, createdAt: true,
+      status: true, customerId: true, createdAt: true, isReorder: true,
       items: { select: { productId: true, quantity: true, product: { select: { name: true } } } },
     },
   });
