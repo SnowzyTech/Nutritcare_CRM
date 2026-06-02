@@ -56,7 +56,7 @@ interface AccountingLedgerClientProps {
   initialCategories?: CategoryForLedger[];
 }
 
-const TABS = ['Charts of Account', 'Journal Entry', 'Journal', 'General Ledger'] as const;
+const TABS = ['Charts of Account', 'Journal Entry', 'Journal', 'General Ledger', 'Fixed Assets'] as const;
 type Tab = typeof TABS[number];
 
 type AttachmentItem = { file: File; preview: string };
@@ -75,6 +75,42 @@ const emptyRow = (): JournalRow => ({
   code: '', account: '', accountId: '', name: '', debits: '', credits: '', tax: '',
   codeSearch: '', accountSearch: '', nameSearch: '',
 });
+
+// ── Fixed-asset types ─────────────────────────────────────────────────────────
+
+interface FixedAsset {
+  id: string;
+  assetName: string;
+  purchasePrice: string;
+  purchaseDate: string;
+  assetAccount: string;
+  accumulatedDepreciation: string;
+  remainingValue: string;
+  status: 'Active' | 'Disposed' | 'Idle';
+}
+
+const SEED_ASSETS: FixedAsset[] = [
+  {
+    id: '1',
+    assetName: 'Dell Latitude Laptop',
+    purchasePrice: '₦1,250,000',
+    purchaseDate: '15-Mar-2023',
+    assetAccount: 'Office Equipment',
+    accumulatedDepreciation: '₦500,000',
+    remainingValue: '₦750,000',
+    status: 'Active',
+  },
+  {
+    id: '2',
+    assetName: 'Dell Latitude Laptop',
+    purchasePrice: '₦1,250,000',
+    purchaseDate: '15-Mar-2023',
+    assetAccount: 'Office Equipment',
+    accumulatedDepreciation: '₦500,000',
+    remainingValue: '₦750,000',
+    status: 'Active',
+  },
+];
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -100,6 +136,18 @@ export function AccountingLedgerClient({
     const params = new URLSearchParams(searchParams.toString());
     params.set('tab', tab);
     router.replace(`${pathname}?${params.toString()}`, { scroll: false } as any);
+  };
+
+  // ── Fixed Assets state ────────────────────────────────────────────────────
+  const [fixedAssets, setFixedAssets] = useState<FixedAsset[]>(SEED_ASSETS);
+  const [showAddAsset, setShowAddAsset] = useState(false);
+  const [newAsset, setNewAsset] = useState<Omit<FixedAsset, 'id'>>({
+    assetName: '', purchasePrice: '', purchaseDate: '',
+    assetAccount: '', accumulatedDepreciation: '', remainingValue: '', status: 'Active',
+  });
+
+  const handleAddAsset = () => {
+    router.push('/accounting/accounting-ledger/fixed-assets/add');
   };
 
   // ── Chart of Accounts ──────────────────────────────────────────────────────
@@ -348,33 +396,49 @@ export function AccountingLedgerClient({
         </button>
       </div>
 
-      {/* Header Row */}
-      <div className="flex flex-col gap-8 mb-10">
+      {/* Header Row — matches image: title left | tabs centre | Add New + chat right */}
+      <div className="flex flex-col gap-6 mb-10">
         <div className="flex items-center justify-between">
           <h1 className="text-[32px] font-bold text-gray-700 tracking-tight">
             {activeTab === 'Charts of Account' ? 'Accounting' :
               activeTab === 'Journal Entry' ? 'Journal Entry' :
-                activeTab === 'Journal' ? 'Journal' : 'General Ledger'}
+                activeTab === 'Journal' ? 'Journal' :
+                  activeTab === 'General Ledger' ? 'General Ledger' : 'Fixed assets'}
           </h1>
-          <div className="w-16 h-16 bg-[#F3E8FF] rounded-full flex items-center justify-center cursor-pointer">
-            <div className="w-[42px] h-[42px] bg-[#AE00FF] rounded-full flex items-center justify-center text-white shadow-lg shadow-purple-200 hover:scale-105 transition-transform">
-              <MessageCircle fill="currentColor" size={22} />
-            </div>
-          </div>
-        </div>
 
-        <div className="flex justify-center">
-          <div className="flex bg-white rounded-lg p-1 border border-gray-100 shadow-[0_2px_4px_rgba(0,0,0,0.02)] z-10">
-            {TABS.map((tab) => (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={`px-5 py-2.5 rounded-md text-[12px] font-bold transition-all tracking-wide whitespace-nowrap ${activeTab === tab ? 'bg-[#AE00FF] text-white shadow-sm' : 'text-gray-500 hover:text-gray-800'
+          <div className="flex items-center gap-3">
+            {/* Tab pills */}
+            <div className="flex bg-white rounded-lg p-1 border border-gray-100 shadow-[0_2px_4px_rgba(0,0,0,0.02)]">
+              {TABS.map((tab) => (
+                <button
+                  key={tab}
+                  onClick={() => setActiveTab(tab)}
+                  className={`px-4 py-2 rounded-md text-[12px] font-bold transition-all tracking-wide whitespace-nowrap ${
+                    activeTab === tab ? 'bg-[#AE00FF] text-white shadow-sm' : 'text-gray-500 hover:text-gray-800'
                   }`}
+                >
+                  {tab}
+                </button>
+              ))}
+            </div>
+
+            {/* Add New — only visible on Fixed Assets tab */}
+            {activeTab === 'Fixed Assets' && (
+              <button
+                id="fixed-asset-add-new-btn"
+                onClick={handleAddAsset}
+                className="h-10 px-6 bg-[#AE00FF] text-white rounded-lg text-[13px] font-bold hover:bg-[#9900E6] transition-colors shadow-sm shadow-purple-200 whitespace-nowrap"
               >
-                {tab}
+                Add New
               </button>
-            ))}
+            )}
+
+            {/* Chat bubble */}
+            <div className="w-12 h-12 bg-[#F3E8FF] rounded-full flex items-center justify-center cursor-pointer flex-shrink-0">
+              <div className="w-[34px] h-[34px] bg-[#AE00FF] rounded-full flex items-center justify-center text-white shadow-lg shadow-purple-200 hover:scale-105 transition-transform">
+                <MessageCircle fill="currentColor" size={18} />
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -1026,6 +1090,70 @@ export function AccountingLedgerClient({
             <p className="text-[13px] text-gray-400 font-medium">
               {filteredGL.length} entr{filteredGL.length === 1 ? 'y' : 'ies'} total
             </p>
+          </div>
+        </div>
+      )}
+      {/* ===== Fixed Assets ===== */}
+      {activeTab === 'Fixed Assets' && (
+        <div className="animate-in fade-in duration-400">
+
+          {/* Fixed Assets table */}
+          <div className="bg-white rounded-xl overflow-hidden border border-gray-100 shadow-sm">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-[#F3F4F6] text-[13px] font-bold text-gray-600">
+                  <th className="px-6 py-5 whitespace-nowrap">Asset Name</th>
+                  <th className="px-6 py-5 whitespace-nowrap">Purchase Price</th>
+                  <th className="px-6 py-5 whitespace-nowrap">Purchase Date</th>
+                  <th className="px-6 py-5 whitespace-nowrap">Asset Account</th>
+                  <th className="px-6 py-5 whitespace-nowrap">Accumulated Depreciation</th>
+                  <th className="px-6 py-5 whitespace-nowrap">Remaining Value</th>
+                  <th className="px-6 py-5 whitespace-nowrap">Status</th>
+                  <th className="px-6 py-5 whitespace-nowrap">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {fixedAssets.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="px-6 py-16 text-center text-[14px] text-gray-400 font-medium">
+                      No fixed assets yet. Click &ldquo;Add New&rdquo; to get started.
+                    </td>
+                  </tr>
+                ) : (
+                  fixedAssets.map((asset, idx) => (
+                    <tr
+                      key={asset.id}
+                      className={`hover:bg-gray-50/60 transition-colors ${
+                        idx % 2 === 1 ? 'bg-[#FAFAFA]' : 'bg-white'
+                      }`}
+                    >
+                      <td className="px-6 py-5 text-[13px] text-gray-700 font-medium">{asset.assetName}</td>
+                      <td className="px-6 py-5 text-[13px] text-gray-700 font-medium">{asset.purchasePrice}</td>
+                      <td className="px-6 py-5 text-[13px] text-gray-600 font-medium">{asset.purchaseDate}</td>
+                      <td className="px-6 py-5 text-[13px] text-gray-600">{asset.assetAccount}</td>
+                      <td className="px-6 py-5 text-[13px] text-gray-600">{asset.accumulatedDepreciation}</td>
+                      <td className="px-6 py-5 text-[13px] text-gray-700 font-medium">{asset.remainingValue}</td>
+                      <td className="px-6 py-5">
+                        <span className={`text-[12px] font-semibold ${
+                          asset.status === 'Active' ? 'text-gray-700' :
+                          asset.status === 'Disposed' ? 'text-red-500' : 'text-yellow-600'
+                        }`}>
+                          {asset.status}
+                        </span>
+                      </td>
+                      <td className="px-6 py-5">
+                        <button
+                          id={`fixed-asset-view-${asset.id}`}
+                          className="text-[13px] font-bold text-[#AE00FF] hover:text-[#8B00CC] transition-colors"
+                        >
+                          View
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
