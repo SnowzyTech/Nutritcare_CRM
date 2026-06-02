@@ -2,9 +2,20 @@
 
 import React, { useRef, useState } from "react";
 import { toast } from "sonner";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { CheckCircle2, X, Camera } from "lucide-react";
+import {
+  User,
+  Save,
+  CheckCircle2,
+  Upload,
+  ShieldCheck,
+  Mail,
+  Phone,
+  MessageCircle,
+  Calendar,
+  Users,
+  Lock,
+  Globe,
+} from "lucide-react";
 import { updateProfileAction } from "@/modules/users/actions/users.action";
 
 type Profile = {
@@ -19,22 +30,6 @@ type Profile = {
   teamName?: string | null;
 };
 
-const ROLE_LABELS: Record<string, string> = {
-  ADMIN: "Administrator",
-  SALES_REP: "Sales Rep",
-  SALES_REP_MANAGER: "Sales Rep Manager",
-  DELIVERY_AGENT: "Delivery Agent",
-  ACCOUNTANT: "Accountant",
-  INVENTORY_MANAGER: "Inventory Manager",
-  WAREHOUSE_MANAGER: "Warehouse Manager",
-  LOGISTICS_MANAGER: "Logistics Manager",
-  DATA_ANALYST: "Data Analyst",
-};
-
-/**
- * Reads an image File and returns a downscaled JPEG data URL (max 256×256),
- * small enough for the `avatarUrl` text column without external blob storage.
- */
 function resizeImageToDataUrl(file: File, max = 256): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -44,14 +39,14 @@ function resizeImageToDataUrl(file: File, max = 256): Promise<string> {
       img.onerror = () => reject(new Error("Failed to load image"));
       img.onload = () => {
         const scale = Math.min(max / img.width, max / img.height, 1);
-        const width = Math.round(img.width * scale);
-        const height = Math.round(img.height * scale);
+        const w = Math.round(img.width * scale);
+        const h = Math.round(img.height * scale);
         const canvas = document.createElement("canvas");
-        canvas.width = width;
-        canvas.height = height;
+        canvas.width = w;
+        canvas.height = h;
         const ctx = canvas.getContext("2d");
         if (!ctx) return reject(new Error("Canvas not supported"));
-        ctx.drawImage(img, 0, 0, width, height);
+        ctx.drawImage(img, 0, 0, w, h);
         resolve(canvas.toDataURL("image/jpeg", 0.85));
       };
       img.src = reader.result as string;
@@ -60,62 +55,35 @@ function resizeImageToDataUrl(file: File, max = 256): Promise<string> {
   });
 }
 
-function DetailRow({
-  label,
-  value,
-  last = false,
-}: {
-  label: string;
-  value: string;
-  last?: boolean;
-}) {
-  return (
-    <div
-      className={`flex items-center justify-between py-2.5 text-sm ${last ? "" : "border-b border-gray-50"}`}
-    >
-      <span className="text-gray-400 font-medium">{label}</span>
-      <span className="text-gray-800 font-bold">{value}</span>
-    </div>
-  );
-}
-
 export function ProfileClient({ profile }: { profile: Profile }) {
-  const [name, setName] = useState(profile.name);
+  const nameParts = profile.name.split(" ");
+  const [firstName, setFirstName] = useState(nameParts[0] || "");
+  const [lastName, setLastName] = useState(nameParts.slice(1).join(" ") || "");
   const [phone, setPhone] = useState(profile.phone ?? "");
   const [whatsapp, setWhatsapp] = useState(profile.whatsappNumber ?? "");
-  const [avatarUrl, setAvatarUrl] = useState<string | null>(profile.avatarUrl ?? null);
-  const [pendingAvatar, setPendingAvatar] = useState<string | null>(null);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(
+    profile.avatarUrl ?? null
+  );
+  const [avatarData, setAvatarData] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const fallbackAvatar = `https://ui-avatars.com/api/?name=${encodeURIComponent(
-    name || "User"
-  )}&background=F3E8FF&color=A020F0&size=128&font-size=0.35&bold=true`;
+  const displayInitials = (
+    (firstName.charAt(0) + (lastName.charAt(0) || "")).toUpperCase() || "AD"
+  );
 
-  const roleLabel = ROLE_LABELS[profile.role] ?? profile.role;
-  const displayPhone = phone || "Not set";
-  const displayWhatsapp = whatsapp || "Not set";
-  const displayEmail = profile.email || "Not set";
-  const displayTeam = profile.teamName || "Unassigned";
-  const memberSince = new Intl.DateTimeFormat("en-NG", {
-    day: "numeric",
+  const memberSince = new Date(profile.createdAt).toLocaleDateString("en-NG", {
     month: "long",
     year: "numeric",
-  }).format(new Date(profile.createdAt));
-  const modalAvatar = pendingAvatar ?? avatarUrl ?? fallbackAvatar;
+  });
 
-  const openEditModal = () => {
-    setPendingAvatar(null);
-    setError(null);
-    setIsEditModalOpen(true);
-  };
+  const fullDisplayName = `${firstName} ${lastName}`.trim() || "Administrator";
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    e.target.value = ""; // allow re-selecting the same file
+    e.target.value = "";
     if (!file) return;
     if (!file.type.startsWith("image/")) {
       toast.error("Please select an image file.");
@@ -127,7 +95,8 @@ export function ProfileClient({ profile }: { profile: Profile }) {
     }
     try {
       const dataUrl = await resizeImageToDataUrl(file);
-      setPendingAvatar(dataUrl);
+      setAvatarPreview(dataUrl);
+      setAvatarData(dataUrl);
     } catch {
       toast.error("Could not process that image. Try another one.");
     }
@@ -137,226 +106,324 @@ export function ProfileClient({ profile }: { profile: Profile }) {
     e.preventDefault();
     setError(null);
     setSuccess(false);
-    if (!name.trim()) {
-      setError("Name is required.");
+    const fullName = `${firstName.trim()} ${lastName.trim()}`.trim();
+    if (!firstName.trim()) {
+      setError("First Name is required.");
       return;
     }
     setLoading(true);
     const result = await updateProfileAction({
-      name: name.trim(),
+      name: fullName,
       phone: phone.trim() || undefined,
       whatsappNumber: whatsapp.trim() || undefined,
-      ...(pendingAvatar ? { avatarUrl: pendingAvatar } : {}),
+      ...(avatarData ? { avatarUrl: avatarData } : {}),
     });
     setLoading(false);
     if ("error" in result) {
       setError(result.error);
       toast.error(result.error);
     } else {
-      if (pendingAvatar) {
-        setAvatarUrl(pendingAvatar);
-        setPendingAvatar(null);
-      }
       toast.success("Profile updated successfully");
       setSuccess(true);
-      setIsEditModalOpen(false);
       setTimeout(() => setSuccess(false), 4000);
     }
   };
 
   return (
-    <div className="max-w-[900px] space-y-6">
-      <div>
-        <h1 className="text-2xl font-extrabold text-gray-900 tracking-tight">Settings</h1>
-        <p className="text-sm text-gray-500 mt-1">
-          View and update your account details.
-        </p>
-      </div>
+    <div className="max-w-6xl space-y-8">
+      {/* Page Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-extrabold text-gray-900 tracking-tight">Settings</h1>
+          <p className="text-sm text-gray-500 mt-1">
+            Manage your administrator profile and account details.
+          </p>
+        </div>
 
-      <div className="bg-white rounded-2xl sm:rounded-[24px] border border-gray-100 shadow-[0_8px_30px_rgb(0,0,0,0.02)] p-4 sm:p-8">
         {success && (
-          <div className="mb-6 flex items-center gap-3 bg-emerald-50 border border-emerald-100 rounded-2xl px-4 py-3.5">
+          <div className="flex items-center gap-3 bg-emerald-50 border border-emerald-100 rounded-2xl px-5 py-3 shadow-md">
             <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
-            <p className="text-sm font-semibold text-emerald-800">Profile updated successfully.</p>
+            <span className="text-sm font-bold text-emerald-800">Changes saved successfully!</span>
           </div>
         )}
 
-        <div className="space-y-8">
-          {/* Avatar + identity */}
-          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-5 bg-gradient-to-r from-gray-50/50 to-transparent p-4 sm:p-5 rounded-2xl border border-gray-100/50">
-            <div className="relative group shrink-0">
-              <div className="w-20 h-20 rounded-full overflow-hidden border-2 border-white shadow-md bg-purple-50">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={avatarUrl || fallbackAvatar}
-                  alt="Avatar"
-                  className="w-full h-full object-cover"
-                />
-              </div>
-              <button
-                onClick={openEditModal}
-                className="absolute bottom-0 right-0 w-6 h-6 rounded-full bg-white border border-gray-100 flex items-center justify-center shadow-md text-gray-500 hover:text-purple-600 hover:scale-105 active:scale-95 transition-all duration-200"
-                title="Edit profile picture"
-              >
-                <Camera className="w-3.5 h-3.5" />
-              </button>
-            </div>
-
-            <div className="space-y-1">
-              <h2 className="text-2xl font-bold text-gray-900 leading-tight">{name}</h2>
-              <p className="text-sm font-medium text-gray-400">{roleLabel}</p>
-              <div className="pt-1">
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-[#EBFDF5] text-[#10B981] border border-[#A7F3D0]/30">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#10B981] animate-pulse"></span>
-                  Online
-                </span>
-              </div>
-            </div>
+        {error && (
+          <div className="flex items-center gap-3 bg-red-50 border border-red-100 rounded-2xl px-5 py-3">
+            <span className="text-sm font-bold text-red-700">{error}</span>
           </div>
-
-          <div className="border-t border-[#F3E8FF]"></div>
-
-          {/* Details */}
-          <div className="space-y-1">
-            <DetailRow label="Full Name" value={name} />
-            <DetailRow label="Phone Number" value={displayPhone} />
-            <DetailRow label="WhatsApp" value={displayWhatsapp} />
-            <DetailRow label="Email" value={displayEmail} />
-            <DetailRow label="Role" value={roleLabel} />
-            <DetailRow label="Team" value={displayTeam} />
-            <DetailRow label="Member Since" value={memberSince} last />
-          </div>
-
-          <div className="pt-1">
-            <button
-              onClick={openEditModal}
-              className="w-full sm:w-auto px-8 py-2.5 rounded-xl border-2 border-[#A020F0] text-[#A020F0] font-bold text-sm hover:bg-[#F3E8FF] active:scale-98 transition-all duration-200"
-            >
-              Edit Profile
-            </button>
-          </div>
-        </div>
+        )}
       </div>
 
-      {/* Edit Modal */}
-      {isEditModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div
-            className="fixed inset-0 bg-gray-900/50 backdrop-blur-sm transition-opacity duration-300"
-            onClick={() => setIsEditModalOpen(false)}
-          ></div>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
 
-          <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden border border-gray-100 animate-in fade-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-              <div>
-                <h3 className="text-lg font-bold text-gray-900">Edit Profile</h3>
-                <p className="text-xs text-gray-400 mt-0.5">Modify your details. Unsaved changes will be lost.</p>
-              </div>
-              <button
-                onClick={() => setIsEditModalOpen(false)}
-                className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition"
+        {/* Left column — Profile card */}
+        <div className="lg:col-span-1 space-y-6">
+          <div className="bg-white rounded-[24px] border border-gray-100 shadow-[0_8px_30px_rgb(0,0,0,0.015)] p-8 flex flex-col items-center text-center">
+
+            {/* Avatar with gradient ring */}
+            <div className="relative group mb-6">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleAvatarChange}
+              />
+              <div
+                className="w-36 h-36 rounded-full p-[3.5px] bg-gradient-to-tr from-[#AE00FF] via-purple-400 to-[#FF00C8] shadow-[0_10px_30px_rgba(174,0,255,0.18)] hover:scale-[1.03] transition-all duration-300 cursor-pointer"
+                onClick={() => fileInputRef.current?.click()}
               >
-                <X className="w-5 h-5" />
+                <div className="w-full h-full rounded-full overflow-hidden border-4 border-white bg-white flex items-center justify-center">
+                  {avatarPreview ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={avatarPreview}
+                      alt="Avatar"
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-full h-full bg-gradient-to-br from-[#A020F0] to-[#7B1FA2] text-white flex items-center justify-center text-4xl font-black">
+                      {displayInitials}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <button
+                type="button"
+                className="absolute bottom-1 right-1 w-9 h-9 rounded-full bg-white border border-gray-100 shadow-[0_4px_12px_rgba(0,0,0,0.08)] flex items-center justify-center text-gray-500 hover:text-[#AE00FF] hover:border-purple-200 transition-all active:scale-90"
+                title="Upload photo"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <Upload className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleSave}>
-              <div className="p-6 space-y-5">
-                {error && (
-                  <p className="text-xs font-semibold text-red-500 bg-red-50 border border-red-200 rounded-lg px-4 py-2.5">
-                    {error}
-                  </p>
-                )}
+            <h2 className="text-xl font-extrabold text-gray-900">{fullDisplayName}</h2>
 
-                {/* Avatar uploader */}
-                <div className="flex items-center gap-4">
-                  <div className="w-20 h-20 rounded-full overflow-hidden border-2 border-white shadow-md bg-purple-50 shrink-0">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={modalAvatar} alt="Avatar preview" className="w-full h-full object-cover" />
+            <span className="mt-2 px-3 py-1 bg-purple-50 text-[#A020F0] text-xs font-bold rounded-full border border-purple-100 inline-flex items-center gap-1.5">
+              <ShieldCheck className="w-3 h-3" />
+              Super Administrator
+            </span>
+
+            {/* Quick info */}
+            <div className="w-full mt-6 pt-5 border-t border-gray-50 space-y-3 text-left">
+              <div className="flex items-center gap-3 text-sm text-gray-600">
+                <Mail className="w-4 h-4 text-gray-400 shrink-0" />
+                <span className="truncate">{profile.email}</span>
+              </div>
+              {phone && (
+                <div className="flex items-center gap-3 text-sm text-gray-600">
+                  <Phone className="w-4 h-4 text-gray-400 shrink-0" />
+                  <span>{phone}</span>
+                </div>
+              )}
+              {whatsapp && (
+                <div className="flex items-center gap-3 text-sm text-gray-600">
+                  <MessageCircle className="w-4 h-4 text-gray-400 shrink-0" />
+                  <span>{whatsapp}</span>
+                </div>
+              )}
+              {profile.teamName && (
+                <div className="flex items-center gap-3 text-sm text-gray-600">
+                  <Users className="w-4 h-4 text-gray-400 shrink-0" />
+                  <span>{profile.teamName}</span>
+                </div>
+              )}
+              <div className="flex items-center gap-3 text-sm text-gray-500">
+                <Calendar className="w-4 h-4 text-gray-400 shrink-0" />
+                <span>Member since {memberSince}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Access privileges card */}
+          <div className="bg-white rounded-[24px] border border-gray-100 shadow-[0_8px_30px_rgb(0,0,0,0.015)] p-6 space-y-4">
+            <div className="flex items-center gap-3 border-b border-gray-50 pb-4">
+              <div className="p-2 rounded-xl bg-purple-50 text-[#A020F0]">
+                <Lock className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-gray-900">Access Privileges</h3>
+                <p className="text-[10px] text-gray-400">System-wide permissions</p>
+              </div>
+            </div>
+
+            <div className="space-y-2.5">
+              {[
+                { label: "User Management", icon: Users },
+                { label: "Full System Access", icon: Globe },
+                { label: "Role Assignment", icon: ShieldCheck },
+              ].map(({ label, icon: Icon }) => (
+                <div key={label} className="flex items-center justify-between py-1">
+                  <div className="flex items-center gap-2.5 text-sm text-gray-600">
+                    <Icon className="w-3.5 h-3.5 text-gray-400" />
+                    {label}
                   </div>
-                  <div className="space-y-1.5">
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="image/*"
-                      onChange={handleFileChange}
-                      className="hidden"
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100">
+                    Granted
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Right column — Edit form (2 cols wide) */}
+        <div className="lg:col-span-2">
+          <form onSubmit={handleSave}>
+            <div className="bg-white rounded-[24px] border border-gray-100 shadow-[0_8px_30px_rgb(0,0,0,0.015)] p-8 space-y-8">
+
+              {/* Section header */}
+              <div className="flex items-center justify-between border-b border-gray-50 pb-5">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-xl bg-purple-50 text-[#A020F0]">
+                    <User className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-gray-900">Edit Profile</h3>
+                    <p className="text-xs text-gray-400">Update your personal details below.</p>
+                  </div>
+                </div>
+                <span className="text-xs font-bold text-gray-400 uppercase tracking-widest bg-gray-50 px-3 py-1 rounded-full border border-gray-100">
+                  Personal Account
+                </span>
+              </div>
+
+              {/* Avatar upload row */}
+              <div className="flex flex-col sm:flex-row items-center gap-6 bg-gray-50/40 p-5 rounded-2xl border border-gray-100/50">
+                <div className="w-20 h-20 rounded-full overflow-hidden border-2 border-white shadow-md shrink-0 bg-gradient-to-br from-[#A020F0] to-[#7B1FA2] flex items-center justify-center">
+                  {avatarPreview ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={avatarPreview}
+                      alt="Avatar"
+                      className="w-full h-full object-cover"
                     />
+                  ) : (
+                    <span className="text-white text-2xl font-black">{displayInitials}</span>
+                  )}
+                </div>
+                <div className="space-y-2 text-center sm:text-left">
+                  <h4 className="font-bold text-gray-800 text-base">Profile Photo</h4>
+                  <p className="text-xs text-gray-400">JPG, PNG or GIF. Max 5MB.</p>
+                  <div className="flex items-center justify-center sm:justify-start gap-3 pt-1">
                     <button
                       type="button"
                       onClick={() => fileInputRef.current?.click()}
-                      className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border-2 border-[#A020F0] text-[#A020F0] font-bold text-xs hover:bg-[#F3E8FF] active:scale-95 transition"
+                      className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg border border-gray-200 text-xs font-bold text-gray-600 bg-white hover:bg-gray-50 active:scale-95 transition-all shadow-sm cursor-pointer"
                     >
-                      <Camera className="w-4 h-4" />
-                      {avatarUrl || pendingAvatar ? "Change Photo" : "Upload Photo"}
+                      <Upload className="w-3.5 h-3.5 text-gray-400" />
+                      Upload Photo
                     </button>
-                    <p className="text-[10px] text-gray-400">JPG or PNG, up to 5MB.</p>
+                    {avatarPreview && (
+                      <button
+                        type="button"
+                        onClick={() => { setAvatarPreview(null); setAvatarData(null); }}
+                        className="text-xs font-bold text-red-500 hover:text-red-600 hover:underline px-2 py-1"
+                      >
+                        Remove
+                      </button>
+                    )}
                   </div>
                 </div>
+              </div>
 
+              {/* Name fields */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">
-                    Full Name <span className="text-red-500">*</span>
+                  <label className="block text-[11px] font-extrabold text-gray-400 uppercase tracking-wider">
+                    First Name <span className="text-red-500">*</span>
                   </label>
-                  <Input
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="Enter your name"
-                    className="bg-white border-gray-200 h-11 text-xs"
+                  <input
+                    type="text"
+                    value={firstName}
+                    onChange={(e) => setFirstName(e.target.value)}
                     required
+                    placeholder="e.g. Emmanuel"
+                    className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-700 focus:outline-none focus:ring-4 focus:ring-purple-100 focus:border-[#A020F0] transition-all bg-white"
                   />
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Email</label>
-                  <Input
+                  <label className="block text-[11px] font-extrabold text-gray-400 uppercase tracking-wider">
+                    Last Name
+                  </label>
+                  <input
+                    type="text"
+                    value={lastName}
+                    onChange={(e) => setLastName(e.target.value)}
+                    placeholder="e.g. Adeyemi"
+                    className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-700 focus:outline-none focus:ring-4 focus:ring-purple-100 focus:border-[#A020F0] transition-all bg-white"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="block text-[11px] font-extrabold text-gray-400 uppercase tracking-wider">
+                    Email Address
+                  </label>
+                  <input
+                    type="email"
                     value={profile.email}
                     disabled
-                    className="bg-gray-50 border-gray-100 h-11 text-xs text-gray-400 cursor-not-allowed"
+                    className="w-full border border-gray-100 bg-gray-50 rounded-xl px-4 py-3 text-sm text-gray-400 cursor-not-allowed"
                   />
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Phone Number</label>
-                  <Input
+                  <label className="block text-[11px] font-extrabold text-gray-400 uppercase tracking-wider">
+                    Phone Number
+                  </label>
+                  <input
+                    type="tel"
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
-                    placeholder="e.g. 09152447265"
-                    className="bg-white border-gray-200 h-11 text-xs"
+                    placeholder="+234 000 000 0000"
+                    className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-700 focus:outline-none focus:ring-4 focus:ring-purple-100 focus:border-[#A020F0] transition-all bg-white"
                   />
                 </div>
 
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">WhatsApp Number</label>
-                  <Input
+                <div className="space-y-1.5 sm:col-span-2">
+                  <label className="block text-[11px] font-extrabold text-gray-400 uppercase tracking-wider">
+                    WhatsApp Number
+                  </label>
+                  <input
+                    type="tel"
                     value={whatsapp}
                     onChange={(e) => setWhatsapp(e.target.value)}
-                    placeholder="e.g. 09152447265"
-                    className="bg-white border-gray-200 h-11 text-xs"
+                    placeholder="+234 000 000 0000"
+                    className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-700 focus:outline-none focus:ring-4 focus:ring-purple-100 focus:border-[#A020F0] transition-all bg-white"
                   />
                 </div>
               </div>
 
-              <div className="flex items-center justify-end gap-3 px-6 py-4 bg-gray-50 border-t border-gray-100">
+              {/* System Role (read-only) */}
+              <div className="space-y-1.5">
+                <label className="block text-[11px] font-extrabold text-gray-400 uppercase tracking-wider">
+                  System Role
+                </label>
+                <div className="flex items-center justify-between bg-gray-50 border border-gray-100 rounded-xl px-4 py-3 text-sm text-gray-400 cursor-not-allowed">
+                  <span>Super Administrator</span>
+                  <ShieldCheck className="w-4 h-4 text-emerald-500 shrink-0" />
+                </div>
+              </div>
+
+              {/* Save button */}
+              <div className="pt-2">
                 <button
-                  type="button"
-                  onClick={() => setIsEditModalOpen(false)}
-                  className="px-5 py-2.5 rounded-xl border border-gray-200 text-gray-500 font-bold text-xs hover:bg-gray-100 active:scale-98 transition"
-                >
-                  Cancel
-                </button>
-                <Button
                   type="submit"
                   disabled={loading}
-                  className="bg-[#ad1df4] hover:bg-[#8e14cc] text-white px-6 font-bold h-10 rounded-xl disabled:opacity-60"
+                  className="w-full flex items-center justify-center gap-2 bg-[#A020F0] hover:bg-[#8B1ED2] disabled:bg-purple-300 text-white text-sm font-bold py-3.5 px-6 rounded-2xl transition-all duration-200 shadow-md hover:shadow-purple-200/50 active:scale-[0.99] cursor-pointer"
                 >
-                  {loading ? "Saving…" : "Save Changes"}
-                </Button>
+                  <Save className="w-4 h-4 shrink-0" />
+                  {loading ? "Saving..." : "Save Changes"}
+                </button>
               </div>
-            </form>
-          </div>
+            </div>
+          </form>
         </div>
-      )}
+
+      </div>
     </div>
   );
 }

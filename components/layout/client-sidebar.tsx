@@ -11,7 +11,7 @@ export function ClientSidebar({
   onLogout
 }: {
   items: NavItem[];
-  user?: { name?: string | null; role?: string | null; initials?: string };
+  user?: { name?: string | null; role?: string | null; initials?: string; avatarUrl?: string | null };
   onLogout?: () => void;
 }) {
   const [collapsed, setCollapsed] = useState(false);
@@ -25,28 +25,40 @@ export function ClientSidebar({
         {!collapsed && (
           <div className="flex items-center gap-3 overflow-hidden">
             <div className="relative shrink-0">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src="https://github.com/shadcn.png" 
-                alt="Linda"
-                className="w-10 h-10 rounded-full object-cover border border-gray-700"
-              />
+              {user?.avatarUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={user.avatarUrl}
+                  alt={user.name ?? "Avatar"}
+                  className="w-10 h-10 rounded-full object-cover border border-gray-700"
+                />
+              ) : (
+                <div className="w-10 h-10 rounded-full border border-gray-700 bg-gradient-to-br from-[#A020F0] to-[#7B1FA2] flex items-center justify-center text-white text-sm font-black">
+                  {user?.initials ?? "?"}
+                </div>
+              )}
               <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 rounded-full border-2 border-[#111111]" />
             </div>
             <div className="flex flex-col min-w-0">
-              <span className="text-white text-sm font-bold leading-tight truncate">{user?.name || "Linda Ihekuna"}</span>
+              <span className="text-white text-sm font-bold leading-tight truncate">{user?.name || "Admin"}</span>
               <span className="text-gray-500 text-[0.7rem] truncate">{user?.role === "ADMIN" ? "Administrative" : user?.role || "Staff"}</span>
             </div>
           </div>
         )}
         {collapsed && (
           <div className="relative shrink-0">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src="https://github.com/shadcn.png" 
-              alt="Linda"
-              className="w-10 h-10 rounded-full object-cover border border-gray-700"
-            />
+            {user?.avatarUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={user.avatarUrl}
+                alt={user.name ?? "Avatar"}
+                className="w-10 h-10 rounded-full object-cover border border-gray-700"
+              />
+            ) : (
+              <div className="w-10 h-10 rounded-full border border-gray-700 bg-gradient-to-br from-[#A020F0] to-[#7B1FA2] flex items-center justify-center text-white text-sm font-black">
+                {user?.initials ?? "?"}
+              </div>
+            )}
             <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 rounded-full border-2 border-[#111111]" />
           </div>
         )}
