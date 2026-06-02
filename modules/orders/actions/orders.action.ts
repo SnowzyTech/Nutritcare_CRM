@@ -13,7 +13,8 @@ import {
   sendDeliveryCodeTemplate,
   sendOrderDeliveredTemplate,
 } from "@/lib/whatsapp/whatsapp";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatCurrency, formatDate, generateOrderNumber } from "@/lib/utils";
+import { logActivity } from "@/modules/audit/services/audit-log.service";
 
 /** Generates a cryptographically random 6-digit numeric delivery code. */
 function generateDeliveryCode(): string {
@@ -151,6 +152,14 @@ export async function confirmOrderAction(
     }),
   ]);
 
+  await logActivity({
+    userId: session.user.id,
+    action: "Order Confirmed",
+    entityType: "Order",
+    entityId: orderId,
+    description: `Order #${order.orderNumber} confirmed`,
+  });
+
   // Send WhatsApp confirmation to customer (fire-and-forget — never throws)
   const waPhone = order.customer.whatsappNumber || order.customer.phone;
   console.log("[WhatsApp] ── confirmOrder: starting WhatsApp step ──");
@@ -206,6 +215,13 @@ export async function cancelOrderAction(orderId: string) {
   }
 
   await prisma.order.update({ where: { id: orderId }, data: { status: "CANCELLED" } });
+  await logActivity({
+    userId: session.user.id,
+    action: "Cancel",
+    entityType: "Order",
+    entityId: orderId,
+    description: `Order #${order.orderNumber} cancelled`,
+  });
   revalidateOrderPaths(orderId);
 }
 
@@ -217,6 +233,13 @@ export async function failOrderAction(orderId: string) {
   if (!order || order.status !== "CONFIRMED") throw new Error("Cannot fail this order");
 
   await prisma.order.update({ where: { id: orderId }, data: { status: "FAILED" } });
+  await logActivity({
+    userId: session.user.id,
+    action: "Failed",
+    entityType: "Order",
+    entityId: orderId,
+    description: `Order #${order.orderNumber} failed`,
+  });
   revalidateOrderPaths(orderId);
 }
 
@@ -248,6 +271,14 @@ export async function deliverOrderAction(orderId: string) {
     ...stockOps,
   ]);
 
+  await logActivity({
+    userId: session.user.id,
+    action: "Delivered",
+    entityType: "Order",
+    entityId: orderId,
+    description: `Order #${order.orderNumber} delivered`,
+  });
+
   if (order.agentId) {
     await recordDeliveryFeeEntry({
       agentId: order.agentId,
@@ -272,18 +303,77 @@ export async function deliverOrderAction(orderId: string) {
   revalidateOrderPaths(orderId);
 }
 
-export async function updateOrderTotalAction(orderId: string, totalAmount: number) {
+/**
+ * Applies a negotiated discount to an order.
+ *
+ * The sales rep enters the final price agreed with the customer (for goods,
+ * excluding delivery fee). The system derives the discount from the order's
+ * authoritative gross (sum of line totals) and records WHO applied it, WHEN,
+ * and WHY — so discounts are trackable across sales:
+ *   - totalAmount     → original gross (recomputed from line items)
+ *   - netAmount       → negotiated price
+ *   - discountAmount  → gross − negotiated price
+ *   - discountPercent → discountAmount / gross
+ *   - discountedBy/At/Reason → attribution
+ *
+ * Passing a negotiated price equal to the gross clears any existing discount.
+ */
+export async function applyOrderDiscountAction(
+  orderId: string,
+  negotiatedPrice: number,
+  reason?: string,
+): Promise<{ discountAmount: number; discountPercent: number; netAmount: number; totalAmount: number }> {
   const session = await auth();
   if (!session?.user?.id) throw new Error("Unauthorized");
 
-  const order = await getOwnedOrder(orderId, session.user.id);
-  if (!order || order.status !== "PENDING") throw new Error("Cannot update total for this order");
+  const order = await prisma.order.findFirst({
+    where: { id: orderId, salesRepId: session.user.id, deletedAt: null },
+    include: { items: { select: { lineTotal: true } } },
+  });
+  if (!order) throw new Error("Order not found");
+  if (order.status !== "PENDING" && order.status !== "CONFIRMED") {
+    throw new Error("Discounts can only be applied to pending or confirmed orders.");
+  }
+
+  // Authoritative gross = sum of line totals (don't trust a possibly-overwritten totalAmount)
+  const gross = Math.round(order.items.reduce((s, i) => s + Number(i.lineTotal), 0) * 100) / 100;
+
+  if (!Number.isFinite(negotiatedPrice) || negotiatedPrice < 0) {
+    throw new Error("Enter a valid negotiated price.");
+  }
+  if (negotiatedPrice > gross) {
+    throw new Error("Negotiated price cannot exceed the original total.");
+  }
+
+  const discountAmount = Math.round((gross - negotiatedPrice) * 100) / 100;
+  const discountPercent = gross > 0 ? Math.round((discountAmount / gross) * 10000) / 100 : 0;
+  const hasDiscount = discountAmount > 0;
 
   await prisma.order.update({
     where: { id: orderId },
-    data: { totalAmount, netAmount: totalAmount },
+    data: {
+      totalAmount: gross,
+      netAmount: negotiatedPrice,
+      discountAmount,
+      discountPercent,
+      discountedById: hasDiscount ? session.user.id : null,
+      discountReason: hasDiscount ? reason?.trim() || null : null,
+      discountedAt: hasDiscount ? new Date() : null,
+    },
   });
+
+  if (hasDiscount) {
+    await logActivity({
+      userId: session.user.id,
+      action: "Discount",
+      entityType: "Order",
+      entityId: orderId,
+      description: `Discount of ${formatCurrency(discountAmount)} (${discountPercent}%) applied to Order #${order.orderNumber}`,
+    });
+  }
+
   revalidateOrderPaths(orderId);
+  return { discountAmount, discountPercent, netAmount: negotiatedPrice, totalAmount: gross };
 }
 
 export async function reassignOrderAgentAction(orderId: string, agentId: string) {
@@ -350,9 +440,7 @@ export async function createOrderAction(input: {
     });
   }
 
-  const orderNumber = `ORD-${Date.now()}-${Math.floor(Math.random() * 1000)
-    .toString()
-    .padStart(3, "0")}`;
+  const orderNumber = generateOrderNumber();
 
   const dbProducts = await prisma.product.findMany({
     where: { id: { in: products.map((p) => p.productId) }, deletedAt: null },
@@ -441,4 +529,44 @@ export async function addOrderItemsAction(
   ]);
 
   revalidatePath(`/sales-rep/orders/${orderId}`);
+}
+
+/**
+ * Permanently removes a product line from an order (hard delete — the
+ * OrderItem row is deleted, not soft-deleted). Only allowed on pending orders,
+ * and an order must always keep at least one product. Order totals are
+ * recomputed from the remaining items, preserving any applied discount amount.
+ */
+export async function removeOrderItemAction(orderId: string, itemId: string) {
+  const session = await auth();
+  if (!session?.user?.id) throw new Error("Unauthorized");
+
+  const order = await prisma.order.findFirst({
+    where: { id: orderId, salesRepId: session.user.id, deletedAt: null },
+    include: { items: { select: { id: true, lineTotal: true } } },
+  });
+  if (!order) throw new Error("Order not found");
+  if (order.status !== "PENDING") throw new Error("Products can only be removed from pending orders.");
+
+  if (!order.items.some((i) => i.id === itemId)) throw new Error("Product not found on this order.");
+  if (order.items.length <= 1) throw new Error("An order must have at least one product.");
+
+  const remainingGross =
+    Math.round(
+      order.items.filter((i) => i.id !== itemId).reduce((s, i) => s + Number(i.lineTotal), 0) * 100,
+    ) / 100;
+  const discountAmount = Math.min(Number(order.discountAmount), remainingGross);
+  const netAmount = Math.round((remainingGross - discountAmount) * 100) / 100;
+  const discountPercent =
+    remainingGross > 0 ? Math.round((discountAmount / remainingGross) * 10000) / 100 : 0;
+
+  await prisma.$transaction([
+    prisma.orderItem.delete({ where: { id: itemId } }),
+    prisma.order.update({
+      where: { id: orderId },
+      data: { totalAmount: remainingGross, netAmount, discountAmount, discountPercent },
+    }),
+  ]);
+
+  revalidateOrderPaths(orderId);
 }

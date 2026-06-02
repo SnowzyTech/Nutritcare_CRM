@@ -47,7 +47,18 @@
       "PowerShell(npm install *)",
       "PowerShell(node -e \"console.log\\('jspdf', require\\('jspdf/package.json'\\).version\\); console.log\\('autotable', require\\('jspdf-autotable/package.json'\\).version\\)\")",
       "PowerShell(npx next lint --file \"app/\\(sales-rep\\)/sales-rep/analytics/report-buttons.tsx\" 2>&1 | Select-Object -First 20)",
-      "PowerShell(npx eslint \"app/\\(sales-rep\\)/sales-rep/analytics/report-buttons.tsx\")"
+      "PowerShell(npx eslint \"app/\\(sales-rep\\)/sales-rep/analytics/report-buttons.tsx\")",
+      "PowerShell(npx tsc --noEmit 2>&1 | Select-Object -First 40)",
+      "PowerShell($out = npx tsc --noEmit 2>&1 | Out-String; $mine = $out -split \"`n\" | Where-Object { $_ -match \"audit|auth\\\\.ts|orders\\\\.action|admin-orders|delivery-agent-portal|sales-rep.history|history.page\" }; if \\($mine\\) { $mine } else { \"NO ERRORS IN CHANGED FILES\" })",
+      "PowerShell($out = npx tsc --noEmit 2>&1 | Out-String; $mine = $out -split \"`n\" | Where-Object { $_ -match \"settings|profile-client|users.service|users.action|sales-rep\" }; if \\($mine\\) { $mine } else { \"NO ERRORS IN CHANGED FILES\" })",
+      "PowerShell($out = npx tsc --noEmit 2>&1 | Out-String; $mine = $out -split \"`n\" | Where-Object { $_ -match \"settings.page|profile-client|users\\\\.service|users\\\\.action\" }; if \\($mine\\) { $mine } else { \"NO ERRORS IN MY EDITED FILES\" })",
+      "PowerShell($out = npx tsc --noEmit 2>&1 | Out-String; $mine = $out -split \"`n\" | Where-Object { $_ -match \"orders\\\\.action|orders\\\\.service|orders/\\\\[id\\\\]|order-detail-client\" }; if \\($mine\\) { $mine } else { \"NO ERRORS IN CHANGED FILES\" })",
+      "PowerShell($out = npx tsc --noEmit 2>&1 | Out-String; $out -split \"`n\" | Where-Object { $_ -match \"error TS\" })",
+      "PowerShell($out = npx tsc --noEmit 2>&1 | Out-String; $mine = $out -split \"`n\" | Where-Object { $_ -match \"admin-orders|admin/orders|order-detail-admin\" }; if \\($mine\\) { $mine } else { \"NO ERRORS IN CHANGED FILES\" })",
+      "PowerShell($out = npx tsc --noEmit 2>&1 | Out-String; $mine = $out -split \"`n\" | Where-Object { $_ -match \"orders\\\\.action|admin-orders|order-detail-client|order-detail-admin\" }; if \\($mine\\) { $mine } else { \"NO ERRORS IN CHANGED FILES\" })",
+      "PowerShell($out = npx tsc --noEmit 2>&1 | Out-String; \\($out -split \"`n\" | Where-Object { $_ -match \"error TS\" }\\).Count)",
+      "PowerShell($out = npx tsc --noEmit 2>&1 | Out-String; \\($out -split \"`n\" | Where-Object { $_ -match \"error TS\" }\\).Count; \"----\"; $out -split \"`n\" | Where-Object { $_ -match \"error TS\" })",
+      "Bash(npx tsx *)"
     ]
   }
 }

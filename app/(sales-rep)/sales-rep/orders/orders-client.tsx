@@ -304,27 +304,27 @@ export function OrdersClient({ orders, counts, userName, products }: OrdersClien
             <span className="text-sm font-medium hidden sm:inline">Filter</span>
           </button>
           <Popover>
-            <PopoverTrigger asChild>
-              <button
-                className={`flex items-center gap-2 px-3 py-2 bg-white rounded-lg text-sm font-medium border shadow-sm ${
-                  filterDate ? 'text-purple-700 border-purple-200 bg-purple-50' : 'text-gray-600 border-gray-100 hover:text-gray-900 hover:bg-gray-50'
-                } transition-colors outline-none cursor-pointer`}
-              >
-                <CalendarIcon size={16} />
-                {filterDate ? format(filterDate, 'PP') : <span>Pick a date</span>}
-                {filterDate && (
-                  <div
-                    className="p-0.5 hover:bg-purple-200 rounded-md transition-colors"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      e.preventDefault();
-                      setFilterDate(undefined);
-                    }}
-                  >
-                    <X size={14} className="text-purple-600" />
-                  </div>
-                )}
-              </button>
+            <PopoverTrigger
+              className={`flex items-center gap-2 px-3 py-2 bg-white rounded-lg text-sm font-medium border shadow-sm ${
+                filterDate ? 'text-purple-700 border-purple-200 bg-purple-50' : 'text-gray-600 border-gray-100 hover:text-gray-900 hover:bg-gray-50'
+              } transition-colors outline-none cursor-pointer`}
+            >
+              <CalendarIcon size={16} />
+              {filterDate ? format(filterDate, 'PP') : <span>Pick a date</span>}
+              {filterDate && (
+                <span
+                  role="button"
+                  tabIndex={-1}
+                  className="p-0.5 hover:bg-purple-200 rounded-md transition-colors"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    setFilterDate(undefined);
+                  }}
+                >
+                  <X size={14} className="text-purple-600" />
+                </span>
+              )}
             </PopoverTrigger>
             <PopoverContent className="w-auto p-0 border-gray-100 shadow-xl rounded-xl" align="start">
               <Calendar

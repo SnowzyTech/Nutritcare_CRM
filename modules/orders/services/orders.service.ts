@@ -72,6 +72,34 @@ export async function getAdminOrders() {
   });
 }
 
+// Fetch all orders handled by a single sales rep (same shape as getAdminOrders).
+export async function getOrdersBySalesRep(salesRepId: string) {
+  return prisma.order.findMany({
+    where: { salesRepId, deletedAt: null },
+    orderBy: { createdAt: "desc" },
+    include: {
+      customer: { select: { name: true, email: true, state: true } },
+      agent: { select: { companyName: true, state: true } },
+      items: { include: { product: { select: { name: true } } } },
+      salesRep: { select: { name: true } },
+    },
+  });
+}
+
+// Fetch all orders handled by a single delivery agent (same shape as getAdminOrders).
+export async function getOrdersByAgent(agentId: string) {
+  return prisma.order.findMany({
+    where: { agentId, deletedAt: null },
+    orderBy: { createdAt: "desc" },
+    include: {
+      customer: { select: { name: true, email: true, state: true } },
+      agent: { select: { companyName: true, state: true } },
+      items: { include: { product: { select: { name: true } } } },
+      salesRep: { select: { name: true } },
+    },
+  });
+}
+
 // Fetch all orders belonging to a set of sales reps (a team).
 export async function getTeamOrders(memberIds: string[]) {
   if (memberIds.length === 0) return [];
@@ -107,6 +135,9 @@ export async function getOrderWithDetails(id: string) {
         include: { product: { select: { id: true, name: true, imageUrl: true } } },
       },
       salesRep: {
+        select: { id: true, name: true },
+      },
+      discountedBy: {
         select: { id: true, name: true },
       },
       deliveries: {

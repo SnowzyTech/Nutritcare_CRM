@@ -43,6 +43,11 @@ export default async function OrderDetailPage({ params }: Props) {
     totalAmount: rawOrder.totalAmount.toString(),
     netAmount: rawOrder.netAmount.toString(),
     deliveryFee: rawOrder.deliveryFee.toString(),
+    discountAmount: rawOrder.discountAmount.toString(),
+    discountPercent: rawOrder.discountPercent.toString(),
+    discountReason: rawOrder.discountReason ?? null,
+    discountedAt: rawOrder.discountedAt?.toISOString() ?? null,
+    discountedByName: rawOrder.discountedBy?.name ?? null,
     notes: rawOrder.notes ?? null,
     createdAt: rawOrder.createdAt.toISOString(),
     customer: {

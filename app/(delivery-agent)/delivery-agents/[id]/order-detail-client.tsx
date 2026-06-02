@@ -36,6 +36,7 @@ interface Order {
   orderNumber: string;
   status: OrderStatus;
   createdAt: Date;
+  deliveryDate: Date | null;
   deliveryFee: number;
   netAmount: number;
   notes: string | null;
@@ -361,6 +362,10 @@ export function OrderDetailClient({ order, user }: Props) {
           <InfoItem label="Landmark" value={order.customer.landmark ?? "—"} />
           <InfoItem label="Sales Rep" value={order.salesRep.name} />
           <InfoItem label="Sales Rep Number" value={order.salesRep.phone ?? "—"} hasCopy />
+          <InfoItem
+            label={order.status === "DELIVERED" ? "Delivered On" : "Scheduled Delivery"}
+            value={order.deliveryDate ? formatDate(order.deliveryDate) : "—"}
+          />
         </div>
 
         {/* Products */}

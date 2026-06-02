@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db/prisma";
+import { monthRanges, parseMonthParam, type MonthPeriod } from "@/lib/month-period";
 
 /**
  * Finds the best available delivery agent for an order using:
@@ -197,11 +198,8 @@ export async function softDeleteAgent(id: string) {
   return prisma.agent.update({ where: { id }, data: { deletedAt: new Date() } });
 }
 
-export async function getDeliveryAgentAnalytics(agentId: string) {
-  const now = new Date();
-  const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
+export async function getDeliveryAgentAnalytics(agentId: string, period?: MonthPeriod) {
+  const { currentStart, currentEnd, prevStart, prevEnd } = monthRanges(period ?? parseMonthParam());
 
   const allDeliveries = await prisma.delivery.findMany({
     where: { agentId },
@@ -230,8 +228,8 @@ export async function getDeliveryAgentAnalytics(agentId: string) {
     return { delivered, failed, dispatched, deliveryRate, generalPerformance, totalProductsDelivered, bestProduct };
   }
 
-  const thisMonth = allDeliveries.filter(d => d.createdAt >= thisMonthStart);
-  const lastMonth = allDeliveries.filter(d => d.createdAt >= lastMonthStart && d.createdAt <= lastMonthEnd);
+  const thisMonth = allDeliveries.filter(d => d.createdAt >= currentStart && d.createdAt <= currentEnd);
+  const lastMonth = allDeliveries.filter(d => d.createdAt >= prevStart && d.createdAt <= prevEnd);
 
   const current = computeAgentMetrics(thisMonth);
   const previous = computeAgentMetrics(lastMonth);

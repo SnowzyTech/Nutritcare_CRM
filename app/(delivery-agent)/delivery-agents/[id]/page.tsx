@@ -24,6 +24,10 @@ export default async function OrderDetailsPage({ params }: { params: Promise<{ i
     netAmount: Number(raw.netAmount),
     failureReason: raw.deliveries[0]?.failureReason ?? null,
     deliveryCode: raw.deliveries[0]?.deliveryCode ?? null,
+    deliveryDate:
+      raw.status === "DELIVERED"
+        ? raw.deliveries[0]?.deliveredTime ?? null
+        : raw.deliveries[0]?.scheduledTime ?? null,
     items: raw.items.map((item) => ({
       ...item,
       unitPrice: Number(item.unitPrice),

@@ -2,7 +2,7 @@
 
 import React, { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { X } from "lucide-react";
+import { X, Trash2 } from "lucide-react";
 import Image from "next/image";
 import { toast } from "sonner";
 import type { OrderStatus } from "@prisma/client";
@@ -13,8 +13,9 @@ import {
   failOrderAction,
   deliverOrderAction,
   addOrderItemsAction,
+  removeOrderItemAction,
   updateOrderNotesAction,
-  updateOrderTotalAction,
+  applyOrderDiscountAction,
   reassignOrderAgentAction,
 } from "@/modules/orders/actions/orders.action";
 
@@ -27,6 +28,11 @@ export type SerializedOrder = {
   totalAmount: string;
   netAmount: string;
   deliveryFee: string;
+  discountAmount: string;
+  discountPercent: string;
+  discountReason: string | null;
+  discountedAt: string | null;
+  discountedByName: string | null;
   notes: string | null;
   createdAt: string;
   customer: {
@@ -283,7 +289,10 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
   const [selectedAgentId, setSelectedAgentId] = useState("");
   const [prescription, setPrescription] = useState(order.notes ?? "");
   const [deliveryDate, setDeliveryDate] = useState("");
-  const [totalInput, setTotalInput] = useState(order.totalAmount);
+  // Negotiated final price (for goods, excluding delivery fee). Defaults to the
+  // current net so re-opening the editor shows the price already agreed.
+  const [priceInput, setPriceInput] = useState(order.netAmount);
+  const [discountReason, setDiscountReason] = useState(order.discountReason ?? "");
   const [productRows, setProductRows] = useState([
     { id: Date.now(), productId: products[0]?.id ?? "", qty: "1" },
   ]);
@@ -296,7 +305,15 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
     Number(order.deliveryFee) > 0
       ? `₦${Number(order.deliveryFee).toLocaleString("en-NG")}`
       : null;
-  const formattedTotal = `₦${Number(order.totalAmount).toLocaleString("en-NG")}`;
+  // Authoritative gross = sum of line totals
+  const grossTotal = order.items.reduce((s, i) => s + Number(i.lineTotal), 0);
+  const fmtNaira = (n: number) => `₦${n.toLocaleString("en-NG", { maximumFractionDigits: 2 })}`;
+  const formattedTotal = fmtNaira(Number(order.netAmount));
+  const canDiscount = order.status === "PENDING" || order.status === "CONFIRMED";
+  const negotiatedPrice = parseFloat(priceInput) || 0;
+  const liveDiscount = Math.max(0, Math.round((grossTotal - negotiatedPrice) * 100) / 100);
+  const liveDiscountPct = grossTotal > 0 ? Math.round((liveDiscount / grossTotal) * 10000) / 100 : 0;
+  const savedDiscount = Number(order.discountAmount);
   const primaryImage =
     order.items.find((i) => i.product.imageUrl)?.product.imageUrl ?? null;
   const productNames =
@@ -360,14 +377,15 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
           quantity: parseInt(r.qty) || 1,
         }));
       await addOrderItemsAction(order.id, items);
-      // Recalculate total from added items so the editable input reflects the new sum
+      // Added items increase both gross and net by the same amount, so bump the
+      // negotiated-price input to keep any existing discount intact.
       const added = productRows
         .filter((r) => r.productId)
         .reduce((sum, r) => {
           const price = Number(products.find((p) => p.id === r.productId)?.sellingPrice ?? 0);
           return sum + price * (parseInt(r.qty) || 1);
         }, 0);
-      setTotalInput(String(Number(totalInput) + added));
+      setPriceInput(String(Number(priceInput) + added));
       setIsAddProductOpen(false);
     }, "Products added to order");
   }
@@ -470,7 +488,7 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
                     <p className="text-xs text-gray-400 font-semibold mb-1">Quantity</p>
                     <p className="text-base sm:text-[1.1rem] font-bold text-gray-800">{item.quantity}</p>
                   </div>
-                  <div className="text-left sm:text-right">
+                  <div className="text-left sm:text-right flex items-center gap-2 sm:justify-end">
                     <button
                       onClick={() => setIsAddProductOpen(true)}
                       type="button"
@@ -478,6 +496,24 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
                     >
                       Edit Product
                     </button>
+                    {order.status === "PENDING" && order.items.length > 1 && (
+                      <button
+                        type="button"
+                        disabled={isPending}
+                        title="Remove product"
+                        onClick={() => {
+                          if (confirm(`Remove ${item.product.name} from this order?`)) {
+                            handleAction(
+                              () => removeOrderItemAction(order.id, item.id),
+                              "Product removed",
+                            );
+                          }
+                        }}
+                        className="shrink-0 p-2 rounded-lg border border-red-100 text-red-500 hover:bg-red-50 disabled:opacity-50 transition"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -571,29 +607,87 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
                 </strong>
               </span>
             </div>
-            <div className="flex justify-between items-center mt-1">
-              <span className="text-base font-bold text-gray-800">Total Price</span>
-              {order.status === "PENDING" ? (
-                <div className="flex items-center gap-2">
-                  <span className="text-base font-bold text-gray-400">₦</span>
+            {/* Pricing & negotiated discount */}
+            <div className="bg-white rounded-xl p-4 border border-gray-100 flex flex-col gap-3 mt-1">
+              <div className="flex justify-between items-center">
+                <span className="text-xs text-gray-400 font-bold uppercase tracking-wide">Original Total</span>
+                <span className={`text-sm font-bold ${savedDiscount > 0 ? "text-gray-400 line-through" : "text-gray-900"}`}>
+                  {fmtNaira(grossTotal)}
+                </span>
+              </div>
+
+              {canDiscount ? (
+                <>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm font-bold text-gray-800">Negotiated Price</span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-sm font-bold text-gray-400">₦</span>
+                      <input
+                        type="number"
+                        min="0"
+                        max={grossTotal}
+                        value={priceInput}
+                        onChange={(e) => setPriceInput(e.target.value)}
+                        className="w-32 text-right text-base font-bold text-gray-900 border border-gray-200 rounded-lg px-2 py-1 outline-none focus:border-purple-400"
+                      />
+                    </div>
+                  </div>
+
                   <input
-                    type="number"
-                    min="0"
-                    value={totalInput}
-                    onChange={(e) => setTotalInput(e.target.value)}
-                    onBlur={() =>
+                    type="text"
+                    value={discountReason}
+                    onChange={(e) => setDiscountReason(e.target.value)}
+                    placeholder="Reason for discount (optional)"
+                    className="w-full text-xs text-gray-700 border border-gray-200 rounded-lg px-3 py-2 outline-none focus:border-purple-400 placeholder:text-gray-300"
+                  />
+
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-gray-400 font-bold uppercase tracking-wide">Discount</span>
+                    <span className={`font-bold ${liveDiscount > 0 ? "text-emerald-600" : "text-gray-400"}`}>
+                      {liveDiscount > 0 ? `${fmtNaira(liveDiscount)} (${liveDiscountPct}%)` : "—"}
+                    </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={isPending || negotiatedPrice > grossTotal || priceInput === ""}
+                    onClick={() =>
                       handleAction(
-                        () => updateOrderTotalAction(order.id, parseFloat(totalInput) || 0),
-                        "Total updated"
+                        async () => {
+                          await applyOrderDiscountAction(order.id, negotiatedPrice, discountReason);
+                        },
+                        liveDiscount > 0 ? "Discount applied" : "Price updated"
                       )
                     }
-                    className="w-32 text-right text-base font-bold text-gray-900 border border-gray-200 rounded-lg px-2 py-1 outline-none focus:border-purple-400"
-                  />
-                </div>
+                    className="w-full bg-[#A020F0] text-white text-sm font-bold py-2 rounded-lg hover:bg-[#8B1ED2] disabled:opacity-50 transition"
+                  >
+                    {isPending ? "Saving…" : liveDiscount > 0 ? "Apply Discount" : "Save Price"}
+                  </button>
+                </>
               ) : (
-                <span className="text-lg font-black text-gray-900">
-                  {formattedTotal}
+                savedDiscount > 0 && (
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-gray-400 font-bold uppercase tracking-wide">Discount</span>
+                    <span className="font-bold text-emerald-600">
+                      {fmtNaira(savedDiscount)} ({Number(order.discountPercent)}%)
+                    </span>
+                  </div>
+                )
+              )}
+
+              <div className="flex justify-between items-center border-t border-gray-100 pt-3">
+                <span className="text-base font-bold text-gray-800">
+                  {canDiscount ? "Net Total" : "Total Price"}
                 </span>
+                <span className="text-lg font-black text-gray-900">{formattedTotal}</span>
+              </div>
+
+              {savedDiscount > 0 && order.discountedByName && (
+                <p className="text-[11px] text-gray-400">
+                  Discount by <span className="font-bold text-gray-600">{order.discountedByName}</span>
+                  {order.discountReason ? ` · ${order.discountReason}` : ""}
+                  {order.discountedAt ? ` · ${new Date(order.discountedAt).toLocaleDateString("en-NG")}` : ""}
+                </p>
               )}
             </div>
 

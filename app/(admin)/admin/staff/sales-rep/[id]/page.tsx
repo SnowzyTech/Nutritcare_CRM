@@ -1,11 +1,16 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { ChevronDown, ChevronRight, UserCircle, LayoutDashboard, ArrowRight } from "lucide-react";
-import { getSalesRepById, getSalesRepOrderSummary, getAllTeams } from "@/modules/users/services/users.service";
+import { UserCircle, LayoutDashboard, ArrowRight } from "lucide-react";
+import { getSalesRepById, getSalesRepOrderSummary, getSalesRepAnalytics, getAllTeams } from "@/modules/users/services/users.service";
+import { parseMonthParam } from "@/lib/month-period";
+import { MonthFilter } from "@/components/admin/month-filter";
 import SalesRepDetailClient from "./sales-rep-detail-client";
 
-type Props = { params: Promise<{ id: string }> };
+type Props = {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ month?: string }>;
+};
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { id } = await params;
@@ -13,24 +18,22 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   return { title: rep ? `${rep.name} — Sales Rep` : "Sales Rep" };
 }
 
-export default async function SalesRepDetailPage({ params }: Props) {
+export default async function SalesRepDetailPage({ params, searchParams }: Props) {
   const { id } = await params;
-  const [rep, orderSummary, teams] = await Promise.all([
+  const period = parseMonthParam((await searchParams).month);
+  const [rep, orderSummary, analytics, teams] = await Promise.all([
     getSalesRepById(id),
     getSalesRepOrderSummary(id),
+    getSalesRepAnalytics(id, period),
     getAllTeams(),
   ]);
 
   if (!rep) notFound();
 
   const firstName = rep.name.split(" ")[0];
-  const dispatched = orderSummary.delivered + orderSummary.failed;
-  const deliveryRate = dispatched > 0 ? Math.round((orderSummary.delivered / dispatched) * 100) : 0;
-  const total = orderSummary.total;
-  const confirmationRate = total > 0
-    ? Math.round(((orderSummary.confirmed + orderSummary.delivered) / total) * 100)
-    : 0;
-  const generalPerformance = Math.round(deliveryRate * 0.6 + confirmationRate * 0.4);
+  const { current, trends } = analytics;
+  const deliveryRate = current.deliveryRate;
+  const generalPerformance = current.generalPerformance;
 
   return (
     <div className="max-w-[1200px] mx-auto pb-20">
@@ -72,7 +75,7 @@ export default async function SalesRepDetailPage({ params }: Props) {
           ))}
         </div>
         <Link
-          href={`/admin/orders`}
+          href={`/admin/staff/sales-rep/${id}/orders`}
           className="inline-block bg-purple-50 hover:bg-purple-100 text-purple-600 px-6 py-2.5 rounded-lg text-sm font-bold transition-colors no-underline"
         >
           See All Orders
@@ -168,13 +171,11 @@ export default async function SalesRepDetailPage({ params }: Props) {
           <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
             <div className="flex justify-between items-center mb-6">
               <span className="text-sm font-bold text-gray-700">General Performance</span>
-              <div className="flex items-center gap-1.5 bg-gray-50 px-3 py-1.5 rounded-lg text-xs font-medium text-gray-500 border border-gray-200">
-                This Month <ChevronDown size={12} />
-              </div>
+              <MonthFilter />
             </div>
             <div className="flex justify-between items-end">
               <span className="text-4xl font-bold text-gray-600 leading-none">{generalPerformance}%</span>
-              <span className="text-sm font-bold text-green-500">+12% <span className="text-gray-400 font-medium">vs last month</span></span>
+              <span className={`text-sm font-bold ${trends.generalPerformance.startsWith("-") ? "text-rose-500" : "text-green-500"}`}>{trends.generalPerformance} <span className="text-gray-400 font-medium">vs last month</span></span>
             </div>
           </div>
 
@@ -182,13 +183,11 @@ export default async function SalesRepDetailPage({ params }: Props) {
           <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
             <div className="flex justify-between items-center mb-6">
               <span className="text-sm font-bold text-gray-700">Delivery Rate</span>
-              <div className="flex items-center gap-1.5 bg-gray-50 px-3 py-1.5 rounded-lg text-xs font-medium text-gray-500 border border-gray-200">
-                This Month <ChevronDown size={12} />
-              </div>
+              <MonthFilter />
             </div>
             <div className="flex justify-between items-end">
               <span className="text-4xl font-bold text-gray-600 leading-none">{deliveryRate}%</span>
-              <span className="text-sm font-bold text-green-500">+12% <span className="text-gray-400 font-medium">vs last month</span></span>
+              <span className={`text-sm font-bold ${trends.deliveryRate.startsWith("-") ? "text-rose-500" : "text-green-500"}`}>{trends.deliveryRate} <span className="text-gray-400 font-medium">vs last month</span></span>
             </div>
           </div>
 
@@ -210,7 +209,7 @@ export default async function SalesRepDetailPage({ params }: Props) {
 
             <div className="flex items-center gap-3 mb-4">
               <div className="w-4 h-4 rounded bg-blue-500"></div>
-              <span className="text-xl font-bold text-gray-800 leading-none">{orderSummary.delivered}</span>
+              <span className="text-xl font-bold text-gray-800 leading-none">{current.delivered}</span>
               <span className="text-xs text-gray-400 font-medium mt-0.5">Sale</span>
             </div>
 

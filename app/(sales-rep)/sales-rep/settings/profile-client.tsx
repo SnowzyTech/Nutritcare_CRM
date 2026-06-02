@@ -1,15 +1,15 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { 
-  CheckCircle2, 
-  Plus, 
-  MessageSquare, 
-  ChevronDown, 
-  X
+import {
+  CheckCircle2,
+  Plus,
+  MessageSquare,
+  X,
+  Camera,
 } from "lucide-react";
 import { updateProfileAction } from "@/modules/users/actions/users.action";
 
@@ -22,93 +22,168 @@ type Profile = {
   role: string;
   createdAt: Date;
   avatarUrl?: string | null;
+  teamName?: string | null;
 };
 
-// 12 Months mapping for metrics
-const MONTHS = [
-  "January", "February", "March", "April", "May", "June", 
-  "July", "August", "September", "October", "November", "December"
-];
-
-// High fidelity performance data for month switching
-const performanceData: Record<string, { value: string; diff: string; isPositive: boolean }> = {
-  "January": { value: "72%", diff: "+5%", isPositive: true },
-  "February": { value: "75%", diff: "+3%", isPositive: true },
-  "March": { value: "85%", diff: "+10%", isPositive: true },
-  "April": { value: "78%", diff: "-7%", isPositive: false },
-  "May": { value: "80%", diff: "+12%", isPositive: true },
-  "June": { value: "83%", diff: "+3%", isPositive: true },
-  "July": { value: "79%", diff: "-4%", isPositive: false },
-  "August": { value: "81%", diff: "+2%", isPositive: true },
-  "September": { value: "84%", diff: "+3%", isPositive: true },
-  "October": { value: "86%", diff: "+2%", isPositive: true },
-  "November": { value: "88%", diff: "+2%", isPositive: true },
-  "December": { value: "90%", diff: "+2%", isPositive: true }
+type Metrics = {
+  generalPerformance: number;
+  deliveryRate: number;
+  confirmationRate: number;
+  performanceTrend: string;
+  deliveryTrend: string;
 };
 
-// High fidelity delivery rate data for month switching
-const deliveryData: Record<string, { value: string; diff: string; isPositive: boolean }> = {
-  "January": { value: "70%", diff: "+2%", isPositive: true },
-  "February": { value: "72%", diff: "+2%", isPositive: true },
-  "March": { value: "74%", diff: "+2%", isPositive: true },
-  "April": { value: "75%", diff: "+1%", isPositive: true },
-  "May": { value: "78%", diff: "+12%", isPositive: true },
-  "June": { value: "80%", diff: "+2%", isPositive: true },
-  "July": { value: "76%", diff: "-4%", isPositive: false },
-  "August": { value: "77%", diff: "+1%", isPositive: true },
-  "September": { value: "79%", diff: "+2%", isPositive: true },
-  "October": { value: "82%", diff: "+3%", isPositive: true },
-  "November": { value: "83%", diff: "+1%", isPositive: true },
-  "December": { value: "85%", diff: "+2%", isPositive: true }
-};
+/** Classifies a trend label ("+5%", "-7%", "—") for colour styling. */
+function trendTone(trend: string): "up" | "down" | "flat" {
+  if (trend.startsWith("-")) return "down";
+  if (trend === "—" || trend === "+0%") return "flat";
+  return "up";
+}
 
-export function ProfileClient({ profile }: { profile: Profile }) {
-  // General Performance month selection states
-  const [selectedPerfMonth, setSelectedPerfMonth] = useState("May");
-  const [isPerfDropdownOpen, setIsPerfDropdownOpen] = useState(false);
+/**
+ * Reads an image File and returns a downscaled JPEG data URL (max 256×256).
+ * Keeps the stored avatar small enough for the `avatarUrl` text column while
+ * avoiding the need for external blob storage.
+ */
+function resizeImageToDataUrl(file: File, max = 256): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Failed to read file"));
+    reader.onload = () => {
+      const img = new window.Image();
+      img.onerror = () => reject(new Error("Failed to load image"));
+      img.onload = () => {
+        const scale = Math.min(max / img.width, max / img.height, 1);
+        const width = Math.round(img.width * scale);
+        const height = Math.round(img.height * scale);
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return reject(new Error("Canvas not supported"));
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL("image/jpeg", 0.85));
+      };
+      img.src = reader.result as string;
+    };
+    reader.readAsDataURL(file);
+  });
+}
 
-  // Delivery Rate month selection states
-  const [selectedDelivMonth, setSelectedDelivMonth] = useState("May");
-  const [isDelivDropdownOpen, setIsDelivDropdownOpen] = useState(false);
+function MetricCard({
+  label,
+  value,
+  trend,
+}: {
+  label: string;
+  value: number;
+  trend: string;
+}) {
+  const tone = trendTone(trend);
+  return (
+    <div className="bg-white p-5 sm:p-6 rounded-2xl border border-gray-100 shadow-[0_4px_20px_rgb(0,0,0,0.01)] space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-sm font-bold text-gray-800">{label}</span>
+        <span className="px-3 py-1 rounded-lg bg-gray-50 border border-gray-100 text-[11px] font-extrabold text-[#A020F0]">
+          This Month
+        </span>
+      </div>
+      <div className="flex flex-wrap items-baseline justify-between gap-2 pt-2">
+        <span className="text-4xl sm:text-5xl font-black text-gray-900 tracking-tight">
+          {value}%
+        </span>
+        <span
+          className={`text-[10px] sm:text-xs font-bold px-2 py-0.5 rounded-md ${
+            tone === "up"
+              ? "text-[#10B981] bg-[#EBFDF5]"
+              : tone === "down"
+                ? "text-[#EF4444] bg-[#FDF2F2]"
+                : "text-gray-500 bg-gray-50"
+          }`}
+        >
+          {trend} <span className="text-gray-400 font-normal ml-0.5">vs last month</span>
+        </span>
+      </div>
+    </div>
+  );
+}
 
+export function ProfileClient({ profile, metrics }: { profile: Profile; metrics: Metrics }) {
   // Form edit states
   const [name, setName] = useState(profile.name);
   const [phone, setPhone] = useState(profile.phone ?? "");
   const [whatsapp, setWhatsapp] = useState(profile.whatsappNumber ?? "");
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(profile.avatarUrl ?? null);
+  // Pending avatar selected in the modal but not yet saved
+  const [pendingAvatar, setPendingAvatar] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Fallbacks matching mockup screenshot
-  const displayPhone = phone || "091524472657";
-  const displayWhatsapp = whatsapp || "091524472657";
-  const displayEmail = profile.email || "blessinghiejie@gamail.com";
-  const displayFirstName = name.split(" ")[0] || "Blessing";
+  const fallbackAvatar = `https://ui-avatars.com/api/?name=${encodeURIComponent(
+    name || "User"
+  )}&background=F3E8FF&color=A020F0&size=128&font-size=0.35&bold=true`;
 
-  // Active metrics based on dynamic dropdown switches
-  const activePerf = performanceData[selectedPerfMonth] || performanceData["May"];
-  const activeDeliv = deliveryData[selectedDelivMonth] || deliveryData["May"];
+  const displayPhone = phone || "Not set";
+  const displayWhatsapp = whatsapp || "Not set";
+  const displayEmail = profile.email || "Not set";
+  const displayTeam = profile.teamName || "Unassigned";
+  const displayFirstName = name.split(" ")[0] || "You";
+  const modalAvatar = pendingAvatar ?? avatarUrl ?? fallbackAvatar;
+
+  const openEditModal = () => {
+    setPendingAvatar(null);
+    setError(null);
+    setIsEditModalOpen(true);
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-selecting the same file
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please select an image file.");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Image must be smaller than 5MB.");
+      return;
+    }
+    try {
+      const dataUrl = await resizeImageToDataUrl(file);
+      setPendingAvatar(dataUrl);
+    } catch {
+      toast.error("Could not process that image. Try another one.");
+    }
+  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setSuccess(false);
-    if (!name.trim()) { 
-      setError("Name is required."); 
-      return; 
+    if (!name.trim()) {
+      setError("Name is required.");
+      return;
     }
     setLoading(true);
     const result = await updateProfileAction({
       name: name.trim(),
       phone: phone.trim() || undefined,
       whatsappNumber: whatsapp.trim() || undefined,
+      // Only send the avatar when a new one was picked
+      ...(pendingAvatar ? { avatarUrl: pendingAvatar } : {}),
     });
     setLoading(false);
     if ("error" in result) {
       setError(result.error);
       toast.error(result.error);
     } else {
+      if (pendingAvatar) {
+        setAvatarUrl(pendingAvatar);
+        setPendingAvatar(null);
+      }
       toast.success("Profile updated successfully");
       setSuccess(true);
       setIsEditModalOpen(false);
@@ -122,16 +197,14 @@ export function ProfileClient({ profile }: { profile: Profile }) {
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-0">
         <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-900 tracking-tight">My Profile</h1>
         <div className="flex items-center justify-end w-full sm:w-auto gap-3">
-          {/* Quick-action 1: Plus Button */}
-          <button 
+          <button
             className="w-10 h-10 rounded-full bg-[#A020F0] text-white flex items-center justify-center shadow-lg shadow-purple-100 hover:bg-[#8B1ED2] active:scale-95 transition-all duration-200"
             title="Create new order"
-            onClick={() => window.location.href = "/sales-rep/orders"}
+            onClick={() => (window.location.href = "/sales-rep/orders")}
           >
             <Plus className="w-5 h-5 stroke-[2.5]" />
           </button>
-          {/* Quick-action 2: Chat Button */}
-          <button 
+          <button
             className="w-10 h-10 rounded-full bg-[#A020F0] text-white flex items-center justify-center shadow-lg shadow-purple-100 hover:bg-[#8B1ED2] active:scale-95 transition-all duration-200"
             title="Chat/Messages"
           >
@@ -140,7 +213,7 @@ export function ProfileClient({ profile }: { profile: Profile }) {
         </div>
       </div>
 
-      {/* Main Profile Area Container (Full Width Open Card) */}
+      {/* Main Profile Area Container */}
       <div className="bg-white rounded-2xl sm:rounded-[24px] border border-gray-100 shadow-[0_8px_30px_rgb(0,0,0,0.02)] p-4 sm:p-8 min-h-[500px]">
         <div className="flex-1 min-w-0">
           {success && (
@@ -152,22 +225,23 @@ export function ProfileClient({ profile }: { profile: Profile }) {
 
           <div className="space-y-8">
             {/* Upper Section: Avatar, Basic Info, and KPI */}
-      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 sm:gap-6 bg-gradient-to-r from-gray-50/50 to-transparent p-4 sm:p-5 rounded-2xl border border-gray-100/50">
-        <div className="flex flex-col items-center gap-4 sm:gap-5 w-full md:w-auto">
-                {/* Circular Avatar with '+' button overlay */}
+            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 sm:gap-6 bg-gradient-to-r from-gray-50/50 to-transparent p-4 sm:p-5 rounded-2xl border border-gray-100/50">
+              <div className="flex flex-col items-center gap-4 sm:gap-5 w-full md:w-auto">
+                {/* Circular Avatar with edit button overlay */}
                 <div className="relative group shrink-0">
                   <div className="w-20 h-20 rounded-full overflow-hidden border-2 border-white shadow-md bg-purple-50">
-                    <img 
-                      src={profile.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=F3E8FF&color=A020F0&size=128&font-size=0.35&bold=true`} 
-                      alt="Avatar" 
+                    <img
+                      src={avatarUrl || fallbackAvatar}
+                      alt="Avatar"
                       className="w-full h-full object-cover"
                     />
                   </div>
-                  <button 
-                    onClick={() => setIsEditModalOpen(true)}
+                  <button
+                    onClick={openEditModal}
                     className="absolute bottom-0 right-0 w-6 h-6 rounded-full bg-white border border-gray-100 flex items-center justify-center shadow-md text-gray-500 hover:text-purple-600 hover:scale-105 active:scale-95 transition-all duration-200"
+                    title="Edit profile picture"
                   >
-                    <Plus className="w-4 h-4 stroke-[3]" />
+                    <Camera className="w-3.5 h-3.5" />
                   </button>
                 </div>
 
@@ -175,7 +249,7 @@ export function ProfileClient({ profile }: { profile: Profile }) {
                 <div className="space-y-1">
                   <h2 className="text-2xl font-bold text-gray-900 leading-tight">{name}</h2>
                   <p className="text-sm font-medium text-gray-400">
-                    Sales Rep <span className="text-gray-900 font-bold ml-1">Team 2</span>
+                    Sales Rep <span className="text-gray-900 font-bold ml-1">{displayTeam}</span>
                   </p>
                   <div className="pt-1">
                     <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-[#EBFDF5] text-[#10B981] border border-[#A7F3D0]/30">
@@ -186,23 +260,17 @@ export function ProfileClient({ profile }: { profile: Profile }) {
                 </div>
               </div>
 
-              {/* KPI Widget */}
+              {/* KPI Widget — real general-performance score */}
               <div className="flex items-center justify-between md:justify-end gap-6 bg-white p-4 rounded-xl border border-gray-100 shadow-sm md:w-auto w-full shrink-0">
                 <div className="text-left space-y-0.5">
-                  <p className="text-[11px] font-medium text-gray-400">
-                    {displayFirstName}&apos;s KPI for this
-                  </p>
-                  <p className="text-[11px] font-medium text-gray-400">
-                    month is <span className="font-extrabold text-gray-900">XXXXX</span>
-                  </p>
+                  <p className="text-[11px] font-medium text-gray-400">{displayFirstName}&apos;s KPI</p>
+                  <p className="text-[11px] font-medium text-gray-400">for this month</p>
                 </div>
                 <div className="text-right space-y-0.5">
                   <span className="text-2xl font-extrabold text-[#10B981] leading-none block">
-                    50%
+                    {metrics.generalPerformance}%
                   </span>
-                  <span className="text-[10px] font-semibold text-gray-400 block">
-                    achieved
-                  </span>
+                  <span className="text-[10px] font-semibold text-gray-400 block">achieved</span>
                 </div>
               </div>
             </div>
@@ -210,7 +278,7 @@ export function ProfileClient({ profile }: { profile: Profile }) {
             {/* Purple Separator Line */}
             <div className="border-t border-[#F3E8FF] my-1"></div>
 
-            {/* Profile Details List */}
+            {/* Profile Details List — real data */}
             <div className="space-y-4">
               <div className="flex items-center justify-between py-2.5 border-b border-gray-50 text-sm">
                 <span className="text-gray-400 font-medium">Phone Number</span>
@@ -226,137 +294,32 @@ export function ProfileClient({ profile }: { profile: Profile }) {
               </div>
               <div className="flex items-center justify-between py-2.5 text-sm">
                 <span className="text-gray-400 font-medium">Team</span>
-                <span className="text-gray-800 font-bold">Team 1</span>
+                <span className="text-gray-800 font-bold">{displayTeam}</span>
               </div>
             </div>
 
             {/* Edit Button */}
             <div className="pt-2 w-full sm:w-auto">
               <button
-                onClick={() => setIsEditModalOpen(true)}
+                onClick={openEditModal}
                 className="w-full sm:w-auto px-8 py-2.5 sm:py-2 rounded-xl border-2 border-[#A020F0] text-[#A020F0] font-bold text-sm hover:bg-[#F3E8FF] active:scale-98 transition-all duration-200"
               >
                 Edit
               </button>
             </div>
 
-            {/* Metrics Grid */}
+            {/* Metrics Grid — real computed metrics */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 pt-4">
-              {/* General Performance Card with month switching dropdown */}
-              <div className="bg-white p-5 sm:p-6 rounded-2xl border border-gray-100 shadow-[0_4px_20px_rgb(0,0,0,0.01)] space-y-4">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-sm font-bold text-gray-800">General Performance</span>
-                  
-                  {/* Custom Month Selector Dropdown */}
-                  <div className="relative">
-                    <button 
-                      onClick={() => setIsPerfDropdownOpen(!isPerfDropdownOpen)}
-                      className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-gray-50 border border-gray-100 text-[11px] font-extrabold text-[#A020F0] hover:bg-gray-100 transition active:scale-95 duration-150"
-                    >
-                      {selectedPerfMonth === "May" ? "This Month" : selectedPerfMonth}
-                      <ChevronDown className="w-3.5 h-3.5 text-gray-400" />
-                    </button>
-                    {isPerfDropdownOpen && (
-                      <>
-                        <div 
-                          className="fixed inset-0 z-10" 
-                          onClick={() => setIsPerfDropdownOpen(false)}
-                        ></div>
-                        <div className="absolute right-0 mt-1.5 w-36 max-h-52 overflow-y-auto bg-white border border-gray-100 rounded-xl shadow-xl z-20 py-1.5 scrollbar-none animate-in fade-in slide-in-from-top-1 duration-150">
-                          {MONTHS.map(month => (
-                            <button
-                              key={month}
-                              type="button"
-                              onClick={() => {
-                                setSelectedPerfMonth(month);
-                                setIsPerfDropdownOpen(false);
-                              }}
-                              className={`w-full text-left px-4 py-2 text-[11px] font-bold transition-colors ${
-                                selectedPerfMonth === month 
-                                  ? "bg-purple-50 text-[#A020F0]" 
-                                  : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
-                              }`}
-                            >
-                              {month === "May" ? "This Month (May)" : month}
-                            </button>
-                          ))}
-                        </div>
-                      </>
-                    )}
-                  </div>
-                </div>
-                
-                <div className="flex flex-wrap items-baseline justify-between gap-2 pt-2">
-                  <span className="text-4xl sm:text-5xl font-black text-gray-900 tracking-tight transition-all duration-200">
-                    {activePerf.value}
-                  </span>
-                  <span className={`text-[10px] sm:text-xs font-bold px-2 py-0.5 rounded-md transition-all duration-200 ${
-                    activePerf.isPositive 
-                      ? "text-[#10B981] bg-[#EBFDF5]" 
-                      : "text-[#EF4444] bg-[#FDF2F2]"
-                  }`}>
-                    {activePerf.diff} <span className="text-gray-400 font-normal ml-0.5">vs last month</span>
-                  </span>
-                </div>
-              </div>
-
-              {/* Delivery Rate Card with month switching dropdown */}
-              <div className="bg-white p-5 sm:p-6 rounded-2xl border border-gray-100 shadow-[0_4px_20px_rgb(0,0,0,0.01)] space-y-4">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-sm font-bold text-gray-800">Delivery Rate</span>
-                  
-                  {/* Delivery Month Selector Dropdown */}
-                  <div className="relative">
-                    <button 
-                      onClick={() => setIsDelivDropdownOpen(!isDelivDropdownOpen)}
-                      className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-gray-50 border border-gray-100 text-[11px] font-extrabold text-[#A020F0] hover:bg-gray-100 transition active:scale-95 duration-150"
-                    >
-                      {selectedDelivMonth === "May" ? "This Month" : selectedDelivMonth}
-                      <ChevronDown className="w-3.5 h-3.5 text-gray-400" />
-                    </button>
-                    {isDelivDropdownOpen && (
-                      <>
-                        <div 
-                          className="fixed inset-0 z-10" 
-                          onClick={() => setIsDelivDropdownOpen(false)}
-                        ></div>
-                        <div className="absolute right-0 mt-1.5 w-36 max-h-52 overflow-y-auto bg-white border border-gray-100 rounded-xl shadow-xl z-20 py-1.5 scrollbar-none animate-in fade-in slide-in-from-top-1 duration-150">
-                          {MONTHS.map(month => (
-                            <button
-                              key={month}
-                              type="button"
-                              onClick={() => {
-                                setSelectedDelivMonth(month);
-                                setIsDelivDropdownOpen(false);
-                              }}
-                              className={`w-full text-left px-4 py-2 text-[11px] font-bold transition-colors ${
-                                selectedDelivMonth === month 
-                                  ? "bg-purple-50 text-[#A020F0]" 
-                                  : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
-                              }`}
-                            >
-                              {month === "May" ? "This Month (May)" : month}
-                            </button>
-                          ))}
-                        </div>
-                      </>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex flex-wrap items-baseline justify-between gap-2 pt-2">
-                  <span className="text-4xl sm:text-5xl font-black text-gray-900 tracking-tight transition-all duration-200">
-                    {activeDeliv.value}
-                  </span>
-                  <span className={`text-[10px] sm:text-xs font-bold px-2 py-0.5 rounded-md transition-all duration-200 ${
-                    activeDeliv.isPositive 
-                      ? "text-[#10B981] bg-[#EBFDF5]" 
-                      : "text-[#EF4444] bg-[#FDF2F2]"
-                  }`}>
-                    {activeDeliv.diff} <span className="text-gray-400 font-normal ml-0.5">vs last month</span>
-                  </span>
-                </div>
-              </div>
+              <MetricCard
+                label="General Performance"
+                value={metrics.generalPerformance}
+                trend={metrics.performanceTrend}
+              />
+              <MetricCard
+                label="Delivery Rate"
+                value={metrics.deliveryRate}
+                trend={metrics.deliveryTrend}
+              />
             </div>
           </div>
         </div>
@@ -365,21 +328,19 @@ export function ProfileClient({ profile }: { profile: Profile }) {
       {/* Edit Profile Modal Dialog */}
       {isEditModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          {/* Backdrop blur & fade */}
-          <div 
+          <div
             className="fixed inset-0 bg-gray-900/50 backdrop-blur-sm transition-opacity duration-300"
             onClick={() => setIsEditModalOpen(false)}
           ></div>
 
-          {/* Modal Container Card */}
-          <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden border border-gray-100 animate-in fade-in zoom-in-95 duration-200">
+          <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden border border-gray-100 animate-in fade-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
             {/* Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
               <div>
                 <h3 className="text-lg font-bold text-gray-900">Edit Profile</h3>
                 <p className="text-xs text-gray-400 mt-0.5">Modify your details. Unsaved changes will be lost.</p>
               </div>
-              <button 
+              <button
                 onClick={() => setIsEditModalOpen(false)}
                 className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition"
               >
@@ -396,13 +357,38 @@ export function ProfileClient({ profile }: { profile: Profile }) {
                   </p>
                 )}
 
+                {/* Profile picture uploader */}
+                <div className="flex items-center gap-4">
+                  <div className="w-20 h-20 rounded-full overflow-hidden border-2 border-white shadow-md bg-purple-50 shrink-0">
+                    <img src={modalAvatar} alt="Avatar preview" className="w-full h-full object-cover" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={handleFileChange}
+                      className="hidden"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border-2 border-[#A020F0] text-[#A020F0] font-bold text-xs hover:bg-[#F3E8FF] active:scale-95 transition"
+                    >
+                      <Camera className="w-4 h-4" />
+                      {avatarUrl || pendingAvatar ? "Change Photo" : "Upload Photo"}
+                    </button>
+                    <p className="text-[10px] text-gray-400">JPG or PNG, up to 5MB.</p>
+                  </div>
+                </div>
+
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">
                     Full Name <span className="text-red-500">*</span>
                   </label>
                   <Input
                     value={name}
-                    onChange={e => setName(e.target.value)}
+                    onChange={(e) => setName(e.target.value)}
                     placeholder="Enter your name"
                     className="bg-white border-gray-200 h-11 text-xs"
                     required
@@ -422,8 +408,8 @@ export function ProfileClient({ profile }: { profile: Profile }) {
                   <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Phone Number</label>
                   <Input
                     value={phone}
-                    onChange={e => setPhone(e.target.value)}
-                    placeholder="e.g. 091524472657"
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="e.g. 09152447265"
                     className="bg-white border-gray-200 h-11 text-xs"
                   />
                 </div>
@@ -432,8 +418,8 @@ export function ProfileClient({ profile }: { profile: Profile }) {
                   <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">WhatsApp Number</label>
                   <Input
                     value={whatsapp}
-                    onChange={e => setWhatsapp(e.target.value)}
-                    placeholder="e.g. 091524472657"
+                    onChange={(e) => setWhatsapp(e.target.value)}
+                    placeholder="e.g. 09152447265"
                     className="bg-white border-gray-200 h-11 text-xs"
                   />
                 </div>

@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import bcryptjs from "bcryptjs";
 import { getAgentIdByUserId } from "@/modules/delivery/services/delivery-agent-portal.service";
 import { recordDeliveryFeeEntry } from "@/modules/finance/services/agent-settlement.service";
+import { logActivity } from "@/modules/audit/services/audit-log.service";
 
 export async function updateAgentProfileAction(data: {
   name: string;
@@ -127,6 +128,15 @@ export async function markOrderDeliveredAction(orderId: string, deliveryCode: st
     date: order.date,
   });
 
+  // Log against the order's sales rep so it surfaces in their History page
+  await logActivity({
+    userId: order.salesRepId,
+    action: "Delivered",
+    entityType: "Order",
+    entityId: orderId,
+    description: `Order #${order.orderNumber} delivered`,
+  });
+
   revalidatePath("/delivery-agents");
   revalidatePath(`/delivery-agents/${orderId}`);
   return { success: true };
@@ -151,6 +161,15 @@ export async function markOrderFailedAction(orderId: string, failureReason: stri
       data: { status: "FAILED", failureReason },
     }),
   ]);
+
+  // Log against the order's sales rep so it surfaces in their History page
+  await logActivity({
+    userId: order.salesRepId,
+    action: "Failed",
+    entityType: "Order",
+    entityId: orderId,
+    description: `Order #${order.orderNumber} failed`,
+  });
 
   revalidatePath("/delivery-agents");
   revalidatePath(`/delivery-agents/${orderId}`);

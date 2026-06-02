@@ -1,11 +1,16 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { ChevronDown, ChevronRight, UserCircle, LayoutDashboard, ArrowRight } from "lucide-react";
+import { UserCircle, LayoutDashboard, ArrowRight } from "lucide-react";
 import { getDeliveryAgentById, getDeliveryAgentOrderSummary, getDeliveryAgentAnalytics } from "@/modules/delivery/services/agents.service";
+import { parseMonthParam } from "@/lib/month-period";
+import { MonthFilter } from "@/components/admin/month-filter";
 import DeliveryAgentDetailClient from "./delivery-agent-detail-client";
 
-type Props = { params: Promise<{ id: string }> };
+type Props = {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ month?: string }>;
+};
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { id } = await params;
@@ -13,12 +18,13 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   return { title: agent ? `${agent.companyName} — Delivery Agent` : "Delivery Agent" };
 }
 
-export default async function DeliveryAgentDetailPage({ params }: Props) {
+export default async function DeliveryAgentDetailPage({ params, searchParams }: Props) {
   const { id } = await params;
+  const period = parseMonthParam((await searchParams).month);
   const [agent, summary, analytics] = await Promise.all([
     getDeliveryAgentById(id),
     getDeliveryAgentOrderSummary(id),
-    getDeliveryAgentAnalytics(id),
+    getDeliveryAgentAnalytics(id, period),
   ]);
 
   if (!agent) notFound();
@@ -64,7 +70,7 @@ export default async function DeliveryAgentDetailPage({ params }: Props) {
           ))}
         </div>
         <Link
-          href={`/admin/orders`}
+          href={`/admin/staff/delivery-agent/${id}/orders`}
           className="inline-block bg-purple-50 hover:bg-purple-100 text-purple-600 px-6 py-2.5 rounded-lg text-sm font-bold transition-colors no-underline"
         >
           See All Orders
@@ -148,13 +154,11 @@ export default async function DeliveryAgentDetailPage({ params }: Props) {
           <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
             <div className="flex justify-between items-center mb-6">
               <span className="text-sm font-bold text-gray-700">General Performance</span>
-              <div className="flex items-center gap-1.5 bg-gray-50 px-3 py-1.5 rounded-lg text-xs font-medium text-gray-500 border border-gray-200">
-                This Month <ChevronDown size={12} />
-              </div>
+              <MonthFilter />
             </div>
             <div className="flex justify-between items-end">
               <span className="text-4xl font-bold text-gray-600 leading-none">{current.generalPerformance}%</span>
-              <span className="text-sm font-bold text-green-500">+{analytics.trends.generalPerformance}% <span className="text-gray-400 font-medium">vs last month</span></span>
+              <span className={`text-sm font-bold ${analytics.trends.generalPerformance.startsWith("-") ? "text-rose-500" : "text-green-500"}`}>{analytics.trends.generalPerformance} <span className="text-gray-400 font-medium">vs last month</span></span>
             </div>
           </div>
 
@@ -162,13 +166,11 @@ export default async function DeliveryAgentDetailPage({ params }: Props) {
           <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
             <div className="flex justify-between items-center mb-6">
               <span className="text-sm font-bold text-gray-700">Delivery Rate</span>
-              <div className="flex items-center gap-1.5 bg-gray-50 px-3 py-1.5 rounded-lg text-xs font-medium text-gray-500 border border-gray-200">
-                This Month <ChevronDown size={12} />
-              </div>
+              <MonthFilter />
             </div>
             <div className="flex justify-between items-end">
               <span className="text-4xl font-bold text-gray-600 leading-none">{current.deliveryRate}%</span>
-              <span className="text-sm font-bold text-green-500">+{analytics.trends.deliveryRate}% <span className="text-gray-400 font-medium">vs last month</span></span>
+              <span className={`text-sm font-bold ${analytics.trends.deliveryRate.startsWith("-") ? "text-rose-500" : "text-green-500"}`}>{analytics.trends.deliveryRate} <span className="text-gray-400 font-medium">vs last month</span></span>
             </div>
           </div>
 

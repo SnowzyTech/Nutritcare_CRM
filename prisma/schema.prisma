@@ -38,6 +38,7 @@ model User {
   notifications           Notification[]          @relation("UserNotifications")
   upsoldOrderItems        OrderItem[]             @relation("UpsoldOrderItems")
   orders                  Order[]                 @relation("SalesRepOrders")
+  discountedOrders        Order[]                 @relation("DiscountedOrders")
   pickPackAssignments     PickPack[]              @relation("PickerAssignments")
   purchaseOrders          PurchaseOrder[]         @relation("PurchaseOrderCreatedBy")
   settlementAdjustments   SettlementAdjustment[]  @relation("AdjustmentCreatedBy")
@@ -386,12 +387,16 @@ model Order {
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
   isReorder       Boolean     @default(false)
+  discountedById  String?
+  discountReason  String?
+  discountedAt    DateTime?
   deliveries      Delivery[]
   invoices        Invoice[]
   items           OrderItem[]
   agent           Agent?      @relation(fields: [agentId], references: [id])
   customer        Customer    @relation(fields: [customerId], references: [id])
   salesRep        User        @relation("SalesRepOrders", fields: [salesRepId], references: [id])
+  discountedBy    User?       @relation("DiscountedOrders", fields: [discountedById], references: [id])
   pickPacks       PickPack[]
 
   @@index([customerId])
@@ -400,6 +405,7 @@ model Order {
   @@index([status])
   @@index([orderNumber])
   @@index([createdAt])
+  @@index([discountedById])
   @@map("orders")
 }
 

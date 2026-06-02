@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/prisma";
 import type { UserRole } from "@prisma/client";
+import { monthRanges, parseMonthParam, type MonthPeriod } from "@/lib/month-period";
 
 // ── Analytics helpers ─────────────────────────────────────────────────────────
 
@@ -71,6 +72,7 @@ export async function getSelfProfile(userId: string) {
       role: true,
       createdAt: true,
       avatarUrl: true,
+      team: { select: { name: true } },
     },
   });
 }
@@ -206,11 +208,8 @@ export async function getSalesRepOrderSummary(id: string) {
   };
 }
 
-export async function getSalesRepAnalytics(salesRepId: string) {
-  const now = new Date();
-  const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
+export async function getSalesRepAnalytics(salesRepId: string, period?: MonthPeriod) {
+  const { currentStart, currentEnd, prevStart, prevEnd } = monthRanges(period ?? parseMonthParam());
 
   const allOrders = await prisma.order.findMany({
     where: { salesRepId, deletedAt: null },
@@ -220,8 +219,8 @@ export async function getSalesRepAnalytics(salesRepId: string) {
     },
   });
 
-  const thisMonthOrders = allOrders.filter(o => o.createdAt >= thisMonthStart);
-  const lastMonthOrders = allOrders.filter(o => o.createdAt >= lastMonthStart && o.createdAt <= lastMonthEnd);
+  const thisMonthOrders = allOrders.filter(o => o.createdAt >= currentStart && o.createdAt <= currentEnd);
+  const lastMonthOrders = allOrders.filter(o => o.createdAt >= prevStart && o.createdAt <= prevEnd);
 
   const current = computeRepMetrics(thisMonthOrders);
   const previous = computeRepMetrics(lastMonthOrders);

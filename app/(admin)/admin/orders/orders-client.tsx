@@ -13,7 +13,6 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select";
 import type { OrderStatus } from "@prisma/client";
 
@@ -247,7 +246,9 @@ export function AdminOrdersClient({
           onValueChange={(v) => setSelectedProduct(v ?? "__all__")}
         >
           <SelectTrigger className="w-[130px] h-[36px] bg-gray-900 text-white border-0 rounded-lg text-xs font-semibold shadow-sm px-3 [&>span]:text-white">
-            <SelectValue placeholder="Product" />
+            <span className="flex-1 text-left truncate">
+              {selectedProduct === "__all__" ? "All Products" : selectedProduct}
+            </span>
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="__all__">All Products</SelectItem>
@@ -265,7 +266,9 @@ export function AdminOrdersClient({
           onValueChange={(v) => setSelectedState(v ?? "__all__")}
         >
           <SelectTrigger className="w-[110px] h-[36px] bg-gray-900 text-white border-0 rounded-lg text-xs font-semibold shadow-sm px-3 [&>span]:text-white">
-            <SelectValue placeholder="State" />
+            <span className="flex-1 text-left truncate">
+              {selectedState === "__all__" ? "All States" : selectedState}
+            </span>
           </SelectTrigger>
           <SelectContent className="max-h-[300px]">
             <SelectItem value="__all__">All States</SelectItem>
@@ -283,7 +286,7 @@ export function AdminOrdersClient({
           onValueChange={() => {}}
         >
           <SelectTrigger className="w-[110px] h-[36px] bg-gray-900 text-white border-0 rounded-lg text-xs font-semibold shadow-sm px-3 [&>span]:text-white">
-            <SelectValue placeholder="Team" />
+            <span className="flex-1 text-left truncate">All Teams</span>
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="__all__">All Teams</SelectItem>

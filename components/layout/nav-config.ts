@@ -11,11 +11,6 @@ export const allNavItems: NavItem[] = [
   { label: "Dashboard", href: "/admin", icon: "dashboard" },
   { label: "Account", href: "/admin/account", icon: "account" },
   {
-    label: "Inventory/Product",
-    href: "/admin/inventory",
-    icon: "inventory",
-  },
-  {
     label: "Order",
     icon: "order",
     children: [

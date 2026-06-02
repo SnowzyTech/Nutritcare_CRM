@@ -1,28 +1,22 @@
-'use client';
-
 import React from 'react';
+import { auth } from '@/lib/auth/auth';
+import {
+  getUserActivityHistory,
+  type ActivityGroup,
+} from '@/modules/data-analysis/services/data-analysis.service';
 
-const historyEntries = [
-  { id: '1', dateTime: 'Feb 7, 2026 - 09:42 AM', activityType: 'Login', description: 'User logged in from Chrome (Desktop)' },
-  { id: '2', dateTime: 'Feb 7, 2026 - 09:48 AM', activityType: 'Analysis Created', description: 'Sales performance analysis created' },
-  { id: '3', dateTime: 'Feb 7, 2026 - 10:02 AM', activityType: 'Report Generated', description: 'Monthly sales report generated (PDF)' },
-  { id: '4', dateTime: 'Feb 7, 2026 - 10:15 AM', activityType: 'Order Created', description: 'Order #ORD-45821 placed Pending' },
-  { id: '5', dateTime: 'Feb 7, 2026 - 10:22 AM', activityType: 'Order Processing', description: 'Order moved to processing' },
-  { id: '6', dateTime: 'Feb 7, 2026 - 09:48 AM', activityType: 'Analysis Created', description: 'Sales performance analysis created' },
-  { id: '7', dateTime: 'Feb 7, 2026 - 09:42 AM', activityType: 'Login', description: 'User logged in from Chrome (Desktop)' },
-  { id: '8', dateTime: 'Feb 7, 2026 - 09:48 AM', activityType: 'Analysis Created', description: 'Sales performance analysis created' },
-  { id: '9', dateTime: 'Feb 7, 2026 - 09:42 AM', activityType: 'Login', description: 'User logged in from Chrome (Desktop)' },
-];
+type HistoryEntry = ActivityGroup['entries'][number];
 
 const iconMap: Record<string, string> = {
-  'Login': '🔑',
-  'Analysis Created': '📊',
-  'Report Generated': '📄',
-  'Order Created': '📦',
-  'Order Processing': '⚙️',
+  'Log In': '🔑',
+  'Log Out': '🚪',
+  'Order Confirmed': '✅',
+  'Delivered': '📦',
+  'Cancel': '❌',
+  'Failed': '⚠️',
 };
 
-function HistoryTable({ entries, showHeader = false }: { entries: typeof historyEntries, showHeader?: boolean }) {
+function HistoryTable({ entries, showHeader = false }: { entries: HistoryEntry[]; showHeader?: boolean }) {
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
       {/* Desktop Table View */}
@@ -92,29 +86,42 @@ function HistoryTable({ entries, showHeader = false }: { entries: typeof history
   );
 }
 
-export default function HistoryPage() {
+export default async function HistoryPage() {
+  const session = await auth();
+  const historyGroups = session?.user?.id
+    ? await getUserActivityHistory(session.user.id)
+    : [];
+
+  const today = new Date().toLocaleDateString('en-NG', { month: 'long', day: 'numeric', year: 'numeric' });
+
   return (
     <div className="flex flex-col gap-6 sm:gap-8 max-w-6xl mx-auto pb-10">
       {/* Header section */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 sm:gap-4">
         <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-900 tracking-tight m-0">History</h1>
         <span className="text-xs sm:text-sm font-semibold text-gray-500 bg-white border border-gray-100 shadow-sm px-3 sm:px-4 py-1.5 sm:py-2 rounded-full w-fit">
-          Today February 9th, 2026
+          Today {today}
         </span>
       </div>
 
-      {/* Main Today Table */}
-      <HistoryTable entries={historyEntries} showHeader={true} />
-
-      {/* Older History Section */}
-      <div className="pt-4">
-        <div className="flex justify-start sm:justify-end mb-4">
-          <span className="text-xs sm:text-sm font-semibold text-gray-500 bg-white border border-gray-100 shadow-sm px-3 sm:px-4 py-1.5 sm:py-2 rounded-full w-fit">
-            A Day Ago February 9th, 2026
-          </span>
+      {historyGroups.length === 0 ? (
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 py-16 text-center text-sm text-gray-400">
+          No activity history yet.
         </div>
-        <HistoryTable entries={historyEntries.slice(0, 5)} showHeader={false} />
-      </div>
+      ) : (
+        historyGroups.map((group, idx) => (
+          <div key={group.label} className={idx === 0 ? undefined : 'pt-4'}>
+            {idx > 0 && (
+              <div className="flex justify-start sm:justify-end mb-4">
+                <span className="text-xs sm:text-sm font-semibold text-gray-500 bg-white border border-gray-100 shadow-sm px-3 sm:px-4 py-1.5 sm:py-2 rounded-full w-fit">
+                  {group.label} {group.date}
+                </span>
+              </div>
+            )}
+            <HistoryTable entries={group.entries} showHeader={idx === 0} />
+          </div>
+        ))
+      )}
     </div>
   );
 }

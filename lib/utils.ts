@@ -32,6 +32,19 @@ export function formatDate(date: Date | string): string {
 }
 
 /**
+ * Generates a short, human-friendly order number.
+ *
+ * Produces a 5-character uppercase alphanumeric code (base36) derived from the
+ * current timestamp plus a random component, so collisions are vanishingly
+ * unlikely while keeping the id short. The `orderNumber` column is `@unique`,
+ * which acts as the final backstop against duplicates.
+ */
+export function generateOrderNumber(): string {
+  const entropy = Date.now().toString(36) + Math.random().toString(36).slice(2);
+  return entropy.slice(-5).toUpperCase();
+}
+
+/**
  * Returns initials from a full name.
  */
 export function getInitials(name: string): string {

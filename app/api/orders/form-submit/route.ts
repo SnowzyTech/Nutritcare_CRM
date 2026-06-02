@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
+import { generateOrderNumber } from "@/lib/utils";
 
 // ── CORS headers — allow any origin so iframes on external sites work ──────
 const CORS_HEADERS = {
@@ -118,9 +119,8 @@ export async function POST(req: NextRequest) {
     );
 
     // ── 3. Generate Order Number ────────────────────────────────────────────
-    // Use timestamp + random suffix to avoid race-condition collisions that
-    // occur when two concurrent requests read the same count.
-    const orderNumber = `ORD-${Date.now()}-${Math.floor(Math.random() * 1000).toString().padStart(3, "0")}`;
+    // Short 5-char code; the `orderNumber` unique constraint guards duplicates.
+    const orderNumber = generateOrderNumber();
 
     // ── 4. Validate product(s) exist ───────────────────────────────────────
     const productIdsToFetch = [productId];
