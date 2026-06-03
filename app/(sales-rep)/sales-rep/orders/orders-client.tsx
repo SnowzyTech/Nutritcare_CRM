@@ -277,20 +277,20 @@ export function OrdersClient({ orders, counts, userName, products }: OrdersClien
             <button
               key={tab.key ?? 'all'}
               onClick={() => setActiveTab(tab.key)}
-              className={`relative flex items-center gap-1 whitespace-nowrap px-3 sm:px-5 py-2 transition-all group rounded-lg shrink-0 ${
-                isActive ? 'bg-purple-100' : 'hover:bg-gray-50 cursor-pointer'
+              className={`relative flex items-center justify-center whitespace-nowrap px-5 sm:px-8 py-2.5 transition-all group rounded-xl shrink-0 ${
+                isActive ? 'bg-[#FAF8FF]' : 'hover:bg-gray-50 cursor-pointer'
               }`}
             >
-              <span className={`text-xs sm:text-sm font-semibold ${isActive ? 'text-[#532194]' : 'text-gray-500'}`}>
-                {tab.label}
-              </span>
-              <span
-                className={`text-[10px] px-1 sm:px-1.5 py-0.5 rounded-md font-bold ${
-                  isActive ? 'bg-[#D6BBFB] text-[#532194]' : 'bg-gray-100 text-gray-400'
-                }`}
-              >
-                {count}
-              </span>
+              <div className="relative inline-flex items-center">
+                <span className={`text-sm ${isActive ? 'text-[#532194] font-bold' : 'text-gray-500 font-medium'}`}>
+                  {tab.label}{!isActive && count > 0 ? `(${count})` : ''}
+                </span>
+                {isActive && (
+                  <span className="absolute -top-2.5 -right-6 text-[10px] px-1.5 py-0.5 rounded-md font-bold bg-[#C282FA] text-white">
+                    {count}
+                  </span>
+                )}
+              </div>
             </button>
           );
         })}
@@ -432,6 +432,7 @@ export function OrdersClient({ orders, counts, userName, products }: OrdersClien
                     <th className="px-4 sm:px-6 py-4 sm:py-5 text-left text-xs font-bold text-gray-500 tracking-wider">Product</th>
                     <th className="px-4 sm:px-6 py-4 sm:py-5 text-center text-xs font-bold text-gray-500 tracking-wider">Quantity</th>
                     <th className="px-4 sm:px-6 py-4 sm:py-5 text-right text-xs font-bold text-gray-500 tracking-wider">Date</th>
+                    <th className="px-4 sm:px-6 py-4 sm:py-5 text-left text-xs font-bold text-gray-500 tracking-wider whitespace-nowrap">Status Date</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white">
@@ -491,6 +492,20 @@ export function OrdersClient({ orders, counts, userName, products }: OrdersClien
                         </td>
                         <td className="px-4 sm:px-6 py-4 sm:py-5 text-right">
                           <span className="text-xs sm:text-sm text-gray-500">{dateLabel}</span>
+                        </td>
+                        <td className="px-4 sm:px-6 py-4 sm:py-5 whitespace-nowrap">
+                          {order.status === 'PENDING' ? (
+                            <span className="text-xs sm:text-sm text-gray-500">---</span>
+                          ) : (
+                            <div className="flex flex-col gap-1 items-start">
+                              <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold tracking-wider uppercase ${style.bg} ${style.text}`}>
+                                {style.label}
+                              </span>
+                              <span className="text-xs sm:text-sm text-gray-700">
+                                {['CONFIRMED', 'CANCELLED'].includes(order.status) ? 'Today' : '03-02-2026'}
+                              </span>
+                            </div>
+                          )}
                         </td>
                       </tr>
                     );

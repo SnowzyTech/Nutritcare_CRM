@@ -4,6 +4,7 @@ import { getSalesRepAnalytics } from "@/modules/orders/services/analytics.servic
 import type { MonthMetrics, Period } from "@/modules/orders/services/analytics.service";
 import { PeriodFilter } from "./period-filter";
 import { AnalyticsReportButtons } from "./report-buttons";
+import { ChevronDown } from "lucide-react";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = { title: "Analytics" };
@@ -28,17 +29,43 @@ function KPICard({
 }) {
   const positive = delta.startsWith("+");
   return (
-    <div className="bg-white rounded-lg p-4 border border-gray-100">
-      <div className="flex justify-between items-center mb-2">
-        <span className="text-xs font-medium text-gray-500">{label}</span>
+    <div className="bg-[#FAF8FF] rounded-xl p-5 border border-[#F3E8FF] shadow-[0_2px_10px_rgb(0,0,0,0.01)] flex flex-col justify-between">
+      <div className="flex justify-between items-start mb-4">
+        <span className="text-sm font-bold text-gray-900">{label}</span>
       </div>
-      <p className="text-2xl font-bold text-gray-900 m-0">{value}</p>
-      <p className="text-xs mt-1">
-        <span className={`font-semibold ${positive ? "text-green-600" : "text-red-500"}`}>
-          {delta}
-        </span>{" "}
-        <span className="text-gray-400">{vsLabel}</span>
-      </p>
+      <div className="flex items-end justify-between">
+        <span className="text-3xl font-bold text-gray-600 tracking-tight">{value}</span>
+        <div className="text-right">
+          <p className={`text-base font-bold ${positive ? "text-green-500" : "text-red-500"}`}>
+            {delta}
+          </p>
+          <p className="text-xs text-gray-500">{vsLabel}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function WeeklyBonusCard() {
+  return (
+    <div className="bg-[#FAF8FF] rounded-xl p-5 border border-[#F3E8FF] shadow-[0_2px_10px_rgb(0,0,0,0.01)] flex flex-col justify-between h-full">
+      <div className="flex justify-between items-start mb-4">
+        <span className="text-sm font-bold text-gray-900">Weekly Bonus</span>
+        <div className="relative">
+          <select className="appearance-none bg-white/50 text-gray-500 text-xs border border-gray-200 rounded-md py-1 pl-2 pr-6 cursor-pointer focus:outline-none focus:ring-1 focus:ring-purple-200">
+            <option>This Month</option>
+            <option>Last Month</option>
+          </select>
+          <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+        </div>
+      </div>
+      <div className="flex items-end justify-between">
+        <span className="text-3xl font-bold text-gray-600 tracking-tight">N20,000</span>
+        <div className="text-right">
+          <p className="text-base font-bold text-green-500">70%</p>
+          <p className="text-[10px] font-bold text-gray-500"><span className="text-green-500">+12%</span> vs last month</p>
+        </div>
+      </div>
     </div>
   );
 }
@@ -142,19 +169,29 @@ export default async function AnalyticsPage(props: {
         />
       </div>
 
-      <div className="bg-gradient-to-br from-purple-600 to-purple-700 rounded-lg p-6 text-white w-full sm:max-w-xs">
-        <div className="text-xs font-semibold text-purple-100 uppercase tracking-wide mb-3">
-          KPI — Delivered / Handled
+      <div className="flex flex-col sm:flex-row gap-4 items-stretch">
+        <div className="bg-gradient-to-br from-purple-600 to-purple-700 rounded-xl p-6 text-white w-full sm:max-w-xs flex flex-col justify-between">
+          <div>
+            <div className="text-[10px] font-bold text-purple-100 uppercase tracking-wider mb-2">
+              KPI — Delivered / Handled
+            </div>
+            <p className="text-4xl font-extrabold tracking-tight mb-2">{cur.kpi}%</p>
+            <div className="text-sm font-medium mb-1">
+              {cur.totalOrders > 0
+                ? `${cur.ordersDelivered} delivered of ${cur.totalOrders} handled this ${periodWord}`
+                : `No orders handled this ${periodWord}`}
+            </div>
+          </div>
+          <p className="text-xs font-bold mt-2">
+            <span className="font-extrabold">{pctDelta(cur.kpi, l?.kpi ?? null)}</span> {vsLabel}
+          </p>
         </div>
-        <p className="text-4xl font-bold mb-2">{cur.kpi}%</p>
-        <div className="text-sm mb-2">
-          {cur.totalOrders > 0
-            ? `${cur.ordersDelivered} delivered of ${cur.totalOrders} handled this ${periodWord}`
-            : `No orders handled this ${periodWord}`}
+        
+        <div className="w-full sm:max-w-xs flex">
+          <div className="w-full h-full">
+            <WeeklyBonusCard />
+          </div>
         </div>
-        <p className="text-xs">
-          <span className="font-semibold">{pctDelta(cur.kpi, l?.kpi ?? null)}</span> {vsLabel}
-        </p>
       </div>
 
       <AnalyticsReportButtons
