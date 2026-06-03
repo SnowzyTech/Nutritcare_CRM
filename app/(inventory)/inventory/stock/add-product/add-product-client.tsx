@@ -440,7 +440,8 @@ export function AddProductClient({
               </SelectWrapper>
             </div>
 
-            <div>
+            {/* TEMP HIDDEN: offer trigger — hidden via UI, flow untouched */}
+            <div className="hidden">
               <label className={labelClass} htmlFor="hasOfferSelect">
                 Do you have an offer for this product?
               </label>
@@ -608,6 +609,8 @@ export function AddProductClient({
             </div>
           </div>
 
+          {/* TEMP HIDDEN: packages / offers / combos / gifts — hidden via UI, flow untouched */}
+          <div className="hidden">
           {/* Pricing Packages — columnar layout */}
           <div className="mb-2">
             <div
@@ -874,6 +877,8 @@ export function AddProductClient({
               </div>
             </div>
           )}
+          </div>
+          {/* END TEMP HIDDEN */}
         </form>
       </div>
     </div>

@@ -586,6 +586,33 @@ export type LocationBinRow = {
   maxCapacity: number | null;
 };
 
+/**
+ * Derive a shelf's occupancy status from its current stock against the
+ * per-shelf Full/Partial/Empty thresholds entered at zone creation.
+ *
+ *   stock >= fullThreshold     -> FULL
+ *   stock >= partialThreshold  -> PARTIAL
+ *   otherwise                  -> EMPTY
+ *
+ * Manually-set statuses that can't be inferred from stock (RESERVED, DAMAGE)
+ * are preserved, as is the stored status when no thresholds are configured.
+ */
+export function deriveOccupancyStatus(
+  storedStatus: string,
+  currentStock: number,
+  thresholds: {
+    fullThreshold: number | null;
+    partialThreshold: number | null;
+  },
+): string {
+  if (storedStatus === "RESERVED" || storedStatus === "DAMAGE") return storedStatus;
+  const { fullThreshold, partialThreshold } = thresholds;
+  if (fullThreshold == null && partialThreshold == null) return storedStatus;
+  if (fullThreshold != null && currentStock >= fullThreshold) return "FULL";
+  if (partialThreshold != null && currentStock >= partialThreshold) return "PARTIAL";
+  return "EMPTY";
+}
+
 export async function getWarehouseLocations(warehouseId: string): Promise<LocationBinRow[]> {
   const locations = await prisma.warehouseLocation.findMany({
     where: { warehouseId },
@@ -600,7 +627,10 @@ export async function getWarehouseLocations(warehouseId: string): Promise<Locati
       locationCode: l.locationCode,
       zone,
       col,
-      occupancyStatus: l.occupancyStatus,
+      occupancyStatus: deriveOccupancyStatus(l.occupancyStatus, l.currentStock, {
+        fullThreshold: l.fullThreshold,
+        partialThreshold: l.partialThreshold,
+      }),
       currentStock: l.currentStock,
       maxCapacity: l.maxCapacity ?? null,
     };
@@ -733,7 +763,10 @@ export async function getLocationBinDetailMap(warehouseId: string): Promise<Loca
       }));
 
     result[loc.locationCode] = {
-      occupancyStatus: loc.occupancyStatus,
+      occupancyStatus: deriveOccupancyStatus(loc.occupancyStatus, loc.currentStock, {
+        fullThreshold: loc.fullThreshold,
+        partialThreshold: loc.partialThreshold,
+      }),
       stockItems: stockByCode.get(loc.locationCode) ?? [],
       orders,
     };

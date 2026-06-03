@@ -33,6 +33,7 @@ export const allNavItems: NavItem[] = [
       { label: "Teams", href: "/admin/staff/teams" },
     ],
   },
+  { label: "Inventory", href: "/admin/inventory", icon: "inventory" },
   { label: "Forms", href: "/admin/forms", icon: "forms" },
   { label: "History", href: "/admin/history", icon: "history" },
 ];

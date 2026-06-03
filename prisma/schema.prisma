@@ -342,6 +342,9 @@ model WarehouseLocation {
   updatedAt            DateTime              @updatedAt
   currentStock         Int                   @default(0)
   maxCapacity          Int?
+  fullThreshold        Int?
+  partialThreshold     Int?
+  emptyThreshold       Int?
   damageReports        DamageReport[]
   shelfProductStocks   ShelfProductStock[]
   stockAdjustmentItems StockAdjustmentItem[]

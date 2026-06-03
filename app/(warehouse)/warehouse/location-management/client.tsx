@@ -52,19 +52,60 @@ export default function LocationManagementClient({ initialBins, summaryData, bin
   const [selectedBin, setSelectedBin] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Add-zone threshold modal state
+  const [zoneModalOpen, setZoneModalOpen] = useState(false);
+  const [fullThreshold, setFullThreshold] = useState("");
+  const [partialThreshold, setPartialThreshold] = useState("");
+  const [emptyThreshold, setEmptyThreshold] = useState("");
+  const [modalError, setModalError] = useState<string | null>(null);
+
   const zones = Array.from(new Set(initialBins.map((b) => b.zone))).sort();
   const binMap = new Map(initialBins.map((b) => [b.locationCode, b]));
 
-  const handleAddLocation = () => {
+  const nextZone = (() => {
     const last = zones[zones.length - 1];
-    const nextZone = last ? String.fromCharCode(last.charCodeAt(0) + 1) : "A";
+    return last ? String.fromCharCode(last.charCodeAt(0) + 1) : "A";
+  })();
+
+  const openZoneModal = () => {
+    setModalError(null);
+    setFullThreshold("");
+    setPartialThreshold("");
+    setEmptyThreshold("");
+    setZoneModalOpen(true);
+  };
+
+  const handleCreateZone = () => {
+    const full = Number(fullThreshold);
+    const partial = Number(partialThreshold);
+    const empty = Number(emptyThreshold);
+
+    if ([fullThreshold, partialThreshold, emptyThreshold].some((v) => v.trim() === "")) {
+      setModalError("Enter a stock amount for Full, Partial and Empty.");
+      return;
+    }
+    if ([full, partial, empty].some((v) => !Number.isFinite(v) || v < 0)) {
+      setModalError("Stock amounts must be non-negative numbers.");
+      return;
+    }
+    if (!(empty < partial && partial < full)) {
+      setModalError("Stock amounts must increase: Empty < Partial < Full.");
+      return;
+    }
+
+    setModalError(null);
     setError(null);
     startTransition(async () => {
-      const result = await addWarehouseZoneAction(nextZone);
+      const result = await addWarehouseZoneAction(nextZone, {
+        fullThreshold: full,
+        partialThreshold: partial,
+        emptyThreshold: empty,
+      });
       if (result.success) {
+        setZoneModalOpen(false);
         router.refresh();
       } else {
-        setError(result.error ?? "Failed to add zone.");
+        setModalError(result.error ?? "Failed to add zone.");
       }
     });
   };
@@ -116,7 +157,7 @@ export default function LocationManagementClient({ initialBins, summaryData, bin
               </button>
             )}
             <button
-              onClick={handleAddLocation}
+              onClick={openZoneModal}
               disabled={isPending}
               className="bg-[#ad1df4] text-white text-[11px] font-bold px-8 py-2.5 rounded-md hover:bg-[#9b19dc] transition-colors shadow-sm disabled:opacity-60"
             >
@@ -364,6 +405,91 @@ export default function LocationManagementClient({ initialBins, summaryData, bin
                   </div>
                 )}
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add-zone thresholds modal — shown before the 6 shelves are created */}
+      {zoneModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl w-full max-w-md p-8 relative shadow-2xl">
+            <button
+              onClick={() => setZoneModalOpen(false)}
+              disabled={isPending}
+              className="absolute top-4 right-4 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-full w-8 h-8 flex items-center justify-center transition-colors disabled:opacity-50"
+            >
+              ✕
+            </button>
+
+            <h2 className="text-xl font-semibold text-gray-900 mb-1">
+              Add Zone {nextZone}
+            </h2>
+            <p className="text-[13px] text-gray-500 mb-6">
+              Set the stock amounts that define each shelf&rsquo;s status. These apply to
+              all 6 shelves in the new zone and drive their colour automatically as stock
+              changes.
+            </p>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-[12px] font-semibold text-gray-600 mb-1">
+                  Full at (stock ≥)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  value={fullThreshold}
+                  onChange={(e) => setFullThreshold(e.target.value)}
+                  placeholder="e.g. 100"
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-700 outline-none focus:border-[#ad1df4] focus:ring-1 focus:ring-[#ad1df4]/20"
+                />
+              </div>
+              <div>
+                <label className="block text-[12px] font-semibold text-gray-600 mb-1">
+                  Partial at (stock ≥)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  value={partialThreshold}
+                  onChange={(e) => setPartialThreshold(e.target.value)}
+                  placeholder="e.g. 40"
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-700 outline-none focus:border-[#ad1df4] focus:ring-1 focus:ring-[#ad1df4]/20"
+                />
+              </div>
+              <div>
+                <label className="block text-[12px] font-semibold text-gray-600 mb-1">
+                  Empty at (stock ≤)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  value={emptyThreshold}
+                  onChange={(e) => setEmptyThreshold(e.target.value)}
+                  placeholder="e.g. 0"
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-700 outline-none focus:border-[#ad1df4] focus:ring-1 focus:ring-[#ad1df4]/20"
+                />
+              </div>
+            </div>
+
+            {modalError && <p className="text-red-500 text-xs mt-4">{modalError}</p>}
+
+            <div className="flex justify-end gap-3 mt-7">
+              <button
+                onClick={() => setZoneModalOpen(false)}
+                disabled={isPending}
+                className="px-5 py-2 rounded-md text-sm font-semibold text-gray-500 bg-gray-100 hover:bg-gray-200 transition-colors disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCreateZone}
+                disabled={isPending}
+                className="px-6 py-2 rounded-md text-sm font-semibold text-white bg-[#ad1df4] hover:bg-[#9b19dc] transition-colors disabled:opacity-60"
+              >
+                {isPending ? "Creating…" : "Create Zone"}
+              </button>
             </div>
           </div>
         </div>

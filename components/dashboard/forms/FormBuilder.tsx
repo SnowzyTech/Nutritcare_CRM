@@ -116,16 +116,23 @@ function variationsFromPackages(
   packages: FormPackage[],
   product: ProductWithOffers | null,
 ): PriceVariation[] {
+  const productName = product?.name ?? "";
+  const unit = product?.unit?.trim() || "units";
   return packages
     .filter((p) => p.name.trim() || p.quantity.trim() || p.price.trim())
     .map((p) => {
       const qty = parseInt(p.quantity, 10) || 0;
       const price = parseFloat(p.price) || 0;
+      const baseName = p.name.trim() || "Package";
       return {
         id: p.id,
         productId: product?.id ?? "",
         quantity: qty > 0 ? qty : 1,
-        name: p.name.trim() || "Package",
+        // Render as "Plan Name - qty <unit> of productname"
+        name:
+          qty > 0 && productName
+            ? `${baseName} - ${qty} ${unit} of ${productName}`
+            : baseName,
         price,
         formattedPrice: formatNaira(price),
       };
@@ -142,9 +149,12 @@ function variationFromOffer(
   const qty = parseInt(offer.offerQuantity, 10) || 0;
   const price = parseFloat(offer.sellingPrice) || 0;
   const baseName = offer.offerName.trim() || "Offer";
+  const productName = product?.name ?? "";
+  const unit = product?.unit?.trim() || "units";
+  // Render as "Plan Name - qty <unit> of productname"
   const name =
-    offer.showQuantityAndUnit && qty > 0
-      ? `${baseName} - ${qty} ${offer.offerUnit.trim() || "units"}`
+    qty > 0 && productName
+      ? `${baseName} - ${qty} ${unit} of ${productName}`
       : baseName;
   return [
     {
@@ -158,6 +168,59 @@ function variationFromOffer(
   ];
 }
 
+// Turn the offer's combo and free-gift lines into priceVariations.
+// Combo line  : "<Offer Name> - <qty> units of <combo product>"  priced at the
+//               combo product's selling price × qty.
+// Free gift   : "<Offer Name> (Free Gift) - <qty> units of <gift product>" at ₦0.
+// Each references its own product (looked up from the products list).
+function variationsFromComboGift(
+  offer: FormOffer,
+  product: ProductWithOffers | null,
+  products: ProductWithOffers[],
+): PriceVariation[] {
+  const offerName = offer.offerName.trim() || "Offer";
+  const baseId = product?.id ?? "x";
+  const lookup = (id: string) => products.find((p) => p.id === id) ?? null;
+  const result: PriceVariation[] = [];
+
+  offer.combos
+    .filter((c) => c.productId)
+    .forEach((c) => {
+      const cp = lookup(c.productId);
+      if (!cp) return;
+      const qty = parseInt(c.quantity, 10) || 1;
+      const price = Number(cp.sellingPrice) * qty;
+      const unit = cp.unit?.trim() || "units";
+      result.push({
+        id: `combo-${baseId}-${c.id}`,
+        productId: cp.id,
+        quantity: qty,
+        name: `${offerName} - ${qty} ${unit} of ${cp.name}`,
+        price,
+        formattedPrice: formatNaira(price),
+      });
+    });
+
+  offer.gifts
+    .filter((g) => g.productId)
+    .forEach((g) => {
+      const gp = lookup(g.productId);
+      if (!gp) return;
+      const qty = parseInt(g.quantity, 10) || 1;
+      const unit = gp.unit?.trim() || "units";
+      result.push({
+        id: `gift-${baseId}-${g.id}`,
+        productId: gp.id,
+        quantity: qty,
+        name: `${offerName} (Free Gift) - ${qty} ${unit} of ${gp.name}`,
+        price: 0,
+        formattedPrice: formatNaira(0),
+      });
+    });
+
+  return result;
+}
+
 // Single source of truth for the main product's priceVariations: combines the
 // per-form packages and the per-form offer; falls back to the base product price.
 function buildVariations(
@@ -166,6 +229,7 @@ function buildVariations(
   packages: FormPackage[],
   hasOffer: string,
   offer: FormOffer,
+  products: ProductWithOffers[],
 ): PriceVariation[] {
   if (!product) return [];
   const result: PriceVariation[] = [];
@@ -174,6 +238,7 @@ function buildVariations(
   }
   if (hasOffer === "Yes") {
     result.push(...variationFromOffer(offer, product));
+    result.push(...variationsFromComboGift(offer, product, products));
   }
   if (result.length === 0) {
     result.push({
@@ -577,6 +642,7 @@ export function FormBuilder({
         next.productPackages,
         next.hasOffer,
         next.offer,
+        products,
       ),
     };
   };
