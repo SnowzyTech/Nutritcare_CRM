@@ -74,6 +74,7 @@ export async function createMockOrderAction(data: {
         quantity: item.quantity,
         unitPrice,
         lineTotal,
+        costPriceAtSale: Number(product.costPrice),
       };
     });
 

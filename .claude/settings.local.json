@@ -58,7 +58,8 @@
       "PowerShell($out = npx tsc --noEmit 2>&1 | Out-String; $mine = $out -split \"`n\" | Where-Object { $_ -match \"orders\\\\.action|admin-orders|order-detail-client|order-detail-admin\" }; if \\($mine\\) { $mine } else { \"NO ERRORS IN CHANGED FILES\" })",
       "PowerShell($out = npx tsc --noEmit 2>&1 | Out-String; \\($out -split \"`n\" | Where-Object { $_ -match \"error TS\" }\\).Count)",
       "PowerShell($out = npx tsc --noEmit 2>&1 | Out-String; \\($out -split \"`n\" | Where-Object { $_ -match \"error TS\" }\\).Count; \"----\"; $out -split \"`n\" | Where-Object { $_ -match \"error TS\" })",
-      "Bash(npx tsx *)"
+      "Bash(npx tsx *)",
+      "Bash(Select-String -Pattern \"sales-record\")"
     ]
   }
 }

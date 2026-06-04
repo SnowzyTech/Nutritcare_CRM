@@ -119,7 +119,7 @@ export async function POST(req: NextRequest) {
     );
 
     // ── 3. Generate Order Number ────────────────────────────────────────────
-    // Short 5-char code; the `orderNumber` unique constraint guards duplicates.
+    // Short time-based `ORD-` code; the `orderNumber` unique constraint guards duplicates.
     const orderNumber = generateOrderNumber();
 
     // ── 4. Validate product(s) exist ───────────────────────────────────────
@@ -128,7 +128,7 @@ export async function POST(req: NextRequest) {
 
     const products = await prisma.product.findMany({
       where: { id: { in: productIdsToFetch }, deletedAt: null },
-      select: { id: true, sellingPrice: true },
+      select: { id: true, sellingPrice: true, costPrice: true },
     });
     const productMap = new Map(products.map((p) => [p.id, p]));
 
@@ -154,12 +154,14 @@ export async function POST(req: NextRequest) {
       quantity: number;
       unitPrice: number;
       lineTotal: number;
+      costPriceAtSale: number;
     }[] = [
       {
         productId,
         quantity: mainQty,
         unitPrice: mainUnitPrice,
         lineTotal: mainLineTotal,
+        costPriceAtSale: Number(productMap.get(productId)!.costPrice),
       },
     ];
 
@@ -175,6 +177,7 @@ export async function POST(req: NextRequest) {
         quantity: bumpQty,
         unitPrice: bumpUnitPrice,
         lineTotal: bumpUnitPrice * bumpQty,
+        costPriceAtSale: Number(productMap.get(orderBumpProductId)!.costPrice),
       });
     }
 

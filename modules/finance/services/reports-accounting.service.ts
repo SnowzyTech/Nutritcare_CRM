@@ -298,7 +298,7 @@ export async function getRevenueByProduct(period: Period): Promise<RevenueByProd
           quantity: true,
           lineTotal: true,
           costPriceAtSale: true,
-          product: { select: { id: true, name: true } },
+          product: { select: { id: true, name: true, costPrice: true } },
         },
       },
     },
@@ -329,7 +329,11 @@ export async function getRevenueByProduct(period: Period): Promise<RevenueByProd
       acc.orderIds.add(o.id);
       acc.qty += it.quantity;
       acc.revenue += DEC(it.lineTotal);
-      acc.productCost += it.quantity * DEC(it.costPriceAtSale);
+      // Prefer the cost snapshotted at sale time; fall back to the product's
+      // current cost price when no snapshot was recorded (older orders default
+      // costPriceAtSale to 0, which made Product Cost always show 0).
+      const unitCost = DEC(it.costPriceAtSale) > 0 ? DEC(it.costPriceAtSale) : DEC(it.product.costPrice);
+      acc.productCost += it.quantity * unitCost;
       acc.deliveryCost += DEC(o.deliveryFee) * (DEC(it.lineTotal) / orderRevenue);
       byProduct.set(key, acc);
     }
@@ -389,6 +393,7 @@ export async function getInventoryValuation(period: Period): Promise<InventoryVa
     select: {
       id: true,
       name: true,
+      unit: true,
       costPrice: true,
       stockMovementItems: {
         select: {
@@ -417,7 +422,7 @@ export async function getInventoryValuation(period: Period): Promise<InventoryVa
     }
     return {
       name: p.name,
-      unit: "Units",
+      unit: p.unit ?? "Units",
       openingStock: Math.max(0, opening),
       purchased,
       sold,
@@ -541,9 +546,32 @@ export async function getDeliveryTrackerReport(period: Period): Promise<Delivery
     byAgent.set(key, acc);
   }
 
+  // Waybill & miscellaneous logistics costs are recorded as PAYMENT settlement
+  // adjustments against the agent. Compound them per agent for the period.
+  // (OVERPAYMENT/refund rows are excluded — they aren't logistics costs even
+  // when their paymentType field happens to read "Waybill".)
+  const adjustments = await prisma.settlementAdjustment.groupBy({
+    by: ["agentId", "paymentType"],
+    where: {
+      adjustmentType: "PAYMENT",
+      paymentType: { in: ["Waybill", "Miscellaneous"] },
+      date: { gte: period.from, lte: period.to },
+    },
+    _sum: { amount: true },
+  });
+  const waybillByAgent = new Map<string, number>();
+  const miscByAgent = new Map<string, number>();
+  for (const adj of adjustments) {
+    const amt = DEC(adj._sum.amount);
+    if (adj.paymentType === "Waybill") waybillByAgent.set(adj.agentId, amt);
+    else if (adj.paymentType === "Miscellaneous") miscByAgent.set(adj.agentId, amt);
+  }
+
   return [...byAgent.values()]
     .map((a, i) => {
       const topProduct = [...a.productCounts.entries()].sort((x, y) => y[1] - x[1])[0]?.[0] ?? "—";
+      const waybill = waybillByAgent.get(a.agentId) ?? 0;
+      const miscellaneous = miscByAgent.get(a.agentId) ?? 0;
       return {
         id: i + 1,
         agentName: a.agentName,
@@ -552,9 +580,9 @@ export async function getDeliveryTrackerReport(period: Period): Promise<Delivery
         orders: a.orderIds.size,
         qtyDelivered: a.qty,
         deliveryCost: a.deliveryFee,
-        waybill: 0,
-        miscellaneous: 0,
-        totalLogisticsCost: a.deliveryFee,
+        waybill,
+        miscellaneous,
+        totalLogisticsCost: a.deliveryFee + waybill + miscellaneous,
         revenueAttributed: a.revenue,
       };
     })

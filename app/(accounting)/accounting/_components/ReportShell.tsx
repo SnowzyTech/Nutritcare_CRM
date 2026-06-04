@@ -36,6 +36,10 @@ export function ReportShell({ tab, data }: Props) {
   const parseDate = (key: string, fallback: Date): Date => {
     const v = searchParams.get(key);
     if (!v) return fallback;
+    // Timezone-neutral month token (YYYY-MM) → build a local first-of-month so
+    // the displayed month never drifts across the UTC boundary.
+    const m = v.match(/^(\d{4})-(\d{2})$/);
+    if (m) return new Date(Number(m[1]), Number(m[2]) - 1, 1);
     const d = new Date(v);
     return isNaN(d.getTime()) ? fallback : d;
   };

@@ -179,15 +179,7 @@ export function ExpensesClient({
     return matchesCategory && matchesDate && matchesSearch;
   });
 
-  const [categories, setCategories] = useState<CategoryItem[]>(
-    initialCategories && initialCategories.length > 0
-      ? initialCategories
-      : [
-          { id: '__local-1', name: 'Office Supplies', expenseNames: [] },
-          { id: '__local-2', name: 'Delivery Costs', expenseNames: [] },
-          { id: '__local-3', name: 'Staff Salaries', expenseNames: [] },
-        ]
-  );
+  const [categories, setCategories] = useState<CategoryItem[]>(initialCategories ?? []);
   const [accounts, setAccounts] = useState<{ id: string; name: string; logoUrl?: string }[]>(
     initialAccounts && initialAccounts.length > 0
       ? initialAccounts
@@ -679,7 +671,6 @@ export function ExpensesClient({
                                 <SelectValue placeholder="Select financial statement..." />
                               </SelectTrigger>
                               <SelectContent className="rounded-2xl border-purple-50 shadow-xl z-[150]">
-                                <SelectItem value="Profit & Loss Statement" className="rounded-xl py-3 px-4 focus:bg-purple-50">Profit & Loss Statement</SelectItem>
                                 <SelectItem value="Balance Sheet" className="rounded-xl py-3 px-4 focus:bg-purple-50">Balance Sheet</SelectItem>
                                 <SelectItem value="Cash Flow Statement" className="rounded-xl py-3 px-4 focus:bg-purple-50">Cash Flow Statement</SelectItem>
                               </SelectContent>
