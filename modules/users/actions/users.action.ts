@@ -47,6 +47,7 @@ export async function updateProfileAction(input: {
     revalidatePath("/warehouse", "layout");
     revalidatePath("/accounting", "layout");
     revalidatePath("/logistics", "layout");
+    revalidatePath("/data", "layout");
     return { success: true };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Failed to update profile" };

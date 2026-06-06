@@ -9,11 +9,11 @@ import {
   ClipboardList,
   BarChart3,
   Clock,
-  Bell,
   Settings,
   LogOut,
   ChevronDown,
   ChevronRight,
+  Menu,
 } from "lucide-react";
 import { logoutAction } from "@/modules/auth/actions/logout.action";
 
@@ -26,6 +26,7 @@ function SidebarNavLink({
   isExpanded,
   onToggle,
   badge,
+  collapsed,
 }: {
   href?: string;
   icon: React.ElementType;
@@ -35,14 +36,15 @@ function SidebarNavLink({
   isExpanded?: boolean;
   onToggle?: () => void;
   badge?: number;
+  collapsed?: boolean;
 }) {
   const content = (
     <>
-      <div className="flex items-center gap-3">
+      <div className={`flex items-center gap-3 ${collapsed ? "justify-center" : ""}`}>
         <Icon size={20} className={isActive ? "text-white" : "text-purple-200 group-hover:text-white"} />
-        <span className="font-medium text-sm">{label}</span>
+        {!collapsed && <span className="font-medium text-sm">{label}</span>}
       </div>
-      {hasSubItems ? (
+      {!collapsed && (hasSubItems ? (
         <span className="text-purple-200">
           {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
         </span>
@@ -50,11 +52,11 @@ function SidebarNavLink({
         <span className="flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold bg-purple-500 text-white">
           {badge}
         </span>
-      ) : null}
+      ) : null)}
     </>
   );
 
-  const className = `flex items-center justify-between px-4 py-3 rounded-xl mb-1 transition-all duration-200 group w-full ${
+  const className = `flex items-center ${collapsed ? "justify-center px-0" : "justify-between px-4"} py-3 rounded-xl mb-1 transition-all duration-200 group w-full ${
     isActive
       ? "bg-[#8B2FE8] text-white shadow-lg"
       : "text-purple-100 hover:bg-[#4A0080] hover:text-white"
@@ -62,14 +64,14 @@ function SidebarNavLink({
 
   if (href) {
     return (
-      <Link href={href} className={className} onClick={hasSubItems ? onToggle : undefined}>
+      <Link href={href} className={className} title={label} onClick={hasSubItems ? onToggle : undefined}>
         {content}
       </Link>
     );
   }
 
   return (
-    <button onClick={onToggle} className={className}>
+    <button onClick={onToggle} className={className} title={label}>
       {content}
     </button>
   );
@@ -99,6 +101,7 @@ interface SidebarProps {
 
 export function SalesRepManagerSidebarClient({ userName, userRole, userAvatar }: SidebarProps) {
   const pathname = usePathname();
+  const [isCollapsed, setIsCollapsed] = useState(false);
 
   const isOrderAssignmentActive = pathname.startsWith("/sales-rep-manager/order-assignment");
   const isOrdersActive =
@@ -121,38 +124,53 @@ export function SalesRepManagerSidebarClient({ userName, userRole, userAvatar }:
     `https://ui-avatars.com/api/?name=${encodeURIComponent(userName || "User")}&background=f3f4f6&color=6b7280`;
 
   return (
-    <aside className="w-[248px] h-screen bg-[#3B0069] border-r border-[#4A0080] flex flex-col shrink-0 z-20 overflow-y-auto no-scrollbar">
-      {/* Logo */}
-      <div className="px-8 py-8">
-        <div className="relative h-10 w-24">
-          <Image
-            src="/nuycle-logo.png"
-            alt="Nuycle Logo"
-            fill
-            className="object-contain object-left"
-            priority
-            sizes="100px"
-          />
-        </div>
+    <aside
+      className={`h-screen bg-[#3B0069] border-r border-[#4A0080] flex flex-col shrink-0 z-20 overflow-y-auto no-scrollbar transition-all duration-300 ${
+        isCollapsed ? "w-20" : "w-[248px]"
+      }`}
+    >
+      {/* Logo + Hamburger toggle */}
+      <div className={`py-8 flex items-center ${isCollapsed ? "justify-center px-0" : "justify-between px-6"}`}>
+        {!isCollapsed && (
+          <div className="relative h-10 w-24">
+            <Image
+              src="/nuycle-logo.png"
+              alt="Nuycle Logo"
+              fill
+              className="object-contain object-left"
+              priority
+              sizes="100px"
+            />
+          </div>
+        )}
+        <button
+          onClick={() => setIsCollapsed(c => !c)}
+          className="p-2 rounded-lg text-purple-200 hover:bg-[#4A0080] hover:text-white transition-colors"
+          title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+        >
+          <Menu size={20} />
+        </button>
       </div>
 
       {/* User Profile */}
-      <div className="px-6 mb-8">
-        <div className="flex items-center gap-3 p-2 bg-[#4A0080] rounded-xl border border-[#5c0099]">
+      <div className={`mb-8 ${isCollapsed ? "flex justify-center px-0" : "px-6"}`}>
+        <div className={`flex items-center gap-3 rounded-xl ${isCollapsed ? "" : "p-2 bg-[#4A0080] border border-[#5c0099]"}`}>
           <div className="relative w-10 h-10 rounded-full overflow-hidden border border-[#8B2FE8] shadow-sm shrink-0">
             <img src={avatarSrc} alt={userName} className="w-full h-full object-cover" />
           </div>
-          <div className="flex flex-col min-w-0">
-            <span className="text-sm font-bold text-white truncate">{userName || "Manager"}</span>
-            <span className="text-[10px] text-purple-200 font-medium uppercase tracking-wider">
-              {userRole || "Sales Rep"}
-            </span>
-          </div>
+          {!isCollapsed && (
+            <div className="flex flex-col min-w-0">
+              <span className="text-sm font-bold text-white truncate">{userName || "Manager"}</span>
+              <span className="text-[10px] text-purple-200 font-medium uppercase tracking-wider">
+                {userRole || "Sales Rep"}
+              </span>
+            </div>
+          )}
         </div>
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 px-4 flex flex-col gap-1">
+      <nav className={`flex-1 flex flex-col gap-1 ${isCollapsed ? "px-2" : "px-4"}`}>
         <SidebarNavLink
           href="/sales-rep-manager"
           icon={Users}
@@ -161,8 +179,9 @@ export function SalesRepManagerSidebarClient({ userName, userRole, userAvatar }:
           hasSubItems={true}
           isExpanded={repsExpanded}
           onToggle={() => setRepsExpanded(!repsExpanded)}
+          collapsed={isCollapsed}
         />
-        {repsExpanded && (
+        {!isCollapsed && repsExpanded && (
           <div className="mb-2 flex flex-col gap-1">
             <SubItem
               href="/sales-rep-manager/analytics"
@@ -179,8 +198,9 @@ export function SalesRepManagerSidebarClient({ userName, userRole, userAvatar }:
           hasSubItems={true}
           isExpanded={ordersExpanded}
           onToggle={() => setOrdersExpanded(!ordersExpanded)}
+          collapsed={isCollapsed}
         />
-        {ordersExpanded && (
+        {!isCollapsed && ordersExpanded && (
           <div className="mb-2 flex flex-col gap-1">
             <SubItem
               href="/sales-rep-manager/orders"
@@ -200,6 +220,7 @@ export function SalesRepManagerSidebarClient({ userName, userRole, userAvatar }:
           icon={BarChart3}
           label="Analytics"
           isActive={isAnalyticsActive}
+          collapsed={isCollapsed}
         />
 
         <SidebarNavLink
@@ -207,21 +228,22 @@ export function SalesRepManagerSidebarClient({ userName, userRole, userAvatar }:
           icon={Clock}
           label="History"
           isActive={isHistoryActive}
+          collapsed={isCollapsed}
         />
       </nav>
 
       {/* Bottom Actions */}
-      <div className="px-4 py-6 border-t border-[#4A0080]">
-        <SidebarNavLink href="#" icon={Bell} label="Notification" isActive={false} badge={2} />
-        <SidebarNavLink href="#" icon={Settings} label="Settings" isActive={false} />
+      <div className={`py-6 border-t border-[#4A0080] ${isCollapsed ? "px-2" : "px-4"}`}>
+        <SidebarNavLink href="#" icon={Settings} label="Settings" isActive={false} collapsed={isCollapsed} />
         <form action={logoutAction}>
           <button
             type="submit"
-            className="flex items-center justify-between px-4 py-3 rounded-xl mb-1 transition-all duration-200 group w-full text-purple-100 hover:bg-[#4A0080] hover:text-white"
+            title="Log Out"
+            className={`flex items-center ${isCollapsed ? "justify-center px-0" : "justify-between px-4"} py-3 rounded-xl mb-1 transition-all duration-200 group w-full text-purple-100 hover:bg-[#4A0080] hover:text-white`}
           >
-            <div className="flex items-center gap-3">
+            <div className={`flex items-center gap-3 ${isCollapsed ? "justify-center" : ""}`}>
               <LogOut size={20} className="text-purple-200 group-hover:text-white" />
-              <span className="font-medium text-sm">Log Out</span>
+              {!isCollapsed && <span className="font-medium text-sm">Log Out</span>}
             </div>
           </button>
         </form>

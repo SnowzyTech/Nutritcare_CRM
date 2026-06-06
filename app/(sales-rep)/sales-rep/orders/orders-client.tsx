@@ -29,6 +29,7 @@ export type OrderListItem = {
   status: OrderStatus;
   isReorder: boolean;
   createdAt: string; // ISO string (serialized from server)
+  updatedAt: string; // ISO string - used for status date
   customer: { name: string; email: string | null };
   agent: { companyName: string; state: string | null } | null;
   items: Array<{ quantity: number; product: { name: string } }>;
@@ -210,6 +211,7 @@ export function OrdersClient({ orders, counts, userName, products }: OrdersClien
       status: 'PENDING',
       isReorder,
       createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
       customer: { name: customerName.trim(), email: email.trim() || null },
       agent: null,
       items: formProducts.map((fp) => ({
@@ -502,7 +504,11 @@ export function OrdersClient({ orders, counts, userName, products }: OrdersClien
                                 {style.label}
                               </span>
                               <span className="text-xs sm:text-sm text-gray-700">
-                                {['CONFIRMED', 'CANCELLED'].includes(order.status) ? 'Today' : '03-02-2026'}
+                                {new Date(order.updatedAt).toLocaleDateString('en-NG', {
+                                  day: '2-digit',
+                                  month: '2-digit',
+                                  year: 'numeric',
+                                })}
                               </span>
                             </div>
                           )}

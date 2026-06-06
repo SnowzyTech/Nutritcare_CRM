@@ -40,7 +40,9 @@ export function AccountingSettingsClient({ profile }: { profile: Profile }) {
   const [whatsapp, setWhatsapp] = useState(profile.whatsappNumber ?? "");
 
   const [avatarPreview, setAvatarPreview] = useState<string | null>(profile.avatarUrl ?? null);
-  const [avatarData, setAvatarData] = useState<string | null>(null);
+  // Holds the Cloudinary secure_url returned after a successful upload.
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [avatarUploading, setAvatarUploading] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -55,25 +57,41 @@ export function AccountingSettingsClient({ profile }: { profile: Profile }) {
     year: "numeric",
   });
 
-  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      if (!file.type.startsWith("image/")) {
-        setError("Please upload an image file.");
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      setError("Please upload an image file.");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setError("Image size must be less than 5MB.");
+      return;
+    }
+
+    setError(null);
+    // Instant local preview while the upload runs.
+    setAvatarPreview(URL.createObjectURL(file));
+    setAvatarUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/upload/avatar", { method: "POST", body: fd });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? "Upload failed.");
+        setAvatarPreview(profile.avatarUrl ?? null);
         return;
       }
-      if (file.size > 1 * 1024 * 1024) {
-        setError("Image size must be less than 1MB.");
-        return;
-      }
-      setError(null);
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const base64 = reader.result as string;
-        setAvatarPreview(base64);
-        setAvatarData(base64);
-      };
-      reader.readAsDataURL(file);
+      // Store only the Cloudinary URL — that is what gets saved to the DB.
+      setAvatarUrl(data.url);
+      setAvatarPreview(data.url);
+    } catch {
+      setError("Upload failed. Please try again.");
+      setAvatarPreview(profile.avatarUrl ?? null);
+    } finally {
+      setAvatarUploading(false);
     }
   };
 
@@ -86,12 +104,16 @@ export function AccountingSettingsClient({ profile }: { profile: Profile }) {
       setError("First Name is required.");
       return;
     }
+    if (avatarUploading) {
+      setError("Please wait for the image to finish uploading.");
+      return;
+    }
     setLoading(true);
     const result = await updateProfileAction({
       name: fullName,
       phone: phone.trim() || undefined,
       whatsappNumber: whatsapp.trim() || undefined,
-      avatarUrl: avatarData ?? undefined,
+      avatarUrl: avatarUrl ?? undefined,
     });
     setLoading(false);
     if ("error" in result) {
@@ -164,11 +186,16 @@ export function AccountingSettingsClient({ profile }: { profile: Profile }) {
               {/* Enhanced Upload Button */}
               <button
                 type="button"
-                className="absolute bottom-1 right-1 w-9 h-9 rounded-full bg-white border border-gray-100 shadow-[0_4px_12px_rgba(0,0,0,0.08)] flex items-center justify-center text-gray-500 hover:text-[#AE00FF] hover:border-purple-200 transition-all active:scale-90 cursor-pointer"
+                disabled={avatarUploading}
+                className="absolute bottom-1 right-1 w-9 h-9 rounded-full bg-white border border-gray-100 shadow-[0_4px_12px_rgba(0,0,0,0.08)] flex items-center justify-center text-gray-500 hover:text-[#AE00FF] hover:border-purple-200 transition-all active:scale-90 cursor-pointer disabled:opacity-60 disabled:cursor-wait"
                 title="Upload photo"
                 onClick={() => document.getElementById('avatar-upload-input')?.click()}
               >
-                <Upload className="w-4 h-4" />
+                {avatarUploading ? (
+                  <span className="w-4 h-4 border-2 border-gray-300 border-t-[#AE00FF] rounded-full animate-spin" />
+                ) : (
+                  <Upload className="w-4 h-4" />
+                )}
               </button>
             </div>
 
@@ -300,11 +327,11 @@ export function AccountingSettingsClient({ profile }: { profile: Profile }) {
               <div className="pt-2">
                 <button
                   type="submit"
-                  disabled={loading}
+                  disabled={loading || avatarUploading}
                   className="w-full flex items-center justify-center gap-2 bg-[#A020F0] hover:bg-[#8B1ED2] disabled:bg-purple-300 text-white text-sm font-bold py-3.5 px-6 rounded-2xl transition-all duration-200 shadow-md hover:shadow-purple-200/50 active:scale-[0.99] cursor-pointer"
                 >
                   <Save className="w-4 h-4 shrink-0" />
-                  {loading ? "Saving..." : "Save Changes"}
+                  {loading ? "Saving..." : avatarUploading ? "Uploading image..." : "Save Changes"}
                 </button>
               </div>
             </div>

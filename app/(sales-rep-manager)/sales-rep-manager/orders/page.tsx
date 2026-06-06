@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth/auth";
 import { getManagerWithTeam, getTeamMembersWithStats } from "@/modules/users/services/users.service";
 import { getTeamOrders } from "@/modules/orders/services/orders.service";
+import { getActiveProducts } from "@/modules/orders/services/products.service";
 import { TeamOrdersClient, type TeamOrderListItem } from "./team-orders-client";
 
 export const dynamic = "force-dynamic";
@@ -14,7 +15,11 @@ export default async function TeamOrdersPage() {
   const members = teamId ? await getTeamMembersWithStats(teamId) : [];
   const memberIds = members.map(m => m.id);
 
-  const dbOrders = await getTeamOrders(memberIds);
+  const [dbOrders, allProducts] = await Promise.all([
+    getTeamOrders(memberIds),
+    getActiveProducts(),
+  ]);
+  const products = allProducts.map(p => p.name);
 
   const orders: TeamOrderListItem[] = dbOrders.map(o => ({
     id: o.id,
@@ -37,5 +42,5 @@ export default async function TeamOrdersPage() {
     failed: orders.filter(o => o.status === "FAILED").length,
   };
 
-  return <TeamOrdersClient orders={orders} counts={counts} />;
+  return <TeamOrdersClient orders={orders} counts={counts} products={products} />;
 }

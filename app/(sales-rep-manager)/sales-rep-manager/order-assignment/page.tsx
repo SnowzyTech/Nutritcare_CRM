@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth/auth";
 import { getManagerWithTeam, getTeamMembersWithStats } from "@/modules/users/services/users.service";
 import { getTeamOrders } from "@/modules/orders/services/orders.service";
+import { getActiveProducts } from "@/modules/orders/services/products.service";
 import { OrderAssignmentClient } from "./order-assignment-client";
 import type { TeamOrderListItem } from "../orders/team-orders-client";
 
@@ -15,7 +16,11 @@ export default async function OrderAssignmentPage() {
   const members = teamId ? await getTeamMembersWithStats(teamId) : [];
   const memberIds = members.map(m => m.id);
 
-  const dbOrders = await getTeamOrders(memberIds);
+  const [dbOrders, allProducts] = await Promise.all([
+    getTeamOrders(memberIds),
+    getActiveProducts(),
+  ]);
+  const products = allProducts.map(p => p.name);
 
   // Only PENDING and CONFIRMED orders can be reassigned
   const assignableDbOrders = dbOrders.filter(
@@ -52,5 +57,5 @@ export default async function OrderAssignmentPage() {
     failed: 0,
   };
 
-  return <OrderAssignmentClient orders={orders} counts={counts} salesReps={salesReps} />;
+  return <OrderAssignmentClient orders={orders} counts={counts} salesReps={salesReps} products={products} />;
 }

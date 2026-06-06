@@ -32,30 +32,27 @@ const NIGERIAN_STATES = [
   'Rivers', 'Sokoto', 'Taraba', 'Yobe', 'Zamfara'
 ];
 
-const MOCK_AGENTS = [
-  { name: 'Emeka Nwankwo', orders: 20 },
-  { name: 'Zainab Bello', orders: 25 },
-  { name: 'Tunde Ajayi', orders: 29 },
-  { name: 'Blessing Efiong', orders: 31 },
-  { name: 'Chioma Okafor', orders: 31 },
-  { name: 'Adebayo Salami', orders: 31 },
-  { name: 'Fatima Yusuf', orders: 31 },
-  { name: 'Obinna Eze', orders: 31 },
-  { name: 'Amara Obi', orders: 31 },
-  { name: 'Kelechi Udo', orders: 31 },
-  { name: 'Ngozi Ike', orders: 31 },
-  { name: 'Yemi Adeyemi', orders: 31 },
-  { name: 'Hassan Musa', orders: 31 },
-  { name: 'Ifeoma Chukwu', orders: 31 },
-  { name: 'Damilola Oni', orders: 31 },
-];
+// Parse the "DD-MM-YYYY" date string used in OrderRow back into a Date.
+function parseRowDate(s: string): Date | null {
+  const [d, m, y] = s.split('-').map(Number);
+  if (!d || !m || !y) return null;
+  return new Date(y, m - 1, d);
+}
+
+interface AgentItem {
+  id: string;
+  name: string;
+  ordersToday: number;
+}
 
 interface OrderDashboardClientProps {
   initialOrders?: OrderRow[];
   repProfile: SalesRepProfile;
+  deliveryAgents?: AgentItem[];
+  products?: string[];
 }
 
-export function OrderDashboardClient({ initialOrders = [], repProfile }: OrderDashboardClientProps) {
+export function OrderDashboardClient({ initialOrders = [], repProfile, deliveryAgents = [], products = [] }: OrderDashboardClientProps) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
@@ -88,7 +85,11 @@ export function OrderDashboardClient({ initialOrders = [], repProfile }: OrderDa
     setIsDelAgentOpen(false);
   };
 
-  const uniqueProducts = useMemo(() => Array.from(new Set(initialOrders.map(o => o.product))), [initialOrders]);
+  // Full catalog when provided; otherwise fall back to products seen in the orders.
+  const uniqueProducts = useMemo(() => {
+    if (products.length > 0) return products;
+    return Array.from(new Set(initialOrders.map(o => o.product)));
+  }, [products, initialOrders]);
 
   const counts = useMemo(() => ({
     All: initialOrders.length,
@@ -110,14 +111,34 @@ export function OrderDashboardClient({ initialOrders = [], repProfile }: OrderDa
           o.agent?.state?.toLowerCase().includes(s.toLowerCase()) ||
           o.state?.toLowerCase().includes(s.toLowerCase())
         );
-      return matchesTab && matchesSearch && matchesProduct && matchesState;
+      const matchesDelAgent = selectedDelAgents.length === 0 ||
+        (o.agent != null && selectedDelAgents.includes(o.agent.id));
+      let matchesDate = true;
+      if (startDate || endDate) {
+        const od = parseRowDate(o.date);
+        if (!od) {
+          matchesDate = false;
+        } else {
+          if (startDate) {
+            const s = new Date(startDate);
+            s.setHours(0, 0, 0, 0);
+            if (od < s) matchesDate = false;
+          }
+          if (endDate) {
+            const e = new Date(endDate);
+            e.setHours(23, 59, 59, 999);
+            if (od > e) matchesDate = false;
+          }
+        }
+      }
+      return matchesTab && matchesSearch && matchesProduct && matchesState && matchesDelAgent && matchesDate;
     });
-  }, [initialOrders, activeTab, searchQuery, selectedProducts, selectedStates]);
+  }, [initialOrders, activeTab, searchQuery, selectedProducts, selectedStates, selectedDelAgents, startDate, endDate]);
 
-  const filteredMockAgents = useMemo(() => {
-    if (!delAgentSearch) return MOCK_AGENTS;
-    return MOCK_AGENTS.filter(a => a.name.toLowerCase().includes(delAgentSearch.toLowerCase()));
-  }, [delAgentSearch]);
+  const filteredDelAgents = useMemo(() => {
+    if (!delAgentSearch) return deliveryAgents;
+    return deliveryAgents.filter(a => a.name.toLowerCase().includes(delAgentSearch.toLowerCase()));
+  }, [delAgentSearch, deliveryAgents]);
 
 
   const dateLabel = useMemo(() => {
@@ -433,16 +454,18 @@ export function OrderDashboardClient({ initialOrders = [], repProfile }: OrderDa
             <div className="flex-1 overflow-y-auto px-6 pb-4" style={{ scrollbarWidth: 'thin' }}>
               {/* Agent grid */}
               <div className="grid grid-cols-5 gap-3 pb-6 border-b border-gray-200">
-                {filteredMockAgents.map((agent) => {
-                  const isSelected = pendingDelAgents.includes(agent.name);
+                {filteredDelAgents.length === 0 ? (
+                  <p className="col-span-5 text-center text-sm text-gray-400 py-6">No delivery agents found</p>
+                ) : filteredDelAgents.map((agent) => {
+                  const isSelected = pendingDelAgents.includes(agent.id);
                   return (
                     <button
-                      key={agent.name}
+                      key={agent.id}
                       onClick={() => {
                         if (isSelected) {
-                          setPendingDelAgents(prev => prev.filter(n => n !== agent.name));
+                          setPendingDelAgents(prev => prev.filter(id => id !== agent.id));
                         } else {
-                          setPendingDelAgents(prev => [...prev, agent.name]);
+                          setPendingDelAgents(prev => [...prev, agent.id]);
                         }
                       }}
                       className="flex items-center gap-2 py-3 px-2 rounded-lg hover:bg-gray-50 transition-colors text-left hover:cursor-pointer"
@@ -458,7 +481,7 @@ export function OrderDashboardClient({ initialOrders = [], repProfile }: OrderDa
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-semibold text-gray-800 truncate">{agent.name}</p>
-                        <p className="text-[10px] text-gray-400">{agent.orders} Orders Today</p>
+                        <p className="text-[10px] text-gray-400">{agent.ordersToday} Orders Today</p>
                       </div>
                       <div className={`w-5 h-5 rounded-full border-2 shrink-0 flex items-center justify-center ${
                         isSelected ? 'border-[#A020F0] bg-[#A020F0]' : 'border-gray-300'
@@ -475,25 +498,26 @@ export function OrderDashboardClient({ initialOrders = [], repProfile }: OrderDa
                 <div className="mt-6">
                   <p className="text-sm font-bold text-gray-800 mb-4">{pendingDelAgents.length} Delivery Agents Selected</p>
                   <div className="grid grid-cols-4 gap-3">
-                    {pendingDelAgents.map((name) => {
-                      const agent = MOCK_AGENTS.find(a => a.name === name);
+                    {pendingDelAgents.map((id) => {
+                      const agent = deliveryAgents.find(a => a.id === id);
+                      if (!agent) return null;
                       return (
-                        <div key={name} className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-full px-3 py-2">
+                        <div key={id} className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-full px-3 py-2">
                           <div className="relative w-7 h-7 rounded-full overflow-hidden shrink-0">
                             <Image
-                              src={`https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=random&size=28`}
-                              alt={name}
+                              src={`https://ui-avatars.com/api/?name=${encodeURIComponent(agent.name)}&background=random&size=28`}
+                              alt={agent.name}
                               fill
                               className="object-cover"
                               sizes="28px"
                             />
                           </div>
                           <div className="flex-1 min-w-0">
-                            <p className="text-xs font-semibold text-gray-700 truncate">{name}</p>
-                            <p className="text-[9px] text-gray-400">{agent?.orders || 20} Orders Today</p>
+                            <p className="text-xs font-semibold text-gray-700 truncate">{agent.name}</p>
+                            <p className="text-[9px] text-gray-400">{agent.ordersToday} Orders Today</p>
                           </div>
                           <button
-                            onClick={() => setPendingDelAgents(prev => prev.filter(n => n !== name))}
+                            onClick={() => setPendingDelAgents(prev => prev.filter(agentId => agentId !== id))}
                             className="p-0.5 text-gray-400 hover:text-gray-600 shrink-0"
                           >
                             <X size={14} />
@@ -579,7 +603,7 @@ export function OrderDashboardClient({ initialOrders = [], repProfile }: OrderDa
                     <span className="text-sm text-gray-500">{order.date}</span>
                   </td>
                   <td className="px-8 py-5 whitespace-nowrap">
-                    {order.status === 'Pending' ? (
+                    {order.status === 'Pending' || !order.statusDate ? (
                       <span className="text-sm text-gray-500">---</span>
                     ) : (
                       <div className="flex flex-col gap-1 items-start">
@@ -587,7 +611,7 @@ export function OrderDashboardClient({ initialOrders = [], repProfile }: OrderDa
                           {style.label}
                         </span>
                         <span className="text-sm text-gray-700">
-                          {['Confirmed', 'Cancelled'].includes(order.status) ? 'Today' : '03-02-2026'}
+                          {order.statusDate}
                         </span>
                       </div>
                     )}

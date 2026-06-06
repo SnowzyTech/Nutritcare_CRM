@@ -9,11 +9,52 @@ import {
 import {
   fetchTeamsAnalyticsForMonth,
   fetchCompanyAnalyticsForMonth,
+  fetchTeamsAnalyticsForPeriod,
+  fetchCompanyAnalyticsForPeriod,
 } from '@/modules/data-analysis/actions/data-analysis.action';
+import type { Period } from '@/modules/data-analysis/services/data-analysis.service';
+
+const KPI_TARGET = 65; // 65% KPI target
+const MIN_ORDERS_PER_REP_WEEK = 180; // 30 orders/day * 6 days
+
+// Weekly bonus tiers based on KPI (delivered/total)
+// Minimum orders scale by number of sales reps: 180 orders/week per rep
+function calculateWeeklyBonus(
+  kpi: number,
+  totalOrders: number,
+  salesRepCount: number
+): { amount: number; eligible: boolean; reason?: string } {
+  // Scale minimum orders by number of sales reps
+  const minRequired = MIN_ORDERS_PER_REP_WEEK * Math.max(salesRepCount, 1);
+
+  if (totalOrders < minRequired) {
+    return {
+      amount: 0,
+      eligible: false,
+      reason: `Need ${minRequired} orders (${totalOrders} handled)`
+    };
+  }
+
+  if (kpi < 70) {
+    return {
+      amount: 0,
+      eligible: false,
+      reason: "KPI below 70%"
+    };
+  }
+
+  if (kpi >= 90) {
+    return { amount: 50000, eligible: true };
+  } else if (kpi >= 80) {
+    return { amount: 35000, eligible: true };
+  } else { // 70-79%
+    return { amount: 20000, eligible: true };
+  }
+}
 
 const METRIC_KEYS = [
   'totalProductsSold', 'totalOrderCustomer', 'bestSellingProduct',
-  'generalPerformance', 'upsellingRate', 'confirmationRate',
+  'generalPerformance', 'upsellingRate', 'reorderRate',
   'deliveryRate', 'cancellationRate', 'recoveryRate',
 ] as const;
 
@@ -23,7 +64,7 @@ const METRIC_LABELS: Record<string, string> = {
   bestSellingProduct: 'Best Selling Product',
   generalPerformance: 'General Performance',
   upsellingRate: 'Upselling Rate',
-  confirmationRate: 'Comfirmation Rate',
+  reorderRate: 'Reorder Rate',
   deliveryRate: 'Delivery Rate',
   cancellationRate: 'Cancellation Rate',
   recoveryRate: 'Recovery Rate',
@@ -96,10 +137,12 @@ function MetricCard({
   label,
   data,
   isPending,
+  periodLabel = 'month',
 }: {
   label: string;
   data: { value: string | number; change: string } | undefined;
   isPending: boolean;
+  periodLabel?: string;
 }) {
   const isBestProduct = label === 'Best Selling Product';
   const value = data?.value ?? '—';
@@ -116,7 +159,7 @@ function MetricCard({
         </span>
         <div className="flex flex-col items-end">
           <div className="flex items-center gap-1 text-green-500 font-bold text-xs">{change}</div>
-          <span className="text-[10px] text-gray-400 font-medium">vs last month</span>
+          <span className="text-[10px] text-gray-400 font-medium">vs last {periodLabel}</span>
         </div>
       </div>
     </div>
@@ -132,6 +175,7 @@ export function AnalyticsClient({ teamsData = [], companyData }: AnalyticsClient
   const [activeView, setActiveView] = useState<'team' | 'sales'>('team');
   const [selectedTeamIndex, setSelectedTeamIndex] = useState(0);
   const [selectedMonth, setSelectedMonth] = useState('This Month');
+  const [selectedPeriod, setSelectedPeriod] = useState<Period>('month');
   const [currentTeamsData, setCurrentTeamsData] = useState(teamsData);
   const [currentCompanyData, setCurrentCompanyData] = useState(companyData);
   const [isPending, startTransition] = useTransition();
@@ -147,10 +191,19 @@ export function AnalyticsClient({ teamsData = [], companyData }: AnalyticsClient
   function handleTabChange(view: 'team' | 'sales') {
     if (view === activeView) return;
     setActiveView(view);
-    // If a non-default month is selected, re-fetch for the new tab
-    if (selectedMonth !== 'This Month') {
-      const { month: m, year: y } = monthIndexFromName(selectedMonth);
-      startTransition(async () => {
+    // Re-fetch for the new tab with current period
+    startTransition(async () => {
+      if (selectedPeriod === 'week') {
+        if (view === 'sales') {
+          const data = await fetchCompanyAnalyticsForPeriod('week');
+          setCurrentCompanyData(data);
+        } else {
+          const data = await fetchTeamsAnalyticsForPeriod('week');
+          setCurrentTeamsData(data);
+          setSelectedTeamIndex((prev) => Math.min(prev, data.length - 1));
+        }
+      } else if (selectedMonth !== 'This Month') {
+        const { month: m, year: y } = monthIndexFromName(selectedMonth);
         if (view === 'sales') {
           const data = await fetchCompanyAnalyticsForMonth(m, y);
           setCurrentCompanyData(data);
@@ -159,8 +212,38 @@ export function AnalyticsClient({ teamsData = [], companyData }: AnalyticsClient
           setCurrentTeamsData(data);
           setSelectedTeamIndex((prev) => Math.min(prev, data.length - 1));
         }
-      });
+      }
+    });
+  }
+
+  function handlePeriodChange(period: Period) {
+    if (period === selectedPeriod) return;
+    setSelectedPeriod(period);
+    if (period === 'week') {
+      setSelectedMonth('This Month'); // Reset month when switching to week
     }
+    startTransition(async () => {
+      if (period === 'week') {
+        if (activeView === 'team') {
+          const data = await fetchTeamsAnalyticsForPeriod('week');
+          setCurrentTeamsData(data);
+          setSelectedTeamIndex((prev) => Math.min(prev, data.length - 1));
+        } else {
+          const data = await fetchCompanyAnalyticsForPeriod('week');
+          setCurrentCompanyData(data);
+        }
+      } else {
+        // Switch to month - fetch current month
+        if (activeView === 'team') {
+          const data = await fetchTeamsAnalyticsForPeriod('month');
+          setCurrentTeamsData(data);
+          setSelectedTeamIndex((prev) => Math.min(prev, data.length - 1));
+        } else {
+          const data = await fetchCompanyAnalyticsForPeriod('month');
+          setCurrentCompanyData(data);
+        }
+      }
+    });
   }
 
   function handleMonthChange(month: string) {
@@ -220,7 +303,36 @@ export function AnalyticsClient({ teamsData = [], companyData }: AnalyticsClient
             </div>
           )}
 
-          <MonthDropdown value={selectedMonth} onChange={handleMonthChange} disabled={isPending} />
+          {/* Period toggle (Week/Month) */}
+          <div className="flex items-center bg-gray-100 rounded-lg p-1">
+            <button
+              onClick={() => handlePeriodChange('month')}
+              disabled={isPending}
+              className={`px-4 py-1.5 rounded-md text-xs font-semibold transition-all ${
+                selectedPeriod === 'month'
+                  ? 'bg-purple-600 text-white shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              } ${isPending ? 'opacity-50 cursor-not-allowed' : ''}`}
+            >
+              This Month
+            </button>
+            <button
+              onClick={() => handlePeriodChange('week')}
+              disabled={isPending}
+              className={`px-4 py-1.5 rounded-md text-xs font-semibold transition-all ${
+                selectedPeriod === 'week'
+                  ? 'bg-purple-600 text-white shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              } ${isPending ? 'opacity-50 cursor-not-allowed' : ''}`}
+            >
+              This Week
+            </button>
+          </div>
+
+          {/* Month dropdown — only show when period is month */}
+          {selectedPeriod === 'month' && (
+            <MonthDropdown value={selectedMonth} onChange={handleMonthChange} disabled={isPending} />
+          )}
         </div>
       </div>
 
@@ -231,27 +343,100 @@ export function AnalyticsClient({ teamsData = [], companyData }: AnalyticsClient
           {/* Metrics Grid */}
           <div className={`grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 transition-opacity duration-200 ${isPending ? 'opacity-50' : 'opacity-100'}`}>
             {METRIC_KEYS.map((key) => (
-              <MetricCard key={key} label={METRIC_LABELS[key]} data={metricByKey[key]} isPending={isPending} />
+              <MetricCard
+                key={key}
+                label={METRIC_LABELS[key]}
+                data={metricByKey[key]}
+                isPending={isPending}
+                periodLabel={selectedPeriod === 'week' ? 'week' : 'month'}
+              />
             ))}
 
             {/* KPI Box */}
-            <div className="bg-gradient-to-br from-[#532194] to-[#3D1A6E] p-6 rounded-xl text-white flex flex-col justify-between relative overflow-hidden group shadow-lg">
-              <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -mr-16 -mt-16 transition-transform group-hover:scale-110" />
-              <div className="flex justify-between items-start relative z-10">
-                <div className="space-y-1">
-                  <span className="text-[10px] font-bold uppercase tracking-widest opacity-80 text-[#D6BBFB]">KPI</span>
-                  <p className="text-3xl font-black">{activeMetrics?.kpi.value ?? '—'}</p>
-                </div>
-                <div className="text-right">
-                  <span className="text-[10px] font-medium opacity-60">Target for the month:</span>
-                  <p className="text-xs font-bold">{activeMetrics?.kpi.target ?? '—'}</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 mt-4 relative z-10">
-                <span className="text-green-400 text-sm font-bold">{activeMetrics?.kpi.change ?? '—'}</span>
-                <span className="text-[10px] font-medium opacity-60">vs last month</span>
-              </div>
-            </div>
+            {(() => {
+              const kpiValue = activeMetrics?.kpi.value ?? 0;
+              const kpiMet = kpiValue >= KPI_TARGET;
+              const salesRepCount = activeMetrics?.salesRepCount ?? 1;
+              const bonus = calculateWeeklyBonus(kpiValue, activeMetrics?.kpi.totalOrders ?? 0, salesRepCount);
+              const periodLabel = selectedPeriod === 'week' ? 'week' : 'month';
+
+              return (
+                <>
+                  <div className={`p-6 rounded-xl text-white flex flex-col justify-between relative overflow-hidden group shadow-lg ${
+                    kpiMet
+                      ? "bg-gradient-to-br from-[#532194] to-[#3D1A6E]"
+                      : "bg-gradient-to-br from-red-500 to-red-600"
+                  }`}>
+                    <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -mr-16 -mt-16 transition-transform group-hover:scale-110" />
+                    <div className="flex justify-between items-start relative z-10">
+                      <div className="space-y-1">
+                        <span className={`text-[10px] font-bold uppercase tracking-widest opacity-80 ${kpiMet ? "text-[#D6BBFB]" : "text-red-100"}`}>
+                          KPI — Target: {KPI_TARGET}%
+                        </span>
+                        <p className="text-3xl font-black">{kpiValue}%</p>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[10px] font-medium opacity-60">Delivered / Handled:</span>
+                        <p className="text-xs font-bold">
+                          {activeMetrics?.kpi.ordersDelivered ?? 0} / {activeMetrics?.kpi.totalOrders ?? 0}
+                        </p>
+                      </div>
+                    </div>
+                    {!kpiMet && (
+                      <div className="text-xs font-medium text-red-200 mt-2 relative z-10">
+                        Need {KPI_TARGET - kpiValue}% more to reach target
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2 mt-4 relative z-10">
+                      <span className="text-green-400 text-sm font-bold">{activeMetrics?.kpi.change ?? '—'}</span>
+                      <span className="text-[10px] font-medium opacity-60">vs last {periodLabel}</span>
+                    </div>
+                  </div>
+
+                  {/* Bonus Card */}
+                  <div className={`p-6 rounded-xl border shadow-sm flex flex-col justify-between ${
+                    bonus.eligible
+                      ? "bg-[#FAF8FF] border-[#F3E8FF]"
+                      : "bg-gray-50 border-gray-200"
+                  }`}>
+                    <div className="flex justify-between items-start mb-4">
+                      <span className="text-sm font-bold text-gray-900">
+                        {selectedPeriod === 'week' ? 'Weekly' : 'Monthly'} Bonus
+                      </span>
+                      {bonus.eligible && (
+                        <span className="text-[10px] font-bold text-green-600 bg-green-100 px-2 py-0.5 rounded-full">
+                          Eligible
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-end justify-between">
+                      {bonus.eligible ? (
+                        <>
+                          <span className="text-3xl font-bold text-gray-600 tracking-tight">
+                            ₦{bonus.amount.toLocaleString()}
+                          </span>
+                          <div className="text-right">
+                            <p className="text-base font-bold text-green-500">{kpiValue}%</p>
+                            <p className="text-[10px] font-bold text-gray-500">KPI</p>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="flex flex-col">
+                            <span className="text-2xl font-bold text-gray-400 tracking-tight">Not Eligible</span>
+                            <span className="text-xs text-gray-500 mt-1">{bonus.reason}</span>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-base font-bold text-gray-400">{kpiValue}%</p>
+                            <p className="text-[10px] font-bold text-gray-400">KPI</p>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </>
+              );
+            })()}
           </div>
 
           {/* Tables */}

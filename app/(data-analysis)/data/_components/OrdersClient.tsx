@@ -1,18 +1,22 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import { 
-  Search, 
-  SlidersHorizontal, 
-  ArrowUpDown, 
-  ChevronDown, 
+import {
+  Search,
+  SlidersHorizontal,
+  ArrowUpDown,
+  ChevronDown,
   MessageCircle,
-  X
+  X,
+  Trash2,
+  AlertTriangle
 } from 'lucide-react';
 import { OrderRow } from '@/modules/data-analysis/services/data-analysis.service';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { Calendar } from '@/components/ui/calendar';
+import { deleteOrderPermanently } from '@/modules/data-analysis/actions/data-analysis.action';
+import { toast } from 'sonner';
 
 const STATUS_STYLES: Record<string, { dot: string; bg: string; text: string; label: string }> = {
   Pending: { dot: 'bg-yellow-400', bg: 'bg-[#FFF3CD]', text: 'text-[#856404]', label: 'Pending' },
@@ -32,32 +36,41 @@ const NIGERIAN_STATES = [
   'Rivers', 'Sokoto', 'Taraba', 'Yobe', 'Zamfara'
 ];
 
-const MOCK_AGENTS = [
-  { name: 'Emeka Nwankwo', orders: 20 },
-  { name: 'Zainab Bello', orders: 25 },
-  { name: 'Tunde Ajayi', orders: 29 },
-  { name: 'Blessing Efiong', orders: 31 },
-  { name: 'Chioma Okafor', orders: 31 },
-  { name: 'Adebayo Salami', orders: 31 },
-  { name: 'Fatima Yusuf', orders: 31 },
-  { name: 'Obinna Eze', orders: 31 },
-  { name: 'Amara Obi', orders: 31 },
-  { name: 'Kelechi Udo', orders: 31 },
-  { name: 'Ngozi Ike', orders: 31 },
-  { name: 'Yemi Adeyemi', orders: 31 },
-  { name: 'Hassan Musa', orders: 31 },
-  { name: 'Ifeoma Chukwu', orders: 31 },
-  { name: 'Damilola Oni', orders: 31 },
-];
+// Parse the "DD-MM-YYYY" date string used in OrderRow back into a Date.
+function parseRowDate(s: string): Date | null {
+  const [d, m, y] = s.split('-').map(Number);
+  if (!d || !m || !y) return null;
+  return new Date(y, m - 1, d);
+}
+
+interface AgentItem {
+  id: string;
+  name: string;
+  ordersToday: number;
+}
+
+interface TeamItem {
+  id: string;
+  name: string;
+}
 
 interface OrdersClientProps {
   initialOrders?: OrderRow[];
+  deliveryAgents?: AgentItem[];
+  salesReps?: AgentItem[];
+  teams?: TeamItem[];
+  products?: string[];
 }
 
-export function OrdersClient({ initialOrders = [] }: OrdersClientProps) {
+export function OrdersClient({ initialOrders = [], deliveryAgents = [], salesReps = [], teams = [], products = [] }: OrdersClientProps) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Multi-select delete state
+  const [selectedOrders, setSelectedOrders] = useState<Set<string>>(new Set());
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   // Multi-select product filter
   const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
   const [pendingProducts, setPendingProducts] = useState<string[]>([]);
@@ -97,6 +110,62 @@ export function OrdersClient({ initialOrders = [] }: OrdersClientProps) {
     setIsCSAgentOpen(false);
   };
 
+  // Toggle single order selection
+  const toggleOrderSelection = (orderId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSelectedOrders(prev => {
+      const next = new Set(prev);
+      if (next.has(orderId)) {
+        next.delete(orderId);
+      } else {
+        next.add(orderId);
+      }
+      return next;
+    });
+  };
+
+  // Toggle all orders selection
+  const toggleAllOrders = () => {
+    if (selectedOrders.size === filteredOrders.length) {
+      setSelectedOrders(new Set());
+    } else {
+      setSelectedOrders(new Set(filteredOrders.map(o => o.id)));
+    }
+  };
+
+  // Handle delete selected orders
+  const handleDeleteSelected = async () => {
+    if (selectedOrders.size === 0) return;
+
+    setIsDeleting(true);
+    const orderIds = Array.from(selectedOrders);
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const orderId of orderIds) {
+      const result = await deleteOrderPermanently(orderId);
+      if (result.success) {
+        successCount++;
+      } else {
+        failCount++;
+      }
+    }
+
+    setIsDeleting(false);
+    setIsDeleteModalOpen(false);
+    setSelectedOrders(new Set());
+
+    if (successCount > 0 && failCount === 0) {
+      toast.success(`Successfully deleted ${successCount} order${successCount > 1 ? 's' : ''}`);
+    } else if (successCount > 0 && failCount > 0) {
+      toast.warning(`Deleted ${successCount} order${successCount > 1 ? 's' : ''}, ${failCount} failed`);
+    } else {
+      toast.error('Failed to delete orders');
+    }
+
+    router.refresh();
+  };
+
   const counts = useMemo(() => ({
     All: initialOrders.length,
     Pending: initialOrders.filter(o => o.status === 'Pending').length,
@@ -114,23 +183,46 @@ export function OrdersClient({ initialOrders = [] }: OrdersClientProps) {
                            o.salesRep.toLowerCase().includes(searchQuery.toLowerCase());
       const matchesProduct = selectedProducts.length === 0 || selectedProducts.includes(o.product);
       const matchesState = selectedStates.length === 0 || selectedStates.includes(o.state);
-      const matchesTeam = selectedTeams.length === 0 || selectedTeams.includes(o.salesRep);
-      return matchesTab && matchesSearch && matchesProduct && matchesState && matchesTeam;
+      const matchesTeam = selectedTeams.length === 0 || (o.teamId != null && selectedTeams.includes(o.teamId));
+      const matchesDelAgent = selectedDelAgents.length === 0 || (o.agent && selectedDelAgents.includes(o.agent.id));
+      const matchesCSAgent = selectedCSAgents.length === 0 || selectedCSAgents.includes(o.salesRepId);
+      let matchesDate = true;
+      if (startDate || endDate) {
+        const od = parseRowDate(o.date);
+        if (!od) {
+          matchesDate = false;
+        } else {
+          if (startDate) {
+            const s = new Date(startDate);
+            s.setHours(0, 0, 0, 0);
+            if (od < s) matchesDate = false;
+          }
+          if (endDate) {
+            const e = new Date(endDate);
+            e.setHours(23, 59, 59, 999);
+            if (od > e) matchesDate = false;
+          }
+        }
+      }
+      return matchesTab && matchesSearch && matchesProduct && matchesState && matchesTeam && matchesDelAgent && matchesCSAgent && matchesDate;
     });
-  }, [initialOrders, activeTab, searchQuery, selectedProducts, selectedStates, selectedTeams]);
+  }, [initialOrders, activeTab, searchQuery, selectedProducts, selectedStates, selectedTeams, selectedDelAgents, selectedCSAgents, startDate, endDate]);
 
-  const uniqueProducts = useMemo(() => Array.from(new Set(initialOrders.map(o => o.product))), [initialOrders]);
-  const uniqueSalesReps = useMemo(() => Array.from(new Set(initialOrders.map(o => o.salesRep))), [initialOrders]);
+  // Full catalog when provided; otherwise fall back to products seen in the orders.
+  const uniqueProducts = useMemo(() => {
+    if (products.length > 0) return products;
+    return Array.from(new Set(initialOrders.map(o => o.product)));
+  }, [products, initialOrders]);
 
   const filteredMockAgents = useMemo(() => {
-    if (!delAgentSearch) return MOCK_AGENTS;
-    return MOCK_AGENTS.filter(a => a.name.toLowerCase().includes(delAgentSearch.toLowerCase()));
-  }, [delAgentSearch]);
+    if (!delAgentSearch) return deliveryAgents;
+    return deliveryAgents.filter(a => a.name.toLowerCase().includes(delAgentSearch.toLowerCase()));
+  }, [delAgentSearch, deliveryAgents]);
 
   const filteredCSAgents = useMemo(() => {
-    if (!csAgentSearch) return MOCK_AGENTS;
-    return MOCK_AGENTS.filter(a => a.name.toLowerCase().includes(csAgentSearch.toLowerCase()));
-  }, [csAgentSearch]);
+    if (!csAgentSearch) return salesReps;
+    return salesReps.filter(a => a.name.toLowerCase().includes(csAgentSearch.toLowerCase()));
+  }, [csAgentSearch, salesReps]);
 
   const dateLabel = useMemo(() => {
     if (startDate && endDate) {
@@ -396,25 +488,27 @@ export function OrdersClient({ initialOrders = [] }: OrdersClientProps) {
                   </button>
                 </div>
                 <div className="flex-1 overflow-y-auto py-1">
-                  {uniqueSalesReps.map((s) => (
-                    <label 
-                      key={s}
+                  {teams.length === 0 ? (
+                    <p className="px-4 py-3 text-xs text-gray-400">No teams found</p>
+                  ) : teams.map((team) => (
+                    <label
+                      key={team.id}
                       className="flex items-center gap-3 px-4 py-2 hover:bg-purple-50 cursor-pointer transition-colors"
                     >
-                      <input 
+                      <input
                         type="checkbox"
-                        checked={pendingTeams.includes(s)}
+                        checked={pendingTeams.includes(team.id)}
                         onChange={(e) => {
                           if (e.target.checked) {
-                            setPendingTeams(prev => [...prev, s]);
+                            setPendingTeams(prev => [...prev, team.id]);
                           } else {
-                            setPendingTeams(prev => prev.filter(t => t !== s));
+                            setPendingTeams(prev => prev.filter(t => t !== team.id));
                           }
                         }}
                         className="w-4 h-4 rounded border-gray-300 text-[#A020F0] accent-[#A020F0]"
                       />
-                      <span className={`text-xs font-medium ${pendingTeams.includes(s) ? 'text-[#A020F0]' : 'text-gray-600'}`}>
-                        {s}
+                      <span className={`text-xs font-medium ${pendingTeams.includes(team.id) ? 'text-[#A020F0]' : 'text-gray-600'}`}>
+                        {team.name}
                       </span>
                     </label>
                   ))}
@@ -476,15 +570,26 @@ export function OrdersClient({ initialOrders = [] }: OrdersClientProps) {
           ))}
         </div>
 
-        <div className="ml-auto relative">
-          <input
-            type="text"
-            placeholder="search"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-10 pr-4 py-2 bg-white border border-gray-100 rounded-lg text-sm text-gray-600 placeholder-gray-300 focus:outline-none focus:ring-1 focus:ring-purple-200 w-48 shadow-sm"
-          />
-          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-300" />
+        <div className="ml-auto flex items-center gap-3">
+          {selectedOrders.size > 0 && (
+            <button
+              onClick={() => setIsDeleteModalOpen(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-600 rounded-lg text-xs font-bold hover:bg-red-100 transition-colors border border-red-100"
+            >
+              <Trash2 size={16} />
+              Delete ({selectedOrders.size})
+            </button>
+          )}
+          <div className="relative">
+            <input
+              type="text"
+              placeholder="search"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-10 pr-4 py-2 bg-white border border-gray-100 rounded-lg text-sm text-gray-600 placeholder-gray-300 focus:outline-none focus:ring-1 focus:ring-purple-200 w-48 shadow-sm"
+            />
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-300" />
+          </div>
         </div>
       </div>
 
@@ -515,15 +620,15 @@ export function OrdersClient({ initialOrders = [] }: OrdersClientProps) {
               {/* Agent grid */}
               <div className="grid grid-cols-5 gap-3 pb-6 border-b border-gray-200">
                 {filteredMockAgents.map((agent) => {
-                  const isSelected = pendingDelAgents.includes(agent.name);
+                  const isSelected = pendingDelAgents.includes(agent.id);
                   return (
                     <button
-                      key={agent.name}
+                      key={agent.id}
                       onClick={() => {
                         if (isSelected) {
-                          setPendingDelAgents(prev => prev.filter(n => n !== agent.name));
+                          setPendingDelAgents(prev => prev.filter(id => id !== agent.id));
                         } else {
-                          setPendingDelAgents(prev => [...prev, agent.name]);
+                          setPendingDelAgents(prev => [...prev, agent.id]);
                         }
                       }}
                       className="flex items-center gap-2 py-3 px-2 rounded-lg hover:bg-gray-50 transition-colors text-left"
@@ -539,7 +644,7 @@ export function OrdersClient({ initialOrders = [] }: OrdersClientProps) {
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-semibold text-gray-800 truncate">{agent.name}</p>
-                        <p className="text-[10px] text-gray-400">{agent.orders} Orders Today</p>
+                        <p className="text-[10px] text-gray-400">{agent.ordersToday} Orders Today</p>
                       </div>
                       <div className={`w-5 h-5 rounded-full border-2 shrink-0 flex items-center justify-center ${
                         isSelected ? 'border-[#A020F0] bg-[#A020F0]' : 'border-gray-300'
@@ -556,25 +661,26 @@ export function OrdersClient({ initialOrders = [] }: OrdersClientProps) {
                 <div className="mt-6">
                   <p className="text-sm font-bold text-gray-800 mb-4">{pendingDelAgents.length} Delivery Agents Selected</p>
                   <div className="grid grid-cols-4 gap-3">
-                    {pendingDelAgents.map((name) => {
-                      const agent = MOCK_AGENTS.find(a => a.name === name);
+                    {pendingDelAgents.map((id) => {
+                      const agent = deliveryAgents.find(a => a.id === id);
+                      if (!agent) return null;
                       return (
-                        <div key={name} className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-full px-3 py-2">
+                        <div key={id} className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-full px-3 py-2">
                           <div className="relative w-7 h-7 rounded-full overflow-hidden shrink-0">
                             <Image
-                              src={`https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=random&size=28`}
-                              alt={name}
+                              src={`https://ui-avatars.com/api/?name=${encodeURIComponent(agent.name)}&background=random&size=28`}
+                              alt={agent.name}
                               fill
                               className="object-cover"
                               sizes="28px"
                             />
                           </div>
                           <div className="flex-1 min-w-0">
-                            <p className="text-xs font-semibold text-gray-700 truncate">{name}</p>
-                            <p className="text-[9px] text-gray-400">{agent?.orders || 20} Orders Today</p>
+                            <p className="text-xs font-semibold text-gray-700 truncate">{agent.name}</p>
+                            <p className="text-[9px] text-gray-400">{agent.ordersToday} Orders Today</p>
                           </div>
                           <button
-                            onClick={() => setPendingDelAgents(prev => prev.filter(n => n !== name))}
+                            onClick={() => setPendingDelAgents(prev => prev.filter(agentId => agentId !== id))}
                             className="p-0.5 text-gray-400 hover:text-gray-600 shrink-0"
                           >
                             <X size={14} />
@@ -630,15 +736,15 @@ export function OrdersClient({ initialOrders = [] }: OrdersClientProps) {
               {/* Agent grid */}
               <div className="grid grid-cols-5 gap-3 pb-6 border-b border-gray-200">
                 {filteredCSAgents.map((agent) => {
-                  const isSelected = pendingCSAgents.includes(agent.name);
+                  const isSelected = pendingCSAgents.includes(agent.id);
                   return (
                     <button
-                      key={agent.name}
+                      key={agent.id}
                       onClick={() => {
                         if (isSelected) {
-                          setPendingCSAgents(prev => prev.filter(n => n !== agent.name));
+                          setPendingCSAgents(prev => prev.filter(id => id !== agent.id));
                         } else {
-                          setPendingCSAgents(prev => [...prev, agent.name]);
+                          setPendingCSAgents(prev => [...prev, agent.id]);
                         }
                       }}
                       className="flex items-center gap-2 py-3 px-2 rounded-lg hover:bg-gray-50 transition-colors text-left hover:cursor-pointer"
@@ -654,7 +760,7 @@ export function OrdersClient({ initialOrders = [] }: OrdersClientProps) {
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-semibold text-gray-800 truncate">{agent.name}</p>
-                        <p className="text-[10px] text-gray-400">{agent.orders} Orders Today</p>
+                        <p className="text-[10px] text-gray-400">{agent.ordersToday} Orders Today</p>
                       </div>
                       <div className={`w-5 h-5 rounded-full border-2 shrink-0 flex items-center justify-center ${
                         isSelected ? 'border-[#A020F0] bg-[#A020F0]' : 'border-gray-300'
@@ -671,25 +777,26 @@ export function OrdersClient({ initialOrders = [] }: OrdersClientProps) {
                 <div className="mt-6">
                   <p className="text-sm font-bold text-gray-800 mb-4">{pendingCSAgents.length} CS Agents Selected</p>
                   <div className="grid grid-cols-4 gap-3">
-                    {pendingCSAgents.map((name) => {
-                      const agent = MOCK_AGENTS.find(a => a.name === name);
+                    {pendingCSAgents.map((id) => {
+                      const agent = salesReps.find(a => a.id === id);
+                      if (!agent) return null;
                       return (
-                        <div key={name} className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-full px-3 py-2">
+                        <div key={id} className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-full px-3 py-2">
                           <div className="relative w-7 h-7 rounded-full overflow-hidden shrink-0">
                             <Image
-                              src={`https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=random&size=28`}
-                              alt={name}
+                              src={`https://ui-avatars.com/api/?name=${encodeURIComponent(agent.name)}&background=random&size=28`}
+                              alt={agent.name}
                               fill
                               className="object-cover"
                               sizes="28px"
                             />
                           </div>
                           <div className="flex-1 min-w-0">
-                            <p className="text-xs font-semibold text-gray-700 truncate">{name}</p>
-                            <p className="text-[9px] text-gray-400">{agent?.orders || 20} Orders Today</p>
+                            <p className="text-xs font-semibold text-gray-700 truncate">{agent.name}</p>
+                            <p className="text-[9px] text-gray-400">{agent.ordersToday} Orders Today</p>
                           </div>
                           <button
-                            onClick={() => setPendingCSAgents(prev => prev.filter(n => n !== name))}
+                            onClick={() => setPendingCSAgents(prev => prev.filter(agentId => agentId !== id))}
                             className="p-0.5 text-gray-400 hover:text-gray-600 shrink-0 hover:cursor-pointer"
                           >
                             <X size={14} />
@@ -723,6 +830,14 @@ export function OrdersClient({ initialOrders = [] }: OrdersClientProps) {
         <table className="w-full min-w-[1200px] text-left border-separate border-spacing-y-0">
           <thead>
             <tr className="bg-gray-100/50">
+              <th className="px-4 py-4 w-12">
+                <input
+                  type="checkbox"
+                  checked={filteredOrders.length > 0 && selectedOrders.size === filteredOrders.length}
+                  onChange={toggleAllOrders}
+                  className="w-4 h-4 rounded border-gray-300 text-[#A020F0] accent-[#A020F0] cursor-pointer"
+                />
+              </th>
               <th className="px-6 py-4 text-[11px] font-bold text-gray-500 uppercase tracking-wider">G-Mail</th>
               <th className="px-6 py-4 text-[11px] font-bold text-gray-500 uppercase tracking-wider">Name</th>
               <th className="px-6 py-4 text-[11px] font-bold text-gray-500 uppercase tracking-wider">Agent</th>
@@ -738,11 +853,20 @@ export function OrdersClient({ initialOrders = [] }: OrdersClientProps) {
             {filteredOrders.map((order) => {
               const style = STATUS_STYLES[order.status];
               return (
-                <tr 
-                  key={order.id} 
+                <tr
+                  key={order.id}
                   onClick={() => router.push(`/data/order/${order.id}`)}
-                  className="group hover:bg-gray-50 transition-colors border-b border-gray-50 last:border-0 cursor-pointer"
+                  className={`group hover:bg-gray-50 transition-colors border-b border-gray-50 last:border-0 cursor-pointer ${selectedOrders.has(order.id) ? 'bg-purple-50/50' : ''}`}
                 >
+                  <td className="px-4 py-4 w-12" onClick={(e) => e.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      checked={selectedOrders.has(order.id)}
+                      onChange={() => {}}
+                      onClick={(e) => toggleOrderSelection(order.id, e)}
+                      className="w-4 h-4 rounded border-gray-300 text-[#A020F0] accent-[#A020F0] cursor-pointer"
+                    />
+                  </td>
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-3">
                       <div className={`w-2 h-2 rounded-full ${style.dot}`} />
@@ -780,7 +904,7 @@ export function OrdersClient({ initialOrders = [] }: OrdersClientProps) {
                     <span className="text-sm text-gray-500">{order.date}</span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    {order.status === 'Pending' ? (
+                    {order.status === 'Pending' || !order.statusDate ? (
                       <span className="text-sm text-gray-500">---</span>
                     ) : (
                       <div className="flex flex-col gap-1 items-start">
@@ -788,7 +912,7 @@ export function OrdersClient({ initialOrders = [] }: OrdersClientProps) {
                           {style.label}
                         </span>
                         <span className="text-sm text-gray-700">
-                          {['Confirmed', 'Cancelled'].includes(order.status) ? 'Today' : '03-02-2026'}
+                          {order.statusDate}
                         </span>
                       </div>
                     )}
@@ -799,6 +923,67 @@ export function OrdersClient({ initialOrders = [] }: OrdersClientProps) {
           </tbody>
         </table>
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {isDeleteModalOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center">
+          <div
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            onClick={() => !isDeleting && setIsDeleteModalOpen(false)}
+          />
+          <div className="relative bg-white rounded-3xl shadow-2xl max-w-md w-full mx-4 overflow-hidden">
+            <div className="p-8">
+              <button
+                onClick={() => !isDeleting && setIsDeleteModalOpen(false)}
+                className="absolute top-6 right-6 text-gray-400 hover:text-gray-600 transition-colors"
+                disabled={isDeleting}
+              >
+                <X size={20} />
+              </button>
+
+              <div className="flex flex-col items-center text-center">
+                <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-6">
+                  <AlertTriangle size={32} className="text-red-600" />
+                </div>
+                <h3 className="text-xl font-black text-gray-800 mb-2">Delete Orders Permanently</h3>
+                <p className="text-sm text-gray-500 mb-2">
+                  You are about to permanently delete <span className="font-bold text-gray-700">{selectedOrders.size} order{selectedOrders.size > 1 ? 's' : ''}</span>.
+                </p>
+                <p className="text-sm text-red-500 font-medium mb-6">
+                  This action cannot be undone. The orders and all related records will be permanently removed.
+                </p>
+
+                <div className="flex items-center gap-4 w-full">
+                  <button
+                    onClick={() => setIsDeleteModalOpen(false)}
+                    disabled={isDeleting}
+                    className="flex-1 py-3 px-6 bg-gray-100 text-gray-700 rounded-xl text-sm font-bold hover:bg-gray-200 transition-colors disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleDeleteSelected}
+                    disabled={isDeleting}
+                    className="flex-1 py-3 px-6 bg-red-600 text-white rounded-xl text-sm font-bold hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {isDeleting ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        Deleting...
+                      </>
+                    ) : (
+                      <>
+                        <Trash2 size={16} />
+                        Delete
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
