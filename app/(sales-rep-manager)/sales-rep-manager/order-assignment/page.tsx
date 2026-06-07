@@ -37,6 +37,7 @@ export default async function OrderAssignmentPage() {
     product: o.items[0]?.product.name ?? "—",
     qty: o.items.reduce((sum, i) => sum + i.quantity, 0),
     date: o.createdAt.toISOString().split("T")[0],
+    statusDate: o.updatedAt.toISOString().split("T")[0],
   }));
 
   const salesReps = members.map(m => ({

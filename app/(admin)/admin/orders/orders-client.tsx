@@ -61,6 +61,7 @@ export type AdminOrderListItem = {
   orderNumber: string;
   status: OrderStatus;
   createdAt: string;
+  updatedAt: string;
   customer: { name: string; email: string | null; state: string };
   agent: { companyName: string; state: string | null } | null;
   items: Array<{ quantity: number; product: { name: string } }>;
@@ -88,6 +89,14 @@ const STATUS_DOT: Record<OrderStatus, string> = {
   DELIVERED: "bg-emerald-600",
   CANCELLED: "bg-orange-300",
   FAILED: "bg-red-500",
+};
+
+const STATUS_BADGE: Record<OrderStatus, { bg: string; text: string; label: string }> = {
+  PENDING: { bg: "bg-[#FFD54F]", text: "text-gray-800", label: "Pending" },
+  CONFIRMED: { bg: "bg-[#81C784]", text: "text-white", label: "Confirmed" },
+  DELIVERED: { bg: "bg-[#00C853]", text: "text-white", label: "Delivered" },
+  CANCELLED: { bg: "bg-[#E57373]", text: "text-white", label: "Cancelled" },
+  FAILED: { bg: "bg-[#D32F2F]", text: "text-white", label: "Failed" },
 };
 
 const TABS: Array<{
@@ -332,7 +341,7 @@ export function AdminOrdersClient({
       {/* Table */}
       <div className="bg-gray-50/50 rounded-2xl overflow-hidden">
         {/* Header row */}
-        <div className="grid grid-cols-[2fr_1.2fr_1.2fr_1fr_1fr_1.2fr_0.8fr_1fr] px-6 sm:px-8 py-4 border-b border-gray-100 bg-gray-50">
+        <div className="grid grid-cols-[2fr_1.2fr_1.2fr_1fr_1fr_1.2fr_0.8fr_1fr_1.2fr] px-6 sm:px-8 py-4 border-b border-gray-100 bg-gray-50">
           {[
             "G-Mail",
             "Name",
@@ -342,6 +351,7 @@ export function AdminOrdersClient({
             "Product",
             "Quantity",
             "Date",
+            "Status Date",
           ].map((h, i) => (
             <span
               key={i}
@@ -370,7 +380,7 @@ export function AdminOrdersClient({
                 <Link
                   href={`/admin/orders/${order.id}`}
                   key={order.id}
-                  className={`grid grid-cols-[2fr_1.2fr_1.2fr_1fr_1fr_1.2fr_0.8fr_1fr] px-6 sm:px-8 py-4 items-center border-b border-gray-50 last:border-0 transition-colors ${
+                  className={`grid grid-cols-[2fr_1.2fr_1.2fr_1fr_1fr_1.2fr_0.8fr_1fr_1.2fr] px-6 sm:px-8 py-4 items-center border-b border-gray-50 last:border-0 transition-colors ${
                     isEvenRow ? "bg-white" : "bg-gray-50"
                   } hover:bg-gray-100/50`}
                 >
@@ -429,6 +439,24 @@ export function AdminOrdersClient({
                   <span className="text-sm text-gray-500">
                     {formatDate(order.createdAt)}
                   </span>
+
+                  {/* Status Date */}
+                  <div className="leading-tight">
+                    {order.status === "PENDING" ? (
+                      <span className="text-sm text-gray-500">---</span>
+                    ) : (
+                      <div className="flex flex-col gap-1 items-start">
+                        <span
+                          className={`px-1.5 py-0.5 rounded text-[8px] font-bold tracking-wider uppercase ${STATUS_BADGE[order.status].bg} ${STATUS_BADGE[order.status].text}`}
+                        >
+                          {STATUS_BADGE[order.status].label}
+                        </span>
+                        <span className="text-sm text-gray-700">
+                          {formatDate(order.updatedAt)}
+                        </span>
+                      </div>
+                    )}
+                  </div>
                 </Link>
               );
             })}

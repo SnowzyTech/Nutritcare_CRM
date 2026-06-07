@@ -380,10 +380,16 @@ export function OrderDetailClient({ order, user }: Props) {
                 key={i}
                 name={item.product.name}
                 qty={item.quantity}
-                price={formatCurrency(item.unitPrice)}
+                price={formatCurrency(item.lineTotal)}
               />
             ))}
           </div>
+        </div>
+
+        {/* Order Total */}
+        <div className="flex items-center justify-between border-t border-gray-50 pt-6">
+          <span className="text-sm font-bold text-[#1e1e2d]">Total</span>
+          <span className="text-base font-black text-[#1e1e2d]">{formatCurrency(order.netAmount)}</span>
         </div>
 
         {/* Delivery Fee */}

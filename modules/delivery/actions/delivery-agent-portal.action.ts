@@ -7,6 +7,7 @@ import bcryptjs from "bcryptjs";
 import { getAgentIdByUserId } from "@/modules/delivery/services/delivery-agent-portal.service";
 import { recordDeliveryFeeEntry } from "@/modules/finance/services/agent-settlement.service";
 import { logActivity } from "@/modules/audit/services/audit-log.service";
+import { sendOrderDeliveredTemplate } from "@/lib/whatsapp/whatsapp";
 
 export async function updateAgentProfileAction(data: {
   name: string;
@@ -79,7 +80,10 @@ export async function markOrderDeliveredAction(orderId: string, deliveryCode: st
 
   const order = await prisma.order.findFirst({
     where: { id: orderId, agentId, deletedAt: null },
-    include: { items: { select: { productId: true, quantity: true } } },
+    include: {
+      items: { select: { productId: true, quantity: true } },
+      customer: { select: { name: true, whatsappNumber: true, phone: true } },
+    },
   });
   if (!order) return { error: "Order not found" };
   if (order.status !== "CONFIRMED") return { error: "Only confirmed orders can be marked as delivered" };
@@ -136,6 +140,18 @@ export async function markOrderDeliveredAction(orderId: string, deliveryCode: st
     entityId: orderId,
     description: `Order #${order.orderNumber} delivered`,
   });
+
+  // Send WhatsApp delivery notification (fire-and-forget — never throws)
+  const waPhone = order.customer.whatsappNumber || order.customer.phone;
+  if (waPhone) {
+    sendOrderDeliveredTemplate({
+      to: waPhone,
+      customerName: order.customer.name,
+      orderNumber: order.orderNumber,
+    })
+      .then((result) => console.log("[WhatsApp] delivery notification result:", JSON.stringify(result)))
+      .catch((err) => console.error("[WhatsApp] markOrderDelivered send error:", err));
+  }
 
   revalidatePath("/delivery-agents");
   revalidatePath(`/delivery-agents/${orderId}`);

@@ -25,7 +25,8 @@ export type TeamOrderListItem = {
   salesRep: string;
   product: string;
   qty: number;
-  date: string; // ISO date: YYYY-MM-DD
+  date: string; // ISO date: YYYY-MM-DD (order created date)
+  statusDate: string; // ISO date: YYYY-MM-DD (last status change / updatedAt)
 };
 
 export type OrderCounts = {
@@ -277,11 +278,11 @@ export function TeamOrdersClient({ orders, counts, products = [] }: TeamOrdersCl
       </div>
 
       {/* Table */}
-      <div className="bg-[#FAFAFA] rounded-2xl border border-gray-100 overflow-hidden mb-24">
+      <div className="bg-[#FAFAFA] rounded-2xl border border-gray-100 overflow-x-auto mb-24">
         {filteredOrders.length === 0 ? (
           <div className="py-20 text-center text-gray-400 text-sm bg-white">No orders found.</div>
         ) : (
-          <table className="w-full text-sm text-left">
+          <table className="w-full min-w-[1000px] text-sm text-left">
             <thead>
               <tr className="bg-[#F8F7FB] border-b border-gray-100">
                 <th className="pl-10 pr-6 py-4 font-bold text-gray-500 text-sm w-16">G-Mail</th>
@@ -290,8 +291,8 @@ export function TeamOrdersClient({ orders, counts, products = [] }: TeamOrdersCl
                 <th className="px-6 py-4 font-bold text-gray-500 text-sm">Sales Rep</th>
                 <th className="px-6 py-4 font-bold text-gray-500 text-sm">Product</th>
                 <th className="px-6 py-4 font-bold text-gray-500 text-sm text-center">Quantity</th>
-                <th className="px-6 py-4 font-bold text-gray-500 text-sm text-center">Status</th>
                 <th className="px-6 py-4 font-bold text-gray-500 text-sm text-right">Date</th>
+                <th className="px-6 py-4 font-bold text-gray-500 text-sm whitespace-nowrap">Status Date</th>
               </tr>
             </thead>
             <tbody>
@@ -333,15 +334,22 @@ export function TeamOrdersClient({ orders, counts, products = [] }: TeamOrdersCl
                     </td>
                     <td className="px-6 py-4 text-gray-500 font-medium">{order.product}</td>
                     <td className="px-6 py-4 text-center text-gray-500 font-medium">{order.qty}</td>
-                    <td className="px-6 py-4 text-center">
-                      {style && (
-                        <span className={`inline-block px-3 py-1 rounded-lg text-[10px] font-bold tracking-wider ${style.bg} ${style.text}`}>
-                          {style.label}
-                        </span>
-                      )}
-                    </td>
                     <td className="px-6 py-4 text-right text-gray-500 font-medium whitespace-nowrap">
                       {formatDate(order.date)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      {order.status === "PENDING" ? (
+                        <span className="text-gray-500 font-medium">---</span>
+                      ) : (
+                        <div className="flex flex-col gap-1 items-start">
+                          {style && (
+                            <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold tracking-wider uppercase ${style.bg} ${style.text}`}>
+                              {style.label}
+                            </span>
+                          )}
+                          <span className="text-gray-700 font-medium">{formatDate(order.statusDate)}</span>
+                        </div>
+                      )}
                     </td>
                   </tr>
                 );

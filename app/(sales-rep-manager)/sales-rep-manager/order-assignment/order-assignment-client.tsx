@@ -261,11 +261,11 @@ export function OrderAssignmentClient({ orders, counts, salesReps, products = []
       </div>
 
       {/* Table */}
-      <div className="bg-[#FAFAFA] rounded-2xl border border-gray-100 overflow-hidden mb-8">
+      <div className="bg-[#FAFAFA] rounded-2xl border border-gray-100 overflow-x-auto mb-8">
         {filteredOrders.length === 0 ? (
           <div className="py-20 text-center text-gray-400 text-sm bg-white">No orders found.</div>
         ) : (
-          <table className="w-full text-sm text-left">
+          <table className="w-full min-w-[900px] text-sm text-left">
             <thead>
               <tr className="bg-[#F8F7FB] border-b border-gray-100">
                 <th className="pl-10 pr-6 py-4 font-bold text-gray-500 text-sm w-16">G-Mail</th>
