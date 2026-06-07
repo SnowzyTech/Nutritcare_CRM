@@ -2,8 +2,17 @@
 
 import React, { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { Search, SlidersHorizontal, ArrowUpDown, ChevronLeft } from "lucide-react";
+import { Search, SlidersHorizontal, ArrowUpDown, ChevronLeft, ChevronDown, CalendarDays } from "lucide-react";
 import { formatDate } from "@/lib/utils";
+import { Calendar } from "@/components/ui/calendar";
+
+/** Local YYYY-MM-DD (avoids UTC shift from toISOString). */
+function toYMD(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
 
 type OrderStatus = "PENDING" | "CONFIRMED" | "DELIVERED" | "CANCELLED" | "FAILED";
 
@@ -16,7 +25,8 @@ export type TeamOrderListItem = {
   salesRep: string;
   product: string;
   qty: number;
-  date: string; // ISO date: YYYY-MM-DD
+  date: string; // ISO date: YYYY-MM-DD (order created date)
+  statusDate: string; // ISO date: YYYY-MM-DD (last status change / updatedAt)
 };
 
 export type OrderCounts = {
@@ -31,6 +41,7 @@ export type OrderCounts = {
 interface TeamOrdersClientProps {
   orders: TeamOrderListItem[];
   counts: OrderCounts;
+  products?: string[];
 }
 
 const STATUS_STYLES: Record<OrderStatus, { dot: string; bg: string; text: string; label: string }> = {
@@ -58,24 +69,27 @@ const NIGERIAN_STATES = [
   "Yobe","Zamfara",
 ];
 
-export function TeamOrdersClient({ orders, counts }: TeamOrdersClientProps) {
+export function TeamOrdersClient({ orders, counts, products = [] }: TeamOrdersClientProps) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<OrderStatus | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [dateFilter, setDateFilter] = useState("");
+  const [dateValue, setDateValue] = useState<Date | undefined>(undefined);
+  const [isDateOpen, setIsDateOpen] = useState(false);
   const [productFilter, setProductFilter] = useState("");
   const [stateFilter, setStateFilter] = useState("");
 
-  const uniqueProducts = useMemo(
-    () => Array.from(new Set(orders.map(o => o.product).filter(Boolean))).sort(),
-    [orders]
-  );
+  // Full catalog when provided; otherwise fall back to products seen in the orders.
+  const uniqueProducts = useMemo(() => {
+    if (products.length > 0) return products;
+    return Array.from(new Set(orders.map(o => o.product).filter(Boolean))).sort();
+  }, [products, orders]);
 
   const filteredOrders = useMemo(() => {
     let result = activeTab ? orders.filter(o => o.status === activeTab) : orders;
 
-    if (dateFilter) {
-      result = result.filter(o => o.date === dateFilter);
+    if (dateValue) {
+      const ymd = toYMD(dateValue);
+      result = result.filter(o => o.date === ymd);
     }
 
     if (productFilter) {
@@ -97,12 +111,12 @@ export function TeamOrdersClient({ orders, counts }: TeamOrdersClientProps) {
       );
     }
     return result;
-  }, [orders, activeTab, dateFilter, productFilter, stateFilter, searchQuery]);
+  }, [orders, activeTab, dateValue, productFilter, stateFilter, searchQuery]);
 
-  const hasActiveFilters = dateFilter || productFilter || stateFilter;
+  const hasActiveFilters = dateValue || productFilter || stateFilter;
 
   function clearFilters() {
-    setDateFilter("");
+    setDateValue(undefined);
     setProductFilter("");
     setStateFilter("");
   }
@@ -151,14 +165,37 @@ export function TeamOrdersClient({ orders, counts }: TeamOrdersClientProps) {
         </div>
 
         {/* Date */}
-        <div className="relative min-w-[140px]">
-          <input
-            type="date"
-            value={dateFilter}
-            onChange={e => setDateFilter(e.target.value)}
-            className="w-full appearance-none bg-gray-900 border border-gray-900 rounded-lg pl-4 pr-3 py-2 text-sm text-white font-medium outline-none hover:bg-gray-800 transition-colors cursor-pointer"
-            style={{ colorScheme: "dark" }}
-          />
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setIsDateOpen(o => !o)}
+            className="flex items-center gap-2 bg-gray-900 border border-gray-900 rounded-lg pl-4 pr-3 py-2 text-sm text-white font-medium hover:bg-gray-800 transition-colors cursor-pointer"
+          >
+            <CalendarDays size={14} />
+            <span>{dateValue ? formatDate(toYMD(dateValue)) : "Date"}</span>
+            <ChevronDown size={14} className={`transition-transform ${isDateOpen ? "rotate-180" : ""}`} />
+          </button>
+          {isDateOpen && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setIsDateOpen(false)} />
+              <div className="absolute left-0 top-full mt-2 bg-white border border-gray-100 rounded-xl shadow-2xl z-50 p-2">
+                <Calendar
+                  mode="single"
+                  selected={dateValue}
+                  onSelect={d => { setDateValue(d); setIsDateOpen(false); }}
+                  className="rounded-md border border-gray-200"
+                />
+                {dateValue && (
+                  <button
+                    onClick={() => { setDateValue(undefined); setIsDateOpen(false); }}
+                    className="w-full mt-2 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-700"
+                  >
+                    Clear date
+                  </button>
+                )}
+              </div>
+            </>
+          )}
         </div>
 
         {/* Product */}
@@ -241,11 +278,11 @@ export function TeamOrdersClient({ orders, counts }: TeamOrdersClientProps) {
       </div>
 
       {/* Table */}
-      <div className="bg-[#FAFAFA] rounded-2xl border border-gray-100 overflow-hidden mb-24">
+      <div className="bg-[#FAFAFA] rounded-2xl border border-gray-100 overflow-x-auto mb-24">
         {filteredOrders.length === 0 ? (
           <div className="py-20 text-center text-gray-400 text-sm bg-white">No orders found.</div>
         ) : (
-          <table className="w-full text-sm text-left">
+          <table className="w-full min-w-[1000px] text-sm text-left">
             <thead>
               <tr className="bg-[#F8F7FB] border-b border-gray-100">
                 <th className="pl-10 pr-6 py-4 font-bold text-gray-500 text-sm w-16">G-Mail</th>
@@ -255,6 +292,7 @@ export function TeamOrdersClient({ orders, counts }: TeamOrdersClientProps) {
                 <th className="px-6 py-4 font-bold text-gray-500 text-sm">Product</th>
                 <th className="px-6 py-4 font-bold text-gray-500 text-sm text-center">Quantity</th>
                 <th className="px-6 py-4 font-bold text-gray-500 text-sm text-right">Date</th>
+                <th className="px-6 py-4 font-bold text-gray-500 text-sm whitespace-nowrap">Status Date</th>
               </tr>
             </thead>
             <tbody>
@@ -298,6 +336,20 @@ export function TeamOrdersClient({ orders, counts }: TeamOrdersClientProps) {
                     <td className="px-6 py-4 text-center text-gray-500 font-medium">{order.qty}</td>
                     <td className="px-6 py-4 text-right text-gray-500 font-medium whitespace-nowrap">
                       {formatDate(order.date)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      {order.status === "PENDING" ? (
+                        <span className="text-gray-500 font-medium">---</span>
+                      ) : (
+                        <div className="flex flex-col gap-1 items-start">
+                          {style && (
+                            <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold tracking-wider uppercase ${style.bg} ${style.text}`}>
+                              {style.label}
+                            </span>
+                          )}
+                          <span className="text-gray-700 font-medium">{formatDate(order.statusDate)}</span>
+                        </div>
+                      )}
                     </td>
                   </tr>
                 );

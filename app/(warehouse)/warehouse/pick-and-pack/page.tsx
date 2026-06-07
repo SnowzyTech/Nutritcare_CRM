@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { auth } from "@/lib/auth/auth";
 import {
   getPickPackOrders,
-  getAvailablePickers,
+  getPickPackers,
   getWarehouseLocations,
 } from "@/modules/warehouse/services/warehouse.service";
 import PickAndPackClient from "./client";
@@ -15,11 +15,18 @@ export default async function PickAndPackPage() {
 
   const [orders, pickers, locationCodes] = await Promise.all([
     getPickPackOrders(warehouseId),
-    getAvailablePickers(),
+    getPickPackers(warehouseId),
     warehouseId
       ? getWarehouseLocations(warehouseId).then((locs) => locs.map((l) => l.locationCode))
       : Promise.resolve([] as string[]),
   ]);
 
-  return <PickAndPackClient initialOrders={orders} pickers={pickers} locationCodes={locationCodes} />;
+  return (
+    <PickAndPackClient
+      initialOrders={orders}
+      initialPickers={pickers}
+      warehouseId={warehouseId}
+      locationCodes={locationCodes}
+    />
+  );
 }

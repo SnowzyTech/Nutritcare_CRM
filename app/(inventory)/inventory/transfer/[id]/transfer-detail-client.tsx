@@ -3,6 +3,7 @@
 import React, { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeftCircle, Search, Trash2, Printer, MessageCircle } from "lucide-react";
+import { toast } from "sonner";
 import type { StockTransferDetail } from "@/modules/inventory/services/inventory.service";
 import {
   reverseStockTransferAction,
@@ -28,8 +29,10 @@ export function TransferDetailClient({ record }: { record: StockTransferDetail }
       const result = await reverseStockTransferAction(record.id, reversalReason);
       if (result.error) {
         setActionError(result.error);
+        toast.error(result.error);
         return;
       }
+      toast.success("Stock transfer reversed");
       setIsReverseModalOpen(false);
       setReversalReason("");
       router.refresh();
@@ -42,9 +45,11 @@ export function TransferDetailClient({ record }: { record: StockTransferDetail }
       const result = await deleteStockTransferAction(record.id);
       if (result.error) {
         setActionError(result.error);
+        toast.error(result.error);
         setIsDeleteModalOpen(false);
         return;
       }
+      toast.success("Stock transfer deleted");
       router.push("/inventory/transfer");
     });
   };

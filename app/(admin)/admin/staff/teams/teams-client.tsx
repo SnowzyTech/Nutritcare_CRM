@@ -2,6 +2,7 @@
 
 import React, { useState, useTransition } from "react";
 import { Trash2, Plus, Users } from "lucide-react";
+import { toast } from "sonner";
 import { createTeamAction, deleteTeamAction } from "@/modules/users/actions/users.action";
 import type { Department } from "@prisma/client";
 
@@ -47,10 +48,12 @@ export default function TeamsClient({ teams: initialTeams }: Props) {
       const result = await createTeamAction(name.trim(), department);
       if ("error" in result) {
         setError(result.error);
+        toast.error(result.error);
       } else {
         setShowForm(false);
         setName("");
         setDepartment("SALES");
+        toast.success("Team created successfully");
       }
     });
   }
@@ -59,10 +62,11 @@ export default function TeamsClient({ teams: initialTeams }: Props) {
     startTransition(async () => {
       const result = await deleteTeamAction(id);
       if ("error" in result) {
-        alert(result.error);
+        toast.error(result.error);
       } else {
         setTeams((prev) => prev.filter((t) => t.id !== id));
         setDeleteConfirm(null);
+        toast.success("Team deleted");
       }
     });
   }

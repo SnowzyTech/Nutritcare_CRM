@@ -187,8 +187,12 @@ export interface DeliveryCodeTemplateOpts {
 
 /**
  * Sends the delivery verification code as a second message after order confirmation.
- * Template: `{{1}} is your verification code`
- *   {{1}} deliveryCode
+ * `nucle_delivery_code` is an Authentication-category template:
+ *   body  {{1}} deliveryCode  →  "{{1}} is your verification code"
+ *   copy-code button          →  same deliveryCode (required, else Meta returns #131008)
+ *
+ * Authentication templates expose the copy-code button as a URL-type button, so it
+ * must receive its own parameter — the OTP value — in addition to the body parameter.
  *
  * Fails silently so a WhatsApp hiccup never breaks the confirmation flow.
  */
@@ -221,6 +225,12 @@ export async function sendDeliveryCodeTemplate(
       components: [
         {
           type: "body",
+          parameters: [{ type: "text", text: opts.deliveryCode }],
+        },
+        {
+          type: "button",
+          sub_type: "url",
+          index: "0",
           parameters: [{ type: "text", text: opts.deliveryCode }],
         },
       ],

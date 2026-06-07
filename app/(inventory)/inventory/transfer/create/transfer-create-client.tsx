@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Filter, ArrowUpDown, ChevronDown, MessageCircle, ArrowLeft, Plus, Copy, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 import { createStockTransferAction } from "@/modules/inventory/actions/stock.action";
 
 const inputClass =
@@ -100,8 +101,10 @@ export default function TransferCreateClient({ nodes, products }: Props) {
 
     if (result?.error) {
       setError(result.error);
+      toast.error(result.error);
       setLoading(false);
     } else {
+      toast.success("Stock transfer created");
       router.push("/inventory/transfer");
     }
   };

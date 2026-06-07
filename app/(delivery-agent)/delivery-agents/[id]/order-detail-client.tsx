@@ -2,6 +2,7 @@
 
 import React, { useState, useTransition } from "react";
 import Link from "next/link";
+import { toast } from "sonner";
 import {
   Settings,
   Bell,
@@ -35,6 +36,7 @@ interface Order {
   orderNumber: string;
   status: OrderStatus;
   createdAt: Date;
+  deliveryDate: Date | null;
   deliveryFee: number;
   netAmount: number;
   notes: string | null;
@@ -119,7 +121,9 @@ export function OrderDetailClient({ order, user }: Props) {
       const result = await markOrderDeliveredAction(order.id, code);
       if (result.error) {
         setVerifyError(result.error);
+        toast.error(result.error);
       } else {
+        toast.success("Order marked as delivered");
         setActiveModal(null);
       }
     });
@@ -358,6 +362,10 @@ export function OrderDetailClient({ order, user }: Props) {
           <InfoItem label="Landmark" value={order.customer.landmark ?? "—"} />
           <InfoItem label="Sales Rep" value={order.salesRep.name} />
           <InfoItem label="Sales Rep Number" value={order.salesRep.phone ?? "—"} hasCopy />
+          <InfoItem
+            label={order.status === "DELIVERED" ? "Delivered On" : "Scheduled Delivery"}
+            value={order.deliveryDate ? formatDate(order.deliveryDate) : "—"}
+          />
         </div>
 
         {/* Products */}
@@ -372,10 +380,16 @@ export function OrderDetailClient({ order, user }: Props) {
                 key={i}
                 name={item.product.name}
                 qty={item.quantity}
-                price={formatCurrency(item.unitPrice)}
+                price={formatCurrency(item.lineTotal)}
               />
             ))}
           </div>
+        </div>
+
+        {/* Order Total */}
+        <div className="flex items-center justify-between border-t border-gray-50 pt-6">
+          <span className="text-sm font-bold text-[#1e1e2d]">Total</span>
+          <span className="text-base font-black text-[#1e1e2d]">{formatCurrency(order.netAmount)}</span>
         </div>
 
         {/* Delivery Fee */}

@@ -63,8 +63,8 @@ export default function StaffListClient({ staff, roleLabel, detailBasePath }: Pr
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl shadow-[0_1px_6px_rgba(0,0,0,0.07)] overflow-hidden">
-        <div className="grid grid-cols-[2fr_2fr_1.2fr_0.8fr] px-6 py-4 border-b border-slate-100 bg-[#ddd]">
+      <div className="bg-white shadow-[0_1px_6px_rgba(0,0,0,0.04)] overflow-hidden">
+        <div className="grid grid-cols-[2fr_2fr_1.2fr_0.8fr] px-6 py-4 border-b border-slate-100 bg-[#eee]">
           {["Name", "Email", "Phone Number", "Status"].map(h => (
             <span key={h} className="text-[0.8rem] font-bold text-slate-600 uppercase tracking-tight">{h}</span>
           ))}

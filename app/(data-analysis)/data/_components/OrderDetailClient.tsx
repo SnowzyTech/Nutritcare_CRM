@@ -1,12 +1,15 @@
 'use client';
 
 import React, { useState } from 'react';
-import { MessageCircle, Check } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { MessageCircle, Check, Trash2, AlertTriangle, X } from 'lucide-react';
 import Image from 'next/image';
 import { OrderDetailFull } from '@/modules/data-analysis/services/data-analysis.service';
 import { ProgressSteps } from './ProgressSteps';
 import { AgentInfoModal } from './AgentInfoModal';
 import { PrescriptionEditor } from './PrescriptionEditor';
+import { deleteOrderPermanently } from '@/modules/data-analysis/actions/data-analysis.action';
+import { toast } from 'sonner';
 
 interface OrderDetailClientProps {
   order: OrderDetailFull;
@@ -21,7 +24,27 @@ const BADGE_STYLES: Record<string, string> = {
 };
 
 export function OrderDetailClient({ order }: OrderDetailClientProps) {
+  const router = useRouter();
   const [isAgentModalOpen, setIsAgentModalOpen] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  const handleDeleteOrder = async () => {
+    setIsDeleting(true);
+    setDeleteError(null);
+
+    const result = await deleteOrderPermanently(order.orderId);
+
+    if (result.success) {
+      toast.success('Order deleted successfully');
+      router.push('/data/order');
+    } else {
+      setDeleteError(result.error || 'Failed to delete order');
+      toast.error(result.error || 'Failed to delete order');
+      setIsDeleting(false);
+    }
+  };
 
   return (
     <div className="p-8 max-w-[1400px] mx-auto space-y-10 pb-20">
@@ -32,7 +55,7 @@ export function OrderDetailClient({ order }: OrderDetailClientProps) {
             <Image src={order.repAvatarUrl} alt={order.repName} fill className="object-cover" sizes="48px" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-gray-800">{order.repName}'s</h1>
+            <h1 className="text-2xl font-bold text-gray-800">{order.repName}&apos;s</h1>
             <p className="text-sm text-gray-400 font-medium">Dashboard</p>
           </div>
         </div>
@@ -42,11 +65,20 @@ export function OrderDetailClient({ order }: OrderDetailClientProps) {
       </div>
 
       {/* Sub Header */}
-      <div className="flex items-center gap-4 mb-6">
-        <h2 className="text-xl font-black text-gray-700">Order ID: {order.orderId}</h2>
-        <span className={`px-4 py-1.5 rounded-lg text-xs font-bold shadow-sm ${BADGE_STYLES[order.status]}`}>
-          {order.status} Order
-        </span>
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-4">
+          <h2 className="text-xl font-black text-gray-700">Order ID: {order.orderId}</h2>
+          <span className={`px-4 py-1.5 rounded-lg text-xs font-bold shadow-sm ${BADGE_STYLES[order.status]}`}>
+            {order.status} Order
+          </span>
+        </div>
+        <button
+          onClick={() => setIsDeleteModalOpen(true)}
+          className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-600 rounded-xl text-xs font-bold hover:bg-red-100 transition-colors border border-red-100"
+        >
+          <Trash2 size={16} />
+          Delete Order
+        </button>
       </div>
 
       {/* Steps */}
@@ -160,14 +192,17 @@ export function OrderDetailClient({ order }: OrderDetailClientProps) {
         <div className="space-y-10">
           <div className="relative rounded-3xl overflow-hidden shadow-2xl group border border-gray-100">
             <div
-              className="w-full aspect-[16/10] flex items-center justify-center"
+              className="relative w-full aspect-[16/10] flex items-center justify-center"
               style={{ backgroundColor: order.product.imageColor }}
             >
               <Image
-                src={`https://placehold.co/400x250/${order.product.imageColor.replace('#', '')}/ffffff?text=${encodeURIComponent(order.product.name)}`}
+                src={
+                  order.product.imageUrl ??
+                  `https://placehold.co/400x250/${order.product.imageColor.replace('#', '')}/ffffff?text=${encodeURIComponent(order.product.name)}`
+                }
                 alt={order.product.name}
                 fill
-                className="object-cover group-hover:scale-105 transition-transform duration-500 opacity-80"
+                className="object-cover group-hover:scale-105 transition-transform duration-500"
                 sizes="400px"
               />
               <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
@@ -274,6 +309,73 @@ export function OrderDetailClient({ order }: OrderDetailClientProps) {
           isOpen={isAgentModalOpen}
           onClose={() => setIsAgentModalOpen(false)}
         />
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {isDeleteModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            onClick={() => !isDeleting && setIsDeleteModalOpen(false)}
+          />
+          <div className="relative bg-white rounded-3xl shadow-2xl max-w-md w-full mx-4 overflow-hidden">
+            <div className="p-8">
+              <button
+                onClick={() => !isDeleting && setIsDeleteModalOpen(false)}
+                className="absolute top-6 right-6 text-gray-400 hover:text-gray-600 transition-colors"
+                disabled={isDeleting}
+              >
+                <X size={20} />
+              </button>
+
+              <div className="flex flex-col items-center text-center">
+                <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-6">
+                  <AlertTriangle size={32} className="text-red-600" />
+                </div>
+                <h3 className="text-xl font-black text-gray-800 mb-2">Delete Order Permanently</h3>
+                <p className="text-sm text-gray-500 mb-2">
+                  You are about to permanently delete order <span className="font-bold text-gray-700">{order.orderId}</span>.
+                </p>
+                <p className="text-sm text-red-500 font-medium mb-6">
+                  This action cannot be undone. The order and all related records will be permanently removed.
+                </p>
+
+                {deleteError && (
+                  <div className="w-full bg-red-50 border border-red-200 rounded-xl p-4 mb-6">
+                    <p className="text-sm text-red-600 font-medium">{deleteError}</p>
+                  </div>
+                )}
+
+                <div className="flex items-center gap-4 w-full">
+                  <button
+                    onClick={() => setIsDeleteModalOpen(false)}
+                    disabled={isDeleting}
+                    className="flex-1 py-3 px-6 bg-gray-100 text-gray-700 rounded-xl text-sm font-bold hover:bg-gray-200 transition-colors disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleDeleteOrder}
+                    disabled={isDeleting}
+                    className="flex-1 py-3 px-6 bg-red-600 text-white rounded-xl text-sm font-bold hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {isDeleting ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        Deleting...
+                      </>
+                    ) : (
+                      <>
+                        <Trash2 size={16} />
+                        Delete
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

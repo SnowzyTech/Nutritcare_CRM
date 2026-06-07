@@ -3,11 +3,14 @@ import { logoutAction } from "@/modules/auth/actions/login.action";
 import { getInitials } from "@/lib/utils";
 import { allNavItems } from "./nav-config";
 import { ClientSidebar } from "./client-sidebar";
+import { getSelfProfile } from "@/modules/users/services/users.service";
 
 export async function Sidebar() {
   const session = await auth();
   const user = session?.user;
   const role = user?.role ?? "";
+
+  const profile = user?.id ? await getSelfProfile(user.id) : null;
 
   // Filter items by role
   const roleFiltered = allNavItems.filter((item) => {
@@ -37,6 +40,7 @@ export async function Sidebar() {
         name: user?.name,
         role: user?.role,
         initials: user?.name ? getInitials(user.name) : "?",
+        avatarUrl: profile?.avatarUrl ?? null,
       }}
       onLogout={logoutAction as unknown as () => void}
     />

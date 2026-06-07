@@ -8,18 +8,20 @@ import Image from 'next/image';
 
 interface SalesRepListClientProps {
   initialReps?: SalesRepItem[];
+  teams?: { id: string; name: string }[];
 }
 
-export function SalesRepListClient({ initialReps = [] }: SalesRepListClientProps) {
+export function SalesRepListClient({ initialReps = [], teams: teamsList = [] }: SalesRepListClientProps) {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
   const [teamFilter, setTeamFilter] = useState('All');
   const [dateFilter, setDateFilter] = useState('');
 
+  // Use teams from props (fetched from DB) instead of deriving from reps
   const teams = useMemo(() => {
-    const names = Array.from(new Set(initialReps.map(r => r.teamName).filter(Boolean)));
-    return ['All', ...names];
-  }, [initialReps]);
+    const teamNames = teamsList.map(t => t.name);
+    return ['All', ...teamNames];
+  }, [teamsList]);
 
   const filteredReps = useMemo(() => {
     return initialReps.filter(rep => {

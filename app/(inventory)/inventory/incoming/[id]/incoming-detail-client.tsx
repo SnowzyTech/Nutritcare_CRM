@@ -3,6 +3,7 @@
 import React, { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { RefreshCw, Search, Trash2, Printer } from "lucide-react";
+import { toast } from "sonner";
 import type { IncomingMovementDetail } from "@/modules/inventory/services/inventory.service";
 import {
   reverseIncomingMovementAction,
@@ -26,8 +27,10 @@ export function IncomingDetailClient({ record }: { record: IncomingMovementDetai
       const result = await reverseIncomingMovementAction(record.id, reversalReason);
       if (result.error) {
         setActionError(result.error);
+        toast.error(result.error);
         return;
       }
+      toast.success("Incoming movement reversed");
       setIsReverseModalOpen(false);
       setReversalReason("");
       router.refresh();
@@ -40,9 +43,11 @@ export function IncomingDetailClient({ record }: { record: IncomingMovementDetai
       const result = await deleteIncomingMovementAction(record.id);
       if (result.error) {
         setActionError(result.error);
+        toast.error(result.error);
         setIsDeleteModalOpen(false);
         return;
       }
+      toast.success("Incoming movement deleted");
       router.push("/inventory/incoming");
     });
   };

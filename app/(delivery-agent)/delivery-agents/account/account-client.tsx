@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo } from "react";
 import { formatCurrency } from "@/lib/utils";
-import { Package, TrendingUp, Truck } from "lucide-react";
+import { Package, TrendingUp, Truck, ChevronDown } from "lucide-react";
 
 interface OrderItem {
   productName: string;
@@ -49,14 +49,49 @@ function dateKey(date: Date): string {
   return new Date(date).toISOString().split("T")[0];
 }
 
+// "2026-04" — used to group/filter by calendar month
+function monthKey(date: Date): string {
+  const d = new Date(date);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+// "April 2026" for the month filter chips and labels
+function formatMonthLabel(date: Date): string {
+  return new Intl.DateTimeFormat("en-NG", {
+    month: "long",
+    year: "numeric",
+  }).format(new Date(date));
+}
+
 export function AccountClient({ orders, agentName, avatarUrl }: Props) {
+  const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
 
-  // Unique dates sorted newest first
+  // Unique months sorted newest first
+  const uniqueMonths = useMemo(() => {
+    const seen = new Set<string>();
+    const months: { key: string; date: Date; label: string }[] = [];
+    for (const o of orders) {
+      const k = monthKey(o.date);
+      if (!seen.has(k)) {
+        seen.add(k);
+        months.push({ key: k, date: o.date, label: formatMonthLabel(o.date) });
+      }
+    }
+    return months;
+  }, [orders]);
+
+  // Orders limited to the selected month (or all orders when no month chosen)
+  const ordersInMonth = useMemo(
+    () => (selectedMonth ? orders.filter((o) => monthKey(o.date) === selectedMonth) : orders),
+    [orders, selectedMonth]
+  );
+
+  // Unique dates (within the selected month) sorted newest first
   const uniqueDays = useMemo(() => {
     const seen = new Set<string>();
     const days: { key: string; date: Date; label: string }[] = [];
-    for (const o of orders) {
+    for (const o of ordersInMonth) {
       const k = dateKey(o.date);
       if (!seen.has(k)) {
         seen.add(k);
@@ -64,13 +99,19 @@ export function AccountClient({ orders, agentName, avatarUrl }: Props) {
       }
     }
     return days;
-  }, [orders]);
+  }, [ordersInMonth]);
 
-  // Filtered orders
+  // Filtered orders: month first, then day
   const filteredOrders = useMemo(
-    () => (selectedDay ? orders.filter((o) => dateKey(o.date) === selectedDay) : orders),
-    [orders, selectedDay]
+    () => (selectedDay ? ordersInMonth.filter((o) => dateKey(o.date) === selectedDay) : ordersInMonth),
+    [ordersInMonth, selectedDay]
   );
+
+  // Switching month clears any day selection that no longer applies
+  function handleSelectMonth(key: string | null) {
+    setSelectedMonth(key);
+    setSelectedDay(null);
+  }
 
   // Group filtered orders by date key, preserving order (newest first)
   const grouped = useMemo(() => {
@@ -103,6 +144,8 @@ export function AccountClient({ orders, agentName, avatarUrl }: Props) {
         <p className="text-purple-200 text-xs font-bold uppercase tracking-wider mb-1">
           {selectedDay
             ? `Earnings · ${uniqueDays.find((d) => d.key === selectedDay)?.label}`
+            : selectedMonth
+            ? `Earnings · ${uniqueMonths.find((m) => m.key === selectedMonth)?.label}`
             : "Total Earnings"}
         </p>
         <p className="text-4xl font-black tracking-tight">{formatCurrency(totals.fee)}</p>
@@ -116,11 +159,30 @@ export function AccountClient({ orders, agentName, avatarUrl }: Props) {
         </div>
       </div>
 
+      {/* Month filter dropdown */}
+      {uniqueMonths.length > 1 && (
+        <div className="relative">
+          <select
+            value={selectedMonth ?? ""}
+            onChange={(e) => handleSelectMonth(e.target.value || null)}
+            className="w-full appearance-none bg-white border border-gray-100 rounded-2xl pl-5 pr-12 h-12 text-sm font-bold text-gray-600 shadow-sm focus:outline-none focus:border-[#ad1df4] transition-colors cursor-pointer"
+          >
+            <option value="">All Time</option>
+            {uniqueMonths.map((m) => (
+              <option key={m.key} value={m.key}>
+                {m.label}
+              </option>
+            ))}
+          </select>
+          <ChevronDown className="w-5 h-5 text-gray-400 absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none" />
+        </div>
+      )}
+
       {/* Day filter chips */}
       {uniqueDays.length > 1 && (
         <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
           <DayChip
-            label="All Time"
+            label={selectedMonth ? "All Days" : "All Time"}
             active={selectedDay === null}
             onClick={() => setSelectedDay(null)}
           />

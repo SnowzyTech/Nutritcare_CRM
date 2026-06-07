@@ -2,14 +2,8 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Search, SlidersHorizontal, ArrowUpDown } from "lucide-react";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Search, SlidersHorizontal, ArrowUpDown, ChevronDown } from "lucide-react";
+import Image from "next/image";
 
 type SalesRep = {
   id: string;
@@ -17,111 +11,127 @@ type SalesRep = {
   phone: string | null;
   pendingOrders: number;
   performance: number;
+  state?: string;
+  avatarUrl?: string | null;
 };
-
-const avatarColors = [
-  "bg-purple-600", "bg-rose-500", "bg-emerald-500", "bg-amber-500", "bg-blue-500",
-  "bg-red-500", "bg-green-500", "bg-cyan-500", "bg-orange-500",
-];
-
-function getInitials(name: string) {
-  return name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase();
-}
-
-function PerformanceBadge({ value }: { value: number }) {
-  const isGood = value >= 85;
-  const isFair = value >= 70;
-  return (
-    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[0.82rem] font-bold ${
-      isGood ? "text-emerald-600 bg-emerald-50" : isFair ? "text-amber-600 bg-amber-50" : "text-rose-600 bg-rose-50"
-    }`}>
-      {value}%
-    </span>
-  );
-}
 
 export default function SalesRepListClient({ reps }: { reps: SalesRep[] }) {
   const [search, setSearch] = useState("");
+  const [selectedState, setSelectedState] = useState("__all__");
 
-  const filtered = reps.filter(r =>
-    r.name.toLowerCase().includes(search.toLowerCase()) ||
-    (r.phone ?? "").includes(search)
-  );
+  const filtered = reps.filter(r => {
+    const matchesSearch = r.name.toLowerCase().includes(search.toLowerCase()) ||
+      (r.phone ?? "").includes(search);
+    const matchesState = selectedState === "__all__" || r.state === selectedState;
+    return matchesSearch && matchesState;
+  });
+
+  const nigerianStates = [
+    "Abia", "Adamawa", "Akwa Ibom", "Anambra", "Bauchi", "Bayelsa", "Benue", "Borno",
+    "Cross River", "Delta", "Ebonyi", "Edo", "Ekiti", "Enugu", "Gombe", "Imo",
+    "Jigawa", "Kaduna", "Kano", "Katsina", "Kebbi", "Kogi", "Kwara", "Lagos",
+    "Nasarawa", "Niger", "Ogun", "Ondo", "Osun", "Oyo", "Plateau", "Rivers",
+    "Sokoto", "Taraba", "Yobe", "Zamfara", "FCT"
+  ];
 
   return (
-    <div className="max-w-[1200px] mx-auto font-inter text-slate-900">
-      <div className="flex justify-end mb-4">
-        <span className="text-[0.95rem] text-slate-400 font-medium">Sales Representatives</span>
-      </div>
-
+    <div className="max-w-[1200px] mx-auto">
+      {/* Filter Bar */}
       <div className="flex flex-wrap items-center gap-3 mb-6">
-        <button className="flex items-center gap-2 px-4 py-2 border border-slate-200 rounded-lg bg-white text-[0.85rem] font-semibold text-slate-700 hover:bg-slate-50 transition-colors shadow-sm">
-          <SlidersHorizontal size={15} />
+        <div className="flex items-center gap-2 text-gray-400 font-medium text-sm">
+          <SlidersHorizontal size={16} />
           Filter
-        </button>
+        </div>
 
-        <Select defaultValue="all">
-          <SelectTrigger className="w-[120px] h-[38px] border-slate-200 rounded-lg bg-white text-[0.85rem] font-medium text-slate-700 shadow-sm">
-            <SelectValue placeholder="Team" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Teams</SelectItem>
-            <SelectItem value="team-1">Team 1</SelectItem>
-            <SelectItem value="team-2">Team 2</SelectItem>
-            <SelectItem value="team-3">Team 3</SelectItem>
-          </SelectContent>
-        </Select>
+        {/* State Filter */}
+        <div className="relative">
+          <select
+            value={selectedState}
+            onChange={(e) => setSelectedState(e.target.value)}
+            className="appearance-none bg-transparent text-sm text-gray-500 font-medium pl-2 pr-6 py-1 outline-none cursor-pointer"
+          >
+            <option value="__all__">State</option>
+            {nigerianStates.map(state => (
+              <option key={state} value={state}>{state}</option>
+            ))}
+          </select>
+          <ChevronDown size={14} className="absolute right-1 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+        </div>
 
-        <button className="flex items-center gap-1 px-2.5 py-2 border border-slate-200 rounded-lg bg-white text-slate-400 hover:bg-slate-50 transition-colors shadow-sm">
-          <ArrowUpDown size={15} />
+        <button className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-gray-400 hover:bg-gray-50 transition-all">
+          <ArrowUpDown size={16} />
         </button>
 
         <div className="flex-1" />
 
-        <div className="flex items-center gap-2 border border-slate-200 rounded-lg px-4 py-2 bg-white min-w-[280px] shadow-sm">
-          <Search size={15} className="text-slate-400" />
+        <div className="flex items-center gap-2 border border-gray-200 rounded px-3 py-2 bg-white min-w-[200px]">
+          <Search size={14} className="text-gray-400" />
           <input
             type="text"
             placeholder="search"
             value={search}
             onChange={e => setSearch(e.target.value)}
-            className="border-none outline-none text-[0.85rem] text-slate-700 bg-transparent w-full placeholder:text-slate-400"
+            className="border-none outline-none text-sm text-gray-600 bg-transparent w-full placeholder:text-gray-400"
           />
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl shadow-[0_1px_6px_rgba(0,0,0,0.07)] overflow-hidden">
-        <div className="grid grid-cols-[2fr_1.4fr_1.2fr_1fr] px-6 py-4 border-b border-slate-100 bg-[#ddd]">
-          {["Name", "No of Pending Orders", "Phone Number", "Performance"].map(h => (
-            <span key={h} className="text-[0.8rem] font-bold text-slate-600 uppercase tracking-tight">{h}</span>
+      {/* Table */}
+      <div className="bg-gray-50/50  overflow-hidden">
+        {/* Header row */}
+        <div className="grid grid-cols-[2fr_1.2fr_1fr_1.2fr_1fr] px-6 sm:px-8 py-4 border-b border-gray-100 bg-gray-50">
+          {["Name", "No of Pending Orders", "State", "Phone Number", "Performance"].map(h => (
+            <span key={h} className="text-xs font-bold text-gray-500 uppercase tracking-wider">{h}</span>
           ))}
         </div>
 
-        <div className="divide-y divide-slate-50">
-          {filtered.length === 0 ? (
-            <div className="px-6 py-10 text-center text-slate-400 text-[0.9rem]">No sales reps found.</div>
-          ) : (
-            filtered.map((rep, i) => (
-              <Link
-                key={rep.id}
-                href={`/admin/staff/sales-rep/${rep.id}`}
-                className="grid grid-cols-[2fr_1.4fr_1.2fr_1fr] px-6 py-4 items-center hover:bg-slate-50/80 transition-all duration-200 group no-underline"
-              >
-                <div className="flex items-center gap-3.5">
-                  <div className={`w-9 h-9 rounded-full ${avatarColors[i % avatarColors.length]} flex items-center justify-center text-white text-[0.75rem] font-bold shrink-0 shadow-sm`}>
-                    {getInitials(rep.name)}
+        {/* Rows */}
+        {filtered.length === 0 ? (
+          <div className="py-20 text-center text-gray-400 text-sm bg-white">No sales reps found.</div>
+        ) : (
+          <div>
+            {filtered.map((rep, i) => {
+              const isEvenRow = i % 2 === 0;
+              return (
+                <Link
+                  key={rep.id}
+                  href={`/admin/staff/sales-rep/${rep.id}`}
+                  className={`grid grid-cols-[2fr_1.2fr_1fr_1.2fr_1fr] px-6 sm:px-8 py-4 items-center border-b border-gray-50 last:border-0 transition-colors ${
+                    isEvenRow ? "bg-white" : "bg-gray-50"
+                  } hover:bg-gray-100/50`}
+                >
+                  {/* Name + Avatar */}
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full overflow-hidden shrink-0 bg-gray-100">
+                      {rep.avatarUrl ? (
+                        <Image src={rep.avatarUrl} alt={rep.name} width={32} height={32} className="object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-xs font-bold text-gray-500">
+                          {rep.name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase()}
+                        </div>
+                      )}
+                    </div>
+                    <span className="text-sm font-medium text-gray-700 truncate">
+                      {rep.name}
+                    </span>
                   </div>
-                  <span className="text-[0.9rem] font-semibold text-slate-900 group-hover:text-purple-600 transition-colors">
-                    {rep.name}
-                  </span>
-                </div>
-                <div className="text-[0.9rem] text-slate-600 font-medium">{rep.pendingOrders}</div>
-                <div className="text-[0.9rem] text-slate-600 font-medium">{rep.phone ?? "—"}</div>
-                <div><PerformanceBadge value={rep.performance} /></div>
-              </Link>
-            ))
-          )}
-        </div>
+
+                  {/* Pending Orders */}
+                  <span className="text-sm text-gray-600 text-center">{rep.pendingOrders}</span>
+
+                  {/* State */}
+                  <span className="text-sm text-gray-600">{rep.state ?? "—"}</span>
+
+                  {/* Phone Number */}
+                  <span className="text-sm text-gray-600">{rep.phone ?? "—"}</span>
+
+                  {/* Performance */}
+                  <span className="text-sm text-gray-600">{rep.performance}%</span>
+                </Link>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );

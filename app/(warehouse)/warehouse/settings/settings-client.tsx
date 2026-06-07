@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useState } from "react";
-import { 
+import { toast } from "sonner";
+import {
   User, 
   Building2, 
   Save, 
@@ -71,7 +72,9 @@ export function SettingsClient({ profile }: { profile: Profile }) {
 
     if ("error" in result) {
       setError(result.error);
+      toast.error(result.error);
     } else {
+      toast.success("Profile updated successfully");
       setSuccess(true);
       setTimeout(() => setSuccess(false), 4000);
     }

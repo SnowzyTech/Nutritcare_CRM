@@ -10,7 +10,7 @@ export async function getAgentIdByUserId(userId: string) {
 }
 
 export async function getAgentOrders(agentId: string) {
-  return prisma.order.findMany({
+  const orders = await prisma.order.findMany({
     where: { agentId, deletedAt: null },
     orderBy: { createdAt: "desc" },
     select: {
@@ -25,7 +25,23 @@ export async function getAgentOrders(agentId: string) {
           product: { select: { name: true } },
         },
       },
+      deliveries: {
+        orderBy: { createdAt: "desc" },
+        take: 1,
+        select: { scheduledTime: true, deliveredTime: true },
+      },
     },
+  });
+
+  // Surface a single "delivery date" per order: the actual delivered date for
+  // completed orders, otherwise the scheduled delivery date.
+  return orders.map(({ deliveries, ...order }) => {
+    const latest = deliveries[0];
+    const deliveryDate =
+      order.status === "DELIVERED"
+        ? latest?.deliveredTime ?? null
+        : latest?.scheduledTime ?? null;
+    return { ...order, deliveryDate };
   });
 }
 
@@ -74,7 +90,12 @@ export async function getAgentOrderById(orderId: string, agentId: string) {
       deliveries: {
         orderBy: { createdAt: "desc" },
         take: 1,
-        select: { failureReason: true, deliveryCode: true },
+        select: {
+          failureReason: true,
+          deliveryCode: true,
+          scheduledTime: true,
+          deliveredTime: true,
+        },
       },
     },
   });

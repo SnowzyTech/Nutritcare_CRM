@@ -40,10 +40,14 @@ export async function updateProfileAction(input: {
     if (!session?.user?.id) return { error: "Unauthorized" };
     if (!input.name.trim()) return { error: "Name is required" };
     await updateSelfProfile(session.user.id, input);
-    revalidatePath("/sales-rep/settings");
-    revalidatePath("/warehouse/settings");
-    revalidatePath("/accounting/settings");
-    revalidatePath("/logistics/settings");
+    // Revalidate each role layout too, so the updated avatar/name reflects in
+    // the sidebar/navbar (rendered in the layout), not just the settings page.
+    revalidatePath("/admin", "layout");
+    revalidatePath("/sales-rep", "layout");
+    revalidatePath("/warehouse", "layout");
+    revalidatePath("/accounting", "layout");
+    revalidatePath("/logistics", "layout");
+    revalidatePath("/data", "layout");
     return { success: true };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Failed to update profile" };

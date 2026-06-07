@@ -17,7 +17,6 @@ export type LogisticsDeliveryRow = {
 function mapMovementStatus(status: string): DeliveryStatus {
   switch (status) {
     case "RECEIVED":
-    case "SHELVED":
       return "DELIVERED";
     case "NOT_RECEIVED":
       return "FAILED";
@@ -52,7 +51,9 @@ export async function getLogisticsDeliveries(): Promise<LogisticsDeliveryRow[]> 
       createdAt: true,
       scheduledTime: true,
       warehouse: { select: { name: true } },
+      toAgent: { select: { address: true } },
       agent: { select: { address: true } },
+      driver: { select: { name: true } },
       driverAgent: { select: { companyName: true } },
     },
     orderBy: { createdAt: "desc" },
@@ -74,6 +75,7 @@ export async function getLogisticsDeliveries(): Promise<LogisticsDeliveryRow[]> 
       sourceId: true,
       targetType: true,
       targetId: true,
+      driver: { select: { name: true } },
       driverAgent: { select: { companyName: true } },
     },
     orderBy: { createdAt: "desc" },
@@ -129,9 +131,9 @@ export async function getLogisticsDeliveries(): Promise<LogisticsDeliveryRow[]> 
     orderNumber: m.referenceNumber,
     orderId: m.id,
     agent: m.warehouse?.name ?? "—",
-    driver: m.driverAgent?.companyName ?? "—",
+    driver: m.driver?.name ?? m.driverAgent?.companyName ?? "—",
     time: m.scheduledTime ? formatDate(m.scheduledTime) : "—",
-    address: m.agent?.address ?? "—",
+    address: m.toAgent?.address ?? m.agent?.address ?? "—",
     status: mapMovementStatus(m.status),
     sourceType: "stockOut",
     _createdAt: m.createdAt,
@@ -142,7 +144,7 @@ export async function getLogisticsDeliveries(): Promise<LogisticsDeliveryRow[]> 
     orderNumber: t.referenceNumber,
     orderId: t.id,
     agent: resolveName(t.sourceType, t.sourceId),
-    driver: t.driverAgent?.companyName ?? "—",
+    driver: t.driver?.name ?? t.driverAgent?.companyName ?? "—",
     time: t.scheduledTime ? formatDate(t.scheduledTime) : "—",
     address: resolveAddress(t.targetType, t.targetId),
     status: mapTransferStatus(t.status),

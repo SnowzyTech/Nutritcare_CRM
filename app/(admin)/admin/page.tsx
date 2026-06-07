@@ -321,7 +321,7 @@ export default async function AdminDashboardPage({
 
             <ProductTile
               label="Remaining Stock"
-              value={compactNumber(data.remainingStock)}
+              value={data.remainingStock.toLocaleString("en-NG")}
               className="p-6 rounded-2xl bg-[#8B2FE8] border border-transparent flex flex-col justify-between h-[150px] shadow-lg shadow-purple-500/20"
               labelClassName="text-white"
               valueClassName="text-white"
@@ -409,7 +409,7 @@ export default async function AdminDashboardPage({
             />
             <InsightTile
               label="Total Remaining Stock"
-              value={compactNumber(data.remainingStock)}
+              value={data.remainingStock.toLocaleString("en-NG")}
               deltaValue="0%"
             />
           </div>

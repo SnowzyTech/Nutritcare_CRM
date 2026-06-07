@@ -196,6 +196,13 @@ export async function listDeliveryAgentsWithStats(filters: {
       agentSettlements: {
         orderBy: { date: "desc" },
       },
+      // Latest ledger entry — its runningBalance is the live source of truth and
+      // already reflects deliveries, remittances AND every settlement adjustment.
+      agentLedgerEntries: {
+        orderBy: { createdAt: "desc" },
+        take: 1,
+        select: { runningBalance: true },
+      },
     },
     orderBy: { companyName: "asc" },
   });
@@ -205,6 +212,12 @@ export async function listDeliveryAgentsWithStats(filters: {
     const sum = (field: keyof typeof settlements[0]) =>
       settlements.reduce((acc, s) => acc + Number(s[field] ?? 0), 0);
 
+    // Current net position straight from the ledger. Positive = the agent still
+    // owes the company (underpayment); negative = the company owes the agent
+    // (overpayment). Derived from the ledger so the Agent List stays in lockstep
+    // with the Agents Ledger tab and reacts to settlement adjustments.
+    const ledgerBalance = Number(a.agentLedgerEntries[0]?.runningBalance ?? 0);
+
     return {
       agentId: a.id,
       agentName: a.companyName,
@@ -212,42 +225,34 @@ export async function listDeliveryAgentsWithStats(filters: {
       totalSalesValue: fmt(sum("totalSalesValue")),
       delFeesEarned: fmt(sum("deliveryFeesEarned")),
       totalRemitted: fmt(sum("totalRemitted")),
-      balance: fmt(sum("balance")),
-      overpayment: fmt(sum("overpayment")),
-      underpayment: fmt(sum("underpayment")),
+      balance: fmt(ledgerBalance),
+      overpayment: fmt(Math.max(0, -ledgerBalance)),
+      underpayment: fmt(Math.max(0, ledgerBalance)),
       date: settlements[0]?.date.toISOString().slice(0, 10) ?? "—",
     };
   });
 }
 
 export async function listDeliveredOrdersForAgent(agentId: string) {
-  // Collect order IDs already included in past settlements to prevent duplicates
-  const settlements = await prisma.agentSettlement.findMany({
-    where: { agentId },
-    select: { ordersJson: true },
-  });
-  const remittedIds = new Set<string>(
-    settlements.flatMap(s => (Array.isArray(s.ordersJson) ? (s.ordersJson as string[]) : []))
-  );
-
+  // Only delivered orders that have not yet been remitted. Remittance status is
+  // tracked on the order itself (set to REMITTED when a remittance is recorded),
+  // so fully-remitted orders are filtered out at the query level.
   const orders = await prisma.order.findMany({
-    where: { agentId, status: "DELIVERED", deletedAt: null },
+    where: { agentId, status: "DELIVERED", remittanceStatus: "NOT_REMITTED", deletedAt: null },
     include: { customer: { select: { name: true, state: true } } },
     orderBy: { date: "desc" },
     take: 200,
   });
 
-  return orders
-    .filter(o => !remittedIds.has(o.id))
-    .map(o => ({
-      id: o.id,
-      orderId: o.orderNumber,
-      customer: o.customer.name,
-      state: o.customer.state,
-      netAmount: fmt(Number(o.netAmount)),
-      netAmountNum: Number(o.netAmount),
-      date: o.date.toISOString().slice(0, 10),
-    }));
+  return orders.map(o => ({
+    id: o.id,
+    orderId: o.orderNumber,
+    customer: o.customer.name,
+    state: o.customer.state,
+    netAmount: fmt(Number(o.netAmount)),
+    netAmountNum: Number(o.netAmount),
+    date: o.date.toISOString().slice(0, 10),
+  }));
 }
 
 export async function getCurrentAgentBalance(agentId: string): Promise<number> {
@@ -270,7 +275,8 @@ export interface AgentPageData {
     email: string | null;
     userName: string | null;
   };
-  chartData: { name: string; sales: number }[];
+  monthlyChart: { name: string; sales: number }[];
+  weeklyChart: { name: string; sales: number }[];
   totalSalesYear: number;
   prevYearSalesTotal: number;
   ledger: {
@@ -304,12 +310,34 @@ export async function getAgentPageData(agentId: string): Promise<AgentPageData |
   const prevYearStart = new Date(now.getFullYear() - 1, 0, 1);
   const prevYearEnd = new Date(now.getFullYear(), 0, 1);
 
+  // Weekly chart spans the last 8 weeks (Monday-based), ending with this week.
+  const WEEKS_BACK = 8;
+  const startOfWeek = (d: Date) => {
+    const x = new Date(d);
+    x.setHours(0, 0, 0, 0);
+    const mondayOffset = (x.getDay() + 6) % 7; // Mon=0 … Sun=6
+    x.setDate(x.getDate() - mondayOffset);
+    return x;
+  };
+  const currentWeekStart = startOfWeek(now);
+  const weekStarts: Date[] = Array.from({ length: WEEKS_BACK }, (_, i) => {
+    const ws = new Date(currentWeekStart);
+    ws.setDate(ws.getDate() - (WEEKS_BACK - 1 - i) * 7);
+    return ws;
+  });
+  const eightWeeksAgo = weekStarts[0];
+
   // Fetch all data in parallel
-  const [deliveredOrders, prevOrders, ledgerEntries, stockLevels, pendingOrders] =
+  const [deliveredOrders, weeklyOrders, prevOrders, ledgerEntries, stockLevels, pendingOrders] =
     await Promise.all([
       // Current year delivered orders — for chart only (no longer used for inventory)
       prisma.order.findMany({
         where: { agentId, status: "DELIVERED", deletedAt: null, date: { gte: yearStart } },
+        select: { netAmount: true, date: true },
+      }),
+      // Last 8 weeks delivered orders — for the weekly chart (may cross the year boundary)
+      prisma.order.findMany({
+        where: { agentId, status: "DELIVERED", deletedAt: null, date: { gte: eightWeeksAgo } },
         select: { netAmount: true, date: true },
       }),
       // Previous year for % comparison
@@ -350,8 +378,26 @@ export async function getAgentPageData(agentId: string): Promise<AgentPageData |
     monthTotals[m] += val;
     totalSalesYear += val;
   }
-  const chartData = MONTHS.map((name, i) => ({ name, sales: Math.round(monthTotals[i] / 1000) }));
+  const monthlyChart = MONTHS.map((name, i) => ({ name, sales: Math.round(monthTotals[i] / 1000) }));
   const prevYearSalesTotal = prevOrders.reduce((s, o) => s + Number(o.netAmount), 0);
+
+  // ── Weekly chart (last 8 weeks) ───────────────────────────────────────────────
+  const weekTotals = Array(WEEKS_BACK).fill(0);
+  for (const o of weeklyOrders) {
+    const t = new Date(o.date).getTime();
+    for (let i = 0; i < WEEKS_BACK; i++) {
+      const start = weekStarts[i].getTime();
+      const end = start + 7 * 24 * 60 * 60 * 1000;
+      if (t >= start && t < end) {
+        weekTotals[i] += Number(o.netAmount);
+        break;
+      }
+    }
+  }
+  const weeklyChart = weekStarts.map((ws, i) => ({
+    name: `${ws.getDate()} ${MONTHS[ws.getMonth()]}`,
+    sales: Math.round(weekTotals[i] / 1000),
+  }));
 
   // ── Ledger ──────────────────────────────────────────────────────────────────
   const titleCase = (s: string) =>
@@ -398,7 +444,8 @@ export async function getAgentPageData(agentId: string): Promise<AgentPageData |
       email: agent.user?.email ?? null,
       userName: agent.user?.name ?? null,
     },
-    chartData,
+    monthlyChart,
+    weeklyChart,
     totalSalesYear,
     prevYearSalesTotal,
     ledger,

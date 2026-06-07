@@ -32,6 +32,21 @@ export function formatDate(date: Date | string): string {
 }
 
 /**
+ * Generates a short, time-based order number: `ORD-<base36 timestamp><2 random>`.
+ *
+ * The base36-encoded millisecond timestamp keeps the id compact (~8 chars) and
+ * roughly time-ordered, while two random base36 chars break ties between orders
+ * created in the same millisecond. Far shorter than a raw epoch ms, and not
+ * sequential. The `orderNumber` column is `@unique` as a final backstop.
+ * e.g. `ORD-LT8X2K9ZQ4`
+ */
+export function generateOrderNumber(): string {
+  const ts = Date.now().toString(36);
+  const rand = Math.random().toString(36).slice(2, 4).padEnd(2, "0");
+  return `ORD-${(ts + rand).toUpperCase()}`;
+}
+
+/**
  * Returns initials from a full name.
  */
 export function getInitials(name: string): string {

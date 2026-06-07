@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronDown, Trash2, Plus, Copy, ArrowLeft } from "lucide-react";
+import { toast } from "sonner";
 import { createAdjustmentAction } from "@/modules/inventory/actions/stock.action";
 import type { LocationForAdjustment } from "@/modules/inventory/services/inventory.service";
 
@@ -143,8 +144,14 @@ export default function AdjustmentCreateClient({
 
     if (result?.error) {
       setError(result.error);
+      toast.error(result.error);
       setLoading(false);
     } else {
+      toast.success(
+        status === "RECORDED"
+          ? "Adjustment submitted for admin approval"
+          : "Adjustment saved as draft"
+      );
       router.push("/inventory/adjustment");
     }
   };

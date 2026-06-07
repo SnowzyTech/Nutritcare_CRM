@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useActionState, useRef, useState } from "react";
+import React, { useActionState, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { Trash2, Upload, X } from "lucide-react";
 import {
   addProductAction,
@@ -89,6 +90,10 @@ export function AddProductClient({
     isEdit ? updateProductAction : addProductAction,
     null
   );
+
+  useEffect(() => {
+    if (state?.error) toast.error(state.error);
+  }, [state]);
 
   const [hasOffer, setHasOffer] = useState<string>(
     product?.hasOffer ? "Yes" : "No"
@@ -435,7 +440,8 @@ export function AddProductClient({
               </SelectWrapper>
             </div>
 
-            <div>
+            {/* TEMP HIDDEN: offer trigger — hidden via UI, flow untouched */}
+            <div className="hidden">
               <label className={labelClass} htmlFor="hasOfferSelect">
                 Do you have an offer for this product?
               </label>
@@ -603,6 +609,8 @@ export function AddProductClient({
             </div>
           </div>
 
+          {/* TEMP HIDDEN: packages / offers / combos / gifts — hidden via UI, flow untouched */}
+          <div className="hidden">
           {/* Pricing Packages — columnar layout */}
           <div className="mb-2">
             <div
@@ -869,6 +877,8 @@ export function AddProductClient({
               </div>
             </div>
           )}
+          </div>
+          {/* END TEMP HIDDEN */}
         </form>
       </div>
     </div>

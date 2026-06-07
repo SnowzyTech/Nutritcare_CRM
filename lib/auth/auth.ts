@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/db/prisma";
 import { authConfig } from "./auth.config";
 import { loginSchema } from "@/lib/validations/auth";
+import { logActivity } from "@/modules/audit/services/audit-log.service";
 
 /**
  * Main Auth.js setup.
@@ -55,4 +56,32 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       },
     }),
   ],
+  events: {
+    // Record sign-in / sign-out in the activity history. Centralised here so it
+    // captures every auth path (server action, client signOut, etc.).
+    async signIn({ user }) {
+      if (user?.id) {
+        await logActivity({
+          userId: user.id,
+          action: "Log In",
+          entityType: "User",
+          entityId: user.id,
+          description: "Signed in",
+        });
+      }
+    },
+    async signOut(message) {
+      const token = "token" in message ? message.token : null;
+      const userId = (token?.id as string | undefined) ?? token?.sub;
+      if (userId) {
+        await logActivity({
+          userId,
+          action: "Log Out",
+          entityType: "User",
+          entityId: userId,
+          description: "Signed out",
+        });
+      }
+    },
+  },
 });

@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useActionState } from "react";
+import React, { useActionState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
+import { toast } from "sonner";
 import { updateWarehouseAction } from "@/modules/inventory/actions/stock.action";
 
 const inputClass =
@@ -14,6 +15,10 @@ const labelClass = "block text-[11px] font-bold text-gray-500 uppercase tracking
 export default function EditWarehouseClient({ warehouse }: { warehouse: any }) {
   const router = useRouter();
   const [state, formAction, pending] = useActionState(updateWarehouseAction, null);
+
+  useEffect(() => {
+    if (state?.error) toast.error(state.error);
+  }, [state]);
 
   return (
     <div className="max-w-[1400px] mx-auto">

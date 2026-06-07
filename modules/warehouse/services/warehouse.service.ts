@@ -232,6 +232,103 @@ export async function getRecordedIncomingVouchers(
   }));
 }
 
+// ── In-transit stock transfers awaiting receipt at this warehouse ─────────────
+
+export type InTransitTransferProductItem = {
+  productId: string;
+  productName: string;
+  productCode: string;
+  requiredQty: number;
+  availableShelves: TransferShelfOption[];
+};
+
+export type InTransitTransferRow = {
+  id: string;
+  referenceNumber: string;
+  sourceWarehouseName: string;
+  scheduledTime: string | null;
+  items: InTransitTransferProductItem[];
+};
+
+export async function getInTransitTransfersForWarehouse(
+  warehouseId: string,
+): Promise<InTransitTransferRow[]> {
+  const transfers = await prisma.stockTransfer.findMany({
+    where: { status: "IN_TRANSIT", targetType: "WAREHOUSE", targetId: warehouseId },
+    include: {
+      items: { include: { product: { select: { id: true, name: true, sku: true } } } },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  if (!transfers.length) return [];
+
+  const sourceWarehouseIds = [...new Set(
+    transfers.filter((t) => t.sourceType === "WAREHOUSE").map((t) => t.sourceId),
+  )];
+  const sourceWarehouses =
+    sourceWarehouseIds.length > 0
+      ? await prisma.warehouse.findMany({
+          where: { id: { in: sourceWarehouseIds } },
+          select: { id: true, name: true },
+        })
+      : [];
+  const whNameMap = new Map(sourceWarehouses.map((w) => [w.id, w.name]));
+
+  // Fetch shelf stock in the target warehouse so the UI can offer shelf selection
+  const productIds = [...new Set(transfers.flatMap((t) => t.items.map((i) => i.productId)))];
+  const shelfStocks =
+    productIds.length > 0
+      ? await prisma.shelfProductStock.findMany({
+          where: { productId: { in: productIds }, location: { warehouseId }, quantity: { gte: 0 } },
+          include: { location: { select: { locationCode: true } } },
+          orderBy: { quantity: "desc" },
+        })
+      : [];
+
+  // Also include warehouse locations that have no shelf stock yet (for shelving onto)
+  const allLocations = await prisma.warehouseLocation.findMany({
+    where: { warehouseId, occupancyStatus: { not: "FULL" } },
+    select: { id: true, locationCode: true },
+    orderBy: { locationCode: "asc" },
+  });
+
+  // Build a shelf map keyed by productId for shelves that already have stock
+  const shelfMap = new Map<string, TransferShelfOption[]>();
+  for (const s of shelfStocks) {
+    const list = shelfMap.get(s.productId) ?? [];
+    list.push({ locationId: s.locationId, locationCode: s.location.locationCode, availableQty: s.quantity });
+    shelfMap.set(s.productId, list);
+  }
+
+  // Add empty/partial locations not yet in the map for any product (qty = 0 means space available)
+  const stockedLocationIds = new Set(shelfStocks.map((s) => s.locationId));
+  const emptyLocations: TransferShelfOption[] = allLocations
+    .filter((l) => !stockedLocationIds.has(l.id))
+    .map((l) => ({ locationId: l.id, locationCode: l.locationCode, availableQty: 0 }));
+
+  return transfers.map((t) => ({
+    id: t.id,
+    referenceNumber: t.referenceNumber,
+    sourceWarehouseName:
+      t.sourceType === "WAREHOUSE" ? (whNameMap.get(t.sourceId) ?? "—") : "—",
+    scheduledTime: t.scheduledTime ? formatDate(t.scheduledTime) : null,
+    items: t.items.map((i) => {
+      const shelfOptions = shelfMap.get(i.productId) ?? [];
+      // Merge in empty locations not already listed
+      const listed = new Set(shelfOptions.map((s) => s.locationId));
+      const extra = emptyLocations.filter((l) => !listed.has(l.locationId));
+      return {
+        productId: i.productId,
+        productName: i.product.name,
+        productCode: i.product.sku,
+        requiredQty: i.quantity,
+        availableShelves: [...shelfOptions, ...extra],
+      };
+    }),
+  }));
+}
+
 // ── Pick & Pack ───────────────────────────────────────────────────────────────
 
 export type TransferShelfOption = {
@@ -287,6 +384,7 @@ export async function getPickPackOrders(warehouseId: string | null): Promise<Pic
         select: {
           referenceNumber: true,
           warehouseId: true,
+          driver: { select: { name: true } },
           driverAgent: { select: { companyName: true } },
           items: { select: { productId: true, quantity: true, product: { select: { id: true, name: true } } } },
         },
@@ -297,11 +395,13 @@ export async function getPickPackOrders(warehouseId: string | null): Promise<Pic
           referenceNumber: true,
           sourceId: true,
           sourceType: true,
+          driver: { select: { name: true } },
           driverAgent: { select: { companyName: true } },
           items: { include: { product: { select: { id: true, name: true } } } },
         },
       },
       picker: { select: { name: true } },
+      packer: { select: { name: true } },
     },
   });
 
@@ -420,12 +520,14 @@ export async function getPickPackOrders(warehouseId: string | null): Promise<Pic
       id: pp.id,
       referenceNumber: pp.stockMovement?.referenceNumber ?? pp.stockTransfer?.referenceNumber ?? "—",
       dispatchAgent:
+        pp.stockMovement?.driver?.name ??
         pp.stockMovement?.driverAgent?.companyName ??
+        pp.stockTransfer?.driver?.name ??
         pp.stockTransfer?.driverAgent?.companyName ??
         "—",
       itemsCount: pp.itemsCount,
-      picker: pp.picker?.name ?? "—",
-      pickerId: pp.pickerId,
+      picker: pp.packer?.name ?? pp.picker?.name ?? "—",
+      pickerId: pp.packerId ?? pp.pickerId,
       locationCode: pp.locationCode || "—",
       assignedAt: pp.assignedAt
         ? pp.assignedAt
@@ -446,23 +548,26 @@ export type PickerOption = {
   activeTasks: number;
 };
 
-export async function getAvailablePickers(): Promise<PickerOption[]> {
-  const [pickers, activeCounts] = await Promise.all([
-    prisma.user.findMany({
-      where: { isActive: true, role: "WAREHOUSE_MANAGER" },
+export async function getPickPackers(warehouseId?: string | null): Promise<PickerOption[]> {
+  const [packers, activeCounts] = await Promise.all([
+    prisma.pickPacker.findMany({
+      where: {
+        isActive: true,
+        ...(warehouseId ? { warehouseId } : {}),
+      },
       select: { id: true, name: true },
       orderBy: { name: "asc" },
     }),
     prisma.pickPack.groupBy({
-      by: ["pickerId"],
-      where: { status: "PACKED", pickerId: { not: null } },
+      by: ["packerId"],
+      where: { status: "PACKED", packerId: { not: null } },
       _count: { id: true },
     }),
   ]);
 
-  const taskMap = new Map(activeCounts.map((t) => [t.pickerId as string, t._count.id]));
+  const taskMap = new Map(activeCounts.map((t) => [t.packerId as string, t._count.id]));
 
-  return pickers.map((p) => ({
+  return packers.map((p) => ({
     id: p.id,
     name: p.name,
     activeTasks: taskMap.get(p.id) ?? 0,
@@ -481,6 +586,33 @@ export type LocationBinRow = {
   maxCapacity: number | null;
 };
 
+/**
+ * Derive a shelf's occupancy status from its current stock against the
+ * per-shelf Full/Partial/Empty thresholds entered at zone creation.
+ *
+ *   stock >= fullThreshold     -> FULL
+ *   stock >= partialThreshold  -> PARTIAL
+ *   otherwise                  -> EMPTY
+ *
+ * Manually-set statuses that can't be inferred from stock (RESERVED, DAMAGE)
+ * are preserved, as is the stored status when no thresholds are configured.
+ */
+export function deriveOccupancyStatus(
+  storedStatus: string,
+  currentStock: number,
+  thresholds: {
+    fullThreshold: number | null;
+    partialThreshold: number | null;
+  },
+): string {
+  if (storedStatus === "RESERVED" || storedStatus === "DAMAGE") return storedStatus;
+  const { fullThreshold, partialThreshold } = thresholds;
+  if (fullThreshold == null && partialThreshold == null) return storedStatus;
+  if (fullThreshold != null && currentStock >= fullThreshold) return "FULL";
+  if (partialThreshold != null && currentStock >= partialThreshold) return "PARTIAL";
+  return "EMPTY";
+}
+
 export async function getWarehouseLocations(warehouseId: string): Promise<LocationBinRow[]> {
   const locations = await prisma.warehouseLocation.findMany({
     where: { warehouseId },
@@ -495,7 +627,10 @@ export async function getWarehouseLocations(warehouseId: string): Promise<Locati
       locationCode: l.locationCode,
       zone,
       col,
-      occupancyStatus: l.occupancyStatus,
+      occupancyStatus: deriveOccupancyStatus(l.occupancyStatus, l.currentStock, {
+        fullThreshold: l.fullThreshold,
+        partialThreshold: l.partialThreshold,
+      }),
       currentStock: l.currentStock,
       maxCapacity: l.maxCapacity ?? null,
     };
@@ -628,7 +763,10 @@ export async function getLocationBinDetailMap(warehouseId: string): Promise<Loca
       }));
 
     result[loc.locationCode] = {
-      occupancyStatus: loc.occupancyStatus,
+      occupancyStatus: deriveOccupancyStatus(loc.occupancyStatus, loc.currentStock, {
+        fullThreshold: loc.fullThreshold,
+        partialThreshold: loc.partialThreshold,
+      }),
       stockItems: stockByCode.get(loc.locationCode) ?? [],
       orders,
     };

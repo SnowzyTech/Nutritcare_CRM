@@ -4,7 +4,7 @@ import { auth } from "@/lib/auth/auth";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createDeliveryAgentWithUser } from "../services/create-delivery-agent.service";
-import { createDriver } from "../services/create-driver.service";
+import { createDriver, softDeleteDriver } from "../services/create-driver.service";
 import { softDeleteAgent } from "../services/agents.service";
 
 type AgentResult =
@@ -67,7 +67,6 @@ export async function createDriverAction(input: {
   state?: string;
   country?: string;
   vehicleNo?: string;
-  statesCovered?: string[];
 }): Promise<DriverResult> {
   try {
     const user = await requireLogisticsAuth();
@@ -77,4 +76,15 @@ export async function createDriverAction(input: {
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Failed to create driver" };
   }
+}
+
+export async function deleteDriverAction(driverId: string): Promise<{ error: string } | never> {
+  try {
+    await requireLogisticsAuth();
+    await softDeleteDriver(driverId);
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Failed to delete driver" };
+  }
+  revalidatePath("/logistics/agents");
+  redirect("/logistics/agents");
 }

@@ -489,13 +489,14 @@ export async function getStockWarehouses(): Promise<StockWarehouseRow[]> {
   const warehouses = await prisma.warehouse.findMany({
     where: { deletedAt: null },
     orderBy: { createdAt: "desc" },
+    include: { managers: { select: { name: true } } },
   });
   return warehouses.map((w) => ({
     id: w.id,
     name: w.name,
     phone: w.phone ?? "—",
     createdAt: w.createdAt.toLocaleDateString("en-NG"),
-    managerName: w.managerName ?? "—",
+    managerName: w.managers[0]?.name ?? w.managerName ?? "—",
   }));
 }
 
@@ -979,8 +980,10 @@ export async function getAdjustments(): Promise<AdjustmentRow[]> {
 
   const statusLabel: Record<string, string> = {
     DRAFT: "Draft",
+    PENDING_APPROVAL: "Pending Approval",
     RECORDED: "Recorded",
     REVERSED: "Reversed",
+    REJECTED: "Rejected",
   };
 
   return adjustments.map((a) => ({
@@ -1008,8 +1011,10 @@ export async function getAdjustmentById(id: string): Promise<AdjustmentDetail | 
 
   const statusLabel: Record<string, string> = {
     DRAFT: "Draft",
+    PENDING_APPROVAL: "Pending Approval",
     RECORDED: "Recorded",
     REVERSED: "Reversed",
+    REJECTED: "Rejected",
   };
 
   return {
@@ -1033,6 +1038,40 @@ export async function getAdjustmentById(id: string): Promise<AdjustmentDetail | 
       variance: item.quantityAfter - item.quantityBefore,
     })),
   };
+}
+
+// ── Admin: Pending Approval Adjustments ───────────────────────────────────────
+
+export type PendingAdjustmentRow = {
+  id: string;
+  referenceNumber: string;
+  date: string;
+  warehouse: string;
+  submittedBy: string;
+  products: string;
+  itemCount: number;
+};
+
+export async function getPendingAdjustments(): Promise<PendingAdjustmentRow[]> {
+  const adjustments = await prisma.stockAdjustment.findMany({
+    where: { status: "PENDING_APPROVAL" },
+    include: {
+      warehouse: true,
+      createdBy: true,
+      items: { include: { product: true } },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  return adjustments.map((a) => ({
+    id: a.id,
+    referenceNumber: a.referenceNumber,
+    date: formatMovementDate(a.date),
+    warehouse: a.warehouse.name,
+    submittedBy: a.createdBy.name,
+    products: a.items.map((i) => i.product.name).join(", ") || "—",
+    itemCount: a.items.length,
+  }));
 }
 
 // ── Dropdown Helpers ──────────────────────────────────────────────────────────
@@ -1062,10 +1101,7 @@ export async function getAgentsForDropdown(): Promise<DropdownOption[]> {
     where: {
       deletedAt: null,
       status: "ACTIVE",
-      OR: [
-        { user: null },
-        { user: { role: "DELIVERY_AGENT" } },
-      ],
+      user: { role: "DELIVERY_AGENT" },
     },
     select: { id: true, companyName: true },
     orderBy: { companyName: "asc" },
@@ -1134,7 +1170,13 @@ export async function getShelfProductStockMap(): Promise<Record<string, Record<s
 export async function getProductById(id: string) {
   return prisma.product.findFirst({
     where: { id, deletedAt: null },
-    include: { category: true },
+    include: {
+      category: true,
+      offers: true,
+      packages: { orderBy: { createdAt: "asc" } },
+      combos: { include: { comboProduct: { select: { id: true, name: true } } }, orderBy: { createdAt: "asc" } },
+      gifts: { include: { giftProduct: { select: { id: true, name: true } } }, orderBy: { createdAt: "asc" } },
+    },
   });
 }
 
@@ -1160,6 +1202,7 @@ export async function getProductStockMap(): Promise<Record<string, number>> {
 export async function getWarehouseById(id: string) {
   return prisma.warehouse.findFirst({
     where: { id, deletedAt: null },
+    include: { managers: { select: { id: true, name: true } } },
   });
 }
 

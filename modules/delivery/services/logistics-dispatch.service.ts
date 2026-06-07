@@ -23,7 +23,7 @@ export async function getDispatchPageData(): Promise<{
   orders: DispatchOrder[];
   drivers: DispatchDriver[];
 }> {
-  const [confirmedOrders, driverAgents, outgoingMovements, pendingTransfers] =
+  const [confirmedOrders, driverRows, outgoingMovements, pendingTransfers] =
     await Promise.all([
       prisma.order.findMany({
         where: { status: "CONFIRMED", deletedAt: null },
@@ -38,9 +38,9 @@ export async function getDispatchPageData(): Promise<{
           },
         },
       }),
-      prisma.agent.findMany({
-        where: { user: null, status: "ACTIVE", deletedAt: null },
-        orderBy: { companyName: "asc" },
+      prisma.driver.findMany({
+        where: { status: "ACTIVE", deletedAt: null },
+        orderBy: { name: "asc" },
         include: {
           deliveries: {
             where: { status: "IN_TRANSIT" },
@@ -55,7 +55,9 @@ export async function getDispatchPageData(): Promise<{
         select: {
           id: true,
           referenceNumber: true,
+          state: true,
           agent: { select: { id: true, companyName: true, address: true, state: true } },
+          toAgent: { select: { id: true, companyName: true, address: true, state: true } },
         },
       }),
       // Stock transfers awaiting dispatch
@@ -119,10 +121,12 @@ export async function getDispatchPageData(): Promise<{
     ...outgoingMovements.map((m) => ({
       id: m.id,
       orderNumber: m.referenceNumber,
-      agentId: m.agent?.id ?? null,
-      agentName: m.agent?.companyName ?? "—",
-      address: m.agent?.address ?? "—",
-      state: m.agent?.state ?? "—",
+      // toAgent = destination (always set); agent = source agent for agent-to-agent only
+      agentId: m.toAgent?.id ?? m.agent?.id ?? null,
+      agentName: m.toAgent?.companyName ?? m.agent?.companyName ?? "—",
+      address: m.toAgent?.address ?? m.agent?.address ?? "—",
+      // m.state is the destination state recorded on the movement form
+      state: m.state ?? m.toAgent?.state ?? m.agent?.state ?? "—",
       deliveryId: null,
       sourceType: "stockOut" as const,
     })),
@@ -143,12 +147,12 @@ export async function getDispatchPageData(): Promise<{
     }),
   ];
 
-  const drivers: DispatchDriver[] = driverAgents.map((a) => ({
-    id: a.id,
-    name: a.companyName,
-    state: a.state ?? "—",
-    phone: a.phone1,
-    activeDeliveries: a.deliveries.length,
+  const drivers: DispatchDriver[] = driverRows.map((d) => ({
+    id: d.id,
+    name: d.name,
+    state: d.state ?? "—",
+    phone: d.phone1,
+    activeDeliveries: d.deliveries.length,
   }));
 
   return { orders, drivers };

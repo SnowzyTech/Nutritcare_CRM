@@ -86,14 +86,17 @@ export type OrderRow = {
   id: string;         // orderNumber – used as URL param for detail page
   gmail: string;
   name: string;
-  agent: { name: string; state: string } | null;
+  agent: { id: string; name: string; state: string } | null;
   state: string;
   salesRep: string;
   salesRepId: string;
+  teamId: string | null;
+  teamName: string | null;
   product: string;
   quantity: number;
   date: string;
   status: OrderDisplayStatus;
+  statusDate: string | null;  // Date when status changed (null for PENDING)
 };
 
 export type OrderDetailFull = {
@@ -116,6 +119,7 @@ export type OrderDetailFull = {
     name: string;
     quantity: number;
     imageColor: string;
+    imageUrl?: string | null;
     totalPrice: string;
   };
   upsoldProduct?: { name: string; quantity: number };
@@ -172,7 +176,14 @@ export type MetricCard = {
 
 export type RepAnalyticsData = {
   metrics: MetricCard[];
-  kpi: { value: string; target: string; change: string };
+  kpi: {
+    value: number;           // KPI percentage (delivered / total * 100)
+    target: number;          // Target percentage (65%)
+    change: string;          // Delta vs last period
+    ordersDelivered: number; // Count of delivered orders
+    totalOrders: number;     // Total orders handled
+  };
+  salesRepCount: number;     // Number of sales reps (for scaling bonus requirements)
   bestSellingProducts: { product: string; amount: number }[];
   upsellingRate: { product: string; upsell: number }[];
 };
@@ -181,6 +192,27 @@ export type TeamAnalyticsEntry = {
   teamId: string;
   teamName: string;
   currentMetrics: RepAnalyticsData;
+};
+
+export type DeletedOrderRow = {
+  id: string;            // audit log id
+  orderNumber: string;
+  customerName: string;
+  customerEmail: string;
+  state: string;
+  salesRep: string;
+  product: string;
+  quantity: number;
+  status: string;
+  total: string;
+  orderDate: string;     // date the order was originally created
+  deletedAt: string;     // date/time the order was deleted
+};
+
+export type DeletedOrderGroup = {
+  label: string;
+  date: string;
+  entries: DeletedOrderRow[];
 };
 
 export type ActivityGroup = {
@@ -199,6 +231,7 @@ export type ActivityGroup = {
 type OrderForMetrics = {
   status: OrderStatus;
   customerId: string;
+  isReorder: boolean;
   items: { productId: string; quantity: number; product: { name: string } }[];
 };
 
@@ -236,6 +269,10 @@ function computeMetrics(orders: OrderForMetrics[]) {
   );
   const upsellRate = total > 0 ? Math.round((multiItemOrders.length / total) * 100) : 0;
 
+  // Reorder rate = orders flagged as reorder / total orders
+  const reorders = orders.filter((o) => o.isReorder).length;
+  const reorderRate = total > 0 ? Math.round((reorders / total) * 100) : 0;
+
   const upsoldQty = new Map<string, number>();
   for (const o of multiItemOrders) {
     for (const item of o.items) {
@@ -246,17 +283,23 @@ function computeMetrics(orders: OrderForMetrics[]) {
     .sort((a, b) => b[1] - a[1])
     .map(([name, qty]) => ({ name, qty }));
 
+  // KPI = delivered / total * 100 (same formula as sales-rep)
+  const kpi = total > 0 ? Math.round((delivered / total) * 100) : 0;
+
   return {
     totalProductsSold,
     totalOrders: total,
+    ordersDelivered: delivered,
     uniqueCustomers,
     bestSellingProduct: topProducts[0]?.name ?? "N/A",
     generalPerformance,
     upsellRate,
+    reorderRate,
     confirmationRate,
     deliveryRate,
     cancellationRate,
     recoveryRate,
+    kpi,
     topProducts,
     upsoldProducts,
   };
@@ -264,7 +307,8 @@ function computeMetrics(orders: OrderForMetrics[]) {
 
 function toRepAnalyticsData(
   current: ReturnType<typeof computeMetrics>,
-  last: ReturnType<typeof computeMetrics> | null
+  last: ReturnType<typeof computeMetrics> | null,
+  salesRepCount: number = 1
 ): RepAnalyticsData {
   function delta(cur: number, prev: number | null | undefined, isPercent = false): string {
     if (prev == null) return "—";
@@ -304,10 +348,10 @@ function toRepAnalyticsData(
       isPositive: current.upsellRate >= (last?.upsellRate ?? 0),
     },
     {
-      label: "Comfirmation Rate",
-      value: `${current.confirmationRate}%`,
-      change: delta(current.confirmationRate, last?.confirmationRate, true),
-      isPositive: current.confirmationRate >= (last?.confirmationRate ?? 0),
+      label: "Reorder Rate",
+      value: `${current.reorderRate}%`,
+      change: delta(current.reorderRate, last?.reorderRate, true),
+      isPositive: current.reorderRate >= (last?.reorderRate ?? 0),
     },
     {
       label: "Delivery Rate",
@@ -332,10 +376,13 @@ function toRepAnalyticsData(
   return {
     metrics,
     kpi: {
-      value: `${current.generalPerformance}%`,
-      target: `${current.totalOrders} orders`,
-      change: delta(current.generalPerformance, last?.generalPerformance, true),
+      value: current.kpi,
+      target: 65, // 65% KPI target (same as sales-rep)
+      change: delta(current.kpi, last?.kpi, true),
+      ordersDelivered: current.ordersDelivered,
+      totalOrders: current.totalOrders,
     },
+    salesRepCount,
     bestSellingProducts: current.topProducts.slice(0, 7).map((p) => ({
       product: p.name,
       amount: p.qty,
@@ -353,6 +400,7 @@ async function fetchOrdersForMetrics(where: object): Promise<OrderForMetrics[]> 
     select: {
       status: true,
       customerId: true,
+      isReorder: true,
       items: {
         select: {
           productId: true,
@@ -365,6 +413,156 @@ async function fetchOrdersForMetrics(where: object): Promise<OrderForMetrics[]> 
 }
 
 // ─── Service functions ────────────────────────────────────────────────────────
+
+/**
+ * Permanently delete an order and all related records.
+ * This is a HARD DELETE - data cannot be recovered.
+ */
+export async function hardDeleteOrder(
+  orderNumber: string,
+  deletedByUserId?: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    // Find the order by orderNumber, capturing a snapshot for the deletion record
+    const order = await prisma.order.findUnique({
+      where: { orderNumber },
+      select: {
+        id: true,
+        orderNumber: true,
+        status: true,
+        netAmount: true,
+        createdAt: true,
+        customer: { select: { name: true, email: true, state: true } },
+        salesRep: { select: { name: true } },
+        items: {
+          select: { quantity: true, product: { select: { name: true } } },
+          orderBy: { createdAt: "asc" },
+          take: 1,
+        },
+      },
+    });
+
+    if (!order) {
+      return { success: false, error: "Order not found" };
+    }
+
+    // Delete in order to respect foreign key constraints
+    // 1. Delete order items first
+    await prisma.orderItem.deleteMany({
+      where: { orderId: order.id },
+    });
+
+    // 2. Delete any deliveries associated with the order
+    await prisma.delivery.deleteMany({
+      where: { orderId: order.id },
+    });
+
+    // 3. Delete the order itself
+    await prisma.order.delete({
+      where: { id: order.id },
+    });
+
+    // 4. Record a deletion snapshot so the data analyst can review deleted orders.
+    if (deletedByUserId) {
+      await prisma.auditLog.create({
+        data: {
+          userId: deletedByUserId,
+          action: "ORDER_DELETED",
+          entityType: "Order",
+          entityId: order.orderNumber,
+          details: {
+            orderNumber: order.orderNumber,
+            customerName: order.customer.name,
+            customerEmail: order.customer.email ?? "",
+            state: order.customer.state,
+            salesRep: order.salesRep.name,
+            product: order.items[0]?.product.name ?? "—",
+            quantity: order.items[0]?.quantity ?? 0,
+            status: STATUS_MAP[order.status] ?? "Pending",
+            total: Number(order.netAmount),
+            orderDate: fmtDate(order.createdAt),
+          },
+        },
+      });
+    }
+
+    return { success: true };
+  } catch (error) {
+    console.error("Error hard deleting order:", error);
+    return { success: false, error: "Failed to delete order" };
+  }
+}
+
+export async function getSalesTeams(): Promise<{ id: string; name: string }[]> {
+  const teams = await prisma.team.findMany({
+    where: { department: "SALES" },
+    select: { id: true, name: true },
+    orderBy: { name: "asc" },
+  });
+  return teams;
+}
+
+/** All active product names — used to populate the product filter with the full catalog. */
+export async function getProductsForFilter(): Promise<string[]> {
+  const products = await prisma.product.findMany({
+    where: { isActive: true, deletedAt: null },
+    select: { name: true },
+    orderBy: { name: "asc" },
+  });
+  return products.map((p) => p.name);
+}
+
+export async function getDeliveryAgents(): Promise<{ id: string; name: string; ordersToday: number }[]> {
+  const agents = await prisma.agent.findMany({
+    where: { deletedAt: null, status: "ACTIVE" },
+    select: {
+      id: true,
+      companyName: true,
+      orders: {
+        where: {
+          deletedAt: null,
+          createdAt: {
+            gte: new Date(new Date().setHours(0, 0, 0, 0)),
+          },
+        },
+        select: { id: true },
+      },
+    },
+    orderBy: { companyName: "asc" },
+  });
+
+  return agents.map((a) => ({
+    id: a.id,
+    name: a.companyName,
+    ordersToday: a.orders.length,
+  }));
+}
+
+export async function getSalesRepsForFilter(): Promise<{ id: string; name: string; ordersToday: number }[]> {
+  const salesReps = await prisma.user.findMany({
+    where: { role: "SALES_REP", isActive: true },
+    select: {
+      id: true,
+      name: true,
+      orders: {
+        where: {
+          deletedAt: null,
+          createdAt: {
+            gte: new Date(new Date().setHours(0, 0, 0, 0)),
+          },
+        },
+        select: { id: true },
+      },
+    },
+    orderBy: { name: "asc" },
+  });
+
+  return salesReps.map((rep) => ({
+    id: rep.id,
+    name: rep.name,
+    ordersToday: rep.orders.length,
+  }));
+}
 
 export async function getSalesRepsList(): Promise<SalesRepItem[]> {
   const users = await prisma.user.findMany({
@@ -407,9 +605,10 @@ export async function getAllOrders(): Promise<OrderRow[]> {
       orderNumber: true,
       status: true,
       createdAt: true,
+      updatedAt: true,
       customer: { select: { name: true, email: true, state: true } },
-      agent: { select: { companyName: true, state: true } },
-      salesRep: { select: { id: true, name: true } },
+      agent: { select: { id: true, companyName: true, state: true } },
+      salesRep: { select: { id: true, name: true, team: { select: { id: true, name: true } } } },
       items: {
         select: {
           quantity: true,
@@ -425,14 +624,17 @@ export async function getAllOrders(): Promise<OrderRow[]> {
     id: o.orderNumber,
     gmail: o.customer.email ?? "",
     name: o.customer.name,
-    agent: o.agent ? { name: o.agent.companyName, state: o.agent.state ?? "" } : null,
+    agent: o.agent ? { id: o.agent.id, name: o.agent.companyName, state: o.agent.state ?? "" } : null,
     state: o.customer.state,
     salesRep: o.salesRep.name,
     salesRepId: o.salesRep.id,
+    teamId: o.salesRep.team?.id ?? null,
+    teamName: o.salesRep.team?.name ?? null,
     product: o.items[0]?.product.name ?? "—",
     quantity: o.items[0]?.quantity ?? 0,
     date: fmtDate(o.createdAt),
     status: STATUS_MAP[o.status] ?? "Pending",
+    statusDate: o.status === "PENDING" ? null : fmtDate(o.updatedAt),
   }));
 }
 
@@ -457,7 +659,7 @@ export async function getOrderByOrderNumber(orderNumber: string): Promise<OrderD
         },
       },
       items: {
-        include: { product: { select: { name: true, sellingPrice: true } } },
+        include: { product: { select: { name: true, sellingPrice: true, imageUrl: true } } },
         orderBy: { createdAt: "asc" },
       },
       deliveries: { orderBy: { createdAt: "asc" } },
@@ -469,9 +671,33 @@ export async function getOrderByOrderNumber(orderNumber: string): Promise<OrderD
   const firstItem = order.items[0];
   const upsoldItem = order.items[1];
 
+  const firstDelivery = order.deliveries[0];
   const history: OrderDetailFull["history"] = [
     { event: "Order Created", date: fmtDateTime(order.createdAt), repName: order.salesRep.name },
+    { event: "Sales Rep Assigned", date: fmtDateTime(order.createdAt), repName: order.salesRep.name },
   ];
+  // A delivery is created at confirmation time, so its existence marks the order
+  // as having been confirmed — show the confirmation-related events for
+  // confirmed/delivered/failed orders.
+  if (firstDelivery) {
+    history.push({
+      event: "Order Confirmed",
+      date: fmtDateTime(firstDelivery.createdAt),
+      repName: order.salesRep.name,
+    });
+    history.push({
+      event: "Prescription Sent",
+      date: fmtDateTime(firstDelivery.createdAt),
+      repName: order.salesRep.name,
+    });
+    if (order.agent) {
+      history.push({
+        event: "Delivery Agent Assigned",
+        date: fmtDateTime(firstDelivery.createdAt),
+        agentName: order.agent.companyName,
+      });
+    }
+  }
   for (const d of order.deliveries) {
     if (d.status === "IN_TRANSIT") {
       history.push({
@@ -498,9 +724,6 @@ export async function getOrderByOrderNumber(orderNumber: string): Promise<OrderD
   if (order.status === "CANCELLED") {
     history.push({ event: "Order Cancelled", date: fmtDateTime(order.updatedAt), repName: order.salesRep.name });
   }
-  if (order.status === "CONFIRMED") {
-    history.push({ event: "Order Confirmed", date: fmtDateTime(order.updatedAt), repName: order.salesRep.name });
-  }
 
   return {
     id: order.id,
@@ -522,6 +745,7 @@ export async function getOrderByOrderNumber(orderNumber: string): Promise<OrderD
       name: firstItem?.product.name ?? "—",
       quantity: firstItem?.quantity ?? 0,
       imageColor: productColor(firstItem?.product.name ?? ""),
+      imageUrl: firstItem?.product.imageUrl ?? null,
       totalPrice: `₦${Number(order.netAmount).toLocaleString("en-NG")}`,
     },
     upsoldProduct: upsoldItem
@@ -529,6 +753,9 @@ export async function getOrderByOrderNumber(orderNumber: string): Promise<OrderD
       : undefined,
     deliveryFee: Number(order.deliveryFee) > 0
       ? `₦${Number(order.deliveryFee).toLocaleString("en-NG")}`
+      : undefined,
+    estimatedDeliveryDate: firstDelivery?.scheduledTime
+      ? fmtDate(firstDelivery.scheduledTime)
       : undefined,
     agent: order.agent
       ? {
@@ -539,9 +766,19 @@ export async function getOrderByOrderNumber(orderNumber: string): Promise<OrderD
         activeOrders: order.agent._count.orders,
       }
       : undefined,
-    contactMethod: "None",
-    cancellationReason: order.status === "CANCELLED" ? (order.notes ?? undefined) : undefined,
-    failureReason: order.status === "FAILED" ? (order.notes ?? undefined) : undefined,
+    contactMethod:
+      order.contactMethod === "PHONE"
+        ? "Phone Call"
+        : order.contactMethod === "WHATSAPP"
+          ? "WhatsApp"
+          : "None",
+    cancellationReason:
+      order.status === "CANCELLED" ? (order.cancellationReason ?? undefined) : undefined,
+    failureReason:
+      order.status === "FAILED"
+        ? (order.deliveries.find((d) => d.failureReason)?.failureReason ?? undefined)
+        : undefined,
+    prescription: order.notes ?? undefined,
     source: order.customer.source ?? "Direct",
     orderDate: fmtDate(order.createdAt),
     history,
@@ -608,9 +845,10 @@ export async function getSalesRepOrders(salesRepId: string): Promise<OrderRow[]>
       orderNumber: true,
       status: true,
       createdAt: true,
+      updatedAt: true,
       customer: { select: { name: true, email: true, state: true } },
-      agent: { select: { companyName: true, state: true } },
-      salesRep: { select: { id: true, name: true } },
+      agent: { select: { id: true, companyName: true, state: true } },
+      salesRep: { select: { id: true, name: true, team: { select: { id: true, name: true } } } },
       items: {
         select: {
           quantity: true,
@@ -626,14 +864,17 @@ export async function getSalesRepOrders(salesRepId: string): Promise<OrderRow[]>
     id: o.orderNumber,
     gmail: o.customer.email ?? "",
     name: o.customer.name,
-    agent: o.agent ? { name: o.agent.companyName, state: o.agent.state ?? "" } : null,
+    agent: o.agent ? { id: o.agent.id, name: o.agent.companyName, state: o.agent.state ?? "" } : null,
     state: o.customer.state,
     salesRep: o.salesRep.name,
     salesRepId: o.salesRep.id,
+    teamId: o.salesRep.team?.id ?? null,
+    teamName: o.salesRep.team?.name ?? null,
     product: o.items[0]?.product.name ?? "—",
     quantity: o.items[0]?.quantity ?? 0,
     date: fmtDate(o.createdAt),
     status: STATUS_MAP[o.status] ?? "Pending",
+    statusDate: o.status === "PENDING" ? null : fmtDate(o.updatedAt),
   }));
 }
 
@@ -659,7 +900,13 @@ export async function getSalesRepAnalyticsForUI(
   return toRepAnalyticsData(current, last);
 }
 
-export async function getTeamsAnalytics(options?: { month: number; year: number }): Promise<TeamAnalyticsEntry[]> {
+export type Period = "week" | "month";
+
+export async function getTeamsAnalytics(options?: {
+  month?: number;
+  year?: number;
+  period?: Period;
+}): Promise<TeamAnalyticsEntry[]> {
   const teams = await prisma.team.findMany({
     where: { department: "SALES" },
     select: {
@@ -671,28 +918,49 @@ export async function getTeamsAnalytics(options?: { month: number; year: number 
   });
 
   const now = new Date();
-  const month = options?.month ?? now.getMonth();
-  const year = options?.year ?? now.getFullYear();
+  const period = options?.period ?? "month";
 
-  const currentStart = new Date(year, month, 1);
-  const nextStart = new Date(year, month + 1, 1);
-  const lastStart = new Date(year, month - 1, 1);
+  let currentStart: Date;
+  let currentEnd: Date;
+  let lastStart: Date;
+
+  if (period === "week") {
+    // Current week: last 7 days
+    currentStart = new Date(now);
+    currentStart.setDate(now.getDate() - 6);
+    currentStart.setHours(0, 0, 0, 0);
+    currentEnd = new Date(now);
+    currentEnd.setDate(now.getDate() + 1);
+    currentEnd.setHours(0, 0, 0, 0);
+    // Last week: 7 days before current week
+    lastStart = new Date(now);
+    lastStart.setDate(now.getDate() - 13);
+    lastStart.setHours(0, 0, 0, 0);
+  } else {
+    // Month mode
+    const month = options?.month ?? now.getMonth();
+    const year = options?.year ?? now.getFullYear();
+    currentStart = new Date(year, month, 1);
+    currentEnd = new Date(year, month + 1, 1);
+    lastStart = new Date(year, month - 1, 1);
+  }
 
   const results: TeamAnalyticsEntry[] = [];
 
   for (const team of teams) {
     const repIds = team.members.map((m) => m.id);
+    const salesRepCount = repIds.length;
     if (repIds.length === 0) {
       results.push({
         teamId: team.id,
         teamName: team.name,
-        currentMetrics: toRepAnalyticsData(computeMetrics([]), null),
+        currentMetrics: toRepAnalyticsData(computeMetrics([]), null, 0),
       });
       continue;
     }
 
     const [currentOrders, lastOrders] = await Promise.all([
-      fetchOrdersForMetrics({ salesRepId: { in: repIds }, createdAt: { gte: currentStart, lt: nextStart } }),
+      fetchOrdersForMetrics({ salesRepId: { in: repIds }, createdAt: { gte: currentStart, lt: currentEnd } }),
       fetchOrdersForMetrics({ salesRepId: { in: repIds }, createdAt: { gte: lastStart, lt: currentStart } }),
     ]);
 
@@ -701,30 +969,59 @@ export async function getTeamsAnalytics(options?: { month: number; year: number 
     results.push({
       teamId: team.id,
       teamName: team.name,
-      currentMetrics: toRepAnalyticsData(current, last),
+      currentMetrics: toRepAnalyticsData(current, last, salesRepCount),
     });
   }
 
   return results;
 }
 
-export async function getCompanyAnalytics(options?: { month: number; year: number }): Promise<RepAnalyticsData> {
+export async function getCompanyAnalytics(options?: {
+  month?: number;
+  year?: number;
+  period?: Period;
+}): Promise<RepAnalyticsData> {
   const now = new Date();
-  const month = options?.month ?? now.getMonth();
-  const year = options?.year ?? now.getFullYear();
+  const period = options?.period ?? "month";
 
-  const currentStart = new Date(year, month, 1);
-  const nextStart = new Date(year, month + 1, 1);
-  const lastStart = new Date(year, month - 1, 1);
+  let currentStart: Date;
+  let currentEnd: Date;
+  let lastStart: Date;
+
+  if (period === "week") {
+    // Current week: last 7 days
+    currentStart = new Date(now);
+    currentStart.setDate(now.getDate() - 6);
+    currentStart.setHours(0, 0, 0, 0);
+    currentEnd = new Date(now);
+    currentEnd.setDate(now.getDate() + 1);
+    currentEnd.setHours(0, 0, 0, 0);
+    // Last week: 7 days before current week
+    lastStart = new Date(now);
+    lastStart.setDate(now.getDate() - 13);
+    lastStart.setHours(0, 0, 0, 0);
+  } else {
+    // Month mode
+    const month = options?.month ?? now.getMonth();
+    const year = options?.year ?? now.getFullYear();
+    currentStart = new Date(year, month, 1);
+    currentEnd = new Date(year, month + 1, 1);
+    lastStart = new Date(year, month - 1, 1);
+  }
+
+  // Count all sales reps in the company
+  const salesRepCount = await prisma.user.count({
+    where: { role: "SALES_REP", isActive: true },
+  });
 
   const [currentOrders, lastOrders] = await Promise.all([
-    fetchOrdersForMetrics({ createdAt: { gte: currentStart, lt: nextStart } }),
+    fetchOrdersForMetrics({ createdAt: { gte: currentStart, lt: currentEnd } }),
     fetchOrdersForMetrics({ createdAt: { gte: lastStart, lt: currentStart } }),
   ]);
 
   const current = computeMetrics(currentOrders);
   const last = lastOrders.length > 0 ? computeMetrics(lastOrders) : null;
-  return toRepAnalyticsData(current, last);
+  return toRepAnalyticsData(current, last, salesRepCount);
 }
 
 export async function getUserActivityHistory(userId: string): Promise<ActivityGroup[]> {
@@ -780,6 +1077,69 @@ export async function getUserActivityHistory(userId: string): Promise<ActivityGr
       dateTime: fmtDateTime(d),
       activityType: log.action,
       description,
+    });
+  }
+
+  return [...groups.values()];
+}
+
+/**
+ * Returns the orders a user has permanently deleted, grouped by deletion date.
+ * Backed by ORDER_DELETED audit-log snapshots written at delete time.
+ */
+export async function getDeletedOrders(userId: string): Promise<DeletedOrderGroup[]> {
+  const logs = await prisma.auditLog.findMany({
+    where: { userId, action: "ORDER_DELETED", entityType: "Order" },
+    orderBy: { createdAt: "desc" },
+    take: 200,
+    select: { id: true, details: true, createdAt: true },
+  });
+
+  if (logs.length === 0) return [];
+
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const yesterdayStart = new Date(todayStart.getTime() - 86400000);
+
+  const groups: Map<string, DeletedOrderGroup> = new Map();
+
+  for (const log of logs) {
+    const d = log.createdAt;
+    let label: string;
+    let dateStr: string;
+
+    if (d >= todayStart) {
+      label = "Today";
+      dateStr = todayStart.toLocaleDateString("en-NG", { month: "long", day: "numeric", year: "numeric" });
+    } else if (d >= yesterdayStart) {
+      label = "A Day Ago";
+      dateStr = yesterdayStart.toLocaleDateString("en-NG", { month: "long", day: "numeric", year: "numeric" });
+    } else {
+      label = d.toLocaleDateString("en-NG", { month: "long", day: "numeric" });
+      dateStr = d.toLocaleDateString("en-NG", { month: "long", day: "numeric", year: "numeric" });
+    }
+
+    if (!groups.has(label)) {
+      groups.set(label, { label, date: dateStr, entries: [] });
+    }
+
+    const det = (log.details ?? {}) as Record<string, unknown>;
+    const str = (v: unknown) => (typeof v === "string" ? v : "");
+    const num = (v: unknown) => (typeof v === "number" ? v : 0);
+
+    groups.get(label)!.entries.push({
+      id: log.id,
+      orderNumber: str(det.orderNumber),
+      customerName: str(det.customerName),
+      customerEmail: str(det.customerEmail),
+      state: str(det.state),
+      salesRep: str(det.salesRep),
+      product: str(det.product) || "—",
+      quantity: num(det.quantity),
+      status: str(det.status) || "Pending",
+      total: `₦${num(det.total).toLocaleString("en-NG")}`,
+      orderDate: str(det.orderDate),
+      deletedAt: fmtDateTime(d),
     });
   }
 

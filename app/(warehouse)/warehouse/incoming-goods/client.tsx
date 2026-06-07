@@ -61,6 +61,12 @@ export default function IncomingGoodsClient({ goods, hasWarehouse }: Props) {
             Add New
             <PlusCircle className="w-[17px] h-[17px]" />
           </Link>
+          <Link
+            href="/warehouse/incoming-goods/transfer-receipts"
+            className="flex items-center gap-1.5 text-[#9747FF] text-[14px] hover:text-purple-700 font-medium"
+          >
+            Receive Transfers
+          </Link>
           <button className="text-gray-400 hover:text-gray-600">
             <ArrowUpDown className="w-[17px] h-[17px]" />
           </button>

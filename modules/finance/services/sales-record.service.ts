@@ -57,7 +57,6 @@ export async function getSalesRecords(filters: {
       customer: { select: { name: true, state: true } },
       agent: { select: { id: true, companyName: true, state: true } },
       items: { select: { quantity: true, product: { select: { name: true } } } },
-      invoices: { select: { status: true } },
     },
     orderBy: { date: "desc" },
     take: 200,
@@ -69,7 +68,7 @@ export async function getSalesRecords(filters: {
     const totalNum = Number(o.totalAmount);
     const discountNum = Number(o.discountAmount);
     const discountPct = Number(o.discountPercent);
-    const remStatus: "Paid" | "Not Paid" = o.invoices.some(i => i.status === "PAID") ? "Paid" : "Not Paid";
+    const remStatus: "Paid" | "Not Paid" = o.remittanceStatus === "REMITTED" ? "Paid" : "Not Paid";
 
     const qtyPerItem = o.items.map(it => `${it.quantity} pack${it.quantity === 1 ? "" : "s"}`).join(", ");
 
@@ -92,38 +91,169 @@ export async function getSalesRecords(filters: {
   });
 }
 
-export async function getSalesRecordById(id: string) {
+export interface OrderInvoiceLine {
+  description: string;
+  quantity: number;
+  unit: string | null;
+  unitPrice: number;
+  amount: number;
+}
+
+export interface OrderInvoiceDetail {
+  id: string;
+  orderNumber: string;
+  orderStatus: string;
+  remStatus: "Paid" | "Not Paid";
+  // amounts (raw numbers — the client formats them)
+  totalAmount: number;
+  discountAmount: number;
+  discountPercent: number;
+  netAmount: number;
+  deliveryFee: number;
+  invoiceTotal: number;
+  notes: string | null;
+  // dates (ISO date strings, "YYYY-MM-DD")
+  orderDate: string;
+  createdAt: string;
+  deliveredAt: string | null;
+  remittedAt: string | null;
+  // people
+  customer: {
+    name: string;
+    email: string | null;
+    phone: string;
+    whatsappNumber: string | null;
+    address: string;
+    state: string;
+    lga: string;
+    landmark: string | null;
+  };
+  agent: string | null;
+  salesRep: string | null;
+  totalQty: number;
+  items: OrderInvoiceLine[];
+  // invoice — either a real persisted invoice or one derived from the order
+  invoice: {
+    exists: boolean;
+    invoiceNumber: string;
+    invoiceDate: string;
+    dueDate: string | null;
+    terms: string | null;
+    status: string;
+    subtotal: number;
+    discountPercent: number;
+    discountAmount: number;
+    shipping: number;
+    invoiceTotal: number;
+    items: OrderInvoiceLine[];
+  };
+}
+
+const isoDate = (d: Date) => d.toISOString().slice(0, 10);
+
+export async function getSalesRecordById(id: string): Promise<OrderInvoiceDetail | null> {
   const order = await prisma.order.findFirst({
     where: { id, deletedAt: null },
     include: {
       customer: true,
       agent: true,
       salesRep: { select: { id: true, name: true } },
-      items: { include: { product: true } },
-      invoices: { orderBy: { createdAt: "desc" }, take: 1 },
+      items: { include: { product: { select: { name: true, unit: true } } } },
+      invoices: { include: { items: true }, orderBy: { createdAt: "desc" }, take: 1 },
       deliveries: { orderBy: { createdAt: "desc" }, take: 1 },
     },
   });
   if (!order) return null;
+
   const totalQty = order.items.reduce((s, it) => s + it.quantity, 0);
+  const orderLines: OrderInvoiceLine[] = order.items.map(it => ({
+    description: it.product.name,
+    quantity: it.quantity,
+    unit: it.product.unit,
+    unitPrice: Number(it.unitPrice),
+    amount: Number(it.lineTotal),
+  }));
+
+  const totalAmount = Number(order.totalAmount);
+  const discountAmount = Number(order.discountAmount);
+  const discountPercent = Number(order.discountPercent);
+  const netAmount = Number(order.netAmount);
+  const deliveryFee = Number(order.deliveryFee);
+  // What the customer owes: net of discount, plus delivery/shipping.
+  const invoiceTotal = netAmount + deliveryFee;
+
+  const delivery = order.deliveries[0];
+  const existing = order.invoices[0];
+
+  const invoice: OrderInvoiceDetail["invoice"] = existing
+    ? {
+        exists: true,
+        invoiceNumber: existing.invoiceNumber,
+        invoiceDate: isoDate(existing.invoiceDate),
+        dueDate: existing.dueDate ? isoDate(existing.dueDate) : null,
+        terms: existing.terms,
+        status: titleCase(existing.status),
+        subtotal: Number(existing.subtotal),
+        discountPercent: Number(existing.discountPercent),
+        discountAmount: Number(existing.discountAmount),
+        shipping: Number(existing.shipping),
+        invoiceTotal: Number(existing.invoiceTotal),
+        items: existing.items.map(it => ({
+          description: it.description,
+          quantity: it.quantity,
+          unit: null,
+          unitPrice: Number(it.rate),
+          amount: Number(it.amount),
+        })),
+      }
+    : {
+        // No invoice has been generated yet — derive a preview straight from the order.
+        exists: false,
+        invoiceNumber: `${order.orderNumber}-INV`,
+        invoiceDate: isoDate(order.date),
+        dueDate: null,
+        terms: "Due on delivery",
+        status: "Draft",
+        subtotal: totalAmount,
+        discountPercent,
+        discountAmount,
+        shipping: deliveryFee,
+        invoiceTotal,
+        items: orderLines,
+      };
+
   return {
     id: order.id,
-    orderId: order.orderNumber,
+    orderNumber: order.orderNumber,
     orderStatus: titleCase(order.status),
-    customer: order.customer.name,
-    state: order.customer.state,
-    products: order.items.map(it => it.product.name).join(", "),
-    qty: `${totalQty} pack${totalQty === 1 ? "" : "s"}`,
-    total: fmt(Number(order.totalAmount)),
-    discount: Number(order.discountAmount) > 0
-      ? `${fmt(Number(order.discountAmount))} (${Number(order.discountPercent)}%)`
-      : "—",
-    netAmount: fmt(Number(order.netAmount)),
-    deliveryFee: fmt(Number(order.deliveryFee)),
-    remStatus: (order.invoices[0]?.status === "PAID" ? "Paid" : "Not Paid") as "Paid" | "Not Paid",
-    agent: order.agent?.companyName ?? "—",
-    date: order.date.toISOString().slice(0, 10),
-    raw: order,
+    remStatus: order.remittanceStatus === "REMITTED" ? "Paid" : "Not Paid",
+    totalAmount,
+    discountAmount,
+    discountPercent,
+    netAmount,
+    deliveryFee,
+    invoiceTotal,
+    notes: order.notes,
+    orderDate: isoDate(order.date),
+    createdAt: isoDate(order.createdAt),
+    deliveredAt:
+      delivery?.deliveredTime ? isoDate(delivery.deliveredTime) : null,
+    remittedAt: null,
+    customer: {
+      name: order.customer.name,
+      email: order.customer.email,
+      phone: order.customer.phone,
+      whatsappNumber: order.customer.whatsappNumber,
+      address: order.customer.deliveryAddress,
+      state: order.customer.state,
+      lga: order.customer.lga,
+      landmark: order.customer.landmark,
+    },
+    agent: order.agent?.companyName ?? null,
+    salesRep: order.salesRep?.name ?? null,
+    totalQty,
+    items: orderLines,
+    invoice,
   };
 }
 

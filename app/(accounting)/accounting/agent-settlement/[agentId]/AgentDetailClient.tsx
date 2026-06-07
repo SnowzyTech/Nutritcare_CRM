@@ -21,9 +21,10 @@ interface Props extends AgentPageData {
   agentId: string;
 }
 
-export function AgentDetailClient({ agent, chartData, totalSalesYear, prevYearSalesTotal, ledger, inventory, agentId }: Props) {
+export function AgentDetailClient({ agent, monthlyChart, weeklyChart, totalSalesYear, prevYearSalesTotal, ledger, inventory, agentId }: Props) {
   const router = useRouter();
-  const [chartFilter, setChartFilter] = useState<'Daily' | 'Weekly' | 'Monthly'>('Monthly');
+  const [chartFilter, setChartFilter] = useState<'Weekly' | 'Monthly'>('Weekly');
+  const chartData = chartFilter === 'Weekly' ? weeklyChart : monthlyChart;
   const [ledgerSearch, setLedgerSearch] = useState('');
   const [ledgerDateRange, setLedgerDateRange] = useState<DateRange | undefined>();
   const [inventorySearch, setInventorySearch] = useState('');
@@ -170,7 +171,7 @@ export function AgentDetailClient({ agent, chartData, totalSalesYear, prevYearSa
               </div>
             </div>
             <div className="flex bg-gray-50 rounded-lg p-1 border border-gray-100">
-              {(['Daily', 'Weekly', 'Monthly'] as const).map((f) => (
+              {(['Weekly', 'Monthly'] as const).map((f) => (
                 <button
                   key={f}
                   onClick={() => setChartFilter(f)}
@@ -185,7 +186,7 @@ export function AgentDetailClient({ agent, chartData, totalSalesYear, prevYearSa
           <div className="flex-1 min-h-[220px] w-full">
             {chartData.every((d) => d.sales === 0) ? (
               <div className="flex items-center justify-center h-full text-gray-400 text-[14px] font-medium">
-                No sales data for {new Date().getFullYear()} yet
+                No sales data for the last {chartFilter === 'Weekly' ? '8 weeks' : '12 months'} yet
               </div>
             ) : (
               <ResponsiveContainer width="100%" height="100%">

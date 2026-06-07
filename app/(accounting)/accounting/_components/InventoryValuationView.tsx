@@ -1,11 +1,15 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Calendar } from '@/components/ui/calendar';
-import { Calendar as CalendarIcon } from 'lucide-react';
+import { Calendar as CalendarIcon, ChevronLeft, ChevronRight } from 'lucide-react';
 import { format } from 'date-fns';
 import type { InventoryValuationRow } from '@/modules/finance/services/reports-accounting.service';
+
+const MONTH_LABELS = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+];
 
 interface Props {
   data?: InventoryValuationRow[];
@@ -15,6 +19,8 @@ interface Props {
 
 export function InventoryValuationView({ data, currentDate, onDateChange }: Props) {
   const rows = data ?? [];
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerYear, setPickerYear] = useState(currentDate.getFullYear());
 
   const processed = rows.map(item => {
     const closingStock = item.openingStock + item.purchased - item.sold;
@@ -53,18 +59,56 @@ export function InventoryValuationView({ data, currentDate, onDateChange }: Prop
         </h3>
         <div className="text-[14px] text-gray-500 italic flex justify-center items-center gap-2 mt-1">
           As at:
-          <Popover>
+          <Popover
+            open={pickerOpen}
+            onOpenChange={(o) => {
+              setPickerOpen(o);
+              if (o) setPickerYear(currentDate.getFullYear());
+            }}
+          >
             <PopoverTrigger className="text-[#5C2B90] hover:text-purple-700 font-bold p-0 h-auto flex gap-1 items-center bg-transparent border-none outline-none cursor-pointer">
-              {format(currentDate, 'do MMMM yyyy')}
+              {format(currentDate, 'MMMM yyyy')}
               <CalendarIcon size={14} />
             </PopoverTrigger>
-            <PopoverContent className="w-auto p-0" align="center">
-              <Calendar
-                mode="single"
-                selected={currentDate}
-                onSelect={d => d && onDateChange?.('current', d.toISOString())}
-                initialFocus
-              />
+            <PopoverContent className="w-[260px] p-3" align="center">
+              <div className="flex items-center justify-between mb-3">
+                <button
+                  onClick={() => setPickerYear((y) => y - 1)}
+                  className="w-7 h-7 flex items-center justify-center rounded-md text-gray-500 hover:bg-purple-50 hover:text-[#5C2B90]"
+                >
+                  <ChevronLeft size={16} />
+                </button>
+                <span className="text-[14px] font-bold text-gray-800 not-italic">{pickerYear}</span>
+                <button
+                  onClick={() => setPickerYear((y) => y + 1)}
+                  className="w-7 h-7 flex items-center justify-center rounded-md text-gray-500 hover:bg-purple-50 hover:text-[#5C2B90]"
+                >
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                {MONTH_LABELS.map((m, i) => {
+                  const isSelected =
+                    currentDate.getFullYear() === pickerYear && currentDate.getMonth() === i;
+                  return (
+                    <button
+                      key={m}
+                      onClick={() => {
+                        // Timezone-neutral month token (YYYY-MM).
+                        onDateChange?.('current', `${pickerYear}-${String(i + 1).padStart(2, '0')}`);
+                        setPickerOpen(false);
+                      }}
+                      className={`py-2 rounded-lg text-[13px] font-medium transition-colors not-italic ${
+                        isSelected
+                          ? 'bg-[#5C2B90] text-white'
+                          : 'text-gray-600 hover:bg-purple-50 hover:text-[#5C2B90]'
+                      }`}
+                    >
+                      {m}
+                    </button>
+                  );
+                })}
+              </div>
             </PopoverContent>
           </Popover>
         </div>

@@ -1,7 +1,10 @@
 import { SalesRepListClient } from "./_components/SalesRepListClient";
-import { getSalesRepsList } from "@/modules/data-analysis/services/data-analysis.service";
+import { getSalesRepsList, getSalesTeams } from "@/modules/data-analysis/services/data-analysis.service";
 
 export default async function DataDashboard() {
-  const reps = await getSalesRepsList();
-  return <SalesRepListClient initialReps={reps} />;
+  const [reps, teams] = await Promise.all([
+    getSalesRepsList(),
+    getSalesTeams(),
+  ]);
+  return <SalesRepListClient initialReps={reps} teams={teams} />;
 }

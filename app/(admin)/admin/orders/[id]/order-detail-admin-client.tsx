@@ -2,7 +2,8 @@
 
 import React, { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, MessageCircle, X } from "lucide-react";
+import { ChevronLeft, MessageCircle, X, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 import { AgentInfoDrawer } from "@/components/ui/agent-info-drawer";
 import Image from "next/image";
 import type { OrderStatus } from "@prisma/client";
@@ -12,7 +13,8 @@ import {
   adminFailOrderAction,
   adminDeliverOrderAction,
   adminAddOrderItemsAction,
-  adminUpdateOrderTotalAction,
+  adminRemoveOrderItemAction,
+  adminApplyOrderDiscountAction,
   adminReassignOrderAgentAction,
   adminUpdateOrderNotesAction,
 } from "@/modules/orders/actions/admin-orders.action";
@@ -21,9 +23,15 @@ export type SerializedOrder = {
   id: string;
   orderNumber: string;
   status: OrderStatus;
+  isReorder: boolean;
   totalAmount: string;
   netAmount: string;
   deliveryFee: string;
+  discountAmount: string;
+  discountPercent: string;
+  discountReason: string | null;
+  discountedAt: string | null;
+  discountedByName: string | null;
   notes: string | null;
   createdAt: string;
   customer: {
@@ -50,7 +58,8 @@ export type SerializedOrder = {
     quantity: number;
     unitPrice: string;
     lineTotal: string;
-    product: { id: string; name: string };
+    isUpsell: boolean;
+    product: { id: string; name: string; imageUrl: string | null };
   }>;
   salesRep: { id: string; name: string };
   deliveries: Array<{
@@ -148,7 +157,8 @@ export function AdminOrderDetailClient({
   const [isAgentDrawerOpen, setIsAgentDrawerOpen] = useState(false);
   const [isReassignOpen, setIsReassignOpen] = useState(false);
   const [selectedAgentId, setSelectedAgentId] = useState("");
-  const [totalInput, setTotalInput] = useState(order.totalAmount);
+  const [priceInput, setPriceInput] = useState(order.netAmount);
+  const [discountReason, setDiscountReason] = useState(order.discountReason ?? "");
   const [prescription, setPrescription] = useState(order.notes ?? "");
   const [deliveryDate, setDeliveryDate] = useState("");
   const [productRows, setProductRows] = useState([
@@ -158,9 +168,18 @@ export function AdminOrderDetailClient({
   const steps = getStepState(order.status);
   const badge = STATUS_BADGE[order.status];
   const delivery = order.deliveries[0] ?? null;
-  const formattedTotal = `₦${Number(order.totalAmount).toLocaleString("en-NG")}`;
+  const grossTotal = order.items.reduce((s, i) => s + Number(i.lineTotal), 0);
+  const fmtNaira = (n: number) => `₦${n.toLocaleString("en-NG", { maximumFractionDigits: 2 })}`;
+  const formattedTotal = fmtNaira(Number(order.netAmount));
+  const canDiscount = order.status === "PENDING" || order.status === "CONFIRMED";
+  const negotiatedPrice = parseFloat(priceInput) || 0;
+  const liveDiscount = Math.max(0, Math.round((grossTotal - negotiatedPrice) * 100) / 100);
+  const liveDiscountPct = grossTotal > 0 ? Math.round((liveDiscount / grossTotal) * 10000) / 100 : 0;
+  const savedDiscount = Number(order.discountAmount);
   const totalQty = order.items.reduce((sum, i) => sum + i.quantity, 0);
   const productNames = order.items.map((i) => i.product.name).join(", ") || "—";
+  const primaryImage =
+    order.items.find((i) => i.product.imageUrl)?.product.imageUrl ?? null;
 
   function addRow() {
     setProductRows([
@@ -189,12 +208,13 @@ export function AdminOrderDetailClient({
     );
   }
 
-  function handleAction(action: () => Promise<void>) {
+  function handleAction(action: () => Promise<void>, successMsg?: string) {
     startTransition(async () => {
       try {
         await action();
+        if (successMsg) toast.success(successMsg);
       } catch (err) {
-        alert(err instanceof Error ? err.message : "Action failed");
+        toast.error(err instanceof Error ? err.message : "Action failed");
       }
     });
   }
@@ -211,9 +231,9 @@ export function AdminOrderDetailClient({
           const price = Number(products.find((p) => p.id === r.productId)?.sellingPrice ?? 0);
           return sum + price * (parseInt(r.qty) || 1);
         }, 0);
-      setTotalInput(String(Number(totalInput) + added));
+      setPriceInput(String(Number(priceInput) + added));
       setIsAddProductOpen(false);
-    });
+    }, "Products added to order");
   }
 
   return (
@@ -260,6 +280,11 @@ export function AdminOrderDetailClient({
         >
           {badge.label}
         </span>
+        {order.isReorder && (
+          <span className="bg-purple-100 text-purple-700 px-4 py-1 rounded-full text-sm font-bold">
+            Reorder
+          </span>
+        )}
       </div>
 
       {/* Stepper */}
@@ -325,26 +350,57 @@ export function AdminOrderDetailClient({
 
               {/* Products */}
               <div className="flex flex-col gap-4">
-                {order.items.map((item, idx) => (
+                {order.items.map((item) => (
                   <div
                     key={item.id}
-                    className="bg-slate-50 p-6 rounded-2xl flex justify-between items-center border border-slate-100"
+                    className={`p-6 rounded-2xl flex justify-between items-center border ${
+                      item.isUpsell
+                        ? "bg-purple-50 border-purple-200"
+                        : "bg-slate-50 border-slate-100"
+                    }`}
                   >
                     <div>
-                      <p className="text-[0.7rem] font-bold text-slate-400 uppercase mb-1">
-                        {idx === 0 ? "Product(s)" : "Added Product"}
+                      <p className="text-[0.7rem] font-bold uppercase mb-1 flex items-center gap-2">
+                        <span className="text-slate-400">
+                          {item.isUpsell ? "Upsold Product" : "Product(s)"}
+                        </span>
+                        {item.isUpsell && (
+                          <span className="bg-purple-600 text-white px-2 py-0.5 rounded-full text-[0.6rem] tracking-wide">
+                            UPSELL
+                          </span>
+                        )}
                       </p>
                       <p className="text-xl font-bold text-slate-700">
                         {item.product.name}
                       </p>
                     </div>
-                    <div className="text-right">
-                      <p className="text-[0.7rem] font-bold text-slate-400 uppercase mb-1">
-                        Quantity
-                      </p>
-                      <p className="text-2xl font-bold text-slate-700">
-                        {item.quantity}
-                      </p>
+                    <div className="flex items-center gap-4">
+                      <div className="text-right">
+                        <p className="text-[0.7rem] font-bold text-slate-400 uppercase mb-1">
+                          Quantity
+                        </p>
+                        <p className="text-2xl font-bold text-slate-700">
+                          {item.quantity}
+                        </p>
+                      </div>
+                      {order.status === "PENDING" && order.items.length > 1 && (
+                        <button
+                          type="button"
+                          disabled={isPending}
+                          title="Remove product"
+                          onClick={() => {
+                            if (confirm(`Remove ${item.product.name} from this order?`)) {
+                              handleAction(
+                                () => adminRemoveOrderItemAction(order.id, item.id),
+                                "Product removed",
+                              );
+                            }
+                          }}
+                          className="shrink-0 p-2 rounded-lg border border-red-100 text-red-500 hover:bg-red-50 disabled:opacity-50 transition"
+                        >
+                          <Trash2 className="w-5 h-5" />
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -402,14 +458,20 @@ export function AdminOrderDetailClient({
         {/* Sidebar */}
         <div className="flex flex-col gap-6">
           {/* Product Image Card */}
-          <div className="relative h-[240px] rounded-[2rem] overflow-hidden group">
-            <Image
-              src="https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?q=80&w=2070&auto=format&fit=crop"
-              alt="Product"
-              fill
-              className="object-cover transition-transform group-hover:scale-105"
-              sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
-            />
+          <div className="relative h-[240px] rounded-[2rem] overflow-hidden group bg-slate-100">
+            {primaryImage ? (
+              <Image
+                src={primaryImage}
+                alt={productNames}
+                fill
+                className="object-cover transition-transform group-hover:scale-105"
+                sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+              />
+            ) : (
+              <div className="absolute inset-0 flex items-center justify-center text-5xl">
+                📦
+              </div>
+            )}
             <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent flex items-end p-8">
               <p className="text-white text-2xl font-bold">{productNames}</p>
             </div>
@@ -430,26 +492,87 @@ export function AdminOrderDetailClient({
               </span>
             </div>
 
-            <div className="flex justify-between items-center py-4 border-b border-slate-200">
-              <span className="text-lg font-bold text-slate-700">Total Price</span>
-              {order.status === "PENDING" ? (
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-slate-400 font-bold">₦</span>
+            {/* Pricing & negotiated discount */}
+            <div className="bg-white rounded-xl p-4 border border-slate-200 flex flex-col gap-3">
+              <div className="flex justify-between items-center">
+                <span className="text-xs text-slate-400 font-bold uppercase tracking-wide">Original Total</span>
+                <span className={`text-sm font-bold ${savedDiscount > 0 ? "text-slate-400 line-through" : "text-slate-800"}`}>
+                  {fmtNaira(grossTotal)}
+                </span>
+              </div>
+
+              {canDiscount ? (
+                <>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm font-bold text-slate-700">Negotiated Price</span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-sm text-slate-400 font-bold">₦</span>
+                      <input
+                        type="number"
+                        min="0"
+                        max={grossTotal}
+                        value={priceInput}
+                        onChange={(e) => setPriceInput(e.target.value)}
+                        className="w-36 text-right text-lg font-bold text-slate-800 border border-slate-200 rounded-lg px-2 py-1 outline-none focus:border-purple-400"
+                      />
+                    </div>
+                  </div>
+
                   <input
-                    type="number"
-                    min="0"
-                    value={totalInput}
-                    onChange={(e) => setTotalInput(e.target.value)}
-                    onBlur={() =>
-                      handleAction(() =>
-                        adminUpdateOrderTotalAction(order.id, parseFloat(totalInput) || 0)
+                    type="text"
+                    value={discountReason}
+                    onChange={(e) => setDiscountReason(e.target.value)}
+                    placeholder="Reason for discount (optional)"
+                    className="w-full text-xs text-slate-700 border border-slate-200 rounded-lg px-3 py-2 outline-none focus:border-purple-400 placeholder:text-slate-300"
+                  />
+
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-slate-400 font-bold uppercase tracking-wide">Discount</span>
+                    <span className={`font-bold ${liveDiscount > 0 ? "text-emerald-600" : "text-slate-400"}`}>
+                      {liveDiscount > 0 ? `${fmtNaira(liveDiscount)} (${liveDiscountPct}%)` : "—"}
+                    </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={isPending || negotiatedPrice > grossTotal || priceInput === ""}
+                    onClick={() =>
+                      handleAction(
+                        async () => {
+                          await adminApplyOrderDiscountAction(order.id, negotiatedPrice, discountReason);
+                        },
+                        liveDiscount > 0 ? "Discount applied" : "Price updated"
                       )
                     }
-                    className="w-36 text-right text-lg font-bold text-slate-800 border border-slate-200 rounded-lg px-2 py-1 outline-none focus:border-purple-400"
-                  />
-                </div>
+                    className="w-full bg-purple-600 text-white text-sm font-bold py-2 rounded-lg hover:bg-purple-700 disabled:opacity-50 transition"
+                  >
+                    {isPending ? "Saving…" : liveDiscount > 0 ? "Apply Discount" : "Save Price"}
+                  </button>
+                </>
               ) : (
+                savedDiscount > 0 && (
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-slate-400 font-bold uppercase tracking-wide">Discount</span>
+                    <span className="font-bold text-emerald-600">
+                      {fmtNaira(savedDiscount)} ({Number(order.discountPercent)}%)
+                    </span>
+                  </div>
+                )
+              )}
+
+              <div className="flex justify-between items-center border-t border-slate-200 pt-3">
+                <span className="text-lg font-bold text-slate-700">
+                  {canDiscount ? "Net Total" : "Total Price"}
+                </span>
                 <span className="text-xl font-bold text-slate-800">{formattedTotal}</span>
+              </div>
+
+              {savedDiscount > 0 && order.discountedByName && (
+                <p className="text-[11px] text-slate-400">
+                  Discount by <span className="font-bold text-slate-600">{order.discountedByName}</span>
+                  {order.discountReason ? ` · ${order.discountReason}` : ""}
+                  {order.discountedAt ? ` · ${new Date(order.discountedAt).toLocaleDateString("en-NG")}` : ""}
+                </p>
               )}
             </div>
 
@@ -536,58 +659,18 @@ export function AdminOrderDetailClient({
               </div>
             </div>
 
-            {/* Admin action buttons */}
-            {order.status === "PENDING" && (
-              <div className="space-y-3 mt-4">
-                <div>
-                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">
-                    Delivery Date <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="date"
-                    value={deliveryDate}
-                    min={new Date().toISOString().split("T")[0]}
-                    onChange={(e) => setDeliveryDate(e.target.value)}
-                    className="w-full mt-1 border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-700 outline-none focus:border-purple-400"
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    disabled={isPending}
-                    onClick={() => handleAction(() => adminCancelOrderAction(order.id))}
-                    className="bg-rose-50 border border-rose-200 px-4 py-3 rounded-xl text-rose-600 font-bold text-sm hover:bg-rose-100 transition disabled:opacity-50"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    disabled={isPending}
-                    onClick={() => {
-                      if (!deliveryDate) {
-                        alert("Please select a delivery date before confirming.");
-                        return;
-                      }
-                      handleAction(() => adminConfirmOrderAction(order.id, deliveryDate));
-                    }}
-                    className="bg-purple-600 text-white px-4 py-3 rounded-xl font-bold text-sm hover:bg-purple-700 transition disabled:opacity-50"
-                  >
-                    Confirm →
-                  </button>
-                </div>
-              </div>
-            )}
-
             {order.status === "CONFIRMED" && (
               <div className="grid grid-cols-2 gap-3 mt-4">
                 <button
                   disabled={isPending}
-                  onClick={() => handleAction(() => adminFailOrderAction(order.id))}
+                  onClick={() => handleAction(() => adminFailOrderAction(order.id), "Order marked as failed")}
                   className="bg-red-50 border border-red-200 px-4 py-3 rounded-xl text-red-600 font-bold text-sm hover:bg-red-100 transition disabled:opacity-50"
                 >
                   ✕ Fail
                 </button>
                 <button
                   disabled={isPending}
-                  onClick={() => handleAction(() => adminDeliverOrderAction(order.id))}
+                  onClick={() => handleAction(() => adminDeliverOrderAction(order.id), "Order marked as delivered")}
                   className="bg-emerald-600 text-white px-4 py-3 rounded-xl font-bold text-sm hover:bg-emerald-700 transition disabled:opacity-50"
                 >
                   ✓ Delivered
@@ -613,8 +696,9 @@ export function AdminOrderDetailClient({
                     <button
                       disabled={isPending}
                       onClick={() =>
-                        handleAction(() =>
-                          adminUpdateOrderNotesAction(order.id, prescription)
+                        handleAction(
+                          () => adminUpdateOrderNotesAction(order.id, prescription),
+                          "Notes saved"
                         )
                       }
                       className="mt-3 w-full bg-purple-600 text-white py-2 rounded-lg text-sm font-bold hover:bg-purple-700 transition disabled:opacity-50"
@@ -629,6 +713,49 @@ export function AdminOrderDetailClient({
                 )}
               </div>
             </div>
+
+            {/* Order confirmation card (rendered last) */}
+            {order.status === "PENDING" && (
+              <div className="space-y-3 mt-4">
+                <div>
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">
+                    Delivery Date <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    value={deliveryDate}
+                    min={new Date().toISOString().split("T")[0]}
+                    onChange={(e) => setDeliveryDate(e.target.value)}
+                    className="w-full mt-1 border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-700 outline-none focus:border-purple-400"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    disabled={isPending}
+                    onClick={() => handleAction(() => adminCancelOrderAction(order.id), "Order cancelled")}
+                    className="bg-rose-50 border border-rose-200 px-4 py-3 rounded-xl text-rose-600 font-bold text-sm hover:bg-rose-100 transition disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    disabled={isPending}
+                    onClick={() => {
+                      if (!deliveryDate) {
+                        toast.warning("Please select a delivery date before confirming.");
+                        return;
+                      }
+                      handleAction(
+                        () => adminConfirmOrderAction(order.id, deliveryDate),
+                        "Order confirmed successfully"
+                      );
+                    }}
+                    className="bg-purple-600 text-white px-4 py-3 rounded-xl font-bold text-sm hover:bg-purple-700 transition disabled:opacity-50"
+                  >
+                    Confirm →
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -701,7 +828,7 @@ export function AdminOrderDetailClient({
                 handleAction(async () => {
                   await adminReassignOrderAgentAction(order.id, selectedAgentId);
                   setIsReassignOpen(false);
-                })
+                }, "Agent reassigned successfully")
               }
               className="w-full bg-purple-600 text-white py-4 rounded-2xl text-[1rem] font-black hover:bg-purple-700 transition-all shadow-lg shadow-purple-100 flex items-center justify-center gap-2 disabled:opacity-50"
             >

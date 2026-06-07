@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
+import { generateOrderNumber } from "@/lib/utils";
 
 // ── CORS headers — allow any origin so iframes on external sites work ──────
 const CORS_HEADERS = {
@@ -71,35 +72,24 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // ── 1. Find or create Customer ──────────────────────────────────────────
-    const cleanPhone = customerPhone.replace(/\s+/g, "");
-    let customer = await prisma.customer.findFirst({
-      where: { phone: cleanPhone },
-    });
+    // ── 1. Create Customer ──────────────────────────────────────────────────
+    // Every order is a novel entity: we ALWAYS create a fresh customer record
+    // with this submission's own details. We never look up or update an existing
+    // customer, so one order can never overwrite the details of another.
+    const cleanPhone = (customerPhone ?? "").replace(/\s+/g, "");
+    const cleanWhatsapp = (customerWhatsapp ?? "").replace(/\s+/g, "");
 
-    if (customer) {
-      customer = await prisma.customer.update({
-        where: { id: customer.id },
-        data: {
-          name: customerName.trim(),
-          email: customerEmail?.trim() || null,
-          deliveryAddress: deliveryAddress?.trim() || customer.deliveryAddress,
-          state: state?.trim() || customer.state,
-          lga: lga?.trim() || customer.lga,
-        },
-      });
-    } else {
-      customer = await prisma.customer.create({
-        data: {
-          name: customerName.trim(),
-          phone: cleanPhone,
-          email: customerEmail?.trim() || null,
-          deliveryAddress: deliveryAddress?.trim() || "",
-          state: state?.trim() || "",
-          lga: lga?.trim() || "",
-        },
-      });
-    }
+    const customer = await prisma.customer.create({
+      data: {
+        name: customerName.trim(),
+        phone: cleanPhone,
+        whatsappNumber: cleanWhatsapp || null,
+        email: customerEmail?.trim() || null,
+        deliveryAddress: deliveryAddress?.trim() || "",
+        state: state?.trim() || "",
+        lga: lga?.trim() || "",
+      },
+    });
 
     // ── 2. Auto-assign to the sales rep with fewest open orders ────────────
     const salesReps = await prisma.user.findMany({
@@ -129,9 +119,8 @@ export async function POST(req: NextRequest) {
     );
 
     // ── 3. Generate Order Number ────────────────────────────────────────────
-    // Use timestamp + random suffix to avoid race-condition collisions that
-    // occur when two concurrent requests read the same count.
-    const orderNumber = `ORD-${Date.now()}-${Math.floor(Math.random() * 1000).toString().padStart(3, "0")}`;
+    // Short time-based `ORD-` code; the `orderNumber` unique constraint guards duplicates.
+    const orderNumber = generateOrderNumber();
 
     // ── 4. Validate product(s) exist ───────────────────────────────────────
     const productIdsToFetch = [productId];
@@ -139,7 +128,7 @@ export async function POST(req: NextRequest) {
 
     const products = await prisma.product.findMany({
       where: { id: { in: productIdsToFetch }, deletedAt: null },
-      select: { id: true, sellingPrice: true },
+      select: { id: true, sellingPrice: true, costPrice: true },
     });
     const productMap = new Map(products.map((p) => [p.id, p]));
 
@@ -165,12 +154,14 @@ export async function POST(req: NextRequest) {
       quantity: number;
       unitPrice: number;
       lineTotal: number;
+      costPriceAtSale: number;
     }[] = [
       {
         productId,
         quantity: mainQty,
         unitPrice: mainUnitPrice,
         lineTotal: mainLineTotal,
+        costPriceAtSale: Number(productMap.get(productId)!.costPrice),
       },
     ];
 
@@ -186,6 +177,7 @@ export async function POST(req: NextRequest) {
         quantity: bumpQty,
         unitPrice: bumpUnitPrice,
         lineTotal: bumpUnitPrice * bumpQty,
+        costPriceAtSale: Number(productMap.get(orderBumpProductId)!.costPrice),
       });
     }
 

@@ -1,78 +1,48 @@
-'use client';
-
 import React from 'react';
+import { auth } from '@/lib/auth/auth';
+import {
+  getUserActivityHistory,
+  type ActivityGroup,
+} from '@/modules/data-analysis/services/data-analysis.service';
 
-const historyEntries = [
-  { id: '1', dateTime: 'Feb 7, 2026 - 09:42 AM', activityType: 'Login', description: 'User logged in from Chrome (Desktop)' },
-  { id: '2', dateTime: 'Feb 7, 2026 - 09:48 AM', activityType: 'Analysis Created', description: 'Sales performance analysis created' },
-  { id: '3', dateTime: 'Feb 7, 2026 - 10:02 AM', activityType: 'Report Generated', description: 'Monthly sales report generated (PDF)' },
-  { id: '4', dateTime: 'Feb 7, 2026 - 10:15 AM', activityType: 'Order Created', description: 'Order #ORD-45821 placed Pending' },
-  { id: '5', dateTime: 'Feb 7, 2026 - 10:22 AM', activityType: 'Order Processing', description: 'Order moved to processing' },
-  { id: '6', dateTime: 'Feb 7, 2026 - 09:48 AM', activityType: 'Analysis Created', description: 'Sales performance analysis created' },
-  { id: '7', dateTime: 'Feb 7, 2026 - 09:42 AM', activityType: 'Login', description: 'User logged in from Chrome (Desktop)' },
-  { id: '8', dateTime: 'Feb 7, 2026 - 09:48 AM', activityType: 'Analysis Created', description: 'Sales performance analysis created' },
-  { id: '9', dateTime: 'Feb 7, 2026 - 09:42 AM', activityType: 'Login', description: 'User logged in from Chrome (Desktop)' },
-];
+type HistoryEntry = ActivityGroup['entries'][number];
 
 const iconMap: Record<string, string> = {
-  'Login': '🔑',
-  'Analysis Created': '📊',
-  'Report Generated': '📄',
-  'Order Created': '📦',
-  'Order Processing': '⚙️',
+  'Log In': '🔑',
+  'Log Out': '🚪',
+  'Order Confirmed': '✅',
+  'Delivered': '📦',
+  'Cancel': '❌',
+  'Failed': '⚠️',
 };
 
-function HistoryTable({ entries }: { entries: typeof historyEntries }) {
+function HistoryTable({ entries, showHeader = false }: { entries: HistoryEntry[]; showHeader?: boolean }) {
   return (
-    <div className="bg-white rounded-xl overflow-hidden shadow-sm">
-      <table className="w-full border-collapse text-sm">
-        <tbody>
-          {entries.map((entry) => (
-            <tr key={entry.id} className="border-b border-gray-100">
-              <td className="p-4 text-center w-12">
-                <input type="checkbox" className="cursor-pointer accent-purple-600" />
-              </td>
-              <td className="p-4 text-gray-500 text-xs whitespace-nowrap">
-                {entry.dateTime}
-              </td>
-              <td className="p-4 text-gray-900 font-medium">
-                <span className="mr-2">{iconMap[entry.activityType] || '•'}</span>
-                {entry.activityType}
-              </td>
-              <td className="p-4 text-gray-500">{entry.description}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-export default function HistoryPage() {
-  return (
-    <div className="flex flex-col gap-6">
-      <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold text-gray-900 m-0">History</h1>
-        <span className="text-sm text-gray-500">Today February 9th, 2026</span>
-      </div>
-
-      <div className="bg-white rounded-xl overflow-hidden shadow-sm">
+    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+      {/* Desktop Table View */}
+      <div className="hidden md:block overflow-x-auto">
         <table className="w-full border-collapse text-sm">
-          <thead>
-            <tr className="bg-gray-50 border-b border-gray-200">
-              <th className="p-4 w-12"><input type="checkbox" className="cursor-pointer accent-purple-600" /></th>
-              <th className="p-4 text-left font-semibold text-gray-500 text-xs uppercase">Date & Time</th>
-              <th className="p-4 text-left font-semibold text-gray-500 text-xs uppercase">Activity Type</th>
-              <th className="p-4 text-left font-semibold text-gray-500 text-xs uppercase">Description</th>
-            </tr>
-          </thead>
+          {showHeader && (
+            <thead>
+              <tr className="bg-gray-50 border-b border-gray-100">
+                <th className="p-4 w-12 text-center"><input type="checkbox" className="cursor-pointer accent-purple-600 rounded" /></th>
+                <th className="p-4 text-left font-bold text-gray-500 text-[10px] tracking-wider uppercase">Date & Time</th>
+                <th className="p-4 text-left font-bold text-gray-500 text-[10px] tracking-wider uppercase">Activity Type</th>
+                <th className="p-4 text-left font-bold text-gray-500 text-[10px] tracking-wider uppercase">Description</th>
+              </tr>
+            </thead>
+          )}
           <tbody>
-            {historyEntries.map((entry) => (
-              <tr key={entry.id} className="border-b border-gray-100">
-                <td className="p-4 text-center"><input type="checkbox" className="cursor-pointer accent-purple-600" /></td>
-                <td className="p-4 text-gray-500 text-xs whitespace-nowrap">{entry.dateTime}</td>
-                <td className="p-4 text-gray-900 font-medium">
-                  <span className="mr-2">{iconMap[entry.activityType] || '•'}</span>
+            {entries.map((entry) => (
+              <tr key={entry.id} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
+                <td className="p-4 text-center w-12">
+                  <input type="checkbox" className="cursor-pointer accent-purple-600 rounded" />
+                </td>
+                <td className="p-4 text-gray-500 text-xs whitespace-nowrap">
+                  {entry.dateTime}
+                </td>
+                <td className="p-4 text-gray-900 font-bold whitespace-nowrap">
+                  <span className="mr-2 text-base">{iconMap[entry.activityType] || '•'}</span>
                   {entry.activityType}
                 </td>
                 <td className="p-4 text-gray-500">{entry.description}</td>
@@ -82,12 +52,76 @@ export default function HistoryPage() {
         </table>
       </div>
 
-      <div>
-        <div className="flex justify-end mb-4">
-          <span className="text-sm text-gray-500">A Day Ago February 9th, 2026</span>
+      {/* Mobile Stacked Cards View */}
+      <div className="block md:hidden">
+        {showHeader && (
+          <div className="bg-gray-50 border-b border-gray-100 p-4 flex items-center gap-3">
+            <input type="checkbox" className="cursor-pointer accent-purple-600 rounded" />
+            <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Select All</span>
+          </div>
+        )}
+        <div className="flex flex-col divide-y divide-gray-50">
+          {entries.map((entry) => (
+            <div key={entry.id} className="p-4 flex gap-3 hover:bg-gray-50 transition-colors">
+              <div className="pt-1 shrink-0">
+                <input type="checkbox" className="cursor-pointer accent-purple-600 rounded" />
+              </div>
+              <div className="flex-1 min-w-0 space-y-1.5">
+                <div className="flex justify-between items-start gap-2">
+                  <div className="font-bold text-gray-900 text-sm flex items-center gap-1.5 truncate">
+                    <span className="text-base shrink-0">{iconMap[entry.activityType] || '•'}</span>
+                    <span className="truncate">{entry.activityType}</span>
+                  </div>
+                </div>
+                <p className="text-xs text-gray-500 leading-relaxed">{entry.description}</p>
+                <div className="text-[10px] font-medium text-gray-400">
+                  {entry.dateTime}
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
-        <HistoryTable entries={historyEntries.slice(0, 5)} />
       </div>
+    </div>
+  );
+}
+
+export default async function HistoryPage() {
+  const session = await auth();
+  const historyGroups = session?.user?.id
+    ? await getUserActivityHistory(session.user.id)
+    : [];
+
+  const today = new Date().toLocaleDateString('en-NG', { month: 'long', day: 'numeric', year: 'numeric' });
+
+  return (
+    <div className="flex flex-col gap-6 sm:gap-8 max-w-6xl mx-auto pb-10">
+      {/* Header section */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 sm:gap-4">
+        <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-900 tracking-tight m-0">History</h1>
+        <span className="text-xs sm:text-sm font-semibold text-gray-500 bg-white border border-gray-100 shadow-sm px-3 sm:px-4 py-1.5 sm:py-2 rounded-full w-fit">
+          Today {today}
+        </span>
+      </div>
+
+      {historyGroups.length === 0 ? (
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 py-16 text-center text-sm text-gray-400">
+          No activity history yet.
+        </div>
+      ) : (
+        historyGroups.map((group, idx) => (
+          <div key={group.label} className={idx === 0 ? undefined : 'pt-4'}>
+            {idx > 0 && (
+              <div className="flex justify-start sm:justify-end mb-4">
+                <span className="text-xs sm:text-sm font-semibold text-gray-500 bg-white border border-gray-100 shadow-sm px-3 sm:px-4 py-1.5 sm:py-2 rounded-full w-fit">
+                  {group.label} {group.date}
+                </span>
+              </div>
+            )}
+            <HistoryTable entries={group.entries} showHeader={idx === 0} />
+          </div>
+        ))
+      )}
     </div>
   );
 }

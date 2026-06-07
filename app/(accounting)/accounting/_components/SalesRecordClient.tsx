@@ -389,9 +389,10 @@ export function SalesRecordClient({ initialRecords = [], products: productProp, 
                   <td className="px-5 py-6">
                     <div className="flex items-center gap-2">
                       <span className="text-[13px] font-bold text-gray-800 tracking-tight">{r.orderId}</span>
-                      <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-[4px] text-white uppercase ${r.orderStatus === 'Delivered' ? 'bg-[#10B981]' :
-                        r.orderStatus === 'Pending' ? 'bg-[#F59E0B]' :
-                          'bg-[#EF4444]'
+                      <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-[4px] uppercase ${r.orderStatus === 'Delivered' ? 'bg-[#10B981] text-white' :
+                        r.orderStatus === 'Confirmed' ? 'bg-[#6EE7B7] text-[#065F46]' :
+                          r.orderStatus === 'Pending' ? 'bg-[#F59E0B] text-white' :
+                            'bg-[#EF4444] text-white'
                         }`}>
                         {r.orderStatus}
                       </span>

@@ -1,14 +1,15 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import { loginAction, type LoginActionState } from "@/modules/auth/actions/login.action";
-import { Loader2 } from "lucide-react";
+import { Loader2, Eye, EyeOff } from "lucide-react";
 import Link from "next/link";
 
 const initialState: LoginActionState = {};
 
 export default function LoginPage() {
   const [state, action, isPending] = useActionState(loginAction, initialState);
+  const [showPassword, setShowPassword] = useState(false);
 
   return (
     <div className="min-h-screen flex" style={{ fontFamily: "'Inter', system-ui, sans-serif" }}>
@@ -107,24 +108,47 @@ export default function LoginPage() {
             >
               Password
             </label>
-            <input
-              id="password"
-              name="password"
-              type="password"
-              autoComplete="current-password"
-              required
-              placeholder="Enter Password"
-              style={{
-                width: "100%",
-                padding: "0.85rem 1rem",
-                borderRadius: "0.5rem",
-                border: "none",
-                background: "#fff",
-                color: "#1a1a2e",
-                fontSize: "0.95rem",
-                outline: "none",
-              }}
-            />
+            <div style={{ position: "relative" }}>
+              <input
+                id="password"
+                name="password"
+                type={showPassword ? "text" : "password"}
+                autoComplete="current-password"
+                required
+                placeholder="Enter Password"
+                style={{
+                  width: "100%",
+                  padding: "0.85rem 2.5rem 0.85rem 1rem",
+                  borderRadius: "0.5rem",
+                  border: "none",
+                  background: "#fff",
+                  color: "#1a1a2e",
+                  fontSize: "0.95rem",
+                  outline: "none",
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                tabIndex={-1}
+                style={{
+                  position: "absolute",
+                  right: "0.75rem",
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  background: "transparent",
+                  border: "none",
+                  cursor: "pointer",
+                  color: "#6b7280",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  padding: "0.25rem",
+                }}
+              >
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
           </div>
 
           {/* Feedback / Forgot password row */}

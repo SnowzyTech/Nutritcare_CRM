@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Edit2, Trash2, Truck, Phone, MapPin, Globe } from "lucide-react";
+import { toast } from "sonner";
 import { deleteSupplierAction } from "@/modules/inventory/actions/stock.action";
 
 export default function SupplierDetailClient({ supplier }: { supplier: any }) {
@@ -14,10 +15,11 @@ export default function SupplierDetailClient({ supplier }: { supplier: any }) {
     setIsDeleting(true);
     const result = await deleteSupplierAction(supplier.id);
     if (result?.error) {
-      alert(result.error);
+      toast.error(result.error);
       setIsDeleting(false);
       setShowConfirm(false);
     } else {
+      toast.success("Supplier deleted successfully");
       router.push("/inventory/stock?tab=Suppliers");
     }
   };

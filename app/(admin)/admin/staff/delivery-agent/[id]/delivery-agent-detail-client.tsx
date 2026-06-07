@@ -2,7 +2,8 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { X, AlertTriangle } from "lucide-react";
+import { X, AlertTriangle, Trash2, Shield } from "lucide-react";
+import { toast } from "sonner";
 import {
   suspendAgentAction,
   activateAgentAction,
@@ -34,7 +35,9 @@ export default function DeliveryAgentDetailClient({ agentName, agentId, agentSta
       const result = await deleteAgentAction(agentId);
       if ("error" in result) {
         setError(result.error);
+        toast.error(result.error);
       } else {
+        toast.success("Delivery agent deleted");
         router.push("/admin/staff/delivery-agent");
       }
     });
@@ -48,7 +51,9 @@ export default function DeliveryAgentDetailClient({ agentName, agentId, agentSta
         : await activateAgentAction(agentId);
       if ("error" in result) {
         setError(result.error);
+        toast.error(result.error);
       } else {
+        toast.success(agentStatus === "ACTIVE" ? "Agent suspended" : "Agent activated");
         setAgentStatus(agentStatus === "ACTIVE" ? "INACTIVE" : "ACTIVE");
         closeModal();
       }
@@ -60,20 +65,19 @@ export default function DeliveryAgentDetailClient({ agentName, agentId, agentSta
   return (
     <>
       <section>
-        <h2 className="text-lg font-bold mb-4 text-slate-600">Advanced</h2>
+        <h2 className="text-lg font-bold mb-6 text-gray-600">Advanced</h2>
         <div className="flex flex-wrap gap-4">
           <button
             onClick={() => setModal("delete")}
-            className="bg-purple-600 hover:bg-purple-700 text-white px-8 py-4 rounded-xl text-[0.9rem] font-black flex items-center justify-center gap-3 transition-all shadow-lg shadow-purple-100 min-w-[240px]"
+            className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all min-w-[180px]"
           >
-            <span className="text-lg">🗑️</span> Delete Account
+            <Trash2 size={16} /> Delete Account
           </button>
           <button
             onClick={() => setModal("suspend")}
-            className="bg-purple-50 hover:bg-purple-100 text-purple-600 px-8 py-4 rounded-xl text-[0.9rem] font-black flex items-center justify-center gap-3 transition-all min-w-[240px]"
+            className="bg-purple-50 hover:bg-purple-100 text-purple-600 px-6 py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all min-w-[180px]"
           >
-            <span className="text-lg">{isActive ? "❓" : "✅"}</span>
-            {isActive ? "Suspend Account" : "Activate Account"}
+            <Shield size={16} /> {isActive ? "Suspend Account" : "Activate Account"}
           </button>
         </div>
       </section>
@@ -81,19 +85,19 @@ export default function DeliveryAgentDetailClient({ agentName, agentId, agentSta
       {modal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
           <div
-            className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            className="absolute inset-0 bg-gray-900/40 backdrop-blur-sm"
             onClick={closeModal}
           />
-          <div className="relative bg-white rounded-[32px] shadow-2xl w-full max-w-[450px] p-8 animate-in fade-in zoom-in duration-300">
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-[450px] p-6 animate-in fade-in zoom-in duration-300">
             <div className="flex justify-between items-center mb-6">
-              <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${
-                modal === "delete" ? "bg-rose-50 text-rose-500" : "bg-amber-50 text-amber-500"
+              <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
+                modal === "delete" ? "bg-red-50 text-red-500" : "bg-amber-50 text-amber-500"
               }`}>
                 <AlertTriangle size={24} />
               </div>
               <button
                 onClick={closeModal}
-                className="w-10 h-10 rounded-full bg-slate-50 flex items-center justify-center text-slate-400 hover:bg-slate-100 transition-colors"
+                className="w-10 h-10 rounded-full bg-gray-50 flex items-center justify-center text-gray-400 hover:bg-gray-100 transition-colors"
               >
                 <X size={20} />
               </button>
@@ -101,22 +105,22 @@ export default function DeliveryAgentDetailClient({ agentName, agentId, agentSta
 
             {modal === "delete" && (
               <>
-                <h3 className="text-xl font-black text-slate-800 mb-2">Delete Account</h3>
-                <p className="text-slate-500 text-[0.95rem] leading-relaxed mb-8">
-                  Permanently delete <span className="font-bold text-slate-700">{agentName}</span>? This action cannot be undone.
+                <h3 className="text-xl font-bold text-gray-800 mb-2">Delete Account</h3>
+                <p className="text-gray-500 text-sm leading-relaxed mb-8">
+                  Permanently delete <span className="font-bold text-gray-700">{agentName}</span>? This action cannot be undone.
                 </p>
-                {error && <p className="text-rose-500 text-sm mb-4">{error}</p>}
+                {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
                 <div className="flex gap-4">
                   <button
                     onClick={closeModal}
-                    className="flex-1 bg-slate-50 hover:bg-slate-100 text-slate-600 py-3.5 rounded-2xl font-bold transition-all"
+                    className="flex-1 bg-gray-50 hover:bg-gray-100 text-gray-600 py-3 rounded-xl font-bold transition-all"
                   >
                     Cancel
                   </button>
                   <button
                     onClick={handleDelete}
                     disabled={isPending}
-                    className="flex-1 bg-rose-500 hover:bg-rose-600 text-white py-3.5 rounded-2xl font-bold transition-all shadow-lg shadow-rose-100 disabled:opacity-60"
+                    className="flex-1 bg-red-500 hover:bg-red-600 text-white py-3 rounded-xl font-bold transition-all disabled:opacity-60"
                   >
                     {isPending ? "Deleting..." : "Delete"}
                   </button>
@@ -126,30 +130,30 @@ export default function DeliveryAgentDetailClient({ agentName, agentId, agentSta
 
             {modal === "suspend" && (
               <>
-                <h3 className="text-xl font-black text-slate-800 mb-2">
+                <h3 className="text-xl font-bold text-gray-800 mb-2">
                   {isActive ? "Suspend Account" : "Activate Account"}
                 </h3>
-                <p className="text-slate-500 text-[0.95rem] leading-relaxed mb-8">
+                <p className="text-gray-500 text-sm leading-relaxed mb-8">
                   {isActive
-                    ? <>Suspend <span className="font-bold text-slate-700">{agentName}</span>? They will be marked inactive.</>
-                    : <>Reactivate <span className="font-bold text-slate-700">{agentName}</span>? They will resume as an active agent.</>
+                    ? <>Suspend <span className="font-bold text-gray-700">{agentName}</span>? They will be marked inactive.</>
+                    : <>Reactivate <span className="font-bold text-gray-700">{agentName}</span>? They will resume as an active agent.</>
                   }
                 </p>
-                {error && <p className="text-rose-500 text-sm mb-4">{error}</p>}
+                {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
                 <div className="flex gap-4">
                   <button
                     onClick={closeModal}
-                    className="flex-1 bg-slate-50 hover:bg-slate-100 text-slate-600 py-3.5 rounded-2xl font-bold transition-all"
+                    className="flex-1 bg-gray-50 hover:bg-gray-100 text-gray-600 py-3 rounded-xl font-bold transition-all"
                   >
                     Cancel
                   </button>
                   <button
                     onClick={handleSuspendToggle}
                     disabled={isPending}
-                    className={`flex-1 text-white py-3.5 rounded-2xl font-bold transition-all shadow-lg disabled:opacity-60 ${
+                    className={`flex-1 text-white py-3 rounded-xl font-bold transition-all disabled:opacity-60 ${
                       isActive
-                        ? "bg-amber-500 hover:bg-amber-600 shadow-amber-100"
-                        : "bg-emerald-500 hover:bg-emerald-600 shadow-emerald-100"
+                        ? "bg-amber-500 hover:bg-amber-600"
+                        : "bg-green-500 hover:bg-green-600"
                     }`}
                   >
                     {isPending ? "Processing..." : isActive ? "Suspend" : "Activate"}

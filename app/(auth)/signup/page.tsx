@@ -178,7 +178,7 @@ export default function SignupPage() {
               {avatarError && <p style={{ fontSize: "0.78rem", color: "#dc2626", marginTop: "0.25rem" }}>{avatarError}</p>}
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.25rem 1.5rem" }}>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 sm:gap-6 w-full">
               <div style={fld}>
                 <label style={lbl}>First Name</label>
                 <input id="firstName" type="text" placeholder="First Name" value={firstName} onChange={e => setFirstName(e.target.value)} style={inp} onFocus={focus} onBlur={blur} />
@@ -332,11 +332,11 @@ export default function SignupPage() {
               </div>
             </div>
 
-            <div style={{ display: "flex", gap: "1rem", marginTop: "2rem" }}>
-              <button type="button" onClick={() => setStep(1)} style={{ flex: 1, padding: "0.9rem", borderRadius: "0.5rem", border: "1.5px solid #e5e7eb", background: "#fff", color: "#374151", fontSize: "1rem", fontWeight: 600, cursor: "pointer" }}>
+            <div className="flex flex-col-reverse sm:flex-row gap-3 sm:gap-4 mt-8 w-full">
+              <button type="button" onClick={() => setStep(1)} style={{ padding: "0.9rem", borderRadius: "0.5rem", border: "1.5px solid #e5e7eb", background: "#fff", color: "#374151", fontSize: "1rem", fontWeight: 600, cursor: "pointer" }} className="w-full sm:flex-1">
                 Back
               </button>
-              <button id="signup-submit" type="submit" disabled={isPending} style={{ flex: 2, padding: "0.9rem", borderRadius: "0.5rem", border: "none", background: isPending ? "#d1d5db" : "#8B2FE8", color: "#fff", fontSize: "1rem", fontWeight: 600, cursor: isPending ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "0.5rem", transition: "background 0.2s" }}>
+              <button id="signup-submit" type="submit" disabled={isPending} style={{ padding: "0.9rem", borderRadius: "0.5rem", border: "none", background: isPending ? "#d1d5db" : "#8B2FE8", color: "#fff", fontSize: "1rem", fontWeight: 600, cursor: isPending ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "0.5rem", transition: "background 0.2s" }} className="w-full sm:flex-[2]">
                 {isPending ? (
                   <><Loader2 style={{ width: 18, height: 18, animation: "spin 1s linear infinite" }} /> Creating account…</>
                 ) : (

@@ -17,6 +17,7 @@ interface Order {
   orderNumber: string;
   status: string;
   createdAt: Date;
+  deliveryDate: Date | null;
   customer: { name: string; email: string | null; phone: string };
   items: OrderItem[];
 }
@@ -141,6 +142,11 @@ export function OrdersClient({ orders, statusCounts, user }: Props) {
                   <div className="text-right space-y-1">
                     <h4 className="font-bold text-[#1e1e2d] text-xs leading-none">{summariseItems(order.items)}</h4>
                     <p className="text-[10px] text-gray-400 font-medium">{formatDate(order.createdAt)}</p>
+                    {order.deliveryDate && (
+                      <p className="text-[10px] text-[#ad1df4] font-semibold">
+                        {mapToUIStatus(order.status) === "Delivered" ? "Delivered" : "Delivery"}: {formatDate(order.deliveryDate)}
+                      </p>
+                    )}
                   </div>
                   <div className="pt-1">{getStatusIcon(mapToUIStatus(order.status))}</div>
                 </div>

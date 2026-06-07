@@ -91,6 +91,12 @@ export async function createRemittanceAction(input: z.infer<typeof remittanceSch
         runningBalance: newRunningBalance,
       },
     });
+    // Mark the remitted orders as Paid so they drop out of the remittance entry
+    // list. A remittance marks an order Paid regardless of the amount remitted.
+    await tx.order.updateMany({
+      where: { id: { in: data.orderIds }, agentId: data.agentId },
+      data: { remittanceStatus: "REMITTED" },
+    });
     return { settlementId: settlement.id, referenceId };
   });
 
@@ -126,12 +132,17 @@ export async function createSettlementAdjustmentAction(input: z.infer<typeof adj
 
   const isCorrectionInPlace = data.adjustmentType === "CORRECTION" && data.paymentType === "CORRECTION_IN_PLACE";
 
-  const debit = data.adjustmentType === "OVERPAYMENT" ? data.amount : 0;
-  const credit = data.adjustmentType !== "OVERPAYMENT" ? data.amount : 0;
-  // PAYMENT adjustments (delivery fee, waybill, miscellaneous) are physically separate
-  // payments and do not affect the running balance — only OVERPAYMENT and CORRECTION do.
-  const newRunningBalance =
-    data.adjustmentType === "PAYMENT" ? prevBalance : prevBalance - credit + debit;
+  // One consistent convention across the whole ledger (same as delivery +
+  // remittance): DEBIT increases the running balance (what the agent owes),
+  // CREDIT decreases it.
+  //  • Overpayment/Refund → DEBIT (+): clears the negative balance left behind
+  //    when an agent remitted more than they owed.
+  //  • Payment (waybill / delivery fee / miscellaneous) and Balance/Underpayment
+  //    → CREDIT (−): both reduce what the agent still owes.
+  const isOverpayment = data.adjustmentType === "OVERPAYMENT";
+  const debit = isOverpayment ? data.amount : 0;
+  const credit = isOverpayment ? 0 : data.amount;
+  const newRunningBalance = prevBalance + debit - credit;
 
   await prisma.$transaction(async tx => {
     if (isCorrectionInPlace) {
@@ -212,7 +223,7 @@ export async function createSettlementAdjustmentAction(input: z.infer<typeof adj
           amount: data.amount,
           note: data.note,
           ordersJson: data.ordersJson ?? undefined,
-          amountRemitted: credit,
+          amountRemitted: data.amount,
           autoRunningBalance: newRunningBalance,
           createdById: dbUser.id,
         },
@@ -279,5 +290,7 @@ export async function createSettlementAdjustmentAction(input: z.infer<typeof adj
   });
 
   revalidatePath("/accounting/agent-settlement");
+  revalidatePath("/accounting/reports/delivery-tracker");
+  revalidatePath("/accounting/reports/revenue-by-product");
   return { referenceId: adjRefId };
 }

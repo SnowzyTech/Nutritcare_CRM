@@ -3,7 +3,7 @@
 import React, { useState, useRef, useMemo } from 'react';
 import {
   ChevronLeft, ChevronRight, RotateCcw, MessageCircle,
-  CalendarIcon, Copy, Trash2, Search, ChevronDown, ArrowUp, ArrowDown, X,
+  CalendarIcon, Copy, Trash2, Search, ChevronDown, X,
   FileText, Upload, Download,
 } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -56,7 +56,7 @@ interface AccountingLedgerClientProps {
   initialCategories?: CategoryForLedger[];
 }
 
-const TABS = ['Charts of Account', 'Journal Entry', 'Journal', 'General Ledger'] as const;
+const TABS = ['Charts of Account', 'Journal Entry', 'Journal', 'General Ledger', 'Fixed Assets'] as const;
 type Tab = typeof TABS[number];
 
 type AttachmentItem = { file: File; preview: string };
@@ -75,6 +75,42 @@ const emptyRow = (): JournalRow => ({
   code: '', account: '', accountId: '', name: '', debits: '', credits: '', tax: '',
   codeSearch: '', accountSearch: '', nameSearch: '',
 });
+
+// ── Fixed-asset types ─────────────────────────────────────────────────────────
+
+interface FixedAsset {
+  id: string;
+  assetName: string;
+  purchasePrice: string;
+  purchaseDate: string;
+  assetAccount: string;
+  accumulatedDepreciation: string;
+  remainingValue: string;
+  status: 'Active' | 'Disposed' | 'Idle';
+}
+
+const SEED_ASSETS: FixedAsset[] = [
+  {
+    id: '1',
+    assetName: 'Dell Latitude Laptop',
+    purchasePrice: '₦1,250,000',
+    purchaseDate: '15-Mar-2023',
+    assetAccount: 'Office Equipment',
+    accumulatedDepreciation: '₦500,000',
+    remainingValue: '₦750,000',
+    status: 'Active',
+  },
+  {
+    id: '2',
+    assetName: 'Dell Latitude Laptop',
+    purchasePrice: '₦1,250,000',
+    purchaseDate: '15-Mar-2023',
+    assetAccount: 'Office Equipment',
+    accumulatedDepreciation: '₦500,000',
+    remainingValue: '₦750,000',
+    status: 'Active',
+  },
+];
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -102,6 +138,18 @@ export function AccountingLedgerClient({
     router.replace(`${pathname}?${params.toString()}`, { scroll: false } as any);
   };
 
+  // ── Fixed Assets state ────────────────────────────────────────────────────
+  const [fixedAssets, setFixedAssets] = useState<FixedAsset[]>(SEED_ASSETS);
+  const [showAddAsset, setShowAddAsset] = useState(false);
+  const [newAsset, setNewAsset] = useState<Omit<FixedAsset, 'id'>>({
+    assetName: '', purchasePrice: '', purchaseDate: '',
+    assetAccount: '', accumulatedDepreciation: '', remainingValue: '', status: 'Active',
+  });
+
+  const handleAddAsset = () => {
+    router.push('/accounting/accounting-ledger/fixed-assets/add');
+  };
+
   // ── Chart of Accounts ──────────────────────────────────────────────────────
   const [chartAccounts, setChartAccounts] = useState<ChartRow[]>(initialChartOfAccounts);
   const [categories, setCategories] = useState<CategoryForLedger[]>(initialCategories);
@@ -110,27 +158,35 @@ export function AccountingLedgerClient({
   const [selectedCategoryId, setSelectedCategoryId] = useState('');
   const [newTypeName, setNewTypeName] = useState('');
   const [newFinancialStatement, setNewFinancialStatement] = useState('');
-  const [accountNameInputs, setAccountNameInputs] = useState<string[]>(['']);
+  const [accountNameInputs, setAccountNameInputs] = useState<{ code: string; name: string }[]>([{ code: '', name: '' }]);
   const [savingAccount, setSavingAccount] = useState(false);
+
+  const classFromCode = (code?: string | null): number | null => {
+    if (!code) return null;
+    const d = parseInt(code.trim().charAt(0), 10);
+    return d >= 1 && d <= 8 ? d : null;
+  };
 
   const resetForm = () => {
     setSelectedCategoryId('');
     setNewTypeName('');
     setNewFinancialStatement('');
-    setAccountNameInputs(['']);
+    setAccountNameInputs([{ code: '', name: '' }]);
     setIsAddingNewType(false);
     setShowManualAdd(false);
   };
 
   const handleAddAccount = async () => {
-    const validNames = accountNameInputs.filter(n => n.trim());
+    const validAccounts = accountNameInputs
+      .filter(n => n.name.trim())
+      .map(n => ({ name: n.name.trim(), code: n.code.trim() || undefined }));
 
     if (isAddingNewType) {
       const finalType = newTypeName.trim();
       if (!finalType) return;
 
       setSavingAccount(true);
-      const res = await createExpenseCategoryAction(finalType, newFinancialStatement, validNames);
+      const res = await createExpenseCategoryAction(finalType, newFinancialStatement, validAccounts);
       setSavingAccount(false);
       if ('error' in res) { alert(res.error); return; }
 
@@ -138,43 +194,47 @@ export function AccountingLedgerClient({
         id: res.id,
         name: res.name,
         financialStatement: res.financialStatement ?? null,
-        expenseNames: res.expenseNames ?? [],
+        expenseNames: (res.expenseNames ?? []).map(n => ({ id: n.id, name: n.name })),
       };
       setCategories(prev => [...prev, newCategory]);
 
-      const baseCode = chartAccounts.length + 1000;
-      const newRows: ChartRow[] = (res.expenseNames ?? []).map((n, i) => ({
-        code: String(baseCode + i + 1),
+      const newRows: ChartRow[] = (res.expenseNames ?? []).map(n => ({
+        code: n.code ?? '—',
         categoryId: res.id,
         categoryName: res.name,
         financialStatement: res.financialStatement ?? '',
         accountName: n.name,
         accountNameId: n.id,
+        accountClass: classFromCode(n.code),
+        accountType: null,
+        normalBalance: null,
       }));
       if (newRows.length > 0) setChartAccounts(prev => [...prev, ...newRows]);
     } else {
-      if (!selectedCategoryId || validNames.length === 0) return;
+      if (!selectedCategoryId || validAccounts.length === 0) return;
 
       setSavingAccount(true);
-      const res = await addExpenseNamesToCategoryAction(selectedCategoryId, validNames);
+      const res = await addExpenseNamesToCategoryAction(selectedCategoryId, validAccounts);
       setSavingAccount(false);
       if ('error' in res) { alert(res.error); return; }
 
       const cat = categories.find(c => c.id === selectedCategoryId);
-      const baseCode = chartAccounts.length + 1000;
-      const newRows: ChartRow[] = (res.names ?? []).map((n, i) => ({
-        code: String(baseCode + i + 1),
+      const newRows: ChartRow[] = (res.names ?? []).map(n => ({
+        code: n.code ?? '—',
         categoryId: selectedCategoryId,
         categoryName: cat?.name ?? '',
         financialStatement: cat?.financialStatement ?? '',
         accountName: n.name,
         accountNameId: n.id,
+        accountClass: classFromCode(n.code),
+        accountType: null,
+        normalBalance: null,
       }));
       if (newRows.length > 0) setChartAccounts(prev => [...prev, ...newRows]);
 
       setCategories(prev => prev.map(c =>
         c.id === selectedCategoryId
-          ? { ...c, expenseNames: [...c.expenseNames, ...(res.names ?? [])] }
+          ? { ...c, expenseNames: [...c.expenseNames, ...(res.names ?? []).map(n => ({ id: n.id, name: n.name }))] }
           : c
       ));
     }
@@ -296,24 +356,31 @@ export function AccountingLedgerClient({
   const [glDateFrom, setGlDateFrom] = useState<Date | undefined>();
   const [glDateTo, setGlDateTo] = useState<Date | undefined>();
 
-  // Derive General Ledger from Saved Journals
+  // The server ledger (initialGeneralLedger) already contains every persisted
+  // journal line with running balances. savedJournals holds the same persisted
+  // entries PLUS any created this session that haven't been refreshed in yet.
+  // Merge them WITHOUT double-counting: take the server rows, then append only
+  // client rows whose journal isn't already in the server ledger.
   const allGlEntries = useMemo(() => {
-    const entries: LedgerRow[] = [];
+    const serverRefs = new Set(initialGeneralLedger.map(r => r.ref));
+    const pending: LedgerRow[] = [];
     savedJournals.forEach(j => {
+      if (serverRefs.has(j.journalNo)) return; // already in the server ledger
       j.rows.forEach((row: any) => {
         if (!row.account) return;
-        entries.push({
+        pending.push({
           account: row.account,
+          name: row.name ?? '',
           description: j.journalNo,
           ref: j.journalNo,
           debit: row.debits ? `₦${parseFloat(row.debits).toLocaleString()}` : '—',
           credit: row.credits ? `₦${parseFloat(row.credits).toLocaleString()}` : '—',
-          balance: '—', 
-          date: j.date
+          balance: '—',
+          date: j.date,
         });
       });
     });
-    return [...entries, ...initialGeneralLedger];
+    return [...pending, ...initialGeneralLedger];
   }, [savedJournals, initialGeneralLedger]);
 
   const filteredGL = allGlEntries.filter(row => {
@@ -321,7 +388,7 @@ export function AccountingLedgerClient({
     const matchesSearch =
       !glSearch ||
       row.account.toLowerCase().includes(glSearch.toLowerCase()) ||
-      row.description.toLowerCase().includes(glSearch.toLowerCase()) ||
+      row.name.toLowerCase().includes(glSearch.toLowerCase()) ||
       row.ref.toLowerCase().includes(glSearch.toLowerCase());
     
     const dateParts = row.date.split('-');
@@ -348,33 +415,49 @@ export function AccountingLedgerClient({
         </button>
       </div>
 
-      {/* Header Row */}
-      <div className="flex flex-col gap-8 mb-10">
+      {/* Header Row — matches image: title left | tabs centre | Add New + chat right */}
+      <div className="flex flex-col gap-6 mb-10">
         <div className="flex items-center justify-between">
           <h1 className="text-[32px] font-bold text-gray-700 tracking-tight">
             {activeTab === 'Charts of Account' ? 'Accounting' :
               activeTab === 'Journal Entry' ? 'Journal Entry' :
-                activeTab === 'Journal' ? 'Journal' : 'General Ledger'}
+                activeTab === 'Journal' ? 'Journal' :
+                  activeTab === 'General Ledger' ? 'General Ledger' : 'Fixed assets'}
           </h1>
-          <div className="w-16 h-16 bg-[#F3E8FF] rounded-full flex items-center justify-center cursor-pointer">
-            <div className="w-[42px] h-[42px] bg-[#AE00FF] rounded-full flex items-center justify-center text-white shadow-lg shadow-purple-200 hover:scale-105 transition-transform">
-              <MessageCircle fill="currentColor" size={22} />
-            </div>
-          </div>
-        </div>
 
-        <div className="flex justify-center">
-          <div className="flex bg-white rounded-lg p-1 border border-gray-100 shadow-[0_2px_4px_rgba(0,0,0,0.02)] z-10">
-            {TABS.map((tab) => (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={`px-5 py-2.5 rounded-md text-[12px] font-bold transition-all tracking-wide whitespace-nowrap ${activeTab === tab ? 'bg-[#AE00FF] text-white shadow-sm' : 'text-gray-500 hover:text-gray-800'
+          <div className="flex items-center gap-3">
+            {/* Tab pills */}
+            <div className="flex bg-white rounded-lg p-1 border border-gray-100 shadow-[0_2px_4px_rgba(0,0,0,0.02)]">
+              {TABS.map((tab) => (
+                <button
+                  key={tab}
+                  onClick={() => setActiveTab(tab)}
+                  className={`px-4 py-2 rounded-md text-[12px] font-bold transition-all tracking-wide whitespace-nowrap ${
+                    activeTab === tab ? 'bg-[#AE00FF] text-white shadow-sm' : 'text-gray-500 hover:text-gray-800'
                   }`}
+                >
+                  {tab}
+                </button>
+              ))}
+            </div>
+
+            {/* Add New — only visible on Fixed Assets tab */}
+            {activeTab === 'Fixed Assets' && (
+              <button
+                id="fixed-asset-add-new-btn"
+                onClick={handleAddAsset}
+                className="h-10 px-6 bg-[#AE00FF] text-white rounded-lg text-[13px] font-bold hover:bg-[#9900E6] transition-colors shadow-sm shadow-purple-200 whitespace-nowrap"
               >
-                {tab}
+                Add New
               </button>
-            ))}
+            )}
+
+            {/* Chat bubble */}
+            <div className="w-12 h-12 bg-[#F3E8FF] rounded-full flex items-center justify-center cursor-pointer flex-shrink-0">
+              <div className="w-[34px] h-[34px] bg-[#AE00FF] rounded-full flex items-center justify-center text-white shadow-lg shadow-purple-200 hover:scale-105 transition-transform">
+                <MessageCircle fill="currentColor" size={18} />
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -476,9 +559,8 @@ export function AccountingLedgerClient({
                         <SelectValue placeholder="Select financial statement..." />
                       </SelectTrigger>
                       <SelectContent className="rounded-2xl border-purple-50 shadow-xl">
-                        <SelectItem value="Profit & Loss Statement" className="rounded-xl py-3 px-4 focus:bg-purple-50">Profit &amp; Loss Statement</SelectItem>
-                        <SelectItem value="Balance Sheet" className="rounded-xl py-3 px-4 focus:bg-purple-50">Balance Sheet</SelectItem>
-                        <SelectItem value="Cash Flow Statement" className="rounded-xl py-3 px-4 focus:bg-purple-50">Cash Flow Statement</SelectItem>
+                        <SelectItem value="Statement of Profit or Loss" className="rounded-xl py-3 px-4 focus:bg-purple-50">Statement of Profit or Loss</SelectItem>
+                        <SelectItem value="Statement of Financial Position" className="rounded-xl py-3 px-4 focus:bg-purple-50">Statement of Financial Position</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -503,15 +585,26 @@ export function AccountingLedgerClient({
                 })()}
 
                 <div className="space-y-3">
-                  <label className="text-[13px] font-bold text-gray-500 uppercase tracking-wider">Account Name(s)</label>
+                  <label className="text-[13px] font-bold text-gray-500 uppercase tracking-wider">Account Code &amp; Name(s)</label>
                   <div className="space-y-3">
                     {accountNameInputs.map((input, idx) => (
                       <div key={idx} className="flex gap-3 animate-in fade-in duration-200">
                         <input
-                          value={input}
+                          value={input.code}
                           onChange={e => {
                             const next = [...accountNameInputs];
-                            next[idx] = e.target.value;
+                            next[idx] = { ...next[idx], code: e.target.value };
+                            setAccountNameInputs(next);
+                          }}
+                          placeholder="Code"
+                          inputMode="numeric"
+                          className="w-[110px] h-[52px] px-4 bg-gray-50 border-0 rounded-2xl text-[14px] font-mono font-medium text-gray-700 focus:ring-2 focus:ring-purple-200"
+                        />
+                        <input
+                          value={input.name}
+                          onChange={e => {
+                            const next = [...accountNameInputs];
+                            next[idx] = { ...next[idx], name: e.target.value };
                             setAccountNameInputs(next);
                           }}
                           placeholder="Enter account name..."
@@ -519,17 +612,16 @@ export function AccountingLedgerClient({
                         />
                         {idx === accountNameInputs.length - 1 && (
                           <button
-                            onClick={() => setAccountNameInputs([...accountNameInputs, ''])}
-                            className="w-[52px] h-[52px] flex items-center justify-center bg-purple-50 text-purple-600 rounded-2xl hover:bg-purple-100 transition-colors"
+                            onClick={() => setAccountNameInputs([...accountNameInputs, { code: '', name: '' }])}
+                            className="w-[52px] h-[52px] flex items-center justify-center bg-purple-50 text-purple-600 rounded-2xl hover:bg-purple-100 transition-colors flex-shrink-0"
                           >
-                            <ArrowUp size={20} className="rotate-90" /> {/* Using Lucide arrow for plus-like feel if needed, or better use ChevronDown or just a label */}
                             <span className="font-bold text-[20px]">+</span>
                           </button>
                         )}
                         {accountNameInputs.length > 1 && (
                           <button
                             onClick={() => setAccountNameInputs(accountNameInputs.filter((_, i) => i !== idx))}
-                            className="w-[52px] h-[52px] flex items-center justify-center bg-red-50 text-red-400 rounded-2xl hover:bg-red-100 transition-colors"
+                            className="w-[52px] h-[52px] flex items-center justify-center bg-red-50 text-red-400 rounded-2xl hover:bg-red-100 transition-colors flex-shrink-0"
                           >
                             <X size={20} />
                           </button>
@@ -537,6 +629,7 @@ export function AccountingLedgerClient({
                       </div>
                     ))}
                   </div>
+                  <p className="text-[11px] text-gray-400">The code&apos;s first digit sets the class (e.g. 1 = Assets, 6 = Operating Expenses). Each code must be unique.</p>
                 </div>
 
                 <div className="flex items-center gap-4 pt-4 border-t border-gray-50">
@@ -990,7 +1083,7 @@ export function AccountingLedgerClient({
               <thead>
                 <tr className="bg-gradient-to-r from-gray-50 to-gray-100 text-[13px] font-bold text-gray-600 border-b border-gray-100">
                   <th className="px-8 py-5">Account</th>
-                  <th className="px-8 py-5">Description</th>
+                  <th className="px-8 py-5">Account Name</th>
                   <th className="px-8 py-5">Ref</th>
                   <th className="px-8 py-5 text-right">Debit</th>
                   <th className="px-8 py-5 text-right">Credit</th>
@@ -1009,7 +1102,7 @@ export function AccountingLedgerClient({
                   filteredGL.map((row, idx) => (
                     <tr key={idx} className={`${idx % 2 === 1 ? 'bg-[#F9FAFB]' : 'bg-white'} hover:bg-purple-50/30 transition-colors`}>
                       <td className="px-8 py-6 text-[14px] text-gray-700 font-bold">{row.account}</td>
-                      <td className="px-8 py-6 text-[14px] text-gray-500">{row.description}</td>
+                      <td className="px-8 py-6 text-[14px] text-gray-500">{row.name}</td>
                       <td className="px-8 py-6 text-[13px] text-gray-400 font-mono">{row.ref}</td>
                       <td className="px-8 py-6 text-[14px] text-green-600 font-bold text-right">{row.debit}</td>
                       <td className="px-8 py-6 text-[14px] text-red-500 font-bold text-right">{row.credit}</td>
@@ -1026,6 +1119,70 @@ export function AccountingLedgerClient({
             <p className="text-[13px] text-gray-400 font-medium">
               {filteredGL.length} entr{filteredGL.length === 1 ? 'y' : 'ies'} total
             </p>
+          </div>
+        </div>
+      )}
+      {/* ===== Fixed Assets ===== */}
+      {activeTab === 'Fixed Assets' && (
+        <div className="animate-in fade-in duration-400">
+
+          {/* Fixed Assets table */}
+          <div className="bg-white rounded-xl overflow-hidden border border-gray-100 shadow-sm">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-[#F3F4F6] text-[13px] font-bold text-gray-600">
+                  <th className="px-6 py-5 whitespace-nowrap">Asset Name</th>
+                  <th className="px-6 py-5 whitespace-nowrap">Purchase Price</th>
+                  <th className="px-6 py-5 whitespace-nowrap">Purchase Date</th>
+                  <th className="px-6 py-5 whitespace-nowrap">Asset Account</th>
+                  <th className="px-6 py-5 whitespace-nowrap">Accumulated Depreciation</th>
+                  <th className="px-6 py-5 whitespace-nowrap">Remaining Value</th>
+                  <th className="px-6 py-5 whitespace-nowrap">Status</th>
+                  <th className="px-6 py-5 whitespace-nowrap">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {fixedAssets.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="px-6 py-16 text-center text-[14px] text-gray-400 font-medium">
+                      No fixed assets yet. Click &ldquo;Add New&rdquo; to get started.
+                    </td>
+                  </tr>
+                ) : (
+                  fixedAssets.map((asset, idx) => (
+                    <tr
+                      key={asset.id}
+                      className={`hover:bg-gray-50/60 transition-colors ${
+                        idx % 2 === 1 ? 'bg-[#FAFAFA]' : 'bg-white'
+                      }`}
+                    >
+                      <td className="px-6 py-5 text-[13px] text-gray-700 font-medium">{asset.assetName}</td>
+                      <td className="px-6 py-5 text-[13px] text-gray-700 font-medium">{asset.purchasePrice}</td>
+                      <td className="px-6 py-5 text-[13px] text-gray-600 font-medium">{asset.purchaseDate}</td>
+                      <td className="px-6 py-5 text-[13px] text-gray-600">{asset.assetAccount}</td>
+                      <td className="px-6 py-5 text-[13px] text-gray-600">{asset.accumulatedDepreciation}</td>
+                      <td className="px-6 py-5 text-[13px] text-gray-700 font-medium">{asset.remainingValue}</td>
+                      <td className="px-6 py-5">
+                        <span className={`text-[12px] font-semibold ${
+                          asset.status === 'Active' ? 'text-gray-700' :
+                          asset.status === 'Disposed' ? 'text-red-500' : 'text-yellow-600'
+                        }`}>
+                          {asset.status}
+                        </span>
+                      </td>
+                      <td className="px-6 py-5">
+                        <button
+                          id={`fixed-asset-view-${asset.id}`}
+                          className="text-[13px] font-bold text-[#AE00FF] hover:text-[#8B00CC] transition-colors"
+                        >
+                          View
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
       )}

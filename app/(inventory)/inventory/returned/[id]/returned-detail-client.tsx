@@ -3,6 +3,7 @@
 import React, { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeftCircle, Search, Trash2, Printer, MessageCircle, Check } from "lucide-react";
+import { toast } from "sonner";
 import type { ReturnedMovementDetail } from "@/modules/inventory/services/inventory.service";
 import {
   updateReturnedMovementAction,
@@ -25,8 +26,10 @@ export function ReturnedDetailClient({ record }: { record: ReturnedMovementDetai
       const result = await updateReturnedMovementAction(record.id, editDamaged, editRemarks);
       if (result.error) {
         setActionError(result.error);
+        toast.error(result.error);
         return;
       }
+      toast.success("Return updated");
       setIsEditModalOpen(false);
       router.refresh();
     });
@@ -38,9 +41,11 @@ export function ReturnedDetailClient({ record }: { record: ReturnedMovementDetai
       const result = await deleteReturnedMovementAction(record.id);
       if (result.error) {
         setActionError(result.error);
+        toast.error(result.error);
         setIsDeleteModalOpen(false);
         return;
       }
+      toast.success("Return deleted");
       router.push("/inventory/returned");
     });
   };

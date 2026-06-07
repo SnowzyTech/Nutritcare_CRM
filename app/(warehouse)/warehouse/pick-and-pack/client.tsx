@@ -2,9 +2,15 @@
 
 import React, { useState, useRef, useEffect, useTransition, useMemo } from "react";
 import { useRouter } from "next/navigation";
+import { Plus, X } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
+import { toast } from "sonner";
 import type { PickPackRow, TransferProductItem } from "@/modules/warehouse/services/warehouse.service";
-import { assignPickerAction, type TransferShelfAllocation } from "@/modules/warehouse/actions/pick-pack.action";
+import {
+  assignPickerAction,
+  createPickPackerAction,
+  type TransferShelfAllocation,
+} from "@/modules/warehouse/actions/pick-pack.action";
 
 type TabFilter = "All" | "QUEUED" | "PACKED";
 
@@ -16,33 +22,48 @@ const statusLabel: Record<string, string> = { QUEUED: "Queued", PACKED: "Packed"
 
 interface Props {
   initialOrders: PickPackRow[];
-  pickers: { id: string; name: string; activeTasks: number }[];
+  initialPickers: { id: string; name: string; activeTasks: number }[];
+  warehouseId: string | null;
   locationCodes: string[];
 }
 
-// Per-product shelf selection state for the transfer modal
-// productId → locationId → qty (string for controlled input)
 type TransferSelections = Record<string, Record<string, string>>;
 
-export default function PickAndPackClient({ initialOrders, pickers, locationCodes }: Props) {
+export default function PickAndPackClient({
+  initialOrders,
+  initialPickers,
+  warehouseId,
+  locationCodes,
+}: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  const [isAddingPacker, startAddPackerTransition] = useTransition();
+
   const [activeTab, setActiveTab] = useState<TabFilter>("All");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
-  const [selectedPickerId, setSelectedPickerId] = useState<string | null>(null);
-  const [isPickerDropdownOpen, setIsPickerDropdownOpen] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  // Regular outgoing: single location code selection
+  // Pickers state — seeded from server, updated live when new packers are added
+  const [pickers, setPickers] = useState(initialPickers);
+
+  // Picker dropdown
+  const [selectedPickerId, setSelectedPickerId] = useState<string | null>(null);
+  const [isPickerDropdownOpen, setIsPickerDropdownOpen] = useState(false);
+  const pickerDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Add-packer inline form
+  const [isAddPackerOpen, setIsAddPackerOpen] = useState(false);
+  const [newPackerName, setNewPackerName] = useState("");
+  const addPackerInputRef = useRef<HTMLInputElement>(null);
+
+  // Location dropdown
   const [selectedLocation, setSelectedLocation] = useState<string>(locationCodes[0] ?? "");
   const [isLocationDropdownOpen, setIsLocationDropdownOpen] = useState(false);
-
-  // Transfer: per-product per-shelf quantity selections
-  const [transferSelections, setTransferSelections] = useState<TransferSelections>({});
-
-  const pickerDropdownRef = useRef<HTMLDivElement>(null);
   const locationDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Shelf selections for transfers
+  const [transferSelections, setTransferSelections] = useState<TransferSelections>({});
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -57,6 +78,11 @@ export default function PickAndPackClient({ initialOrders, pickers, locationCode
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  // Focus the name input whenever the add-packer form opens
+  useEffect(() => {
+    if (isAddPackerOpen) addPackerInputRef.current?.focus();
+  }, [isAddPackerOpen]);
+
   const filteredOrders = initialOrders.filter((o) => activeTab === "All" || o.status === activeTab);
   const getTabClass = (tab: TabFilter) =>
     activeTab === tab
@@ -70,7 +96,6 @@ export default function PickAndPackClient({ initialOrders, pickers, locationCode
 
   const selectedPicker = pickers.find((p) => p.id === selectedPickerId);
 
-  // Determine if current selection is all-transfers or all-regular
   const selectedOrders = useMemo(
     () => initialOrders.filter((o) => selectedIds.includes(o.id)),
     [selectedIds, initialOrders],
@@ -80,7 +105,6 @@ export default function PickAndPackClient({ initialOrders, pickers, locationCode
   const isMixedSelection = hasTransfer && hasRegular;
   const isTransferMode = hasTransfer && !hasRegular;
 
-  // Aggregate transfer products across all selected PickPacks (transfers and outgoing both populate transferProducts)
   const aggregatedTransferProducts = useMemo<TransferProductItem[]>(() => {
     const map = new Map<string, TransferProductItem>();
     for (const o of selectedOrders) {
@@ -96,14 +120,12 @@ export default function PickAndPackClient({ initialOrders, pickers, locationCode
     return Array.from(map.values());
   }, [selectedOrders]);
 
-  // Show shelf-selection UI whenever any selected order has shelf data
   const isShelfMode = aggregatedTransferProducts.length > 0;
 
   function toggleShelf(productId: string, locationId: string, availableQty: number, checked: boolean) {
     setTransferSelections((prev) => {
       const productShelves = { ...(prev[productId] ?? {}) };
       if (checked) {
-        // Default quantity = min(available, still needed) so we never auto-overshoot
         const product = aggregatedTransferProducts.find((p) => p.productId === productId);
         const required = product?.requiredQty ?? 0;
         const alreadySelected = Object.values(productShelves).reduce((s, v) => s + (parseInt(v) || 0), 0);
@@ -163,6 +185,24 @@ export default function PickAndPackClient({ initialOrders, pickers, locationCode
     setSelectedPickerId(null);
     setActionError(null);
     setTransferSelections({});
+    setIsAddPackerOpen(false);
+    setNewPackerName("");
+  }
+
+  function handleSaveNewPacker() {
+    if (!newPackerName.trim()) return;
+    startAddPackerTransition(async () => {
+      const result = await createPickPackerAction(newPackerName.trim(), warehouseId);
+      if (result.success) {
+        setPickers((prev) => [...prev, result.packer]);
+        setSelectedPickerId(result.packer.id);
+        setNewPackerName("");
+        setIsAddPackerOpen(false);
+        toast.success(`"${result.packer.name}" added as pick & pack worker`);
+      } else {
+        toast.error(result.error);
+      }
+    });
   }
 
   const handleAssign = () => {
@@ -190,11 +230,13 @@ export default function PickAndPackClient({ initialOrders, pickers, locationCode
         allocations,
       );
       if (result.success) {
+        toast.success("Pick & pack assigned successfully");
         closeModal();
         setSelectedIds([]);
         router.refresh();
       } else {
         setActionError(result.error ?? "Failed to assign picker.");
+        toast.error(result.error ?? "Failed to assign picker.");
       }
     });
   };
@@ -328,7 +370,7 @@ export default function PickAndPackClient({ initialOrders, pickers, locationCode
               </div>
             )}
 
-            {/* ── Shelf selection mode: per-product shelf picks (transfers and outgoing) */}
+            {/* Shelf selection */}
             {isShelfMode && (
               <div className="mb-6">
                 <h3 className="text-[15px] font-bold text-black mb-3">Shelf Assignments by Product</h3>
@@ -418,7 +460,7 @@ export default function PickAndPackClient({ initialOrders, pickers, locationCode
               </div>
             )}
 
-            {/* ── Regular outgoing mode: single location code (no shelf data available) */}
+            {/* Regular outgoing: single location code */}
             {!isShelfMode && !isMixedSelection && (
               <div className="mb-5">
                 <div className="flex justify-between items-center mb-2">
@@ -464,14 +506,62 @@ export default function PickAndPackClient({ initialOrders, pickers, locationCode
             )}
 
             {/* ── Picker selection ──────────────────────────────────────────── */}
-            <h3 className="text-[15px] font-bold text-black mb-3">Assign to Picker</h3>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-[15px] font-bold text-black">Assign to Picker</h3>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsAddPackerOpen((v) => !v);
+                  setIsPickerDropdownOpen(false);
+                }}
+                className="flex items-center gap-1 text-[12px] font-semibold text-[#ad1df4] hover:text-[#9b19dc] transition-colors border border-[#ad1df4] rounded-md px-2.5 py-1"
+                title="Add new pick & pack worker"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Add Packer
+              </button>
+            </div>
+
+            {/* Inline add-packer form */}
+            {isAddPackerOpen && (
+              <div className="mb-4 flex items-center gap-2 bg-[#faf5ff] border border-[#e9d5ff] rounded-lg px-4 py-3">
+                <input
+                  ref={addPackerInputRef}
+                  type="text"
+                  placeholder="Packer name"
+                  value={newPackerName}
+                  onChange={(e) => setNewPackerName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleSaveNewPacker();
+                    if (e.key === "Escape") { setIsAddPackerOpen(false); setNewPackerName(""); }
+                  }}
+                  className="flex-1 text-sm border border-gray-200 rounded-md px-3 py-1.5 outline-none focus:ring-1 focus:ring-[#ad1df4] focus:border-[#ad1df4]"
+                />
+                <button
+                  type="button"
+                  onClick={handleSaveNewPacker}
+                  disabled={isAddingPacker || !newPackerName.trim()}
+                  className="bg-[#ad1df4] hover:bg-[#9b19dc] text-white text-[12px] font-bold px-4 py-1.5 rounded-md transition-colors disabled:opacity-50"
+                >
+                  {isAddingPacker ? "Saving…" : "Save"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setIsAddPackerOpen(false); setNewPackerName(""); }}
+                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+
             <div className="mb-5 relative" ref={pickerDropdownRef}>
               <button
-                onClick={() => setIsPickerDropdownOpen(!isPickerDropdownOpen)}
+                onClick={() => { setIsPickerDropdownOpen(!isPickerDropdownOpen); setIsAddPackerOpen(false); }}
                 className="w-full bg-white border border-[#f3e8ff] p-2.5 text-[#a855f7] text-sm mb-3 rounded-md flex justify-between items-center shadow-sm"
               >
                 <span className="flex-1 text-center font-medium">
-                  {selectedPicker ? selectedPicker.name : "Select a Picker"}
+                  {selectedPicker ? selectedPicker.name : "Select a Packer"}
                 </span>
                 <span className="bg-[#fdfaff] px-2 py-0.5 rounded shadow-sm text-gray-400">▼</span>
               </button>
@@ -495,7 +585,15 @@ export default function PickAndPackClient({ initialOrders, pickers, locationCode
                       </button>
                     ))
                   ) : (
-                    <p className="px-4 py-3 text-sm text-gray-500">No warehouse staff found.</p>
+                    <div className="px-4 py-3 text-sm text-gray-500">
+                      No packers added yet.{" "}
+                      <button
+                        className="text-[#ad1df4] font-semibold hover:underline"
+                        onClick={() => { setIsPickerDropdownOpen(false); setIsAddPackerOpen(true); }}
+                      >
+                        Add one →
+                      </button>
+                    </div>
                   )}
                 </div>
               )}

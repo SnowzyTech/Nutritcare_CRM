@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { X, AlertTriangle, Copy, Check, Warehouse } from "lucide-react";
+import { toast } from "sonner";
 import {
   deleteUserAction,
   suspendUserAction,
@@ -67,7 +68,9 @@ export default function StaffDetailAdvancedClient({
       const result = await deleteUserAction(staffId);
       if ("error" in result) {
         setError(result.error);
+        toast.error(result.error);
       } else {
+        toast.success("Staff member deleted");
         router.push(backPath);
       }
     });
@@ -81,7 +84,9 @@ export default function StaffDetailAdvancedClient({
         : await activateUserAction(staffId);
       if ("error" in result) {
         setError(result.error);
+        toast.error(result.error);
       } else {
+        toast.success(isActive ? "Account suspended" : "Account activated");
         setIsActive(!isActive);
         closeModal();
       }
@@ -94,7 +99,9 @@ export default function StaffDetailAdvancedClient({
       const result = await resetUserPasswordAction(staffId);
       if ("error" in result) {
         setError(result.error);
+        toast.error(result.error);
       } else {
+        toast.success("Password reset successfully");
         setTempPassword(result.tempPassword);
       }
     });
@@ -114,7 +121,9 @@ export default function StaffDetailAdvancedClient({
       const result = await assignWarehouseAction(staffId, selectedWarehouseId || null);
       if ("error" in result) {
         setError(result.error);
+        toast.error(result.error);
       } else {
+        toast.success("Warehouse assignment updated");
         setAssignedWarehouseId(selectedWarehouseId || null);
         closeModal();
         router.refresh();

@@ -7,6 +7,5 @@ export default async function OrderDetailsPage({ params }: { params: Promise<{ o
   const { orderId } = await params;
   const order = await getSalesRecordById(orderId);
   if (!order) return notFound();
-  const { raw, ...record } = order;
-  return <OrderDetailsClient order={record as any} />;
+  return <OrderDetailsClient order={order} />;
 }

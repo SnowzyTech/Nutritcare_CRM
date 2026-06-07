@@ -47,7 +47,7 @@ export async function dispatchOrderAction(
         where: { id: existing.id },
         data: {
           status: "IN_TRANSIT",
-          agentId: driverAgentId || null,
+          truckDriverId: driverAgentId || null,
           scheduledTime: new Date(),
         },
       });
@@ -55,7 +55,7 @@ export async function dispatchOrderAction(
       await prisma.delivery.create({
         data: {
           orderId: itemId,
-          agentId: driverAgentId || null,
+          truckDriverId: driverAgentId || null,
           status: "IN_TRANSIT",
           scheduledTime: new Date(),
         },
@@ -93,7 +93,7 @@ export async function dispatchOrderAction(
       where: { id: itemId },
       data: {
         status: "QC_CHECK",
-        driverAgentId: driverAgentId || null,
+        driverId: driverAgentId || null,
         scheduledTime: new Date(),
       },
     });
@@ -128,7 +128,7 @@ export async function dispatchOrderAction(
       where: { id: itemId },
       data: {
         status: "IN_TRANSIT",
-        driverAgentId: driverAgentId || null,
+        driverId: driverAgentId || null,
         scheduledTime: new Date(),
       },
     });
