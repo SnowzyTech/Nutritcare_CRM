@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db/prisma";
 import type { UserRole } from "@prisma/client";
 import { monthRanges, parseMonthParam, type MonthPeriod } from "@/lib/month-period";
 import { generalPerformanceScore, kpiScore } from "@/lib/performance";
+import type { MonthMetrics } from "@/modules/orders/services/analytics.service";
 
 // ── Analytics helpers ─────────────────────────────────────────────────────────
 
@@ -252,6 +253,8 @@ export async function getSalesRepAnalytics(salesRepId: string, period?: MonthPer
       confirmationRate: trendLabel(current.confirmationRate, previous.confirmationRate),
       deliveryRate: trendLabel(current.deliveryRate, previous.deliveryRate),
       cancellationRate: trendLabel(current.cancellationRate, previous.cancellationRate),
+      recoveryRate: trendLabel(current.recoveryRate, previous.recoveryRate),
+      reorderRate: trendLabel(current.reorderRate, previous.reorderRate),
     },
   };
 }
@@ -443,7 +446,37 @@ export async function getTeamMembersWithStats(teamId: string) {
   });
 }
 
-export async function getTeamAnalytics(teamId: string) {
+type ReportOrder = {
+  status: string;
+  customerId: string;
+  isReorder: boolean;
+  items: Array<{ productId: string; quantity: number; product: { name: string } }>;
+};
+
+/** Builds a MonthMetrics-shaped object (for PDF reports) from a set of orders. */
+function toReportMetrics(orders: ReportOrder[]): MonthMetrics {
+  const m = computeRepMetrics(orders);
+  const t = computeProductTables(orders);
+  return {
+    totalProductsSold: m.totalProductsSold,
+    totalOrders: m.total,
+    ordersDelivered: m.delivered,
+    uniqueCustomers: m.distinctCustomers,
+    bestSellingProduct: m.bestProduct?.name ?? "N/A",
+    generalPerformance: m.generalPerformance,
+    upsellRate: m.upsellRate,
+    reorderRate: m.reorderRate,
+    confirmationRate: m.confirmationRate,
+    deliveryRate: m.deliveryRate,
+    cancellationRate: m.cancellationRate,
+    recoveryRate: m.recoveryRate,
+    kpi: m.kpi,
+    topProducts: t.bestSellingTable.map(r => ({ name: r.product, qty: r.amountSold })),
+    upsoldProducts: t.upsellingTable.map(r => ({ name: r.product, qty: r.noOfUpsell })),
+  };
+}
+
+export async function getTeamAnalytics(teamId: string, period?: MonthPeriod) {
   const members = await prisma.user.findMany({
     where: { teamId, role: "SALES_REP" },
     select: { id: true },
@@ -462,16 +495,17 @@ export async function getTeamAnalytics(teamId: string) {
         confirmationRate: emptyTrend,
         deliveryRate: emptyTrend,
         cancellationRate: emptyTrend,
+        recoveryRate: emptyTrend,
+        reorderRate: emptyTrend,
+        kpi: emptyTrend,
       },
       tables: { bestSellingTable: [], upsellingTable: [] },
+      reportMetrics: toReportMetrics([]),
     };
   }
 
   const memberIds = members.map(m => m.id);
-  const now = new Date();
-  const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
+  const { currentStart, currentEnd, prevStart, prevEnd } = monthRanges(period ?? parseMonthParam());
 
   const allOrders = await prisma.order.findMany({
     where: { salesRepId: { in: memberIds }, deletedAt: null },
@@ -481,8 +515,8 @@ export async function getTeamAnalytics(teamId: string) {
     },
   });
 
-  const thisMonthOrders = allOrders.filter(o => o.createdAt >= thisMonthStart);
-  const lastMonthOrders = allOrders.filter(o => o.createdAt >= lastMonthStart && o.createdAt <= lastMonthEnd);
+  const thisMonthOrders = allOrders.filter(o => o.createdAt >= currentStart && o.createdAt <= currentEnd);
+  const lastMonthOrders = allOrders.filter(o => o.createdAt >= prevStart && o.createdAt <= prevEnd);
 
   const current = computeRepMetrics(thisMonthOrders);
   const previous = computeRepMetrics(lastMonthOrders);
@@ -498,9 +532,38 @@ export async function getTeamAnalytics(teamId: string) {
       confirmationRate: trendLabel(current.confirmationRate, previous.confirmationRate),
       deliveryRate: trendLabel(current.deliveryRate, previous.deliveryRate),
       cancellationRate: trendLabel(current.cancellationRate, previous.cancellationRate),
+      recoveryRate: trendLabel(current.recoveryRate, previous.recoveryRate),
+      reorderRate: trendLabel(current.reorderRate, previous.reorderRate),
+      kpi: trendLabel(current.kpi, previous.kpi),
     },
     tables,
+    reportMetrics: toReportMetrics(thisMonthOrders),
   };
+}
+
+/** Team-wide metrics for the last 7 days — used by the weekly PDF report. */
+export async function getTeamWeeklyReport(teamId: string): Promise<MonthMetrics> {
+  const members = await prisma.user.findMany({
+    where: { teamId, role: "SALES_REP" },
+    select: { id: true },
+  });
+  if (members.length === 0) return toReportMetrics([]);
+
+  const memberIds = members.map(m => m.id);
+  const now = new Date();
+  const weekStart = new Date(now);
+  weekStart.setDate(now.getDate() - 6);
+  weekStart.setHours(0, 0, 0, 0);
+
+  const orders = await prisma.order.findMany({
+    where: { salesRepId: { in: memberIds }, deletedAt: null, createdAt: { gte: weekStart } },
+    select: {
+      status: true, customerId: true, createdAt: true, isReorder: true,
+      items: { select: { productId: true, quantity: true, product: { select: { name: true } } } },
+    },
+  });
+
+  return toReportMetrics(orders);
 }
 
 export async function getStaffByRole(role: UserRole) {

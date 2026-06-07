@@ -40,36 +40,6 @@ function trendTone(trend: string): "up" | "down" | "flat" {
   return "up";
 }
 
-/**
- * Reads an image File and returns a downscaled JPEG data URL (max 256×256).
- * Keeps the stored avatar small enough for the `avatarUrl` text column while
- * avoiding the need for external blob storage.
- */
-function resizeImageToDataUrl(file: File, max = 256): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error("Failed to read file"));
-    reader.onload = () => {
-      const img = new window.Image();
-      img.onerror = () => reject(new Error("Failed to load image"));
-      img.onload = () => {
-        const scale = Math.min(max / img.width, max / img.height, 1);
-        const width = Math.round(img.width * scale);
-        const height = Math.round(img.height * scale);
-        const canvas = document.createElement("canvas");
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return reject(new Error("Canvas not supported"));
-        ctx.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL("image/jpeg", 0.85));
-      };
-      img.src = reader.result as string;
-    };
-    reader.readAsDataURL(file);
-  });
-}
-
 function MetricCard({
   label,
   value,
@@ -114,8 +84,9 @@ export function ProfileClient({ profile, metrics }: { profile: Profile; metrics:
   const [phone, setPhone] = useState(profile.phone ?? "");
   const [whatsapp, setWhatsapp] = useState(profile.whatsappNumber ?? "");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(profile.avatarUrl ?? null);
-  // Pending avatar selected in the modal but not yet saved
+  // Pending avatar (Cloudinary URL) selected in the modal but not yet saved
   const [pendingAvatar, setPendingAvatar] = useState<string | null>(null);
+  const [avatarUploading, setAvatarUploading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -151,11 +122,22 @@ export function ProfileClient({ profile, metrics }: { profile: Profile; metrics:
       toast.error("Image must be smaller than 5MB.");
       return;
     }
+    setAvatarUploading(true);
     try {
-      const dataUrl = await resizeImageToDataUrl(file);
-      setPendingAvatar(dataUrl);
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/upload/avatar", { method: "POST", body: fd });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error ?? "Upload failed. Try another image.");
+        return;
+      }
+      // Store only the Cloudinary URL — that is what gets saved to the DB.
+      setPendingAvatar(data.url);
     } catch {
-      toast.error("Could not process that image. Try another one.");
+      toast.error("Upload failed. Please try again.");
+    } finally {
+      setAvatarUploading(false);
     }
   };
 
@@ -165,6 +147,10 @@ export function ProfileClient({ profile, metrics }: { profile: Profile; metrics:
     setSuccess(false);
     if (!name.trim()) {
       setError("Name is required.");
+      return;
+    }
+    if (avatarUploading) {
+      setError("Please wait for the image to finish uploading.");
       return;
     }
     setLoading(true);
@@ -373,10 +359,11 @@ export function ProfileClient({ profile, metrics }: { profile: Profile; metrics:
                     <button
                       type="button"
                       onClick={() => fileInputRef.current?.click()}
-                      className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border-2 border-[#A020F0] text-[#A020F0] font-bold text-xs hover:bg-[#F3E8FF] active:scale-95 transition"
+                      disabled={avatarUploading}
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border-2 border-[#A020F0] text-[#A020F0] font-bold text-xs hover:bg-[#F3E8FF] active:scale-95 transition disabled:opacity-60 disabled:cursor-wait"
                     >
                       <Camera className="w-4 h-4" />
-                      {avatarUrl || pendingAvatar ? "Change Photo" : "Upload Photo"}
+                      {avatarUploading ? "Uploading…" : avatarUrl || pendingAvatar ? "Change Photo" : "Upload Photo"}
                     </button>
                     <p className="text-[10px] text-gray-400">JPG or PNG, up to 5MB.</p>
                   </div>
@@ -436,10 +423,10 @@ export function ProfileClient({ profile, metrics }: { profile: Profile; metrics:
                 </button>
                 <Button
                   type="submit"
-                  disabled={loading}
+                  disabled={loading || avatarUploading}
                   className="bg-[#ad1df4] hover:bg-[#8e14cc] text-white px-6 font-bold h-10 rounded-xl disabled:opacity-60"
                 >
-                  {loading ? "Saving…" : "Save Changes"}
+                  {loading ? "Saving…" : avatarUploading ? "Uploading…" : "Save Changes"}
                 </Button>
               </div>
             </form>

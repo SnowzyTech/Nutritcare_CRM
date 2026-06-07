@@ -30,31 +30,6 @@ type Profile = {
   teamName?: string | null;
 };
 
-function resizeImageToDataUrl(file: File, max = 256): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error("Failed to read file"));
-    reader.onload = () => {
-      const img = new window.Image();
-      img.onerror = () => reject(new Error("Failed to load image"));
-      img.onload = () => {
-        const scale = Math.min(max / img.width, max / img.height, 1);
-        const w = Math.round(img.width * scale);
-        const h = Math.round(img.height * scale);
-        const canvas = document.createElement("canvas");
-        canvas.width = w;
-        canvas.height = h;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return reject(new Error("Canvas not supported"));
-        ctx.drawImage(img, 0, 0, w, h);
-        resolve(canvas.toDataURL("image/jpeg", 0.85));
-      };
-      img.src = reader.result as string;
-    };
-    reader.readAsDataURL(file);
-  });
-}
-
 export function ProfileClient({ profile }: { profile: Profile }) {
   const nameParts = profile.name.split(" ");
   const [firstName, setFirstName] = useState(nameParts[0] || "");
@@ -64,7 +39,9 @@ export function ProfileClient({ profile }: { profile: Profile }) {
   const [avatarPreview, setAvatarPreview] = useState<string | null>(
     profile.avatarUrl ?? null
   );
-  const [avatarData, setAvatarData] = useState<string | null>(null);
+  // Holds the Cloudinary secure_url returned after a successful upload.
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [avatarUploading, setAvatarUploading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -93,12 +70,27 @@ export function ProfileClient({ profile }: { profile: Profile }) {
       toast.error("Image must be smaller than 5MB.");
       return;
     }
+    // Instant local preview while the upload runs.
+    setAvatarPreview(URL.createObjectURL(file));
+    setAvatarUploading(true);
     try {
-      const dataUrl = await resizeImageToDataUrl(file);
-      setAvatarPreview(dataUrl);
-      setAvatarData(dataUrl);
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/upload/avatar", { method: "POST", body: fd });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error ?? "Upload failed. Try another image.");
+        setAvatarPreview(profile.avatarUrl ?? null);
+        return;
+      }
+      // Store only the Cloudinary URL — that is what gets saved to the DB.
+      setAvatarUrl(data.url);
+      setAvatarPreview(data.url);
     } catch {
-      toast.error("Could not process that image. Try another one.");
+      toast.error("Upload failed. Please try again.");
+      setAvatarPreview(profile.avatarUrl ?? null);
+    } finally {
+      setAvatarUploading(false);
     }
   };
 
@@ -111,12 +103,16 @@ export function ProfileClient({ profile }: { profile: Profile }) {
       setError("First Name is required.");
       return;
     }
+    if (avatarUploading) {
+      setError("Please wait for the image to finish uploading.");
+      return;
+    }
     setLoading(true);
     const result = await updateProfileAction({
       name: fullName,
       phone: phone.trim() || undefined,
       whatsappNumber: whatsapp.trim() || undefined,
-      ...(avatarData ? { avatarUrl: avatarData } : {}),
+      ...(avatarUrl ? { avatarUrl } : {}),
     });
     setLoading(false);
     if ("error" in result) {
@@ -191,11 +187,16 @@ export function ProfileClient({ profile }: { profile: Profile }) {
 
               <button
                 type="button"
-                className="absolute bottom-1 right-1 w-9 h-9 rounded-full bg-white border border-gray-100 shadow-[0_4px_12px_rgba(0,0,0,0.08)] flex items-center justify-center text-gray-500 hover:text-[#AE00FF] hover:border-purple-200 transition-all active:scale-90"
+                disabled={avatarUploading}
+                className="absolute bottom-1 right-1 w-9 h-9 rounded-full bg-white border border-gray-100 shadow-[0_4px_12px_rgba(0,0,0,0.08)] flex items-center justify-center text-gray-500 hover:text-[#AE00FF] hover:border-purple-200 transition-all active:scale-90 disabled:opacity-60 disabled:cursor-wait"
                 title="Upload photo"
                 onClick={() => fileInputRef.current?.click()}
               >
-                <Upload className="w-4 h-4" />
+                {avatarUploading ? (
+                  <span className="w-4 h-4 border-2 border-gray-300 border-t-[#AE00FF] rounded-full animate-spin" />
+                ) : (
+                  <Upload className="w-4 h-4" />
+                )}
               </button>
             </div>
 
@@ -311,15 +312,16 @@ export function ProfileClient({ profile }: { profile: Profile }) {
                     <button
                       type="button"
                       onClick={() => fileInputRef.current?.click()}
-                      className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg border border-gray-200 text-xs font-bold text-gray-600 bg-white hover:bg-gray-50 active:scale-95 transition-all shadow-sm cursor-pointer"
+                      disabled={avatarUploading}
+                      className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg border border-gray-200 text-xs font-bold text-gray-600 bg-white hover:bg-gray-50 active:scale-95 transition-all shadow-sm cursor-pointer disabled:opacity-60 disabled:cursor-wait"
                     >
                       <Upload className="w-3.5 h-3.5 text-gray-400" />
-                      Upload Photo
+                      {avatarUploading ? "Uploading…" : "Upload Photo"}
                     </button>
-                    {avatarPreview && (
+                    {avatarPreview && !avatarUploading && (
                       <button
                         type="button"
-                        onClick={() => { setAvatarPreview(null); setAvatarData(null); }}
+                        onClick={() => { setAvatarPreview(null); setAvatarUrl(null); }}
                         className="text-xs font-bold text-red-500 hover:text-red-600 hover:underline px-2 py-1"
                       >
                         Remove
@@ -412,11 +414,11 @@ export function ProfileClient({ profile }: { profile: Profile }) {
               <div className="pt-2">
                 <button
                   type="submit"
-                  disabled={loading}
+                  disabled={loading || avatarUploading}
                   className="w-full flex items-center justify-center gap-2 bg-[#A020F0] hover:bg-[#8B1ED2] disabled:bg-purple-300 text-white text-sm font-bold py-3.5 px-6 rounded-2xl transition-all duration-200 shadow-md hover:shadow-purple-200/50 active:scale-[0.99] cursor-pointer"
                 >
                   <Save className="w-4 h-4 shrink-0" />
-                  {loading ? "Saving..." : "Save Changes"}
+                  {loading ? "Saving..." : avatarUploading ? "Uploading image..." : "Save Changes"}
                 </button>
               </div>
             </div>

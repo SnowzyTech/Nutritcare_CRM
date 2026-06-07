@@ -89,8 +89,9 @@ export default async function RepAnalyticsPage({
       value: `${current.cancellationRate}%`,
       trend: trends.cancellationRate,
     },
-    recoveryRate: { value: "—", trend: "—" },
-    kpi: { value: "—", trend: "—", target: "—" },
+    recoveryRate: { value: `${current.recoveryRate}%`, trend: trends.recoveryRate },
+    reorderRate: { value: `${current.reorderRate}%`, trend: trends.reorderRate },
+    kpi: { value: `${current.kpi}%`, trend: trends.kpi, target: "65%" },
     bestSellingTable: tables.bestSellingTable,
     upsellingTable: tables.upsellingTable,
   };
@@ -103,7 +104,6 @@ export default async function RepAnalyticsPage({
         repTeam: rep.team?.name ?? "No Team",
       }}
       data={data}
-      showReports={false}
     />
   );
 }

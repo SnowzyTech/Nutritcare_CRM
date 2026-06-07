@@ -2,8 +2,17 @@
 
 import React, { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { Search, SlidersHorizontal, ArrowUpDown, ChevronLeft } from "lucide-react";
+import { Search, SlidersHorizontal, ArrowUpDown, ChevronLeft, ChevronDown, CalendarDays } from "lucide-react";
 import { formatDate } from "@/lib/utils";
+import { Calendar } from "@/components/ui/calendar";
+
+/** Local YYYY-MM-DD (avoids UTC shift from toISOString). */
+function toYMD(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
 
 type OrderStatus = "PENDING" | "CONFIRMED" | "DELIVERED" | "CANCELLED" | "FAILED";
 
@@ -31,6 +40,7 @@ export type OrderCounts = {
 interface TeamOrdersClientProps {
   orders: TeamOrderListItem[];
   counts: OrderCounts;
+  products?: string[];
 }
 
 const STATUS_STYLES: Record<OrderStatus, { dot: string; bg: string; text: string; label: string }> = {
@@ -58,24 +68,27 @@ const NIGERIAN_STATES = [
   "Yobe","Zamfara",
 ];
 
-export function TeamOrdersClient({ orders, counts }: TeamOrdersClientProps) {
+export function TeamOrdersClient({ orders, counts, products = [] }: TeamOrdersClientProps) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<OrderStatus | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [dateFilter, setDateFilter] = useState("");
+  const [dateValue, setDateValue] = useState<Date | undefined>(undefined);
+  const [isDateOpen, setIsDateOpen] = useState(false);
   const [productFilter, setProductFilter] = useState("");
   const [stateFilter, setStateFilter] = useState("");
 
-  const uniqueProducts = useMemo(
-    () => Array.from(new Set(orders.map(o => o.product).filter(Boolean))).sort(),
-    [orders]
-  );
+  // Full catalog when provided; otherwise fall back to products seen in the orders.
+  const uniqueProducts = useMemo(() => {
+    if (products.length > 0) return products;
+    return Array.from(new Set(orders.map(o => o.product).filter(Boolean))).sort();
+  }, [products, orders]);
 
   const filteredOrders = useMemo(() => {
     let result = activeTab ? orders.filter(o => o.status === activeTab) : orders;
 
-    if (dateFilter) {
-      result = result.filter(o => o.date === dateFilter);
+    if (dateValue) {
+      const ymd = toYMD(dateValue);
+      result = result.filter(o => o.date === ymd);
     }
 
     if (productFilter) {
@@ -97,12 +110,12 @@ export function TeamOrdersClient({ orders, counts }: TeamOrdersClientProps) {
       );
     }
     return result;
-  }, [orders, activeTab, dateFilter, productFilter, stateFilter, searchQuery]);
+  }, [orders, activeTab, dateValue, productFilter, stateFilter, searchQuery]);
 
-  const hasActiveFilters = dateFilter || productFilter || stateFilter;
+  const hasActiveFilters = dateValue || productFilter || stateFilter;
 
   function clearFilters() {
-    setDateFilter("");
+    setDateValue(undefined);
     setProductFilter("");
     setStateFilter("");
   }
@@ -151,14 +164,37 @@ export function TeamOrdersClient({ orders, counts }: TeamOrdersClientProps) {
         </div>
 
         {/* Date */}
-        <div className="relative min-w-[140px]">
-          <input
-            type="date"
-            value={dateFilter}
-            onChange={e => setDateFilter(e.target.value)}
-            className="w-full appearance-none bg-gray-900 border border-gray-900 rounded-lg pl-4 pr-3 py-2 text-sm text-white font-medium outline-none hover:bg-gray-800 transition-colors cursor-pointer"
-            style={{ colorScheme: "dark" }}
-          />
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setIsDateOpen(o => !o)}
+            className="flex items-center gap-2 bg-gray-900 border border-gray-900 rounded-lg pl-4 pr-3 py-2 text-sm text-white font-medium hover:bg-gray-800 transition-colors cursor-pointer"
+          >
+            <CalendarDays size={14} />
+            <span>{dateValue ? formatDate(toYMD(dateValue)) : "Date"}</span>
+            <ChevronDown size={14} className={`transition-transform ${isDateOpen ? "rotate-180" : ""}`} />
+          </button>
+          {isDateOpen && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setIsDateOpen(false)} />
+              <div className="absolute left-0 top-full mt-2 bg-white border border-gray-100 rounded-xl shadow-2xl z-50 p-2">
+                <Calendar
+                  mode="single"
+                  selected={dateValue}
+                  onSelect={d => { setDateValue(d); setIsDateOpen(false); }}
+                  className="rounded-md border border-gray-200"
+                />
+                {dateValue && (
+                  <button
+                    onClick={() => { setDateValue(undefined); setIsDateOpen(false); }}
+                    className="w-full mt-2 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-700"
+                  >
+                    Clear date
+                  </button>
+                )}
+              </div>
+            </>
+          )}
         </div>
 
         {/* Product */}

@@ -1,17 +1,18 @@
 "use client";
 
 import { useState } from "react";
-import { getWeeklyAnalyticsAction } from "@/modules/orders/actions/orders.action";
+import { fetchRepWeeklyAnalytics } from "@/modules/data-analysis/actions/data-analysis.action";
 import type { MonthMetrics } from "@/modules/orders/services/analytics.service";
 import { downloadReportPdf, formatMonthLabel, formatWeekLabel } from "@/lib/analytics-report";
 
 type Props = {
+  repId: string;
+  repName: string;
   monthlyData: MonthMetrics;
   month: string; // "YYYY-MM"
-  salesRepName: string;
 };
 
-export function AnalyticsReportButtons({ monthlyData, month, salesRepName }: Props) {
+export function RepAnalyticsReportButtons({ repId, repName, monthlyData, month }: Props) {
   const [loading, setLoading] = useState<"weekly" | "monthly" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -19,7 +20,7 @@ export function AnalyticsReportButtons({ monthlyData, month, salesRepName }: Pro
     setLoading("monthly");
     setError(null);
     try {
-      await downloadReportPdf(monthlyData, "monthly", formatMonthLabel(month), salesRepName);
+      await downloadReportPdf(monthlyData, "monthly", formatMonthLabel(month), repName);
     } catch {
       setError("Failed to generate the PDF report. Please try again.");
     } finally {
@@ -31,12 +32,12 @@ export function AnalyticsReportButtons({ monthlyData, month, salesRepName }: Pro
     setLoading("weekly");
     setError(null);
     try {
-      const result = await getWeeklyAnalyticsAction();
+      const result = await fetchRepWeeklyAnalytics(repId);
       if ("error" in result) {
         setError(result.error);
         return;
       }
-      await downloadReportPdf(result, "weekly", formatWeekLabel(), salesRepName);
+      await downloadReportPdf(result, "weekly", formatWeekLabel(), repName);
     } catch {
       setError("Failed to generate the PDF report. Please try again.");
     } finally {
