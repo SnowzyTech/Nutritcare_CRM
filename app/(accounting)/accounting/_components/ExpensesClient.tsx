@@ -66,7 +66,8 @@ interface CategoryItem {
   id: string;
   name: string;
   financialStatement?: string | null;
-  expenseNames: { id: string; name: string }[];
+  accountClass?: number | null;
+  expenseNames: { id: string; name: string; code?: string }[];
 }
 
 interface ExpensesClientProps {
@@ -181,12 +182,7 @@ export function ExpensesClient({
 
   const [categories, setCategories] = useState<CategoryItem[]>(initialCategories ?? []);
   const [accounts, setAccounts] = useState<{ id: string; name: string; logoUrl?: string }[]>(
-    initialAccounts && initialAccounts.length > 0
-      ? initialAccounts
-      : [
-          { id: '__local-1', name: 'Gt Bank - 0123456789' },
-          { id: '__local-2', name: 'MoniePoint - 9876543210' },
-        ]
+    initialAccounts ?? []
   );
   const [suppliers, setSuppliers] = useState(initialSuppliers ?? initialSupplierData);
 
@@ -255,7 +251,7 @@ export function ExpensesClient({
   const [newCategoryName, setNewCategoryName] = useState('');
   const [newCategoryDesc, setNewCategoryDesc] = useState('');
   const [newFinancialStatement, setNewFinancialStatement] = useState('');
-  const [subCategoryInputs, setSubCategoryInputs] = useState<string[]>(['']);
+  const [subCategoryInputs, setSubCategoryInputs] = useState<{ code: string; name: string }[]>([{ code: '', name: '' }]);
 
   const [isAccountModalOpen, setAccountModalOpen] = useState(false);
   const [newAccount, setNewAccount] = useState({ accountNumber: '', bankName: '' });
@@ -264,7 +260,9 @@ export function ExpensesClient({
   const [newSupplier, setNewSupplier] = useState({ name: '', contact: '', balance: '' });
 
   const handleAddCategory = async () => {
-    const validSubs = subCategoryInputs.filter(s => s.trim());
+    const validSubs = subCategoryInputs
+      .filter(s => s.name.trim())
+      .map(s => ({ name: s.name.trim(), code: s.code.trim() || undefined }));
 
     if (isAddingNewCategory) {
       const name = newCategoryName.trim();
@@ -277,7 +275,8 @@ export function ExpensesClient({
         id: res.id!,
         name: res.name!,
         financialStatement: res.financialStatement ?? null,
-        expenseNames: res.expenseNames ?? [],
+        accountClass: res.accountClass ?? null,
+        expenseNames: (res.expenseNames ?? []).map(n => ({ id: n.id, name: n.name, code: n.code ?? undefined })),
       }]);
     } else {
       // Adding names to an existing category
@@ -290,7 +289,7 @@ export function ExpensesClient({
 
         setCategories(prev => prev.map(c =>
           c.id === existingCat.id
-            ? { ...c, expenseNames: [...c.expenseNames, ...(res.names ?? [])] }
+            ? { ...c, expenseNames: [...c.expenseNames, ...(res.names ?? []).map(n => ({ id: n.id, name: n.name, code: n.code ?? undefined }))] }
             : c
         ));
       }
@@ -301,7 +300,7 @@ export function ExpensesClient({
     setNewCategoryName('');
     setNewCategoryDesc('');
     setNewFinancialStatement('');
-    setSubCategoryInputs(['']);
+    setSubCategoryInputs([{ code: '', name: '' }]);
     setShowCategoryAdd(false);
   };
 
@@ -599,7 +598,7 @@ export function ExpensesClient({
                           >
                             <option value="">Please Select</option>
                             {expenseNames.map(n => (
-                              <option key={n.id} value={n.id}>{n.name}</option>
+                              <option key={n.id} value={n.id}>{n.code ? `${n.code} — ${n.name}` : n.name}</option>
                             ))}
                           </select>
                           <ChevronDown size={18} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
@@ -671,8 +670,8 @@ export function ExpensesClient({
                                 <SelectValue placeholder="Select financial statement..." />
                               </SelectTrigger>
                               <SelectContent className="rounded-2xl border-purple-50 shadow-xl z-[150]">
-                                <SelectItem value="Balance Sheet" className="rounded-xl py-3 px-4 focus:bg-purple-50">Balance Sheet</SelectItem>
-                                <SelectItem value="Cash Flow Statement" className="rounded-xl py-3 px-4 focus:bg-purple-50">Cash Flow Statement</SelectItem>
+                                <SelectItem value="Statement of Profit or Loss" className="rounded-xl py-3 px-4 focus:bg-purple-50">Statement of Profit or Loss</SelectItem>
+                                <SelectItem value="Statement of Financial Position" className="rounded-xl py-3 px-4 focus:bg-purple-50">Statement of Financial Position</SelectItem>
                               </SelectContent>
                             </Select>
                           </div>
@@ -699,24 +698,35 @@ export function ExpensesClient({
                         })()}
 
                         <div className="space-y-3">
-                          <label className="text-[13px] font-bold text-gray-500 uppercase tracking-wider">Account Name(s)</label>
+                          <label className="text-[13px] font-bold text-gray-500 uppercase tracking-wider">Account Code &amp; Name(s)</label>
                           <div className="space-y-3">
                             {subCategoryInputs.map((input, idx) => (
                               <div key={idx} className="flex gap-3 animate-in fade-in duration-200">
                                 <input
-                                  value={input}
+                                  value={input.code}
                                   onChange={e => {
                                     const next = [...subCategoryInputs];
-                                    next[idx] = e.target.value;
+                                    next[idx] = { ...next[idx], code: e.target.value };
                                     setSubCategoryInputs(next);
                                   }}
-                                  placeholder="Enter name..."
+                                  placeholder="Code"
+                                  inputMode="numeric"
+                                  className="w-[110px] h-[52px] px-4 bg-gray-50 border-0 rounded-2xl text-[14px] font-mono font-medium text-gray-700 focus:ring-2 focus:ring-purple-200"
+                                />
+                                <input
+                                  value={input.name}
+                                  onChange={e => {
+                                    const next = [...subCategoryInputs];
+                                    next[idx] = { ...next[idx], name: e.target.value };
+                                    setSubCategoryInputs(next);
+                                  }}
+                                  placeholder="Enter account name..."
                                   className="flex-1 h-[52px] px-5 bg-gray-50 border-0 rounded-2xl text-[14px] font-medium text-gray-700 focus:ring-2 focus:ring-purple-200"
                                 />
                                 {idx === subCategoryInputs.length - 1 && (
                                   <button
-                                    onClick={() => setSubCategoryInputs([...subCategoryInputs, ''])}
-                                    className="w-[52px] h-[52px] flex items-center justify-center bg-purple-50 text-purple-600 rounded-2xl hover:bg-purple-100 transition-colors"
+                                    onClick={() => setSubCategoryInputs([...subCategoryInputs, { code: '', name: '' }])}
+                                    className="w-[52px] h-[52px] flex items-center justify-center bg-purple-50 text-purple-600 rounded-2xl hover:bg-purple-100 transition-colors flex-shrink-0"
                                   >
                                     <span className="font-bold text-[24px]">+</span>
                                   </button>
@@ -724,7 +734,7 @@ export function ExpensesClient({
                                 {subCategoryInputs.length > 1 && (
                                   <button
                                     onClick={() => setSubCategoryInputs(subCategoryInputs.filter((_, i) => i !== idx))}
-                                    className="w-[52px] h-[52px] flex items-center justify-center bg-red-50 text-red-400 rounded-2xl hover:bg-red-100 transition-colors"
+                                    className="w-[52px] h-[52px] flex items-center justify-center bg-red-50 text-red-400 rounded-2xl hover:bg-red-100 transition-colors flex-shrink-0"
                                   >
                                     <X size={20} />
                                   </button>
@@ -732,6 +742,7 @@ export function ExpensesClient({
                               </div>
                             ))}
                           </div>
+                          <p className="text-[11px] text-gray-400">The code&apos;s first digit sets the class (e.g. 6 = Operating Expenses). Each code must be unique.</p>
                         </div>
 
                         <div className="flex items-center gap-4 pt-4 border-t border-gray-50">
@@ -742,7 +753,7 @@ export function ExpensesClient({
                             Save Category
                           </button>
                           <button
-                            onClick={() => { setShowCategoryAdd(false); setSubCategoryInputs(['']); }}
+                            onClick={() => { setShowCategoryAdd(false); setSubCategoryInputs([{ code: '', name: '' }]); }}
                             className="px-10 py-4 border border-gray-200 text-gray-400 rounded-2xl text-[15px] font-bold hover:bg-gray-50 transition-all"
                           >
                             Cancel

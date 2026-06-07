@@ -78,62 +78,129 @@ export async function createExpenseAction(input: z.infer<typeof createExpenseSch
   return { id: expense.id, referenceNumber };
 }
 
+// An account the accountant is adding to the chart: a display name plus an
+// optional account code (e.g. "6201"). The class (1-8) is derived from the code.
+export interface AccountInput {
+  name: string;
+  code?: string;
+}
+
+/** Derive the account class (1-8) from the leading digit of a code. */
+function classFromCode(code?: string | null): number | null {
+  if (!code) return null;
+  const d = parseInt(code.trim().charAt(0), 10);
+  return d >= 1 && d <= 8 ? d : null;
+}
+
+/** Returns codes that are already used by another account, so we can reject them. */
+async function findCodeConflicts(codes: string[]): Promise<string[]> {
+  if (codes.length === 0) return [];
+  const existing = await prisma.expenseName.findMany({
+    where: { code: { in: codes } },
+    select: { code: true },
+  });
+  return existing.map(e => e.code!).filter(Boolean);
+}
+
+/** Validates codes: no blanks-mixed-with-dupes within the batch, none already taken. */
+async function validateCodes(accounts: AccountInput[]): Promise<string | null> {
+  const codes = accounts.map(a => a.code?.trim()).filter((c): c is string => !!c);
+  const dupesInBatch = codes.filter((c, i) => codes.indexOf(c) !== i);
+  if (dupesInBatch.length) return `Duplicate code(s) in this entry: ${[...new Set(dupesInBatch)].join(", ")}`;
+  const taken = await findCodeConflicts(codes);
+  if (taken.length) return `Code(s) already in use: ${[...new Set(taken)].join(", ")}`;
+  return null;
+}
+
 export async function createExpenseCategoryAction(
   name: string,
   financialStatement?: string,
-  accountNames?: string[]
+  accounts?: AccountInput[]
 ) {
   const session = await auth();
   if (!session?.user?.id) return { error: "Unauthorized" };
   const trimmed = name.trim();
   if (!trimmed) return { error: "Name required" };
 
-  try {
-    const cat = await prisma.expenseCategory.create({
-      data: { name: trimmed, financialStatement: financialStatement?.trim() || null },
-    });
+  const valid = (accounts ?? []).filter(a => a.name.trim());
+  const codeError = await validateCodes(valid);
+  if (codeError) return { error: codeError };
 
-    const createdNames: { id: string; name: string }[] = [];
-    if (accountNames?.length) {
-      const validNames = accountNames.filter(n => n.trim());
-      const results = await Promise.all(
-        validNames.map(n =>
-          prisma.expenseName.create({ data: { name: n.trim(), expenseCategoryId: cat.id } })
-        )
-      );
-      createdNames.push(...results.map(r => ({ id: r.id, name: r.name })));
-    }
+  const fs = financialStatement?.trim() || null;
+  // The category's class is inferred from the first coded account in it.
+  const catClass = valid.map(a => classFromCode(a.code)).find(c => c != null) ?? null;
+
+  try {
+    const result = await prisma.$transaction(async tx => {
+      const cat = await tx.expenseCategory.create({
+        data: { name: trimmed, financialStatement: fs, accountClass: catClass },
+      });
+      const createdNames: { id: string; name: string; code: string | null }[] = [];
+      for (const a of valid) {
+        const code = a.code?.trim() || null;
+        const r = await tx.expenseName.create({
+          data: {
+            name: a.name.trim(),
+            expenseCategoryId: cat.id,
+            code,
+            accountClass: classFromCode(code) ?? catClass,
+            financialStatement: fs,
+          },
+        });
+        createdNames.push({ id: r.id, name: r.name, code: r.code });
+      }
+      return { cat, createdNames };
+    });
 
     revalidatePath("/accounting/expenses");
     revalidatePath("/accounting/accounting-ledger");
-    return { id: cat.id, name: cat.name, financialStatement: cat.financialStatement, expenseNames: createdNames };
+    return {
+      id: result.cat.id,
+      name: result.cat.name,
+      financialStatement: result.cat.financialStatement,
+      accountClass: result.cat.accountClass,
+      expenseNames: result.createdNames,
+    };
   } catch {
     return { error: "Category already exists" };
   }
 }
 
-export async function addExpenseNamesToCategoryAction(categoryId: string, names: string[]) {
+export async function addExpenseNamesToCategoryAction(categoryId: string, accounts: AccountInput[]) {
   const session = await auth();
   if (!session?.user?.id) return { error: "Unauthorized" };
 
-  const validNames = names.filter(n => n.trim());
-  if (!validNames.length) return { error: "At least one name required" };
+  const valid = accounts.filter(a => a.name.trim());
+  if (!valid.length) return { error: "At least one name required" };
+
+  const codeError = await validateCodes(valid);
+  if (codeError) return { error: codeError };
+
+  const category = await prisma.expenseCategory.findUnique({ where: { id: categoryId } });
+  if (!category) return { error: "Category not found" };
 
   try {
-    const results = await Promise.all(
-      validNames.map(n =>
-        prisma.expenseName.upsert({
-          where: { name_expenseCategoryId: { name: n.trim(), expenseCategoryId: categoryId } },
-          update: {},
-          create: { name: n.trim(), expenseCategoryId: categoryId },
-        })
-      )
+    const results = await prisma.$transaction(
+      valid.map(a => {
+        const code = a.code?.trim() || null;
+        return prisma.expenseName.upsert({
+          where: { name_expenseCategoryId: { name: a.name.trim(), expenseCategoryId: categoryId } },
+          update: { code, accountClass: classFromCode(code) ?? category.accountClass },
+          create: {
+            name: a.name.trim(),
+            expenseCategoryId: categoryId,
+            code,
+            accountClass: classFromCode(code) ?? category.accountClass,
+            financialStatement: category.financialStatement,
+          },
+        });
+      })
     );
     revalidatePath("/accounting/expenses");
     revalidatePath("/accounting/accounting-ledger");
-    return { names: results.map(r => ({ id: r.id, name: r.name })) };
+    return { names: results.map(r => ({ id: r.id, name: r.name, code: r.code })) };
   } catch {
-    return { error: "Failed to add names" };
+    return { error: "Failed to add accounts (a code may already be in use)" };
   }
 }
 

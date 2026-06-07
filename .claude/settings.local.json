@@ -59,7 +59,12 @@
       "PowerShell($out = npx tsc --noEmit 2>&1 | Out-String; \\($out -split \"`n\" | Where-Object { $_ -match \"error TS\" }\\).Count)",
       "PowerShell($out = npx tsc --noEmit 2>&1 | Out-String; \\($out -split \"`n\" | Where-Object { $_ -match \"error TS\" }\\).Count; \"----\"; $out -split \"`n\" | Where-Object { $_ -match \"error TS\" })",
       "Bash(npx tsx *)",
-      "Bash(Select-String -Pattern \"sales-record\")"
+      "Bash(Select-String -Pattern \"sales-record\")",
+      "Bash(python -c \"import openpyxl; print\\('openpyxl ok'\\)\")",
+      "Bash(git --no-pager log --oneline -5)",
+      "Bash(powershell -Command \"Get-Content prisma/seed.ts -TotalCount 20\")",
+      "Bash(node -e \"const p=require\\('./package.json'\\); console.log\\(JSON.stringify\\(p.scripts,null,1\\)\\); console.log\\('tsx:', \\(p.devDependencies||{}\\).tsx || \\(p.dependencies||{}\\).tsx\\)\")",
+      "Bash(powershell -Command \"if \\(Test-Path MEMORY.md\\) { Get-Content MEMORY.md } else { 'NO MEMORY.md' }\")"
     ]
   }
 }

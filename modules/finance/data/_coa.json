@@ -1,0 +1,1325 @@
+[
+  {
+    "code": "1000",
+    "accountClass": 1,
+    "group": "CURRENT ASSETS",
+    "accountName": "Cash & Bank Balances",
+    "accountType": "Current Asset",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "1001",
+    "accountClass": 1,
+    "group": "CURRENT ASSETS",
+    "accountName": "Petty Cash",
+    "accountType": "Current Asset",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "1002",
+    "accountClass": 1,
+    "group": "CURRENT ASSETS",
+    "accountName": "Zenith Bank — Operations Account",
+    "accountType": "Current Asset",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "1003",
+    "accountClass": 1,
+    "group": "CURRENT ASSETS",
+    "accountName": "Moniepoint Account — Revenue Account",
+    "accountType": "Current Asset",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "1004",
+    "accountClass": 1,
+    "group": "CURRENT ASSETS",
+    "accountName": "Other Bank Accounts",
+    "accountType": "Current Asset",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "1100",
+    "accountClass": 1,
+    "group": "CURRENT ASSETS",
+    "accountName": "Accounts Receivable (Trade Debtors)",
+    "accountType": "Current Asset",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "1106",
+    "accountClass": 1,
+    "group": "CURRENT ASSETS",
+    "accountName": "Allowance for Doubtful Debts",
+    "accountType": "Current Asset",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "1200",
+    "accountClass": 1,
+    "group": "CURRENT ASSETS",
+    "accountName": "Inventory — Finished Goods",
+    "accountType": "Current Asset",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "1201",
+    "accountClass": 1,
+    "group": "CURRENT ASSETS",
+    "accountName": "Inventory — Neuro-Vive Balm",
+    "accountType": "Current Asset",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "1202",
+    "accountClass": 1,
+    "group": "CURRENT ASSETS",
+    "accountName": "Inventory — Trim & Tone Tea",
+    "accountType": "Current Asset",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "1203",
+    "accountClass": 1,
+    "group": "CURRENT ASSETS",
+    "accountName": "Inventory — Shred Belly Tea",
+    "accountType": "Current Asset",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "1204",
+    "accountClass": 1,
+    "group": "CURRENT ASSETS",
+    "accountName": "Inventory — Prosxact Pack",
+    "accountType": "Current Asset",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "1205",
+    "accountClass": 1,
+    "group": "CURRENT ASSETS",
+    "accountName": "Inventory — Afternatal Tea",
+    "accountType": "Current Asset",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "1206",
+    "accountClass": 1,
+    "group": "CURRENT ASSETS",
+    "accountName": "Inventory — Fonio Mill",
+    "accountType": "Current Asset",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "1207",
+    "accountClass": 1,
+    "group": "CURRENT ASSETS",
+    "accountName": "Inventory — Nivel Mor Tea",
+    "accountType": "Current Asset",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "1208",
+    "accountClass": 1,
+    "group": "CURRENT ASSETS",
+    "accountName": "Inventory — Vitorep Plus",
+    "accountType": "Current Asset",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "1300",
+    "accountClass": 1,
+    "group": "CURRENT ASSETS",
+    "accountName": "Prepaid Expenses",
+    "accountType": "Current Asset",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "1301",
+    "accountClass": 1,
+    "group": "CURRENT ASSETS",
+    "accountName": "Prepaid Rent",
+    "accountType": "Current Asset",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "1302",
+    "accountClass": 1,
+    "group": "CURRENT ASSETS",
+    "accountName": "Prepaid Insurance",
+    "accountType": "Current Asset",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "1303",
+    "accountClass": 1,
+    "group": "CURRENT ASSETS",
+    "accountName": "Prepaid Advertising",
+    "accountType": "Current Asset",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "1400",
+    "accountClass": 1,
+    "group": "CURRENT ASSETS",
+    "accountName": "Other Current Assets",
+    "accountType": "Current Asset",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "1401",
+    "accountClass": 1,
+    "group": "CURRENT ASSETS",
+    "accountName": "Staff Advances",
+    "accountType": "Current Asset",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "1402",
+    "accountClass": 1,
+    "group": "CURRENT ASSETS",
+    "accountName": "VAT Receivable / Input VAT",
+    "accountType": "Current Asset",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "1403",
+    "accountClass": 1,
+    "group": "CURRENT ASSETS",
+    "accountName": "Deposits & Retentions",
+    "accountType": "Current Asset",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "1500",
+    "accountClass": 1,
+    "group": "NON-CURRENT ASSETS",
+    "accountName": "Property, Plant & Equipment — Cost",
+    "accountType": "Non-Current Asset",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "1501",
+    "accountClass": 1,
+    "group": "NON-CURRENT ASSETS",
+    "accountName": "Machinery & Production Equipment",
+    "accountType": "Non-Current Asset",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "1502",
+    "accountClass": 1,
+    "group": "NON-CURRENT ASSETS",
+    "accountName": "Office Furniture & Fittings",
+    "accountType": "Non-Current Asset",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "1503",
+    "accountClass": 1,
+    "group": "NON-CURRENT ASSETS",
+    "accountName": "Computer & IT Equipment",
+    "accountType": "Non-Current Asset",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "1504",
+    "accountClass": 1,
+    "group": "NON-CURRENT ASSETS",
+    "accountName": "Motor Vehicles",
+    "accountType": "Non-Current Asset",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "1505",
+    "accountClass": 1,
+    "group": "NON-CURRENT ASSETS",
+    "accountName": "Leasehold Improvements",
+    "accountType": "Non-Current Asset",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "1600",
+    "accountClass": 1,
+    "group": "NON-CURRENT ASSETS",
+    "accountName": "Accumulated Depreciation",
+    "accountType": "Non-Current Asset",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "1700",
+    "accountClass": 1,
+    "group": "NON-CURRENT ASSETS",
+    "accountName": "Intangible Assets — Branding / IP",
+    "accountType": "Non-Current Asset",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "1701",
+    "accountClass": 1,
+    "group": "NON-CURRENT ASSETS",
+    "accountName": "Trademark & Brand Registration",
+    "accountType": "Non-Current Asset",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "1702",
+    "accountClass": 1,
+    "group": "NON-CURRENT ASSETS",
+    "accountName": "Website & Digital Assets",
+    "accountType": "Non-Current Asset",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "1703",
+    "accountClass": 1,
+    "group": "NON-CURRENT ASSETS",
+    "accountName": "Accumulated Amortisation — Intangibles",
+    "accountType": "Non-Current Asset",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "1800",
+    "accountClass": 1,
+    "group": "NON-CURRENT ASSETS",
+    "accountName": "Long-term Deposits",
+    "accountType": "Non-Current Asset",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "2000",
+    "accountClass": 2,
+    "group": "CURRENT LIABILITIES",
+    "accountName": "Accounts Payable (Trade Creditors)",
+    "accountType": "Current Liability",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "2001",
+    "accountClass": 2,
+    "group": "CURRENT LIABILITIES",
+    "accountName": "Trade Creditors — 0–30 Days",
+    "accountType": "Current Liability",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "2002",
+    "accountClass": 2,
+    "group": "CURRENT LIABILITIES",
+    "accountName": "Trade Creditors — 31–60 Days",
+    "accountType": "Current Liability",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "2003",
+    "accountClass": 2,
+    "group": "CURRENT LIABILITIES",
+    "accountName": "Trade Creditors — 61–90 Days",
+    "accountType": "Current Liability",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "2004",
+    "accountClass": 2,
+    "group": "CURRENT LIABILITIES",
+    "accountName": "Trade Creditors — 120+ Days",
+    "accountType": "Current Liability",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "2100",
+    "accountClass": 2,
+    "group": "CURRENT LIABILITIES",
+    "accountName": "Accrued Expenses",
+    "accountType": "Current Liability",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "2101",
+    "accountClass": 2,
+    "group": "CURRENT LIABILITIES",
+    "accountName": "Accrued Salaries & Wages",
+    "accountType": "Current Liability",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "2102",
+    "accountClass": 2,
+    "group": "CURRENT LIABILITIES",
+    "accountName": "Accrued Commission Payable",
+    "accountType": "Current Liability",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "2103",
+    "accountClass": 2,
+    "group": "CURRENT LIABILITIES",
+    "accountName": "Accrued Delivery Costs",
+    "accountType": "Current Liability",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "2104",
+    "accountClass": 2,
+    "group": "CURRENT LIABILITIES",
+    "accountName": "Accrued Logistics & Courier",
+    "accountType": "Current Liability",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "2105",
+    "accountClass": 2,
+    "group": "CURRENT LIABILITIES",
+    "accountName": "Other Accrued Expenses",
+    "accountType": "Current Liability",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "2200",
+    "accountClass": 2,
+    "group": "CURRENT LIABILITIES",
+    "accountName": "Deferred Revenue",
+    "accountType": "Current Liability",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "2201",
+    "accountClass": 2,
+    "group": "CURRENT LIABILITIES",
+    "accountName": "Deferred Revenue — Online Orders",
+    "accountType": "Current Liability",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "2300",
+    "accountClass": 2,
+    "group": "CURRENT LIABILITIES",
+    "accountName": "VAT / Tax Payable",
+    "accountType": "Current Liability",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "2301",
+    "accountClass": 2,
+    "group": "CURRENT LIABILITIES",
+    "accountName": "VAT Output Tax Payable",
+    "accountType": "Current Liability",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "2302",
+    "accountClass": 2,
+    "group": "CURRENT LIABILITIES",
+    "accountName": "Company Income Tax Payable",
+    "accountType": "Current Liability",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "2303",
+    "accountClass": 2,
+    "group": "CURRENT LIABILITIES",
+    "accountName": "PAYE Tax Payable",
+    "accountType": "Current Liability",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "2304",
+    "accountClass": 2,
+    "group": "CURRENT LIABILITIES",
+    "accountName": "Pension Payable (PFA)",
+    "accountType": "Current Liability",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "2400",
+    "accountClass": 2,
+    "group": "CURRENT LIABILITIES",
+    "accountName": "Short-term Loans",
+    "accountType": "Current Liability",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "2401",
+    "accountClass": 2,
+    "group": "CURRENT LIABILITIES",
+    "accountName": "Bank Overdraft",
+    "accountType": "Current Liability",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "2402",
+    "accountClass": 2,
+    "group": "CURRENT LIABILITIES",
+    "accountName": "Short-term Loan",
+    "accountType": "Current Liability",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "2403",
+    "accountClass": 2,
+    "group": "CURRENT LIABILITIES",
+    "accountName": "Director Loan Account",
+    "accountType": "Current Liability",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "2500",
+    "accountClass": 2,
+    "group": "NON-CURRENT LIABILITIES",
+    "accountName": "Long-term Loans / Borrowings",
+    "accountType": "Non-Current Liability",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "2501",
+    "accountClass": 2,
+    "group": "NON-CURRENT LIABILITIES",
+    "accountName": "Bank Term Loan",
+    "accountType": "Non-Current Liability",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "2502",
+    "accountClass": 2,
+    "group": "NON-CURRENT LIABILITIES",
+    "accountName": "External Investor Loan",
+    "accountType": "Non-Current Liability",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "2600",
+    "accountClass": 2,
+    "group": "NON-CURRENT LIABILITIES",
+    "accountName": "Deferred Tax Liability",
+    "accountType": "Non-Current Liability",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "3000",
+    "accountClass": 3,
+    "group": "Equity",
+    "accountName": "Share Capital",
+    "accountType": "Equity",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "3001",
+    "accountClass": 3,
+    "group": "Equity",
+    "accountName": "Ordinary Share Capital",
+    "accountType": "Equity",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "3100",
+    "accountClass": 3,
+    "group": "Equity",
+    "accountName": "Retained Earnings (Opening)",
+    "accountType": "Equity",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "3200",
+    "accountClass": 3,
+    "group": "Equity",
+    "accountName": "Net Profit / (Loss) for Period",
+    "accountType": "Equity",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "3300",
+    "accountClass": 3,
+    "group": "Equity",
+    "accountName": "Other Comprehensive Income",
+    "accountType": "Equity",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "3400",
+    "accountClass": 3,
+    "group": "Equity",
+    "accountName": "Drawings / Dividends Paid",
+    "accountType": "Equity",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Financial Position"
+  },
+  {
+    "code": "4000",
+    "accountClass": 4,
+    "group": "PRODUCT REVENUE",
+    "accountName": "Revenue — Neuro-Vive Balm",
+    "accountType": "Revenue",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "4001",
+    "accountClass": 4,
+    "group": "PRODUCT REVENUE",
+    "accountName": "Revenue — Trim & Tone Tea (Regular)",
+    "accountType": "Revenue",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "4002",
+    "accountClass": 4,
+    "group": "PRODUCT REVENUE",
+    "accountName": "Revenue — Trim & Tone Tea (Standard)",
+    "accountType": "Revenue",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "4003",
+    "accountClass": 4,
+    "group": "PRODUCT REVENUE",
+    "accountName": "Revenue — Trim & Tone Tea (Premium)",
+    "accountType": "Revenue",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "4004",
+    "accountClass": 4,
+    "group": "PRODUCT REVENUE",
+    "accountName": "Revenue — Trim & Tone Tea (Ultimate)",
+    "accountType": "Revenue",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "4010",
+    "accountClass": 4,
+    "group": "PRODUCT REVENUE",
+    "accountName": "Revenue — Shred Belly Tea (Irregular)",
+    "accountType": "Revenue",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "4011",
+    "accountClass": 4,
+    "group": "PRODUCT REVENUE",
+    "accountName": "Revenue — Shred Belly Tea (Regular)",
+    "accountType": "Revenue",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "4012",
+    "accountClass": 4,
+    "group": "PRODUCT REVENUE",
+    "accountName": "Revenue — Shred Belly Tea (Standard)",
+    "accountType": "Revenue",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "4013",
+    "accountClass": 4,
+    "group": "PRODUCT REVENUE",
+    "accountName": "Revenue — Shred Belly Tea (Premium)",
+    "accountType": "Revenue",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "4020",
+    "accountClass": 4,
+    "group": "PRODUCT REVENUE",
+    "accountName": "Revenue — Prosxact Pack (1pc)",
+    "accountType": "Revenue",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "4021",
+    "accountClass": 4,
+    "group": "PRODUCT REVENUE",
+    "accountName": "Revenue — Prosxact Pack (3pcs)",
+    "accountType": "Revenue",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "4022",
+    "accountClass": 4,
+    "group": "PRODUCT REVENUE",
+    "accountName": "Revenue — Prosxact Pack (5pcs)",
+    "accountType": "Revenue",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "4023",
+    "accountClass": 4,
+    "group": "PRODUCT REVENUE",
+    "accountName": "Revenue — Prosxact Pack (7pcs)",
+    "accountType": "Revenue",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "4024",
+    "accountClass": 4,
+    "group": "PRODUCT REVENUE",
+    "accountName": "Revenue — Prosxact Pack (10pcs)",
+    "accountType": "Revenue",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "4030",
+    "accountClass": 4,
+    "group": "PRODUCT REVENUE",
+    "accountName": "Revenue — Afternatal Tea",
+    "accountType": "Revenue",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "4040",
+    "accountClass": 4,
+    "group": "PRODUCT REVENUE",
+    "accountName": "Revenue — Fonio Mill",
+    "accountType": "Revenue",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "4050",
+    "accountClass": 4,
+    "group": "PRODUCT REVENUE",
+    "accountName": "Revenue — Nivel Mor Tea",
+    "accountType": "Revenue",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "4060",
+    "accountClass": 4,
+    "group": "PRODUCT REVENUE",
+    "accountName": "Revenue — Vitorep Plus",
+    "accountType": "Revenue",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "4070",
+    "accountClass": 4,
+    "group": "COMBO / BUNDLE REVENUE",
+    "accountName": "Revenue — Combo: Trim+Tone & Neuro-Vive",
+    "accountType": "Revenue",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "4071",
+    "accountClass": 4,
+    "group": "COMBO / BUNDLE REVENUE",
+    "accountName": "Revenue — Combo: Prosxact & Vitorep Plus",
+    "accountType": "Revenue",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "4072",
+    "accountClass": 4,
+    "group": "COMBO / BUNDLE REVENUE",
+    "accountName": "Revenue — Combo: Neuro-Vive & Nivel Mor",
+    "accountType": "Revenue",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "4080",
+    "accountClass": 4,
+    "group": "COMBO / BUNDLE REVENUE",
+    "accountName": "Revenue — Other Combo Bundles",
+    "accountType": "Revenue",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "4900",
+    "accountClass": 4,
+    "group": "OTHER INCOME",
+    "accountName": "Other Income — Miscellaneous",
+    "accountType": "Revenue",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "4901",
+    "accountClass": 4,
+    "group": "OTHER INCOME",
+    "accountName": "Interest Income",
+    "accountType": "Revenue",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "4902",
+    "accountClass": 4,
+    "group": "OTHER INCOME",
+    "accountName": "Gain on Asset Disposal",
+    "accountType": "Revenue",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "4903",
+    "accountClass": 4,
+    "group": "OTHER INCOME",
+    "accountName": "Discount Received (from Suppliers)",
+    "accountType": "Revenue",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "5000",
+    "accountClass": 5,
+    "group": "Cost of Sales",
+    "accountName": "COGS — Neuro-Vive Balm",
+    "accountType": "Cost of Sales",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "5001",
+    "accountClass": 5,
+    "group": "Cost of Sales",
+    "accountName": "COGS — Trim & Tone Tea",
+    "accountType": "Cost of Sales",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "5002",
+    "accountClass": 5,
+    "group": "Cost of Sales",
+    "accountName": "COGS — Shred Belly Tea",
+    "accountType": "Cost of Sales",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "5003",
+    "accountClass": 5,
+    "group": "Cost of Sales",
+    "accountName": "COGS — Prosxact Pack",
+    "accountType": "Cost of Sales",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "5004",
+    "accountClass": 5,
+    "group": "Cost of Sales",
+    "accountName": "COGS — Afternatal Tea",
+    "accountType": "Cost of Sales",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "5005",
+    "accountClass": 5,
+    "group": "Cost of Sales",
+    "accountName": "COGS — Fonio Mill",
+    "accountType": "Cost of Sales",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "5006",
+    "accountClass": 5,
+    "group": "Cost of Sales",
+    "accountName": "COGS — Nivel Mor Tea",
+    "accountType": "Cost of Sales",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "5007",
+    "accountClass": 5,
+    "group": "Cost of Sales",
+    "accountName": "COGS — Vitorep Plus",
+    "accountType": "Cost of Sales",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "5100",
+    "accountClass": 5,
+    "group": "Cost of Sales",
+    "accountName": "Delivery Cost (80+ Agents)",
+    "accountType": "Cost of Sales",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "5101",
+    "accountClass": 5,
+    "group": "Cost of Sales",
+    "accountName": "Delivery Cost — Neuro-Vive Balm",
+    "accountType": "Cost of Sales",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "5102",
+    "accountClass": 5,
+    "group": "Cost of Sales",
+    "accountName": "Delivery Cost — Trim & Tone Tea",
+    "accountType": "Cost of Sales",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "5103",
+    "accountClass": 5,
+    "group": "Cost of Sales",
+    "accountName": "Delivery Cost — Shred Belly Tea",
+    "accountType": "Cost of Sales",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "5104",
+    "accountClass": 5,
+    "group": "Cost of Sales",
+    "accountName": "Delivery Cost — Prosxact Pack",
+    "accountType": "Cost of Sales",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "5105",
+    "accountClass": 5,
+    "group": "Cost of Sales",
+    "accountName": "Delivery Cost — Afternatal Tea",
+    "accountType": "Cost of Sales",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "5106",
+    "accountClass": 5,
+    "group": "Cost of Sales",
+    "accountName": "Delivery Cost — Fonio Mill",
+    "accountType": "Cost of Sales",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "5107",
+    "accountClass": 5,
+    "group": "Cost of Sales",
+    "accountName": "Delivery Cost — Nivel Mor Tea",
+    "accountType": "Cost of Sales",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "5108",
+    "accountClass": 5,
+    "group": "Cost of Sales",
+    "accountName": "Delivery Cost — Vitorep Plus",
+    "accountType": "Cost of Sales",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "5200",
+    "accountClass": 5,
+    "group": "Cost of Sales",
+    "accountName": "Waybill Charges",
+    "accountType": "Cost of Sales",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "6000",
+    "accountClass": 6,
+    "group": "SELLING & DISTRIBUTION",
+    "accountName": "Advertising & Digital Marketing",
+    "accountType": "Operating Expense",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "6001",
+    "accountClass": 6,
+    "group": "SELLING & DISTRIBUTION",
+    "accountName": "Facebook Ads",
+    "accountType": "Operating Expense",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "6004",
+    "accountClass": 6,
+    "group": "SELLING & DISTRIBUTION",
+    "accountName": "Advertisement & Marketing Tools",
+    "accountType": "Operating Expense",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "6010",
+    "accountClass": 6,
+    "group": "SELLING & DISTRIBUTION",
+    "accountName": "Logistics & Courier",
+    "accountType": "Operating Expense",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "6020",
+    "accountClass": 6,
+    "group": "SELLING & DISTRIBUTION",
+    "accountName": "Commission Expense",
+    "accountType": "Operating Expense",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "6100",
+    "accountClass": 6,
+    "group": "PERSONNEL COSTS",
+    "accountName": "Salaries & Wages",
+    "accountType": "Operating Expense",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "6101",
+    "accountClass": 6,
+    "group": "PERSONNEL COSTS",
+    "accountName": "Basic Salary",
+    "accountType": "Operating Expense",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "6102",
+    "accountClass": 6,
+    "group": "PERSONNEL COSTS",
+    "accountName": "Housing Allowance",
+    "accountType": "Operating Expense",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "6103",
+    "accountClass": 6,
+    "group": "PERSONNEL COSTS",
+    "accountName": "Transport Allowance",
+    "accountType": "Operating Expense",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "6104",
+    "accountClass": 6,
+    "group": "PERSONNEL COSTS",
+    "accountName": "Other Allowances",
+    "accountType": "Operating Expense",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "6110",
+    "accountClass": 6,
+    "group": "PERSONNEL COSTS",
+    "accountName": "Pension Contribution (Employer)",
+    "accountType": "Operating Expense",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "6120",
+    "accountClass": 6,
+    "group": "PERSONNEL COSTS",
+    "accountName": "Staff Training & Development",
+    "accountType": "Operating Expense",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "6200",
+    "accountClass": 6,
+    "group": "ADMINISTRATIVE EXPENSES",
+    "accountName": "Rent Expense",
+    "accountType": "Operating Expense",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "6210",
+    "accountClass": 6,
+    "group": "ADMINISTRATIVE EXPENSES",
+    "accountName": "Office Maintenance",
+    "accountType": "Operating Expense",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "6220",
+    "accountClass": 6,
+    "group": "ADMINISTRATIVE EXPENSES",
+    "accountName": "Office Supplies",
+    "accountType": "Operating Expense",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "6230",
+    "accountClass": 6,
+    "group": "ADMINISTRATIVE EXPENSES",
+    "accountName": "Waste Disposal",
+    "accountType": "Operating Expense",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "6240",
+    "accountClass": 6,
+    "group": "ADMINISTRATIVE EXPENSES",
+    "accountName": "Internet & Connectivity",
+    "accountType": "Operating Expense",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "6250",
+    "accountClass": 6,
+    "group": "ADMINISTRATIVE EXPENSES",
+    "accountName": "Fuel & Diesel",
+    "accountType": "Operating Expense",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "6260",
+    "accountClass": 6,
+    "group": "ADMINISTRATIVE EXPENSES",
+    "accountName": "Transportation",
+    "accountType": "Operating Expense",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "6270",
+    "accountClass": 6,
+    "group": "ADMINISTRATIVE EXPENSES",
+    "accountName": "Sundry Expenses",
+    "accountType": "Operating Expense",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "6280",
+    "accountClass": 6,
+    "group": "ADMINISTRATIVE EXPENSES",
+    "accountName": "Miscellaneous / Office Expenses",
+    "accountType": "Operating Expense",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "6290",
+    "accountClass": 6,
+    "group": "ADMINISTRATIVE EXPENSES",
+    "accountName": "Compliance & Regulatory",
+    "accountType": "Operating Expense",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "6300",
+    "accountClass": 6,
+    "group": "DEPRECIATION & AMORTISATION",
+    "accountName": "Depreciation",
+    "accountType": "Operating Expense",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "6400",
+    "accountClass": 6,
+    "group": "RESEARCH & DEVELOPMENT",
+    "accountName": "Research & Development Expense",
+    "accountType": "Operating Expense",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "6401",
+    "accountClass": 6,
+    "group": "RESEARCH & DEVELOPMENT",
+    "accountName": "Product R&D",
+    "accountType": "Operating Expense",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "6402",
+    "accountClass": 6,
+    "group": "RESEARCH & DEVELOPMENT",
+    "accountName": "Market Research",
+    "accountType": "Operating Expense",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "7000",
+    "accountClass": 7,
+    "group": "Finance Income / Costs",
+    "accountName": "Interest Expense — Bank Loans",
+    "accountType": "Finance Cost",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "7001",
+    "accountClass": 7,
+    "group": "Finance Income / Costs",
+    "accountName": "Interest Expense — Overdraft",
+    "accountType": "Finance Cost",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "7002",
+    "accountClass": 7,
+    "group": "Finance Income / Costs",
+    "accountName": "Bank Charges & Fees",
+    "accountType": "Finance Cost",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "7100",
+    "accountClass": 7,
+    "group": "Finance Income / Costs",
+    "accountName": "Interest Income",
+    "accountType": "Finance Income",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "7200",
+    "accountClass": 7,
+    "group": "Finance Income / Costs",
+    "accountName": "Exchange Gains / (Losses)",
+    "accountType": "Finance Income/(Cost)",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "8000",
+    "accountClass": 8,
+    "group": "Taxation",
+    "accountName": "Income Tax Expense",
+    "accountType": "Tax",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "8001",
+    "accountClass": 8,
+    "group": "Taxation",
+    "accountName": "Deferred Tax Expense / (Credit)",
+    "accountType": "Tax",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "8100",
+    "accountClass": 8,
+    "group": "Taxation",
+    "accountName": "VAT — Output Tax",
+    "accountType": "Tax",
+    "normalBalance": "Credit",
+    "financialStatement": "Statement of Profit or Loss"
+  },
+  {
+    "code": "8101",
+    "accountClass": 8,
+    "group": "Taxation",
+    "accountName": "VAT — Input Tax Recovered",
+    "accountType": "Tax",
+    "normalBalance": "Debit",
+    "financialStatement": "Statement of Profit or Loss"
+  }
+]

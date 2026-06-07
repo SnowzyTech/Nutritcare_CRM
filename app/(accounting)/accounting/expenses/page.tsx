@@ -7,6 +7,7 @@ import {
   nextExpenseReference,
 } from "@/modules/finance/services/expenses.service";
 import { listSuppliers } from "@/modules/finance/services/suppliers.service";
+import { EXPENSE_CLASSES } from "@/modules/finance/data/chart-of-accounts";
 
 export default async function ExpensesPage() {
   const [expenses, categories, accounts, suppliers, nextRef] = await Promise.all([
@@ -53,14 +54,23 @@ export default async function ExpensesPage() {
     balance: "₦0",
   }));
 
+  // Expense Entry only deals with expense-type accounts (Cost of Sales,
+  // Operating Expenses, Finance Costs, Tax). Categories without a class (custom
+  // ones added in-app) are kept so they remain usable.
+  const expenseClasses = EXPENSE_CLASSES as readonly number[];
+  const expenseCategories = categories.filter(
+    c => c.accountClass == null || expenseClasses.includes(c.accountClass),
+  );
+
   return (
     <ExpensesClient
       initialHistory={initialHistory}
-      initialCategories={categories.map(c => ({
+      initialCategories={expenseCategories.map(c => ({
         id: c.id,
         name: c.name,
         financialStatement: c.financialStatement,
-        expenseNames: c.expenseNames.map(n => ({ id: n.id, name: n.name })),
+        accountClass: c.accountClass,
+        expenseNames: c.expenseNames.map(n => ({ id: n.id, name: n.name, code: n.code ?? undefined })),
       }))}
       initialAccounts={accounts.map(a => ({ id: a.id, name: a.name, logoUrl: a.logoUrl ?? undefined }))}
       initialSuppliers={initialSuppliers}

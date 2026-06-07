@@ -12,6 +12,9 @@ export interface ChartRow {
   financialStatement: string;
   accountName: string;
   accountNameId: string;
+  accountClass: number | null;
+  accountType: string | null;
+  normalBalance: string | null;
 }
 
 export interface CategoryForLedger {
@@ -23,26 +26,36 @@ export interface CategoryForLedger {
 
 export async function getChartOfAccounts(): Promise<ChartRow[]> {
   const categories = await prisma.expenseCategory.findMany({
-    orderBy: { name: "asc" },
-    include: { expenseNames: { orderBy: { name: "asc" } } },
+    include: { expenseNames: true },
   });
 
   const rows: ChartRow[] = [];
-  let counter = 1000;
+  // Fallback code for accounts created before real codes existed.
+  let fallback = 9000;
 
   for (const cat of categories) {
     for (const name of cat.expenseNames) {
-      counter++;
       rows.push({
-        code: String(counter),
+        code: name.code ?? String(++fallback),
         categoryId: cat.id,
         categoryName: cat.name,
-        financialStatement: cat.financialStatement ?? "",
+        financialStatement: name.financialStatement ?? cat.financialStatement ?? "",
         accountName: name.name,
         accountNameId: name.id,
+        accountClass: name.accountClass ?? cat.accountClass ?? null,
+        accountType: name.accountType ?? cat.accountType ?? null,
+        normalBalance: name.normalBalance ?? null,
       });
     }
   }
+
+  // Sort by numeric code so the chart reads top-down (1000 → 8101).
+  rows.sort((a, b) => {
+    const na = parseInt(a.code, 10);
+    const nb = parseInt(b.code, 10);
+    if (isNaN(na) || isNaN(nb)) return a.code.localeCompare(b.code);
+    return na - nb;
+  });
 
   return rows;
 }
@@ -79,6 +92,7 @@ export async function getNextJournalNo(): Promise<string> {
 
 export interface LedgerRow {
   account: string;
+  name: string;
   description: string;
   ref: string;
   debit: string;
@@ -128,6 +142,7 @@ export async function getGeneralLedger(filters: {
 
       rows.push({
         account: acc,
+        name: (row.name as string | null) ?? "",
         description: (row.description as string | null) ?? "",
         ref: entry.journalNo as string,
         debit: debit > 0 ? fmt(debit) : "—",

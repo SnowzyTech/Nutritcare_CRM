@@ -916,23 +916,32 @@ model ExpenseCategory {
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
   financialStatement String?
+  accountClass       Int?
+  accountType        String?
   expenseNames       ExpenseName[]
   expenses           Expense[]
 
+  @@index([accountClass])
   @@map("expense_categories")
 }
 
 model ExpenseName {
-  id                String          @id @default(cuid())
-  name              String
-  expenseCategoryId String
-  createdAt         DateTime        @default(now())
-  updatedAt         DateTime        @updatedAt
-  expenseCategory   ExpenseCategory @relation(fields: [expenseCategoryId], references: [id])
-  expenses          Expense[]
+  id                 String          @id @default(cuid())
+  name               String
+  expenseCategoryId  String
+  code               String?         @unique
+  accountClass       Int?
+  accountType        String?
+  normalBalance      String?
+  financialStatement String?
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  expenseCategory    ExpenseCategory @relation(fields: [expenseCategoryId], references: [id])
+  expenses           Expense[]
 
   @@unique([name, expenseCategoryId])
   @@index([expenseCategoryId])
+  @@index([accountClass])
   @@map("expense_names")
 }
 
