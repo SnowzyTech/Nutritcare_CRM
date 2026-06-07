@@ -275,16 +275,28 @@ export interface OrderDetail {
     landmark: string;
   };
   product: string;
+  productImage?: string | null;
   quantity: number;
-  upsell: { product: string; quantity: number } | null;
+  upsell: { product: string; quantity: number; image?: string | null } | null;
   totalPrice: string;
+  pricing?: {
+    original: string;
+    net: string;
+    discount: string | null;
+    discountPercent: string | null;
+  };
+  orderDate?: string;
   source: string;
   contactedVia: "phone" | "whatsapp" | "none";
   deliveryAgent?: string;
+  agent?: { companyName: string; state: string | null; phone: string } | null;
+  deliveryFee?: string | null;
+  estimatedDelivery?: string | null;
+  deliveredDate?: string | null;
   failReason?: string;
   cancelReason?: string;
   prescription: string;
-  history: string[];
+  history: { label: string; date: string }[] | string[];
 }
 
 export const MOCK_ORDER_DETAILS: Record<string, OrderDetail> = {

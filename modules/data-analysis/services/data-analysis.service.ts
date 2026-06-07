@@ -119,6 +119,7 @@ export type OrderDetailFull = {
     name: string;
     quantity: number;
     imageColor: string;
+    imageUrl?: string | null;
     totalPrice: string;
   };
   upsoldProduct?: { name: string; quantity: number };
@@ -658,7 +659,7 @@ export async function getOrderByOrderNumber(orderNumber: string): Promise<OrderD
         },
       },
       items: {
-        include: { product: { select: { name: true, sellingPrice: true } } },
+        include: { product: { select: { name: true, sellingPrice: true, imageUrl: true } } },
         orderBy: { createdAt: "asc" },
       },
       deliveries: { orderBy: { createdAt: "asc" } },
@@ -670,9 +671,33 @@ export async function getOrderByOrderNumber(orderNumber: string): Promise<OrderD
   const firstItem = order.items[0];
   const upsoldItem = order.items[1];
 
+  const firstDelivery = order.deliveries[0];
   const history: OrderDetailFull["history"] = [
     { event: "Order Created", date: fmtDateTime(order.createdAt), repName: order.salesRep.name },
+    { event: "Sales Rep Assigned", date: fmtDateTime(order.createdAt), repName: order.salesRep.name },
   ];
+  // A delivery is created at confirmation time, so its existence marks the order
+  // as having been confirmed — show the confirmation-related events for
+  // confirmed/delivered/failed orders.
+  if (firstDelivery) {
+    history.push({
+      event: "Order Confirmed",
+      date: fmtDateTime(firstDelivery.createdAt),
+      repName: order.salesRep.name,
+    });
+    history.push({
+      event: "Prescription Sent",
+      date: fmtDateTime(firstDelivery.createdAt),
+      repName: order.salesRep.name,
+    });
+    if (order.agent) {
+      history.push({
+        event: "Delivery Agent Assigned",
+        date: fmtDateTime(firstDelivery.createdAt),
+        agentName: order.agent.companyName,
+      });
+    }
+  }
   for (const d of order.deliveries) {
     if (d.status === "IN_TRANSIT") {
       history.push({
@@ -699,9 +724,6 @@ export async function getOrderByOrderNumber(orderNumber: string): Promise<OrderD
   if (order.status === "CANCELLED") {
     history.push({ event: "Order Cancelled", date: fmtDateTime(order.updatedAt), repName: order.salesRep.name });
   }
-  if (order.status === "CONFIRMED") {
-    history.push({ event: "Order Confirmed", date: fmtDateTime(order.updatedAt), repName: order.salesRep.name });
-  }
 
   return {
     id: order.id,
@@ -723,6 +745,7 @@ export async function getOrderByOrderNumber(orderNumber: string): Promise<OrderD
       name: firstItem?.product.name ?? "—",
       quantity: firstItem?.quantity ?? 0,
       imageColor: productColor(firstItem?.product.name ?? ""),
+      imageUrl: firstItem?.product.imageUrl ?? null,
       totalPrice: `₦${Number(order.netAmount).toLocaleString("en-NG")}`,
     },
     upsoldProduct: upsoldItem
@@ -730,6 +753,9 @@ export async function getOrderByOrderNumber(orderNumber: string): Promise<OrderD
       : undefined,
     deliveryFee: Number(order.deliveryFee) > 0
       ? `₦${Number(order.deliveryFee).toLocaleString("en-NG")}`
+      : undefined,
+    estimatedDeliveryDate: firstDelivery?.scheduledTime
+      ? fmtDate(firstDelivery.scheduledTime)
       : undefined,
     agent: order.agent
       ? {
@@ -740,9 +766,19 @@ export async function getOrderByOrderNumber(orderNumber: string): Promise<OrderD
         activeOrders: order.agent._count.orders,
       }
       : undefined,
-    contactMethod: "None",
-    cancellationReason: order.status === "CANCELLED" ? (order.notes ?? undefined) : undefined,
-    failureReason: order.status === "FAILED" ? (order.notes ?? undefined) : undefined,
+    contactMethod:
+      order.contactMethod === "PHONE"
+        ? "Phone Call"
+        : order.contactMethod === "WHATSAPP"
+          ? "WhatsApp"
+          : "None",
+    cancellationReason:
+      order.status === "CANCELLED" ? (order.cancellationReason ?? undefined) : undefined,
+    failureReason:
+      order.status === "FAILED"
+        ? (order.deliveries.find((d) => d.failureReason)?.failureReason ?? undefined)
+        : undefined,
+    prescription: order.notes ?? undefined,
     source: order.customer.source ?? "Direct",
     orderDate: fmtDate(order.createdAt),
     history,

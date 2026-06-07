@@ -9,7 +9,6 @@ import {
   ClipboardList,
   BarChart3,
   Clock,
-  Settings,
   LogOut,
   ChevronDown,
   ChevronRight,
@@ -234,7 +233,6 @@ export function SalesRepManagerSidebarClient({ userName, userRole, userAvatar }:
 
       {/* Bottom Actions */}
       <div className={`py-6 border-t border-[#4A0080] ${isCollapsed ? "px-2" : "px-4"}`}>
-        <SidebarNavLink href="#" icon={Settings} label="Settings" isActive={false} collapsed={isCollapsed} />
         <form action={logoutAction}>
           <button
             type="submit"

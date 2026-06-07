@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useTransition } from "react";
+import React, { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { X, Trash2 } from "lucide-react";
 import Image from "next/image";
@@ -17,6 +17,7 @@ import {
   updateOrderNotesAction,
   applyOrderDiscountAction,
   reassignOrderAgentAction,
+  setOrderContactMethodAction,
 } from "@/modules/orders/actions/orders.action";
 
 // Serialized types (Decimals as strings, Dates as ISO strings)
@@ -34,7 +35,10 @@ export type SerializedOrder = {
   discountedAt: string | null;
   discountedByName: string | null;
   notes: string | null;
+  contactMethod: "PHONE" | "WHATSAPP" | null;
+  cancellationReason: string | null;
   createdAt: string;
+  updatedAt: string;
   customer: {
     name: string;
     phone: string;
@@ -66,6 +70,9 @@ export type SerializedOrder = {
   deliveries: Array<{
     scheduledTime: string | null;
     deliveredTime: string | null;
+    failureReason: string | null;
+    createdAt: string;
+    updatedAt: string;
     status: string;
   }>;
 };
@@ -239,13 +246,9 @@ function getStatusBadge(status: OrderStatus) {
 }
 
 function FieldRow({ label, value, copyable }: { label: string; value: string; copyable?: boolean }) {
-  const [copied, setCopied] = useState(false);
-
   const handleCopy = () => {
     navigator.clipboard.writeText(value);
-    setCopied(true);
     toast.success(`${label} copied!`);
-    setTimeout(() => setCopied(false), 2000);
   };
 
   return (
@@ -288,13 +291,16 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
   const [isReassignOpen, setIsReassignOpen] = useState(false);
   const [selectedAgentId, setSelectedAgentId] = useState("");
   const [prescription, setPrescription] = useState(order.notes ?? "");
+  const [contactMethod, setContactMethod] = useState<"PHONE" | "WHATSAPP" | null>(order.contactMethod);
   const [deliveryDate, setDeliveryDate] = useState("");
   // Negotiated final price (for goods, excluding delivery fee). Defaults to the
   // current net so re-opening the editor shows the price already agreed.
   const [priceInput, setPriceInput] = useState(order.netAmount);
   const [discountReason, setDiscountReason] = useState(order.discountReason ?? "");
-  const [productRows, setProductRows] = useState([
-    { id: Date.now(), productId: products[0]?.id ?? "", qty: "1" },
+  // Monotonic id source for product rows — avoids calling Date.now() during render.
+  const rowIdRef = useRef(1);
+  const [productRows, setProductRows] = useState(() => [
+    { id: 0, productId: products[0]?.id ?? "", qty: "1" },
   ]);
 
   const steps = getSteps(order.status);
@@ -327,10 +333,35 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
       })
     : null;
 
+  // Order history built from real timestamps (no hardcoded dates).
+  const fmtHistory = (iso: string) => {
+    const d = new Date(iso);
+    return {
+      date: d.toLocaleDateString("en-CA"), // YYYY-MM-DD
+      time: d.toLocaleTimeString("en-GB"), // HH:MM:SS
+    };
+  };
+  const historyEvents: Array<{ label: string; sub?: string; date: string; time: string }> = [
+    { label: "Order Created", ...fmtHistory(order.createdAt) },
+    { label: "Sales Rep Assigned", sub: order.salesRep.name, ...fmtHistory(order.createdAt) },
+    ...(order.status !== "PENDING" && delivery
+      ? [{ label: "Prescription Sent", ...fmtHistory(delivery.createdAt) }]
+      : []),
+    ...(order.status === "DELIVERED" && delivery?.deliveredTime
+      ? [{ label: "Order Delivered", ...fmtHistory(delivery.deliveredTime) }]
+      : []),
+    ...(order.status === "FAILED" && delivery
+      ? [{ label: "Order Failed", ...fmtHistory(delivery.updatedAt) }]
+      : []),
+    ...(order.status === "CANCELLED"
+      ? [{ label: "Order Cancelled", ...fmtHistory(order.updatedAt) }]
+      : []),
+  ];
+
   function addRow() {
     setProductRows([
       ...productRows,
-      { id: Date.now(), productId: products[0]?.id ?? "", qty: "1" },
+      { id: rowIdRef.current++, productId: products[0]?.id ?? "", qty: "1" },
     ]);
   }
 
@@ -388,6 +419,19 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
       setPriceInput(String(Number(priceInput) + added));
       setIsAddProductOpen(false);
     }, "Products added to order");
+  }
+
+  function handleContactMethod(method: "PHONE" | "WHATSAPP") {
+    const prev = contactMethod;
+    setContactMethod(method); // optimistic
+    startTransition(async () => {
+      try {
+        await setOrderContactMethodAction(order.id, method);
+      } catch (err) {
+        setContactMethod(prev);
+        toast.error(err instanceof Error ? err.message : "Failed to update contact method");
+      }
+    });
   }
 
   return (
@@ -539,38 +583,21 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
               Order History
             </h4>
             <div className="flex flex-col gap-3">
-              {/* Order Created */}
-              <div className="flex flex-col gap-0.5">
-                <div className="flex items-end justify-between">
-                  <span className="text-gray-500 font-semibold text-xs">Order Created</span>
-                  <div className="flex-1 border-b border-dotted border-gray-300 mx-2 mb-1" />
-                  <span className="text-gray-400 font-semibold text-xs">2025-11-08</span>
-                </div>
-                <div className="text-right text-[10px] text-gray-300 font-semibold mr-[2px]">14:37:52</div>
-              </div>
-
-              {/* Sales Rep Assigned */}
-              <div className="flex flex-col gap-0.5">
-                <div className="flex items-end justify-between">
-                  <div className="flex flex-col">
-                    <span className="text-gray-500 font-semibold text-xs">Sales Rep Assigned</span>
-                    <span className="text-gray-800 font-bold text-xs">{order.salesRep.name}</span>
+              {historyEvents.map((event, i) => (
+                <div key={i} className="flex flex-col gap-0.5">
+                  <div className="flex items-end justify-between">
+                    <div className="flex flex-col">
+                      <span className="text-gray-500 font-semibold text-xs">{event.label}</span>
+                      {event.sub && (
+                        <span className="text-gray-800 font-bold text-xs">{event.sub}</span>
+                      )}
+                    </div>
+                    <div className="flex-1 border-b border-dotted border-gray-300 mx-2 mb-1" />
+                    <span className="text-gray-400 font-semibold text-xs">{event.date}</span>
                   </div>
-                  <div className="flex-1 border-b border-dotted border-gray-300 mx-2 mb-1" />
-                  <span className="text-gray-400 font-semibold text-xs">2025-11-08</span>
+                  <div className="text-right text-[10px] text-gray-300 font-semibold mr-[2px]">{event.time}</div>
                 </div>
-                <div className="text-right text-[10px] text-gray-300 font-semibold mr-[2px]">14:37:52</div>
-              </div>
-
-              {/* Prescription Sent */}
-              <div className="flex flex-col gap-0.5">
-                <div className="flex items-end justify-between">
-                  <span className="text-gray-500 font-semibold text-xs">Prescription Sent</span>
-                  <div className="flex-1 border-b border-dotted border-gray-300 mx-2 mb-1" />
-                  <span className="text-gray-400 font-semibold text-xs">2025-11-08</span>
-                </div>
-                <div className="text-right text-[10px] text-gray-300 font-semibold mr-[2px]">14:37:52</div>
-              </div>
+              ))}
             </div>
           </div>
         </div>
@@ -760,6 +787,20 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
                 </p>
               </div>
             )}
+
+            {order.status === "FAILED" && delivery?.failureReason && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                <p className="text-[11px] uppercase font-bold text-red-400 mb-1">Reason for failed order</p>
+                <p className="text-sm font-semibold text-red-700">{delivery.failureReason}</p>
+              </div>
+            )}
+
+            {order.status === "CANCELLED" && order.cancellationReason && (
+              <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+                <p className="text-[11px] uppercase font-bold text-orange-400 mb-1">Reason for cancellation</p>
+                <p className="text-sm font-semibold text-orange-700">{order.cancellationReason}</p>
+              </div>
+            )}
           </div>
 
           {/* Contact method */}
@@ -773,6 +814,9 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
                   type="radio"
                   name={`contact-${order.id}`}
                   value="phone"
+                  checked={contactMethod === "PHONE"}
+                  onChange={() => handleContactMethod("PHONE")}
+                  disabled={isPending}
                   className="h-5 w-5 border-2 border-gray-300 rounded-full text-purple-600 focus:ring-purple-500 accent-purple-600 transition"
                 />
                 <span className="text-sm font-semibold text-gray-500 group-hover:text-gray-700">Phone Call</span>
@@ -782,7 +826,9 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
                   type="radio"
                   name={`contact-${order.id}`}
                   value="whatsapp"
-                  defaultChecked
+                  checked={contactMethod === "WHATSAPP"}
+                  onChange={() => handleContactMethod("WHATSAPP")}
+                  disabled={isPending}
                   className="h-5 w-5 border-2 border-[#A855F7] rounded-full text-purple-600 focus:ring-purple-500 accent-purple-600 transition"
                 />
                 <span className="text-sm font-semibold text-gray-500 group-hover:text-gray-700">WhatsApp</span>
@@ -879,7 +925,11 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
             <div className="grid grid-cols-2 gap-4 mt-4">
               <button
                 disabled={isPending}
-                onClick={() => handleAction(() => cancelOrderAction(order.id), "Order cancelled")}
+                onClick={() => {
+                  const reason = window.prompt("Reason for cancelling this order? (optional)");
+                  if (reason === null) return;
+                  handleAction(() => cancelOrderAction(order.id, reason || undefined), "Order cancelled");
+                }}
                 type="button"
                 className="bg-[#FAF5FF] hover:bg-[#F3E8FF] border border-purple-200 text-[#A855F7] py-3.5 rounded-xl font-bold text-sm transition flex items-center justify-center gap-2 disabled:opacity-50"
               >
@@ -915,7 +965,11 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
             <div className="grid grid-cols-2 gap-4 mt-4">
               <button
                 disabled={isPending}
-                onClick={() => handleAction(() => failOrderAction(order.id), "Order marked as failed")}
+                onClick={() => {
+                  const reason = window.prompt("Reason this delivery failed? (optional)");
+                  if (reason === null) return;
+                  handleAction(() => failOrderAction(order.id, reason || undefined), "Order marked as failed");
+                }}
                 type="button"
                 className="bg-red-50 border border-red-200 px-4 py-3 rounded-lg text-red-500 font-semibold text-sm hover:bg-red-100 transition disabled:opacity-50"
               >

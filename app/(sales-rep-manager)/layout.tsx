@@ -24,7 +24,7 @@ export default async function SalesRepManagerLayout({
       <SalesRepManagerSidebarClient
         userName={user?.name ?? ""}
         userRole={user?.role ?? "Sales Rep"}
-        userAvatar={user?.image ?? undefined}
+        userAvatar={userRecord?.avatarUrl ?? undefined}
       />
       <div className="flex flex-col flex-1 overflow-hidden relative">
         <header className="absolute top-0 right-0 left-0 h-20 px-8 flex justify-between items-center z-10 pointer-events-none">

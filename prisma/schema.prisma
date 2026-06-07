@@ -395,6 +395,8 @@ model Order {
   discountedById  String?
   discountReason  String?
   discountedAt    DateTime?
+  contactMethod      ContactMethod?
+  cancellationReason String?
   deliveries      Delivery[]
   invoices        Invoice[]
   items           OrderItem[]
@@ -1172,6 +1174,11 @@ enum OrderStatus {
 enum RemittanceStatus {
   NOT_REMITTED
   REMITTED
+}
+
+enum ContactMethod {
+  PHONE
+  WHATSAPP
 }
 
 enum StockMovementType {

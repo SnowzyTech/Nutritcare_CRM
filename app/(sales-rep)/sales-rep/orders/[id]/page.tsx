@@ -49,7 +49,10 @@ export default async function OrderDetailPage({ params }: Props) {
     discountedAt: rawOrder.discountedAt?.toISOString() ?? null,
     discountedByName: rawOrder.discountedBy?.name ?? null,
     notes: rawOrder.notes ?? null,
+    contactMethod: rawOrder.contactMethod ?? null,
+    cancellationReason: rawOrder.cancellationReason ?? null,
     createdAt: rawOrder.createdAt.toISOString(),
+    updatedAt: rawOrder.updatedAt.toISOString(),
     customer: {
       name: rawOrder.customer.name,
       phone: rawOrder.customer.phone,
@@ -90,6 +93,9 @@ export default async function OrderDetailPage({ params }: Props) {
     deliveries: rawOrder.deliveries.map((d) => ({
       scheduledTime: d.scheduledTime?.toISOString() ?? null,
       deliveredTime: d.deliveredTime?.toISOString() ?? null,
+      failureReason: d.failureReason ?? null,
+      createdAt: d.createdAt.toISOString(),
+      updatedAt: d.updatedAt.toISOString(),
       status: d.status,
     })),
   };

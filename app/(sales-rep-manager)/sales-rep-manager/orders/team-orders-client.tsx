@@ -290,6 +290,7 @@ export function TeamOrdersClient({ orders, counts, products = [] }: TeamOrdersCl
                 <th className="px-6 py-4 font-bold text-gray-500 text-sm">Sales Rep</th>
                 <th className="px-6 py-4 font-bold text-gray-500 text-sm">Product</th>
                 <th className="px-6 py-4 font-bold text-gray-500 text-sm text-center">Quantity</th>
+                <th className="px-6 py-4 font-bold text-gray-500 text-sm text-center">Status</th>
                 <th className="px-6 py-4 font-bold text-gray-500 text-sm text-right">Date</th>
               </tr>
             </thead>
@@ -332,6 +333,13 @@ export function TeamOrdersClient({ orders, counts, products = [] }: TeamOrdersCl
                     </td>
                     <td className="px-6 py-4 text-gray-500 font-medium">{order.product}</td>
                     <td className="px-6 py-4 text-center text-gray-500 font-medium">{order.qty}</td>
+                    <td className="px-6 py-4 text-center">
+                      {style && (
+                        <span className={`inline-block px-3 py-1 rounded-lg text-[10px] font-bold tracking-wider ${style.bg} ${style.text}`}>
+                          {style.label}
+                        </span>
+                      )}
+                    </td>
                     <td className="px-6 py-4 text-right text-gray-500 font-medium whitespace-nowrap">
                       {formatDate(order.date)}
                     </td>

@@ -55,7 +55,7 @@ export function OrderDetailClient({ order }: OrderDetailClientProps) {
             <Image src={order.repAvatarUrl} alt={order.repName} fill className="object-cover" sizes="48px" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-gray-800">{order.repName}'s</h1>
+            <h1 className="text-2xl font-bold text-gray-800">{order.repName}&apos;s</h1>
             <p className="text-sm text-gray-400 font-medium">Dashboard</p>
           </div>
         </div>
@@ -192,14 +192,17 @@ export function OrderDetailClient({ order }: OrderDetailClientProps) {
         <div className="space-y-10">
           <div className="relative rounded-3xl overflow-hidden shadow-2xl group border border-gray-100">
             <div
-              className="w-full aspect-[16/10] flex items-center justify-center"
+              className="relative w-full aspect-[16/10] flex items-center justify-center"
               style={{ backgroundColor: order.product.imageColor }}
             >
               <Image
-                src={`https://placehold.co/400x250/${order.product.imageColor.replace('#', '')}/ffffff?text=${encodeURIComponent(order.product.name)}`}
+                src={
+                  order.product.imageUrl ??
+                  `https://placehold.co/400x250/${order.product.imageColor.replace('#', '')}/ffffff?text=${encodeURIComponent(order.product.name)}`
+                }
                 alt={order.product.name}
                 fill
-                className="object-cover group-hover:scale-105 transition-transform duration-500 opacity-80"
+                className="object-cover group-hover:scale-105 transition-transform duration-500"
                 sizes="400px"
               />
               <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />

@@ -3,7 +3,6 @@
 import { auth } from "@/lib/auth/auth";
 import { prisma } from "@/lib/db/prisma";
 import { revalidatePath } from "next/cache";
-import type { OrderStatus } from "@prisma/client";
 import { recordDeliveryFeeEntry } from "@/modules/finance/services/agent-settlement.service";
 import { getSalesRepWeeklyAnalytics } from "@/modules/orders/services/analytics.service";
 import type { MonthMetrics } from "@/modules/orders/services/analytics.service";
@@ -205,7 +204,7 @@ export async function updateOrderNotesAction(orderId: string, notes: string) {
   revalidateOrderPaths(orderId);
 }
 
-export async function cancelOrderAction(orderId: string) {
+export async function cancelOrderAction(orderId: string, reason?: string) {
   const session = await auth();
   if (!session?.user?.id) throw new Error("Unauthorized");
 
@@ -214,31 +213,62 @@ export async function cancelOrderAction(orderId: string) {
     throw new Error("Cannot cancel this order");
   }
 
-  await prisma.order.update({ where: { id: orderId }, data: { status: "CANCELLED" } });
+  await prisma.order.update({
+    where: { id: orderId },
+    data: { status: "CANCELLED", cancellationReason: reason?.trim() || null },
+  });
   await logActivity({
     userId: session.user.id,
     action: "Cancel",
     entityType: "Order",
     entityId: orderId,
-    description: `Order #${order.orderNumber} cancelled`,
+    description: `Order #${order.orderNumber} cancelled${reason?.trim() ? ` — ${reason.trim()}` : ""}`,
   });
   revalidateOrderPaths(orderId);
 }
 
-export async function failOrderAction(orderId: string) {
+export async function failOrderAction(orderId: string, reason?: string) {
   const session = await auth();
   if (!session?.user?.id) throw new Error("Unauthorized");
 
   const order = await getOwnedOrder(orderId, session.user.id);
   if (!order || order.status !== "CONFIRMED") throw new Error("Cannot fail this order");
 
-  await prisma.order.update({ where: { id: orderId }, data: { status: "FAILED" } });
+  await prisma.$transaction([
+    prisma.order.update({ where: { id: orderId }, data: { status: "FAILED" } }),
+    prisma.delivery.updateMany({
+      where: { orderId },
+      data: { status: "FAILED", failureReason: reason?.trim() || null },
+    }),
+  ]);
   await logActivity({
     userId: session.user.id,
     action: "Failed",
     entityType: "Order",
     entityId: orderId,
-    description: `Order #${order.orderNumber} failed`,
+    description: `Order #${order.orderNumber} failed${reason?.trim() ? ` — ${reason.trim()}` : ""}`,
+  });
+  revalidateOrderPaths(orderId);
+}
+
+/**
+ * Records how the customer was contacted (phone or WhatsApp). Persisted on the
+ * order so the sales-rep and manager views show the real value rather than a
+ * default. Allowed for the owning sales rep on any non-deleted order.
+ */
+export async function setOrderContactMethodAction(
+  orderId: string,
+  method: "PHONE" | "WHATSAPP",
+) {
+  const session = await auth();
+  if (!session?.user?.id) throw new Error("Unauthorized");
+
+  const order = await getOwnedOrder(orderId, session.user.id);
+  if (!order) throw new Error("Order not found");
+
+  await prisma.order.update({
+    where: { id: orderId },
+    data: { contactMethod: method },
   });
   revalidateOrderPaths(orderId);
 }

@@ -222,6 +222,7 @@ export function OrdersClient({ repId, repName, orders, counts }: OrdersClientPro
                 <th className="px-6 py-4 font-bold text-gray-500 uppercase tracking-wider text-[11px]">Agent</th>
                 <th className="px-6 py-4 font-bold text-gray-500 uppercase tracking-wider text-[11px]">Product</th>
                 <th className="px-6 py-4 font-bold text-gray-500 uppercase tracking-wider text-[11px] text-center">Quantity</th>
+                <th className="px-6 py-4 font-bold text-gray-500 uppercase tracking-wider text-[11px] text-center">Status</th>
                 <th className="px-6 py-4 font-bold text-gray-500 uppercase tracking-wider text-[11px] text-right">Date</th>
               </tr>
             </thead>
@@ -259,6 +260,13 @@ export function OrdersClient({ repId, repName, orders, counts }: OrdersClientPro
                     </td>
                     <td className="px-6 py-4 font-bold text-gray-700">{order.product}</td>
                     <td className="px-6 py-4 text-center font-bold text-gray-600">{order.qty}</td>
+                    <td className="px-6 py-4 text-center">
+                      {style && (
+                        <span className={`inline-block px-3 py-1 rounded-md text-[10px] uppercase font-bold tracking-wider ${style.bg} ${style.text}`}>
+                          {style.label}
+                        </span>
+                      )}
+                    </td>
                     <td className="px-6 py-4 text-right font-medium text-gray-500">
                       {formatDate(order.date)}
                     </td>
