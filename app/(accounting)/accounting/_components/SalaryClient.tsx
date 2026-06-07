@@ -15,6 +15,7 @@ import {
 
 export interface SalaryRow {
   id: string;
+  company?: string;
   name: string;
   department: string;
   designation: string;
@@ -192,7 +193,9 @@ function FilterDropdown({
 
 export function SalaryClient({ initialRows }: SalaryClientProps) {
   const router = useRouter();
-  const rows: SalaryRow[] = initialRows && initialRows.length > 0 ? initialRows : FALLBACK_ROWS;
+  // Use the real records when provided (even an empty list → shows the empty
+  // state). The mock rows are only a design-time fallback when no prop is passed.
+  const rows: SalaryRow[] = initialRows ?? FALLBACK_ROWS;
 
   // Filter state — 'All' means no filter applied
   const [nucleFilter,      setNucleFilter]      = useState('All');
@@ -207,8 +210,8 @@ export function SalaryClient({ initialRows }: SalaryClientProps) {
 
   const closeAll = () => setOpenDropdown(null);
 
-  // Filtered rows (filter by department for dept+nucle until backend maps nucle separately)
   const filtered = rows.filter((r) => {
+    const matchNucle = nucleFilter === 'All' || r.company === nucleFilter;
     const matchDept  = departmentFilter === 'All' || r.department  === departmentFilter;
     const matchDesig = designationFilter === 'All' || r.designation === designationFilter;
     const matchLevel = levelFilter === 'All' || r.level === levelFilter;
@@ -218,7 +221,7 @@ export function SalaryClient({ initialRows }: SalaryClientProps) {
       r.name.toLowerCase().includes(q) ||
       r.department.toLowerCase().includes(q) ||
       r.designation.toLowerCase().includes(q);
-    return matchDept && matchDesig && matchLevel && matchSearch;
+    return matchNucle && matchDept && matchDesig && matchLevel && matchSearch;
   });
 
   return (

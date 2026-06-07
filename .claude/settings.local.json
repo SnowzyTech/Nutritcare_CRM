@@ -64,7 +64,8 @@
       "Bash(git --no-pager log --oneline -5)",
       "Bash(powershell -Command \"Get-Content prisma/seed.ts -TotalCount 20\")",
       "Bash(node -e \"const p=require\\('./package.json'\\); console.log\\(JSON.stringify\\(p.scripts,null,1\\)\\); console.log\\('tsx:', \\(p.devDependencies||{}\\).tsx || \\(p.dependencies||{}\\).tsx\\)\")",
-      "Bash(powershell -Command \"if \\(Test-Path MEMORY.md\\) { Get-Content MEMORY.md } else { 'NO MEMORY.md' }\")"
+      "Bash(powershell -Command \"if \\(Test-Path MEMORY.md\\) { Get-Content MEMORY.md } else { 'NO MEMORY.md' }\")",
+      "Bash(node -e \"const {PrismaClient}=require\\('@prisma/client'\\); const p=new PrismaClient\\(\\); console.log\\('salaryRecord delegate present?', typeof p.salaryRecord\\);\")"
     ]
   }
 }

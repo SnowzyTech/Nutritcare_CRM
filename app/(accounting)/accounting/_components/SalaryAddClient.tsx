@@ -11,6 +11,7 @@ import {
   Search,
   Plus,
 } from 'lucide-react';
+import { createSalaryRecordsAction } from '@/modules/finance/actions/salary.action';
 
 // ─── Column definitions (same as view page) ───────────────────────────────────
 
@@ -57,6 +58,19 @@ function emptyRow(id: string): SalaryDraftRow {
 }
 
 const INITIAL_ROW_COUNT = 15;
+
+// Monetary columns — parsed to numbers on save; the rest are stored as text.
+const MONEY_KEYS: ColKey[] = [
+  'amount', 'basic', 'housingAllowance', 'grossPay', 'transportation', 'wardrobe',
+  'utilityAllowance', 'grossPayTotal', 'paye', 'pension', 'hmo', 'otherDeduction',
+  'netPay', 'bank', 'cash',
+];
+
+// Strip currency symbols / commas so "₦300,000" → 300000.
+function parseMoney(s: string): number {
+  const n = parseFloat(String(s).replace(/[^0-9.]/g, ''));
+  return isNaN(n) ? 0 : n;
+}
 
 // ─── Small filter dropdown ────────────────────────────────────────────────────
 
@@ -160,18 +174,39 @@ export function SalaryAddClient() {
     setRows((prev) => [...prev, emptyRow(String(Date.now()))]);
   };
 
-  // Save — collect non-empty rows, then navigate back
+  // Save — collect non-empty rows (a row counts once it has a name), persist
+  // them all in one batch, then navigate back to the list.
   const handleSave = async () => {
     const nonEmpty = rows.filter((r) => r.name.trim() !== '');
     if (nonEmpty.length === 0) {
-      alert('Please fill in at least one row before saving.');
+      alert('Please fill in at least one row (Name is required) before saving.');
       return;
     }
     setSaving(true);
-    // TODO: call server action / API here
-    // e.g. await createSalaryRowsAction(nonEmpty);
-    await new Promise((res) => setTimeout(res, 600)); // simulate save
+
+    const payloadRows = nonEmpty.map((r) => {
+      const out: Record<string, string | number | undefined> = {
+        name: r.name.trim(),
+        department: r.department.trim() || undefined,
+        designation: r.designation.trim() || undefined,
+        level: r.level.trim() || undefined,
+        zenithAccountNumber: r.zenithAccountNumber.trim() || undefined,
+        remark: r.remark.trim() || undefined,
+      };
+      for (const k of MONEY_KEYS) out[k] = parseMoney(r[k]);
+      return out;
+    });
+
+    const res = await createSalaryRecordsAction({
+      company: nucleFilter !== 'All' ? nucleFilter : undefined,
+      rows: payloadRows as never,
+    });
     setSaving(false);
+
+    if (res && 'error' in res) {
+      alert(res.error);
+      return;
+    }
     router.push('/accounting/salary');
   };
 

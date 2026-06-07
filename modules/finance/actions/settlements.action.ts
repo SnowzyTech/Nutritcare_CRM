@@ -290,5 +290,7 @@ export async function createSettlementAdjustmentAction(input: z.infer<typeof adj
   });
 
   revalidatePath("/accounting/agent-settlement");
+  revalidatePath("/accounting/reports/delivery-tracker");
+  revalidatePath("/accounting/reports/revenue-by-product");
   return { referenceId: adjRefId };
 }

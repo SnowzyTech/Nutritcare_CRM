@@ -212,22 +212,31 @@ function SettlementAdjustmentView({ agentOptions }: { agentOptions?: { id: strin
   const submitAdjustment = async () => {
     if (!agentId) { alert('Select agent'); return; }
     if (!amountText) { alert('Enter amount'); return; }
+    // Payment adjustments (Waybill / Delivery fee / Miscellaneous) must be tied
+    // to a single order so they can be consumed per-order elsewhere.
+    if (adjustmentType === 'Payment' && selectedOrders.length === 0) { alert('Select an order'); return; }
     setSavingAdj(true);
     const resolvedPaymentType =
       adjustmentType === 'Correction' ? 'CORRECTION_IN_PLACE' :
       adjustmentType === 'Balance/Underpayment' ? 'UNDERPAYMENT' :
       paymentType;
+    const orderIds = selectedOrders
+      .map(id => deliveredOrders.find((o: any) => o.id === id)?.orderId)
+      .filter(Boolean) as string[];
+    // For payments the linked reference IS the order; other types keep their ref.
+    const linkedReferenceId =
+      adjustmentType === 'Payment'
+        ? (orderIds[0] ?? `MANUAL-${Date.now()}`)
+        : (referenceId || `MANUAL-${Date.now()}`);
     const res = await createSettlementAdjustmentAction({
       agentId,
       date: date ?? new Date(),
       adjustmentType: adjTypeMap[adjustmentType] ?? 'CORRECTION',
       paymentType: resolvedPaymentType,
-      linkedReferenceId: referenceId || `MANUAL-${Date.now()}`,
+      linkedReferenceId,
       amount: parsedAmount,
       note: noteText,
-      ordersJson: selectedOrders.length > 0
-        ? selectedOrders.map(id => deliveredOrders.find((o: any) => o.id === id)?.orderId).filter(Boolean)
-        : undefined,
+      ordersJson: adjustmentType === 'Payment' && orderIds.length > 0 ? orderIds : undefined,
     });
     setSavingAdj(false);
     if ('error' in res) { alert(res.error); return; }
@@ -245,7 +254,9 @@ function SettlementAdjustmentView({ agentOptions }: { agentOptions?: { id: strin
   };
 
   const handleConfirm = () => { setSelectedOrders(tempSelected); setIsModalOpen(false); };
-  const toggleTempOrder = (id: string) => setTempSelected(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  // Payment adjustments are tied to exactly one order, so selecting an order
+  // replaces any previous pick (single-select).
+  const toggleTempOrder = (id: string) => setTempSelected(prev => prev.includes(id) ? [] : [id]);
 
   const titleCaseType = (t: string) => t.charAt(0) + t.slice(1).toLowerCase().replace(/_/g, '/');
 
@@ -257,8 +268,8 @@ function SettlementAdjustmentView({ agentOptions }: { agentOptions?: { id: strin
           <div className="bg-white w-full max-w-[1100px] h-[85vh] rounded-[48px] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-300">
             <div className="p-12 border-b border-gray-100 flex items-center justify-between bg-white sticky top-0 z-10">
               <div>
-                <h2 className="text-[36px] font-black text-gray-800 tracking-tight leading-tight">Select Delivered Orders</h2>
-                <p className="text-gray-400 text-[18px] font-medium mt-2">Pick the orders to include in this adjustment</p>
+                <h2 className="text-[36px] font-black text-gray-800 tracking-tight leading-tight">Select Delivered Order</h2>
+                <p className="text-gray-400 text-[18px] font-medium mt-2">Pick the order to tie this adjustment to</p>
               </div>
               <button onClick={() => setIsModalOpen(false)} className="w-14 h-14 rounded-2xl bg-gray-50 flex items-center justify-center text-gray-400 hover:bg-gray-100 transition-all hover:rotate-90">
                 <RotateCcw size={24} />
@@ -294,7 +305,7 @@ function SettlementAdjustmentView({ agentOptions }: { agentOptions?: { id: strin
             <div className="p-12 border-t border-gray-100 bg-white flex items-center justify-between">
               <div className="flex items-center gap-6">
                 <div className="w-16 h-16 rounded-3xl bg-purple-50 flex items-center justify-center text-[#AE00FF]"><Check size={32} strokeWidth={3} /></div>
-                <div><p className="text-[24px] font-black text-gray-800 leading-none">{tempSelected.length} Orders</p><p className="text-gray-400 font-bold uppercase tracking-widest text-[12px] mt-1">Selected</p></div>
+                <div><p className="text-[24px] font-black text-gray-800 leading-none">{tempSelected.length} Order{tempSelected.length === 1 ? '' : 's'}</p><p className="text-gray-400 font-bold uppercase tracking-widest text-[12px] mt-1">Selected</p></div>
               </div>
               <div className="flex gap-6">
                 <button onClick={() => setIsModalOpen(false)} className="px-10 py-5 rounded-2xl text-gray-400 font-black text-[16px] hover:bg-gray-50 transition-colors uppercase tracking-widest">Cancel</button>
@@ -407,7 +418,7 @@ function SettlementAdjustmentView({ agentOptions }: { agentOptions?: { id: strin
             <div className="space-y-2">
               <label className="text-[14px] font-bold text-gray-700">Adjustment Type</label>
               <div className="relative">
-                <select value={adjustmentType} onChange={e => setAdjustmentType(e.target.value)}
+                <select value={adjustmentType} onChange={e => { setAdjustmentType(e.target.value); setSelectedOrders([]); setReferenceId(''); }}
                   className="w-full h-[54px] bg-white border border-gray-100 rounded-2xl px-6 text-[14px] text-gray-800 appearance-none focus:outline-none focus:ring-1 focus:ring-purple-200 font-medium">
                   <option value="Correction">Correction</option>
                   <option value="Overpayment/Refund">Overpayment/Refund</option>
@@ -433,13 +444,15 @@ function SettlementAdjustmentView({ agentOptions }: { agentOptions?: { id: strin
               </div>
             )}
 
-            {adjustmentType === 'Payment' && paymentType === 'Delivery fee' ? (
+            {adjustmentType === 'Payment' ? (
               <div className="space-y-2">
-                <label className="text-[14px] font-bold text-gray-700">Orders Covered (multi-select)</label>
+                <label className="text-[14px] font-bold text-gray-700">Order</label>
                 <div onClick={() => { setTempSelected(selectedOrders); setIsModalOpen(true); }}
                   className="w-full h-[54px] bg-white border border-gray-100 rounded-2xl px-6 flex items-center justify-between text-[14px] font-medium cursor-pointer hover:border-purple-200 transition-colors">
                   <span className={selectedOrders.length > 0 ? 'text-gray-800 font-bold' : 'text-gray-300'}>
-                    {selectedOrders.length > 0 ? `${selectedOrders.length} Orders Selected` : 'Select Orders'}
+                    {selectedOrders.length > 0
+                      ? (deliveredOrders.find((o: any) => o.id === selectedOrders[0])?.orderId ?? 'Order selected')
+                      : 'Select Order'}
                   </span>
                   <ChevronDown size={18} className="text-gray-400" />
                 </div>
@@ -466,13 +479,10 @@ function SettlementAdjustmentView({ agentOptions }: { agentOptions?: { id: strin
                   <p className="text-[12px] text-gray-400 font-medium mt-1">No ledger entries found for this agent</p>
                 )}
               </div>
-            ) : (adjustmentType === 'Overpayment/Refund' || adjustmentType === 'Balance/Underpayment' ||
-                (adjustmentType === 'Payment' && (paymentType === 'Waybill' || paymentType === 'Miscellaneous'))) && (
+            ) : (adjustmentType === 'Overpayment/Refund' || adjustmentType === 'Balance/Underpayment') && (
               <div className="space-y-2">
                 <label className="text-[14px] font-bold text-gray-700">
-                  {adjustmentType === 'Overpayment/Refund' ? 'Remittance to Refund' :
-                   adjustmentType === 'Balance/Underpayment' ? 'Remittance to Balance' :
-                   `${paymentType} Remittance Reference`}
+                  {adjustmentType === 'Overpayment/Refund' ? 'Remittance to Refund' : 'Remittance to Balance'}
                 </label>
                 <div className="relative">
                   <select
@@ -523,7 +533,11 @@ function SettlementAdjustmentView({ agentOptions }: { agentOptions?: { id: strin
           <div className="bg-white rounded-[32px] border-[12px] border-gray-400 shadow-xl p-10 min-h-[500px]">
             <div className="flex items-center justify-between mb-10">
               <h3 className="text-[14px] font-bold text-gray-800">Reference ID</h3>
-              <span className="text-[12px] font-bold text-gray-400 uppercase">{referenceId || '—'}</span>
+              <span className="text-[12px] font-bold text-gray-400 uppercase">
+                {adjustmentType === 'Payment'
+                  ? (deliveredOrders.find((o: any) => o.id === selectedOrders[0])?.orderId ?? '—')
+                  : (referenceId || '—')}
+              </span>
             </div>
 
             <div className="flex items-center gap-12 mb-10">
@@ -538,17 +552,17 @@ function SettlementAdjustmentView({ agentOptions }: { agentOptions?: { id: strin
               </div>
             </div>
 
-            {adjustmentType === 'Payment' && paymentType === 'Delivery fee' ? (
+            {adjustmentType === 'Payment' ? (
               <div className="mb-10">
-                <p className="text-[11px] font-bold text-gray-400 uppercase mb-2">Orders Covered</p>
-                <p className="text-[16px] font-bold text-gray-800 mb-4">{selectedOrders.length} Orders</p>
+                <p className="text-[11px] font-bold text-gray-400 uppercase mb-2">Order</p>
+                <p className="text-[14px] font-bold text-gray-700 italic mb-4">Payment for {paymentType}</p>
                 <div className="grid grid-cols-4 gap-2">
                   {selectedOrders.map((id) => {
                     const o = deliveredOrders.find((o: any) => o.id === id);
                     return <div key={id} className="bg-purple-50 text-[#AE00FF] text-[9px] font-bold py-1 px-2 rounded flex items-center justify-center">{o?.orderId ?? id}</div>;
                   })}
                   {selectedOrders.length === 0 && (
-                    <div className="col-span-4 text-center py-4 border-2 border-dashed border-gray-100 rounded-xl text-gray-300 text-[11px] font-bold uppercase">No Orders Selected</div>
+                    <div className="col-span-4 text-center py-4 border-2 border-dashed border-gray-100 rounded-xl text-gray-300 text-[11px] font-bold uppercase">No Order Selected</div>
                   )}
                 </div>
               </div>

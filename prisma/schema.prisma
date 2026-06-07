@@ -41,6 +41,7 @@ model User {
   discountedOrders        Order[]                 @relation("DiscountedOrders")
   pickPackAssignments     PickPack[]              @relation("PickerAssignments")
   purchaseOrders          PurchaseOrder[]         @relation("PurchaseOrderCreatedBy")
+  salaryRecords           SalaryRecord[]          @relation("SalaryCreatedBy")
   settlementAdjustments   SettlementAdjustment[]  @relation("AdjustmentCreatedBy")
   stockAdjustments        StockAdjustment[]       @relation("StockAdjustmentCreatedBy")
   stockMovements          StockMovement[]         @relation("StockMovementCreatedBy")
@@ -908,6 +909,43 @@ model ExpenseLineItem {
 
   @@index([expenseId])
   @@map("expense_line_items")
+}
+
+model SalaryRecord {
+  id                  String   @id @default(cuid())
+  company             String?
+  name                String
+  department          String?
+  designation         String?
+  level               String?
+  amount              Decimal  @default(0) @db.Decimal(10, 2)
+  basic               Decimal  @default(0) @db.Decimal(10, 2)
+  housingAllowance    Decimal  @default(0) @db.Decimal(10, 2)
+  grossPay            Decimal  @default(0) @db.Decimal(10, 2)
+  transportation      Decimal  @default(0) @db.Decimal(10, 2)
+  wardrobe            Decimal  @default(0) @db.Decimal(10, 2)
+  utilityAllowance    Decimal  @default(0) @db.Decimal(10, 2)
+  grossPayTotal       Decimal  @default(0) @db.Decimal(10, 2)
+  paye                Decimal  @default(0) @db.Decimal(10, 2)
+  pension             Decimal  @default(0) @db.Decimal(10, 2)
+  hmo                 Decimal  @default(0) @db.Decimal(10, 2)
+  otherDeduction      Decimal  @default(0) @db.Decimal(10, 2)
+  netPay              Decimal  @default(0) @db.Decimal(10, 2)
+  bank                Decimal  @default(0) @db.Decimal(10, 2)
+  cash                Decimal  @default(0) @db.Decimal(10, 2)
+  zenithAccountNumber String?
+  remark              String?
+  date                DateTime @default(now())
+  createdById         String?
+  createdBy           User?    @relation("SalaryCreatedBy", fields: [createdById], references: [id])
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([company])
+  @@index([department])
+  @@index([createdById])
+  @@index([date])
+  @@map("salary_records")
 }
 
 model ExpenseCategory {
