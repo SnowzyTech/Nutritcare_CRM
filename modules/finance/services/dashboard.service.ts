@@ -167,8 +167,11 @@ export async function getSalesTrends(now: Date = new Date()): Promise<SalesTrend
 }
 
 export async function getSalesByProduct(limit = 8) {
+  // Sales = revenue from DELIVERED orders only (matches the revenue definition
+  // used everywhere else on this dashboard).
   const items = await prisma.orderItem.groupBy({
     by: ["productId"],
+    where: { order: { status: "DELIVERED", deletedAt: null } },
     _sum: { quantity: true, lineTotal: true },
     orderBy: { _sum: { lineTotal: "desc" } },
     take: limit,
@@ -182,9 +185,12 @@ export async function getSalesByProduct(limit = 8) {
   const max = Math.max(...items.map(i => Number(i._sum.lineTotal ?? 0)));
   return items.map(i => {
     const total = Number(i._sum.lineTotal ?? 0);
+    const fullName = productMap.get(i.productId) ?? "—";
     return {
-      name: (productMap.get(i.productId) ?? "—").toUpperCase().slice(0, 8),
-      value: Math.round(total / 1_000_000) || total,
+      name: fullName.toUpperCase().slice(0, 8),
+      fullName,
+      value: total, // real ₦ — charts format for display, tooltip shows exact
+      quantity: Number(i._sum.quantity ?? 0),
       isMax: total === max && max > 0,
     };
   });
@@ -207,7 +213,8 @@ export async function getSalesByState(limit = 12) {
   const max = Math.max(...list.map(([, v]) => v));
   return list.map(([name, v]) => ({
     name: name.toUpperCase(),
-    value: Math.round(v / 1_000_000) || v,
+    fullName: name,
+    value: v, // real ₦ — charts format for display, tooltip shows exact
     isMax: v === max,
   }));
 }

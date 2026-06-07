@@ -65,19 +65,19 @@ const fallbackSalesTrends = {
 };
 
 const fallbackSalesByProduct = [
-  { name: 'FORD', value: 8 }, { name: 'SHRED', value: 12 },
-  { name: 'AFTER-', value: 6 }, { name: 'PROMACT', value: 10 },
-  { name: 'TRM', value: 15, isMax: true }, { name: 'LINK', value: 8 },
-  { name: 'NEURO-VIVE', value: 11 }, { name: 'VITOMP', value: 9 },
+  { name: 'FORD', value: 8_000_000 }, { name: 'SHRED', value: 12_000_000 },
+  { name: 'AFTER-', value: 6_000_000 }, { name: 'PROMACT', value: 10_000_000 },
+  { name: 'TRM', value: 15_000_000, isMax: true }, { name: 'LINK', value: 8_000_000 },
+  { name: 'NEURO-VIVE', value: 11_000_000 }, { name: 'VITOMP', value: 9_000_000 },
 ];
 
 const fallbackSalesByState = [
-  { name: 'LAGOS', value: 5 }, { name: 'OSUN', value: 3 },
-  { name: 'OYO', value: 4 }, { name: 'DELTA', value: 2 },
-  { name: 'IMO', value: 3 }, { name: 'KADUNA', value: 6, isMax: true },
-  { name: 'OSUN', value: 4 }, { name: 'BENI', value: 3 },
-  { name: 'NASSARAWA', value: 2 }, { name: 'ABA', value: 5 },
-  { name: 'BAUCHI', value: 4 }, { name: 'JIGAWA', value: 3 },
+  { name: 'LAGOS', value: 5_000_000 }, { name: 'OSUN', value: 3_000_000 },
+  { name: 'OYO', value: 4_000_000 }, { name: 'DELTA', value: 2_000_000 },
+  { name: 'IMO', value: 3_000_000 }, { name: 'KADUNA', value: 6_000_000, isMax: true },
+  { name: 'EKITI', value: 4_000_000 }, { name: 'BENIN', value: 3_000_000 },
+  { name: 'NASSARAWA', value: 2_000_000 }, { name: 'ABIA', value: 5_000_000 },
+  { name: 'BAUCHI', value: 4_000_000 }, { name: 'JIGAWA', value: 3_000_000 },
 ];
 
 /* ── Tooltips ─────────────────────────────────────────────────────────────── */
@@ -93,12 +93,16 @@ function SalesChartTooltip({ active, payload, label }: { active?: boolean; paylo
   );
 }
 
-function BarChartTooltip({ active, payload }: { active?: boolean; payload?: { value: number; payload: { name: string } }[] }) {
+function BarChartTooltip({ active, payload }: { active?: boolean; payload?: { value: number; payload: { name: string; fullName?: string; quantity?: number } }[] }) {
   if (!active || !payload?.length) return null;
+  const p = payload[0];
   return (
     <div className="bg-[#1C1C24] text-white rounded-lg px-3 py-2 text-[10px] shadow-lg border border-[#2D2D35] flex flex-col items-center">
-      <p className="font-semibold text-gray-300">1,348 sales</p>
-      <p className="text-white font-bold">N18,000,000</p>
+      <p className="font-semibold text-gray-300">{p.payload.fullName ?? p.payload.name}</p>
+      {p.payload.quantity != null && (
+        <p className="text-gray-400">{p.payload.quantity.toLocaleString()} units</p>
+      )}
+      <p className="text-white font-bold">{fmtN(p.value)}</p>
     </div>
   );
 }
@@ -162,8 +166,8 @@ interface DashboardClientProps {
     month: { name: string; value: number }[];
     year: number;
   };
-  salesByProductData?: { name: string; value: number; isMax?: boolean }[];
-  salesByStateData?: { name: string; value: number; isMax?: boolean }[];
+  salesByProductData?: { name: string; fullName?: string; value: number; quantity?: number; isMax?: boolean }[];
+  salesByStateData?: { name: string; fullName?: string; value: number; isMax?: boolean }[];
   inventory?: {
     totalValue: number;
     totalProducts: number;
@@ -185,6 +189,12 @@ interface DashboardClientProps {
 }
 
 const fmtN = (n: number) => `N${Number(n).toLocaleString("en-NG", { maximumFractionDigits: 0 })}`;
+const fmtCompact = (v: number) =>
+  v >= 1_000_000
+    ? `${(v / 1_000_000).toFixed(v % 1_000_000 === 0 ? 0 : 1)}M`
+    : v >= 1_000
+      ? `${Math.round(v / 1_000)}k`
+      : `${Math.round(v)}`;
 
 export function DashboardClient({
   summary,
@@ -522,7 +532,7 @@ export function DashboardClient({
                 <BarChart data={salesByProduct} margin={{ top: 10, right: 0, left: -25, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F3F4F6" />
                   <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 7, fill: '#9CA3AF', fontWeight: 600 }} dy={10} />
-                  <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 8, fill: '#9CA3AF', fontWeight: 600 }} tickFormatter={(val) => val === 0 ? '0' : `${val}k`} />
+                  <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 8, fill: '#9CA3AF', fontWeight: 600 }} tickFormatter={(val) => val === 0 ? '0' : fmtCompact(val)} />
                   <Tooltip cursor={{ fill: 'transparent' }} content={<BarChartTooltip />} />
                   <Bar dataKey="value" radius={[2, 2, 0, 0]} barSize={8}>
                     {salesByProduct.map((entry, index) => (
@@ -555,7 +565,7 @@ export function DashboardClient({
                 <BarChart data={salesByState} margin={{ top: 10, right: 0, left: -25, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F3F4F6" />
                   <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 7, fill: '#9CA3AF', fontWeight: 600 }} dy={10} />
-                  <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 8, fill: '#9CA3AF', fontWeight: 600 }} tickFormatter={(val) => val === 0 ? '0' : `${val}k`} />
+                  <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 8, fill: '#9CA3AF', fontWeight: 600 }} tickFormatter={(val) => val === 0 ? '0' : fmtCompact(val)} />
                   <Tooltip cursor={{ fill: 'transparent' }} content={<BarChartTooltip />} />
                   <Bar dataKey="value" radius={[2, 2, 0, 0]} barSize={8}>
                     {salesByState.map((entry, index) => (
