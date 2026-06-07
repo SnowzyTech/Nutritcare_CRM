@@ -45,6 +45,25 @@ const fallbackSalesChartData = [
   { name: 'NOV', value: 35_000_000 }, { name: 'DEC', value: 20_000_000 },
 ];
 
+const fallbackSalesTrends = {
+  day: [
+    { name: 'Mon', value: 4_000_000 }, { name: 'Tue', value: 6_500_000 },
+    { name: 'Wed', value: 5_000_000 }, { name: 'Thu', value: 8_000_000 },
+    { name: 'Fri', value: 7_200_000 }, { name: 'Sat', value: 9_500_000 },
+    { name: 'Sun', value: 3_800_000 },
+  ],
+  week: [
+    { name: 'W1', value: 28_000_000 }, { name: 'W2', value: 32_000_000 },
+    { name: 'W3', value: 26_000_000 }, { name: 'W4', value: 41_000_000 },
+    { name: 'W5', value: 38_000_000 }, { name: 'W6', value: 45_000_000 },
+    { name: 'W7', value: 33_000_000 }, { name: 'W8', value: 49_000_000 },
+    { name: 'W9', value: 52_000_000 }, { name: 'W10', value: 44_000_000 },
+    { name: 'W11', value: 58_000_000 }, { name: 'W12', value: 61_000_000 },
+  ],
+  month: fallbackSalesChartData,
+  year: new Date().getFullYear(),
+};
+
 const fallbackSalesByProduct = [
   { name: 'FORD', value: 8 }, { name: 'SHRED', value: 12 },
   { name: 'AFTER-', value: 6 }, { name: 'PROMACT', value: 10 },
@@ -68,8 +87,8 @@ function SalesChartTooltip({ active, payload, label }: { active?: boolean; paylo
   const v = payload[0].value;
   return (
     <div className="bg-[#1C1C24] text-white rounded-lg px-3 py-2 text-[10px] shadow-lg border border-[#2D2D35] flex flex-col items-center">
-      <p className="font-semibold text-gray-300">1,348 sales</p>
-      <p className="text-white font-bold">$3,348</p>
+      <p className="font-semibold text-gray-300">{label}</p>
+      <p className="text-white font-bold">{fmtN(v)}</p>
     </div>
   );
 }
@@ -137,7 +156,12 @@ interface DashboardClientProps {
     profitChangePct: number;
     deliveryChangePct: number;
   };
-  salesByMonth?: { name: string; value: number }[];
+  salesTrends?: {
+    day: { name: string; value: number }[];
+    week: { name: string; value: number }[];
+    month: { name: string; value: number }[];
+    year: number;
+  };
   salesByProductData?: { name: string; value: number; isMax?: boolean }[];
   salesByStateData?: { name: string; value: number; isMax?: boolean }[];
   inventory?: {
@@ -164,7 +188,7 @@ const fmtN = (n: number) => `N${Number(n).toLocaleString("en-NG", { maximumFract
 
 export function DashboardClient({
   summary,
-  salesByMonth,
+  salesTrends,
   salesByProductData,
   salesByStateData,
   inventory,
@@ -187,7 +211,15 @@ export function DashboardClient({
       ]
     : fallbackFinancialSummary;
 
-  const salesChartData = salesByMonth && salesByMonth.length > 0 ? salesByMonth : fallbackSalesChartData;
+  const trends = salesTrends ?? fallbackSalesTrends;
+  const rangeKey = activeRange === 'Daily' ? 'day' : activeRange === 'Weekly' ? 'week' : 'month';
+  const salesChartData = trends[rangeKey]?.length ? trends[rangeKey] : fallbackSalesChartData;
+  const salesHeading =
+    activeRange === 'Daily'
+      ? 'Sales · Last 7 Days'
+      : activeRange === 'Weekly'
+        ? 'Sales · Last 12 Weeks'
+        : `Sales ${trends.year}`;
   const salesByProduct = salesByProductData && salesByProductData.length > 0 ? salesByProductData : fallbackSalesByProduct;
   const salesByState = salesByStateData && salesByStateData.length > 0 ? salesByStateData : fallbackSalesByState;
 
@@ -379,7 +411,7 @@ export function DashboardClient({
         <div className="bg-white  border border-gray-100/50 p-6 ">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <span className="text-[11px] text-gray-400 font-medium">Sales 2022</span>
+              <span className="text-[11px] text-gray-400 font-medium">{salesHeading}</span>
               <div className="flex items-center gap-3">
                 <p className="text-[22px] font-black text-gray-900">{(() => {
                   const total = salesChartData.reduce((s, x) => s + Number(x.value), 0);

@@ -1,6 +1,13 @@
 import { prisma } from "@/lib/db/prisma";
+import {
+  getProductTotalsMap,
+  getAgentStockMap,
+  getWarehouseStockMap,
+} from "@/modules/inventory/services/stock-level.service";
 
 const MONTH_LABELS = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const WEEKDAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 function startOfMonth(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), 1);
@@ -8,6 +15,28 @@ function startOfMonth(date: Date) {
 
 function endOfMonth(date: Date) {
   return new Date(date.getFullYear(), date.getMonth() + 1, 1);
+}
+
+function startOfDay(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+/** Monday-based start of the week containing `date`. */
+function startOfWeekMon(date: Date) {
+  const s = startOfDay(date);
+  const dow = (s.getDay() + 6) % 7; // 0 = Monday … 6 = Sunday
+  s.setDate(s.getDate() - dow);
+  return s;
+}
+
+function addDays(date: Date, n: number) {
+  const d = new Date(date);
+  d.setDate(d.getDate() + n);
+  return d;
+}
+
+function dayKey(date: Date) {
+  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
 }
 
 export async function getFinancialSummary() {
@@ -71,16 +100,70 @@ export async function getFinancialSummary() {
   };
 }
 
-export async function getSalesByMonth(year: number = new Date().getFullYear()) {
-  const start = new Date(year, 0, 1);
-  const end = new Date(year + 1, 0, 1);
+export type TrendPoint = { name: string; value: number };
+export interface SalesTrends {
+  day: TrendPoint[];
+  week: TrendPoint[];
+  month: TrendPoint[];
+  year: number;
+}
+
+/**
+ * Delivered-order revenue bucketed three ways for the dashboard toggle:
+ *   • day   → last 7 days (labelled by weekday)
+ *   • week  → last 12 weeks (labelled by week-start date, Monday-based)
+ *   • month → 12 calendar months of the current year
+ * One query covers the widest range; rows are then fanned out into each bucket.
+ */
+export async function getSalesTrends(now: Date = new Date()): Promise<SalesTrends> {
+  const today = startOfDay(now);
+  const dayStart = addDays(today, -6); // 7 days incl. today
+  const weekStart = addDays(startOfWeekMon(now), -7 * 11); // 12 weeks incl. this week
+  const yearStart = new Date(now.getFullYear(), 0, 1);
+  const earliest = new Date(
+    Math.min(dayStart.getTime(), weekStart.getTime(), yearStart.getTime()),
+  );
+
   const orders = await prisma.order.findMany({
-    where: { status: "DELIVERED", deletedAt: null, date: { gte: start, lt: end } },
+    where: { status: "DELIVERED", deletedAt: null, date: { gte: earliest } },
     select: { netAmount: true, date: true },
   });
-  const buckets = new Array(12).fill(0);
-  for (const o of orders) buckets[o.date.getMonth()] += Number(o.netAmount);
-  return buckets.map((value, i) => ({ name: MONTH_LABELS[i], value }));
+
+  // Day buckets — last 7 days
+  const day: TrendPoint[] = [];
+  const dayIndex = new Map<string, number>();
+  for (let i = 0; i < 7; i++) {
+    const d = addDays(dayStart, i);
+    dayIndex.set(dayKey(d), i);
+    day.push({ name: WEEKDAY_SHORT[d.getDay()], value: 0 });
+  }
+
+  // Week buckets — last 12 weeks
+  const week: TrendPoint[] = [];
+  const weekStarts: number[] = [];
+  for (let i = 0; i < 12; i++) {
+    const ws = addDays(weekStart, i * 7);
+    weekStarts.push(ws.getTime());
+    week.push({ name: `${ws.getDate()} ${MONTH_SHORT[ws.getMonth()]}`, value: 0 });
+  }
+
+  // Month buckets — current calendar year
+  const month: TrendPoint[] = MONTH_LABELS.map((name) => ({ name, value: 0 }));
+
+  for (const o of orders) {
+    const amt = Number(o.netAmount);
+    const d = o.date;
+
+    const di = dayIndex.get(dayKey(startOfDay(d)));
+    if (di !== undefined) day[di].value += amt;
+
+    const wi = weekStarts.indexOf(startOfWeekMon(d).getTime());
+    if (wi !== -1) week[wi].value += amt;
+
+    if (d.getFullYear() === now.getFullYear()) month[d.getMonth()].value += amt;
+  }
+
+  return { day, week, month, year: now.getFullYear() };
 }
 
 export async function getSalesByProduct(limit = 8) {
@@ -130,30 +213,25 @@ export async function getSalesByState(limit = 12) {
 }
 
 export async function getInventorySnapshot() {
-  const products = await prisma.product.findMany({
-    where: { deletedAt: null, isActive: true },
-    select: {
-      id: true,
-      name: true,
-      costPrice: true,
-      lowStockAlertQtyTotal: true,
-      stockMovementItems: {
-        select: { quantity: true, stockMovement: { select: { type: true, agentId: true, warehouseId: true } } },
-      },
-    },
-  });
+  // Source of truth is the materialized StockLevel table (locationKind +
+  // locationId), NOT StockMovement aggregation — agent stock arrives via
+  // warehouse→agent transfers and leaves on delivery, neither of which writes
+  // agentId-tagged StockMovement rows. Reading movements here reported 0.
+  const [products, totalsMap, agentStockMap, warehouseStockMap, agentCount, warehouseCount] =
+    await Promise.all([
+      prisma.product.findMany({
+        where: { deletedAt: null, isActive: true },
+        select: { id: true, name: true, costPrice: true, lowStockAlertQtyTotal: true },
+      }),
+      getProductTotalsMap(),
+      getAgentStockMap(),
+      getWarehouseStockMap(),
+      prisma.agent.count({ where: { deletedAt: null, status: "ACTIVE" } }),
+      prisma.warehouse.count(),
+    ]);
 
-  const breakdown = products.map(p => {
-    let total = 0;
-    let agent = 0;
-    let warehouse = 0;
-    for (const item of p.stockMovementItems) {
-      const t = item.stockMovement.type;
-      const sign = t === "INCOMING" ? 1 : t === "OUTGOING" ? -1 : 1;
-      total += item.quantity * sign;
-      if (item.stockMovement.agentId) agent += item.quantity * sign;
-      if (item.stockMovement.warehouseId) warehouse += item.quantity * sign;
-    }
+  const breakdown = products.map((p) => {
+    const total = totalsMap[p.id] ?? 0;
     const value = total * Number(p.costPrice);
     const lowStock = p.lowStockAlertQtyTotal != null && total <= p.lowStockAlertQtyTotal;
     return { id: p.id, name: p.name, total, value, lowStock };
@@ -162,20 +240,15 @@ export async function getInventorySnapshot() {
   const totalValue = breakdown.reduce((s, p) => s + p.value, 0);
   const totalProducts = breakdown.reduce((s, p) => s + p.total, 0);
 
-  let agentStock = 0;
-  let warehouseStock = 0;
-  const movements = await prisma.stockMovement.findMany({
-    select: { type: true, agentId: true, warehouseId: true, items: { select: { quantity: true } } },
-  });
-  for (const m of movements) {
-    const sign = m.type === "INCOMING" ? 1 : m.type === "OUTGOING" ? -1 : 1;
-    const qty = m.items.reduce((s, i) => s + i.quantity, 0) * sign;
-    if (m.agentId) agentStock += qty;
-    if (m.warehouseId) warehouseStock += qty;
-  }
+  // Sum every product's balance across all locations of a given kind.
+  const sumLocationMap = (m: Record<string, Record<string, number>>) =>
+    Object.values(m).reduce(
+      (sum, perProduct) => sum + Object.values(perProduct).reduce((a, b) => a + b, 0),
+      0,
+    );
 
-  const agentCount = await prisma.agent.count({ where: { deletedAt: null, status: "ACTIVE" } });
-  const warehouseCount = await prisma.warehouse.count();
+  const agentStock = sumLocationMap(agentStockMap);
+  const warehouseStock = sumLocationMap(warehouseStockMap);
 
   return {
     totalValue,

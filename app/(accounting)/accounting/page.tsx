@@ -1,7 +1,7 @@
 import { DashboardClient } from "./_components/DashboardClient";
 import {
   getFinancialSummary,
-  getSalesByMonth,
+  getSalesTrends,
   getSalesByProduct,
   getSalesByState,
   getInventorySnapshot,
@@ -9,9 +9,9 @@ import {
 } from "@/modules/finance/services/dashboard.service";
 
 export default async function AccountingDashboardPage() {
-  const [summary, salesByMonth, salesByProduct, salesByState, inventory, settlementSummary] = await Promise.all([
+  const [summary, salesTrends, salesByProduct, salesByState, inventory, settlementSummary] = await Promise.all([
     getFinancialSummary(),
-    getSalesByMonth(),
+    getSalesTrends(),
     getSalesByProduct(),
     getSalesByState(),
     getInventorySnapshot(),
@@ -21,7 +21,7 @@ export default async function AccountingDashboardPage() {
   return (
     <DashboardClient
       summary={summary}
-      salesByMonth={salesByMonth}
+      salesTrends={salesTrends}
       salesByProductData={salesByProduct}
       salesByStateData={salesByState}
       inventory={inventory}
