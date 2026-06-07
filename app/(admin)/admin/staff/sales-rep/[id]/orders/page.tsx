@@ -30,6 +30,7 @@ export default async function SalesRepOrdersPage({ params }: Props) {
     orderNumber: o.orderNumber,
     status: o.status,
     createdAt: o.createdAt.toISOString(),
+    updatedAt: o.updatedAt.toISOString(),
     customer: {
       name: o.customer.name,
       email: o.customer.email ?? null,
