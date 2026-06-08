@@ -51,7 +51,7 @@ export default async function ExpensesPage() {
     id: s.id,
     name: s.name,
     contact: s.phone1,
-    balance: "₦0",
+    balance: fmt(Number(s.payableBalance)),
   }));
 
   // Expense Entry only deals with expense-type accounts (Cost of Sales,

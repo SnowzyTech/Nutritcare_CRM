@@ -48,6 +48,28 @@ interface AgentSettlementClientProps {
   agentOptions?: { id: string; companyName: string; state: string | null }[];
 }
 
+type DateRangeFilter = { from: string; to: string };
+
+interface AgentLedgerViewProps {
+  search: string;
+  setSearch: React.Dispatch<React.SetStateAction<string>>;
+  openDropdown: string | null;
+  toggleDropdown: (name: string) => void;
+  initialLedger?: AnyLedgerEntry[];
+  referenceTypeFilter: string;
+  setReferenceTypeFilter: React.Dispatch<React.SetStateAction<string>>;
+  dateRange: DateRangeFilter;
+  setDateRange: React.Dispatch<React.SetStateAction<DateRangeFilter>>;
+  setOpenDropdown: React.Dispatch<React.SetStateAction<string | null>>;
+}
+
+interface FilterButtonProps {
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+  isOpen: boolean;
+}
+
 export function AgentSettlementClient({ initialAgents, initialLedger, agentOptions }: AgentSettlementClientProps = {}) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<'list' | 'ledger' | 'remittance' | 'adjustment'>('list');
@@ -58,6 +80,8 @@ export function AgentSettlementClient({ initialAgents, initialLedger, agentOptio
   const [agentTypeFilter, setAgentTypeFilter] = useState('All');
   const [statusFilter, setStatusFilter] = useState('All');
   const [dateRange, setDateRange] = useState({ from: '', to: '' });
+  const [ledgerReferenceTypeFilter, setLedgerReferenceTypeFilter] = useState('All');
+  const [ledgerDateRange, setLedgerDateRange] = useState({ from: '', to: '' });
 
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
 
@@ -139,6 +163,11 @@ export function AgentSettlementClient({ initialAgents, initialLedger, agentOptio
           openDropdown={openDropdown}
           toggleDropdown={toggleDropdown}
           initialLedger={initialLedger}
+          referenceTypeFilter={ledgerReferenceTypeFilter}
+          setReferenceTypeFilter={setLedgerReferenceTypeFilter}
+          dateRange={ledgerDateRange}
+          setDateRange={setLedgerDateRange}
+          setOpenDropdown={setOpenDropdown}
         />
       ) : activeTab === 'remittance' ? (
         <RemittanceEntryView agentOptions={agentOptions} />
@@ -1245,14 +1274,118 @@ function AgentListView({
   );
 }
 
-function AgentLedgerView({ search, setSearch, openDropdown, toggleDropdown, initialLedger }: any) {
-  const ledgerSource: any[] = initialLedger ?? [];
+function AgentLedgerView({
+  search,
+  setSearch,
+  openDropdown,
+  toggleDropdown,
+  initialLedger,
+  referenceTypeFilter,
+  setReferenceTypeFilter,
+  dateRange,
+  setDateRange,
+  setOpenDropdown,
+}: AgentLedgerViewProps) {
+  const ledgerSource = initialLedger ?? [];
+  const referenceTypes = ["Remittance", "Delivery Fee", "Adjustment"];
+  const dateRangeLabel = dateRange?.from && dateRange?.to
+    ? `${dateRange.from} - ${dateRange.to}`
+    : dateRange?.from
+      ? `From ${dateRange.from}`
+      : dateRange?.to
+        ? `To ${dateRange.to}`
+        : "Date Range";
+  const filteredLedger = ledgerSource.filter((l) => {
+    const query = search.toLowerCase().trim();
+    const matchSearch = !query ||
+      l.agent?.toLowerCase().includes(query) ||
+      l.referenceType?.toLowerCase().includes(query) ||
+      l.referenceId?.toLowerCase().includes(query);
+    const matchReferenceType = referenceTypeFilter === "All" || l.referenceType === referenceTypeFilter;
+    const matchFrom = !dateRange?.from || l.date >= dateRange.from;
+    const matchTo = !dateRange?.to || l.date <= dateRange.to;
+
+    return matchSearch && matchReferenceType && matchFrom && matchTo;
+  });
+
   return (
     <>
       {/* Filter Bar */}
       <div className="flex flex-wrap items-center gap-3 mb-8">
-        <FilterButton icon={<History size={16} strokeWidth={2.5} />} label="Reference Type" onClick={() => toggleDropdown('ref')} isOpen={openDropdown === 'ref'} />
-        <FilterButton icon={<CalendarIcon size={16} strokeWidth={2.5} />} label="Date Range" onClick={() => toggleDropdown('date')} isOpen={openDropdown === 'date'} />
+        <div className="relative">
+          <FilterButton
+            icon={<History size={16} strokeWidth={2.5} />}
+            label={referenceTypeFilter === "All" ? "Reference Type" : referenceTypeFilter}
+            onClick={() => toggleDropdown('ref')}
+            isOpen={openDropdown === 'ref'}
+          />
+          {openDropdown === 'ref' && (
+            <div className="absolute top-full left-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-gray-100 z-50 p-2 py-3">
+              <div
+                className="px-3 py-2 text-[13px] text-gray-600 hover:bg-gray-50 rounded-lg cursor-pointer font-medium"
+                onClick={() => { setReferenceTypeFilter('All'); setOpenDropdown(null); }}
+              >
+                All Types
+              </div>
+              {referenceTypes.map(type => (
+                <div
+                  key={type}
+                  className="px-3 py-2 text-[13px] text-gray-600 hover:bg-gray-50 rounded-lg cursor-pointer font-medium"
+                  onClick={() => { setReferenceTypeFilter(type); setOpenDropdown(null); }}
+                >
+                  {type}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="relative">
+          <FilterButton
+            icon={<CalendarIcon size={16} strokeWidth={2.5} />}
+            label={dateRangeLabel}
+            onClick={() => toggleDropdown('date')}
+            isOpen={openDropdown === 'date'}
+          />
+          {openDropdown === 'date' && (
+            <div className="absolute top-full left-0 mt-2 bg-white rounded-xl shadow-xl border border-gray-100 z-50 p-4 w-72">
+              <div className="space-y-4">
+                <div>
+                  <label className="text-[11px] font-bold text-gray-400 uppercase block mb-1">From</label>
+                  <input
+                    type="date"
+                    value={dateRange.from}
+                    onChange={(e) => setDateRange((prev) => ({ ...prev, from: e.target.value }))}
+                    className="w-full h-10 border border-gray-200 rounded-lg px-3 text-sm focus:outline-none focus:border-purple-300"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] font-bold text-gray-400 uppercase block mb-1">To</label>
+                  <input
+                    type="date"
+                    value={dateRange.to}
+                    onChange={(e) => setDateRange((prev) => ({ ...prev, to: e.target.value }))}
+                    className="w-full h-10 border border-gray-200 rounded-lg px-3 text-sm focus:outline-none focus:border-purple-300"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => { setDateRange({ from: '', to: '' }); setOpenDropdown(null); }}
+                    className="flex-1 bg-gray-100 text-gray-600 py-2 rounded-lg text-sm font-bold"
+                  >
+                    Clear
+                  </button>
+                  <button
+                    onClick={() => setOpenDropdown(null)}
+                    className="flex-1 bg-[#AE00FF] text-white py-2 rounded-lg text-sm font-bold"
+                  >
+                    Apply
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
 
         {/* Search */}
         <div className="relative flex-1 min-w-[300px]">
@@ -1291,15 +1424,15 @@ function AgentLedgerView({ search, setSearch, openDropdown, toggleDropdown, init
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {ledgerSource.length === 0 && (
+              {filteredLedger.length === 0 && (
                 <tr>
                   <td colSpan={7} className="px-6 py-16 text-center text-[13px] text-gray-400 font-medium">
-                    No ledger entries yet
+                    {ledgerSource.length === 0 ? "No ledger entries yet" : "No ledger entries match the selected filters"}
                   </td>
                 </tr>
               )}
-              {ledgerSource.map((l: any, idx: number) => (
-                <tr key={idx} className={`${idx % 2 === 1 ? 'bg-gray-50/30' : 'bg-white'} hover:bg-gray-50/50 transition-colors`}>
+              {filteredLedger.map((l, idx: number) => (
+                <tr key={l.id ?? idx} className={`${idx % 2 === 1 ? 'bg-gray-50/30' : 'bg-white'} hover:bg-gray-50/50 transition-colors`}>
                   <td className="px-6 py-5 text-[13px] text-gray-400 font-medium">{l.date}</td>
                   <td className="px-6 py-5">
                     <div className="flex items-center gap-3">
@@ -1324,7 +1457,7 @@ function AgentLedgerView({ search, setSearch, openDropdown, toggleDropdown, init
   );
 }
 
-function FilterButton({ icon, label, onClick, isOpen }: any) {
+function FilterButton({ icon, label, onClick, isOpen }: FilterButtonProps) {
   return (
     <div className="relative">
       <button

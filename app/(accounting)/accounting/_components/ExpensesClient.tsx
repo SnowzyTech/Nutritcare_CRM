@@ -16,6 +16,7 @@ import {
   Download,
   FileText,
   Upload,
+  Pencil,
 } from 'lucide-react';
 import { format } from "date-fns";
 import { Calendar } from "@/components/ui/calendar";
@@ -29,10 +30,17 @@ import {
   createExpenseCategoryAction,
   addExpenseNamesToCategoryAction,
   createPaymentAccountAction,
+  updatePaymentAccountAction,
+  deletePaymentAccountAction,
 } from "@/modules/finance/actions/expenses.action";
-import { createSupplierAction } from "@/modules/finance/actions/suppliers.action";
+import {
+  createSupplierAction,
+  updateSupplierAction,
+  deleteSupplierAction,
+} from "@/modules/finance/actions/suppliers.action";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { toast } from "sonner";
 
 interface ExpenseLineItem {
   product: string;
@@ -184,7 +192,9 @@ export function ExpensesClient({
   const [accounts, setAccounts] = useState<{ id: string; name: string; logoUrl?: string }[]>(
     initialAccounts ?? []
   );
-  const [suppliers, setSuppliers] = useState(initialSuppliers ?? initialSupplierData);
+  const [suppliers, setSuppliers] = useState<{ id?: string; name: string; contact: string; balance: string }[]>(
+    initialSuppliers ?? initialSupplierData
+  );
 
   // Form state for new expense
   const [selectedCategoryId, setSelectedCategoryId] = useState('');
@@ -255,9 +265,13 @@ export function ExpensesClient({
 
   const [isAccountModalOpen, setAccountModalOpen] = useState(false);
   const [newAccount, setNewAccount] = useState({ accountNumber: '', bankName: '' });
+  const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
+  const [savingAccount, setSavingAccount] = useState(false);
 
   const [isSupplierModalOpen, setSupplierModalOpen] = useState(false);
   const [newSupplier, setNewSupplier] = useState({ name: '', contact: '', balance: '' });
+  const [editingSupplierId, setEditingSupplierId] = useState<string | null>(null);
+  const [savingSupplier, setSavingSupplier] = useState(false);
 
   const handleAddCategory = async () => {
     const validSubs = subCategoryInputs
@@ -304,10 +318,38 @@ export function ExpensesClient({
     setShowCategoryAdd(false);
   };
 
+  const resetAccountForm = () => {
+    setAccountModalOpen(false);
+    setEditingAccountId(null);
+    setNewAccount({ accountNumber: '', bankName: '' });
+    if (bankLogoPreview) URL.revokeObjectURL(bankLogoPreview);
+    setBankLogoFile(null);
+    setBankLogoPreview('');
+  };
+
+  const openAddAccount = () => {
+    setEditingAccountId(null);
+    setNewAccount({ accountNumber: '', bankName: '' });
+    setBankLogoFile(null);
+    setBankLogoPreview('');
+    setAccountModalOpen(true);
+  };
+
+  const openEditAccount = (acc: { id: string; name: string; logoUrl?: string }) => {
+    // Account name is stored as "Bank Name - Account Number"; split it back.
+    const [bankName, accountNumber = ''] = acc.name.split(' - ');
+    setEditingAccountId(acc.id);
+    setNewAccount({ bankName: bankName ?? acc.name, accountNumber });
+    setBankLogoFile(null);
+    setBankLogoPreview('');
+    setAccountModalOpen(true);
+  };
+
   const handleAddAccount = async () => {
-    if (!newAccount.bankName) return;
+    if (!newAccount.bankName.trim()) { toast.error('Bank name is required'); return; }
     const display = `${newAccount.bankName}${newAccount.accountNumber ? ' - ' + newAccount.accountNumber : ''}`;
 
+    setSavingAccount(true);
     let logoUrl: string | undefined;
     if (bankLogoFile) {
       try {
@@ -316,31 +358,89 @@ export function ExpensesClient({
       } catch { /* continue without logo */ }
     }
 
-    const res = await createPaymentAccountAction(display, 'BANK', logoUrl);
-    if ('error' in res) { alert(res.error); return; }
-    setAccounts(prev => [...prev, { id: res.id!, name: res.name!, logoUrl: res.logoUrl }]);
-    setAccountModalOpen(false);
-    setNewAccount({ accountNumber: '', bankName: '' });
-    if (bankLogoPreview) URL.revokeObjectURL(bankLogoPreview);
-    setBankLogoFile(null);
-    setBankLogoPreview('');
+    const wasEditing = !!editingAccountId;
+    const res = editingAccountId
+      ? await updatePaymentAccountAction(editingAccountId, display, logoUrl)
+      : await createPaymentAccountAction(display, 'BANK', logoUrl);
+    setSavingAccount(false);
+    if ('error' in res) { toast.error(res.error); return; }
+
+    if (editingAccountId) {
+      setAccounts(prev => prev.map(a => (a.id === res.id ? { id: res.id!, name: res.name!, logoUrl: res.logoUrl } : a)));
+    } else {
+      setAccounts(prev => [...prev, { id: res.id!, name: res.name!, logoUrl: res.logoUrl }]);
+    }
+    toast.success(wasEditing ? 'Account updated' : 'Account added');
+    resetAccountForm();
+  };
+
+  const handleDeleteAccount = async (id: string) => {
+    if (!confirm('Delete this account? It will no longer be selectable for new expenses.')) return;
+    const res = await deletePaymentAccountAction(id);
+    if ('error' in res) { toast.error(res.error); return; }
+    setAccounts(prev => prev.filter(a => a.id !== id));
+    if (selectedAccountId === id) setSelectedAccountId('');
+    toast.success('Account deleted');
+  };
+
+  const openAddSupplier = () => {
+    setEditingSupplierId(null);
+    setNewSupplier({ name: '', contact: '', balance: '' });
+    setSupplierModalOpen(true);
+  };
+
+  const openEditSupplier = (sup: { id?: string; name: string; contact: string; balance: string }) => {
+    if (!sup.id) return;
+    setEditingSupplierId(sup.id);
+    setNewSupplier({ name: sup.name, contact: sup.contact, balance: sup.balance });
+    setSupplierModalOpen(true);
   };
 
   const handleAddSupplier = async () => {
-    if (!newSupplier.name) return;
-    const res = await createSupplierAction({
+    if (!newSupplier.name.trim()) { toast.error('Supplier name is required'); return; }
+    setSavingSupplier(true);
+    const payableBalance = parseFloat(newSupplier.balance.replace(/[^0-9.]/g, '')) || 0;
+    const formattedBalance = `₦${payableBalance.toLocaleString('en-NG', { maximumFractionDigits: 0 })}`;
+    const payload = {
       name: newSupplier.name,
       phone1: newSupplier.contact || `unknown-${Date.now()}`,
-    });
-    if ('error' in res) { alert(res.error); return; }
-    setSuppliers(prev => [
-      ...prev,
-      { id: res.id, name: newSupplier.name, contact: newSupplier.contact, balance: newSupplier.balance || '₦0' },
-    ]);
-    setSelectedSupplierId(res.id ?? '');
-    setSupplierSearch(newSupplier.name);
+      payableBalance,
+    };
+    const wasEditing = !!editingSupplierId;
+    const res = editingSupplierId
+      ? await updateSupplierAction(editingSupplierId, payload)
+      : await createSupplierAction(payload);
+    setSavingSupplier(false);
+    if ('error' in res) { toast.error(res.error); return; }
+
+    if (editingSupplierId) {
+      setSuppliers(prev => prev.map(s =>
+        s.id === editingSupplierId
+          ? { ...s, name: newSupplier.name, contact: newSupplier.contact, balance: formattedBalance }
+          : s
+      ));
+    } else {
+      setSuppliers(prev => [
+        ...prev,
+        { id: res.id, name: newSupplier.name, contact: newSupplier.contact, balance: formattedBalance },
+      ]);
+      setSelectedSupplierId(res.id ?? '');
+      setSupplierSearch(newSupplier.name);
+    }
+    toast.success(wasEditing ? 'Supplier updated' : 'Supplier added');
     setSupplierModalOpen(false);
+    setEditingSupplierId(null);
     setNewSupplier({ name: '', contact: '', balance: '' });
+  };
+
+  const handleDeleteSupplier = async (id?: string) => {
+    if (!id) return;
+    if (!confirm('Delete this supplier?')) return;
+    const res = await deleteSupplierAction(id);
+    if ('error' in res) { toast.error(res.error); return; }
+    setSuppliers(prev => prev.filter(s => s.id !== id));
+    if (selectedSupplierId === id) { setSelectedSupplierId(''); setSupplierSearch(''); }
+    toast.success('Supplier deleted');
   };
 
   const handleAddLine = () => {
@@ -498,7 +598,7 @@ export function ExpensesClient({
         <div className="flex items-center gap-6">
           {activeTab === 'supplier' && (
             <button 
-              onClick={() => setSupplierModalOpen(true)}
+              onClick={openAddSupplier}
               className="bg-[#AE00FF] text-white px-6 py-3 rounded-xl text-[14px] font-bold hover:bg-[#9900E6] transition-colors shadow-sm flex items-center gap-2"
             >
               Add Supplier <Plus size={16} />
@@ -805,7 +905,7 @@ export function ExpensesClient({
                     </div>
                   </div>
                   <button 
-                    onClick={() => setAccountModalOpen(true)}
+                    onClick={openAddAccount}
                     className="h-12 bg-white border border-gray-200 rounded-lg flex items-center justify-center gap-2 text-gray-500 hover:border-gray-300 transition-all text-[13px] font-medium"
                   >
                     <Plus size={16} />
@@ -867,7 +967,7 @@ export function ExpensesClient({
                     </div>
                   </div>
                   <button
-                    onClick={() => setSupplierModalOpen(true)}
+                    onClick={openAddSupplier}
                     className="h-12 bg-white border border-gray-200 rounded-lg flex items-center justify-center gap-2 text-gray-500 hover:border-gray-300 transition-all text-[13px] font-medium"
                   >
                     <Plus size={16} />
@@ -883,7 +983,7 @@ export function ExpensesClient({
                         <th className="px-4 py-3 w-10">#</th>
                         <th className="px-4 py-3 w-[25%]">Product/Service</th>
                         <th className="px-4 py-3 w-[30%]">Description</th>
-                        <th className="px-4 py-3 w-20">Qty</th>
+                        <th className="px-2 py-3 w-24">Qty</th>
                         <th className="px-4 py-3 w-[15%]">Amount</th>
                         <th className="px-4 py-3 w-24">Tax</th>
                         <th className="px-4 py-3 w-10"></th>
@@ -899,8 +999,8 @@ export function ExpensesClient({
                           <td className="px-4 py-3">
                             <input type="text" placeholder="Description" value={item.description} onChange={e => updateLine(item.id, 'description', e.target.value)} className="w-full h-8 border border-gray-100 rounded bg-white px-3 text-[11px] text-gray-600 focus:outline-none focus:border-purple-400 placeholder:text-gray-300" />
                           </td>
-                          <td className="px-4 py-3">
-                            <input type="number" placeholder="Qty" value={item.qty} onChange={e => updateLine(item.id, 'qty', e.target.value)} className="w-full h-8 border border-gray-100 rounded bg-white px-3 text-[11px] text-gray-600 focus:outline-none focus:border-purple-400 placeholder:text-gray-300 text-center" />
+                          <td className="px-2 py-3">
+                            <input type="number" placeholder="Qty" value={item.qty} onChange={e => updateLine(item.id, 'qty', e.target.value)} className="w-full h-8 border border-gray-100 rounded bg-white px-2 text-[11px] text-gray-600 focus:outline-none focus:border-purple-400 placeholder:text-gray-300 text-center" />
                           </td>
                           <td className="px-4 py-3">
                             <input type="number" placeholder="Amount" value={item.amount} onChange={e => updateLine(item.id, 'amount', e.target.value)} className="w-full h-8 border border-gray-100 rounded bg-white px-3 text-[11px] text-gray-600 focus:outline-none focus:border-purple-400 placeholder:text-gray-300" />
@@ -1385,17 +1485,38 @@ export function ExpensesClient({
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-[#EBEBEB] text-gray-500 text-[12px] font-bold">
-                      <th className="px-6 py-4 w-[35%]">Supplier Name</th>
-                      <th className="px-6 py-4 w-[35%]">Contact</th>
-                      <th className="px-6 py-4 w-[30%]">Payable Balance</th>
+                      <th className="px-6 py-4 w-[30%]">Supplier Name</th>
+                      <th className="px-6 py-4 w-[28%]">Contact</th>
+                      <th className="px-6 py-4 w-[24%]">Payable Balance</th>
+                      <th className="px-6 py-4 w-[18%] text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {suppliers.filter(s => !supplierTabSearch || s.name.toLowerCase().includes(supplierTabSearch.toLowerCase())).map((row, idx) => (
-                      <tr key={idx} className={`${idx % 2 === 1 ? 'bg-[#FAFAFA]' : 'bg-white'}`}>
+                      <tr key={row.id ?? idx} className={`${idx % 2 === 1 ? 'bg-[#FAFAFA]' : 'bg-white'}`}>
                         <td className="px-6 py-5 text-[12px] text-gray-500">{row.name}</td>
                         <td className="px-6 py-5 text-[12px] text-gray-500">{row.contact}</td>
                         <td className="px-6 py-5 text-[12px] text-gray-500">{row.balance}</td>
+                        <td className="px-6 py-5">
+                          <div className="flex items-center justify-end gap-1">
+                            <button
+                              onClick={() => openEditSupplier(row)}
+                              disabled={!row.id}
+                              className="p-2 text-gray-400 hover:text-[#AE00FF] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                              title="Edit supplier"
+                            >
+                              <Pencil size={15} />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteSupplier(row.id)}
+                              disabled={!row.id}
+                              className="p-2 text-gray-400 hover:text-red-500 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                              title="Delete supplier"
+                            >
+                              <Trash2 size={15} />
+                            </button>
+                          </div>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -1411,10 +1532,10 @@ export function ExpensesClient({
 
       {isAccountModalOpen && (
         <div className="fixed inset-0 bg-black/30 z-[100] flex items-center justify-center backdrop-blur-sm">
-          <div className="bg-white rounded-2xl p-8 w-[420px] shadow-2xl">
+          <div className="bg-white rounded-2xl p-8 w-[420px] shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-6">
-              <h3 className="text-lg font-bold text-gray-800">Add New Account</h3>
-              <button onClick={() => { setAccountModalOpen(false); if (bankLogoPreview) URL.revokeObjectURL(bankLogoPreview); setBankLogoFile(null); setBankLogoPreview(''); }} className="text-gray-400 hover:text-gray-600 bg-gray-100 p-1.5 rounded-full"><X size={18} /></button>
+              <h3 className="text-lg font-bold text-gray-800">{editingAccountId ? 'Edit Account' : 'Add New Account'}</h3>
+              <button onClick={resetAccountForm} className="text-gray-400 hover:text-gray-600 bg-gray-100 p-1.5 rounded-full"><X size={18} /></button>
             </div>
             <div className="space-y-4">
               {/* Logo upload */}
@@ -1460,9 +1581,31 @@ export function ExpensesClient({
                 <label className="text-[12px] font-bold text-gray-600 mb-1.5 block">Account Number</label>
                 <input type="text" placeholder="0123456789" value={newAccount.accountNumber} onChange={e => setNewAccount({...newAccount, accountNumber: e.target.value})} className="w-full h-11 border border-gray-200 rounded-lg px-4 text-[13px] text-gray-700 focus:outline-none focus:border-purple-400" />
               </div>
-              <button onClick={handleAddAccount} className="w-full py-3.5 bg-[#AE00FF] text-white rounded-xl text-[13px] font-bold mt-4 hover:bg-[#9900E6] transition-colors shadow-md shadow-purple-100">
-                Add Account
+              <button disabled={savingAccount} onClick={handleAddAccount} className="w-full py-3.5 bg-[#AE00FF] text-white rounded-xl text-[13px] font-bold mt-4 hover:bg-[#9900E6] transition-colors shadow-md shadow-purple-100 disabled:opacity-50">
+                {savingAccount ? 'Saving…' : editingAccountId ? 'Update Account' : 'Add Account'}
               </button>
+
+              {/* Existing accounts — manage (edit / delete) */}
+              {accounts.length > 0 && (
+                <div className="pt-4 mt-2 border-t border-gray-100">
+                  <p className="text-[12px] font-bold text-gray-500 mb-2">Existing Accounts</p>
+                  <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                    {accounts.map(acc => (
+                      <div key={acc.id} className={`flex items-center justify-between gap-2 px-3 py-2 rounded-lg ${editingAccountId === acc.id ? 'bg-purple-50' : 'bg-gray-50'}`}>
+                        <span className="text-[12px] text-gray-700 truncate">{acc.name}</span>
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          <button onClick={() => openEditAccount(acc)} className="p-1.5 text-gray-400 hover:text-[#AE00FF] transition-colors" title="Edit account">
+                            <Pencil size={14} />
+                          </button>
+                          <button onClick={() => handleDeleteAccount(acc.id)} className="p-1.5 text-gray-400 hover:text-red-500 transition-colors" title="Delete account">
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -1472,8 +1615,8 @@ export function ExpensesClient({
         <div className="fixed inset-0 bg-black/30 z-[100] flex items-center justify-center backdrop-blur-sm">
           <div className="bg-white rounded-2xl p-8 w-[400px] shadow-2xl">
             <div className="flex justify-between items-center mb-6">
-              <h3 className="text-lg font-bold text-gray-800">Add Supplier</h3>
-              <button onClick={() => setSupplierModalOpen(false)} className="text-gray-400 hover:text-gray-600 bg-gray-100 p-1.5 rounded-full"><X size={18} /></button>
+              <h3 className="text-lg font-bold text-gray-800">{editingSupplierId ? 'Edit Supplier' : 'Add Supplier'}</h3>
+              <button onClick={() => { setSupplierModalOpen(false); setEditingSupplierId(null); }} className="text-gray-400 hover:text-gray-600 bg-gray-100 p-1.5 rounded-full"><X size={18} /></button>
             </div>
             <div className="space-y-4">
               <div>
@@ -1488,8 +1631,8 @@ export function ExpensesClient({
                 <label className="text-[12px] font-bold text-gray-600 mb-1.5 block">Payable Balance</label>
                 <input type="text" placeholder="e.g. N10,000" value={newSupplier.balance} onChange={e => setNewSupplier({...newSupplier, balance: e.target.value})} className="w-full h-11 border border-gray-200 rounded-lg px-4 text-[13px] text-gray-700 focus:outline-none focus:border-purple-400" />
               </div>
-              <button onClick={handleAddSupplier} className="w-full py-3.5 bg-[#AE00FF] text-white rounded-xl text-[13px] font-bold mt-4 hover:bg-[#9900E6] transition-colors shadow-md shadow-purple-100">
-                Add Supplier
+              <button disabled={savingSupplier} onClick={handleAddSupplier} className="w-full py-3.5 bg-[#AE00FF] text-white rounded-xl text-[13px] font-bold mt-4 hover:bg-[#9900E6] transition-colors shadow-md shadow-purple-100 disabled:opacity-50">
+                {savingSupplier ? 'Saving…' : editingSupplierId ? 'Update Supplier' : 'Add Supplier'}
               </button>
             </div>
           </div>

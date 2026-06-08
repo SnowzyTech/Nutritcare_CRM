@@ -215,3 +215,39 @@ export async function createPaymentAccountAction(name: string, type: string = "B
   revalidatePath("/accounting/expenses");
   return { id: acc.id, name: acc.name, logoUrl: acc.logoUrl ?? undefined };
 }
+
+export async function updatePaymentAccountAction(id: string, name: string, logoUrl?: string) {
+  const session = await auth();
+  if (!session?.user?.id) return { error: "Unauthorized" };
+  if (!id) return { error: "Account id required" };
+  if (!name.trim()) return { error: "Name required" };
+
+  try {
+    const acc = await prisma.paymentAccount.update({
+      where: { id },
+      data: { name: name.trim(), ...(logoUrl ? { logoUrl } : {}) },
+    });
+    revalidatePath("/accounting/expenses");
+    return { id: acc.id, name: acc.name, logoUrl: acc.logoUrl ?? undefined };
+  } catch {
+    return { error: "Failed to update account" };
+  }
+}
+
+export async function deletePaymentAccountAction(id: string) {
+  const session = await auth();
+  if (!session?.user?.id) return { error: "Unauthorized" };
+  if (!id) return { error: "Account id required" };
+
+  try {
+    await prisma.paymentAccount.delete({ where: { id } });
+    revalidatePath("/accounting/expenses");
+    return { id };
+  } catch (e: unknown) {
+    // P2003 = foreign key constraint: account is still referenced by expenses.
+    if (e && typeof e === "object" && "code" in e && (e as { code?: string }).code === "P2003") {
+      return { error: "Cannot delete: this account is used by existing expenses." };
+    }
+    return { error: "Failed to delete account" };
+  }
+}

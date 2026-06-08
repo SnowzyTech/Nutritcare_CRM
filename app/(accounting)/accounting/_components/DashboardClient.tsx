@@ -186,6 +186,7 @@ interface DashboardClientProps {
     topAgentState: string;
     topAgentRemitted: number;
   };
+  userName?: string;
 }
 
 const fmtN = (n: number) => `N${Number(n).toLocaleString("en-NG", { maximumFractionDigits: 0 })}`;
@@ -203,7 +204,9 @@ export function DashboardClient({
   salesByStateData,
   inventory,
   settlementSummary,
+  userName,
 }: DashboardClientProps = {}) {
+  const firstName = userName?.trim().split(/\s+/)[0] || 'there';
   const [mounted, setMounted] = useState(false);
   const [activeRange, setActiveRange] = useState<'Daily' | 'Weekly' | 'Monthly'>('Monthly');
   const [selectedMonth, setSelectedMonth] = useState('This Month');
@@ -272,7 +275,7 @@ export function DashboardClient({
 
       {/* Welcome Header */}
       <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold text-gray-800 tracking-tight">Welcome Back, Victoria</h1>
+        <h1 className="text-3xl font-bold text-gray-800 tracking-tight">Welcome Back, {firstName}</h1>
         <div className="flex items-center gap-4">
           <div className="relative">
             <button 
