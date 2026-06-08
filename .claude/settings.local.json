@@ -62,7 +62,16 @@
       "Bash(Select-String -Pattern \"sales-record\")",
       "Bash(npx tsc:*)",
       "Bash(npm run lint)",
-      "mcp__ide__getDiagnostics"
+      "mcp__ide__getDiagnostics",
+      "PowerShell(npx prisma db push)",
+      "PowerShell(npx eslint \"app/\\(accounting\\)/accounting/_components/FixedAssetAddClient.tsx\" \"app/\\(accounting\\)/accounting/_components/AccountingLedgerClient.tsx\" \"modules/finance/services/fixed-assets.service.ts\" \"modules/finance/actions/fixed-assets.action.ts\" \"modules/finance/lib/depreciation.ts\" 2>&1 | Select-Object -First 40)",
+      "PowerShell(npx eslint \"app/\\(accounting\\)/accounting/_components/FixedAssetDetailClient.tsx\" \"app/\\(accounting\\)/accounting/accounting-ledger/fixed-assets/[id]/page.tsx\" \"modules/finance/services/fixed-assets.service.ts\" \"modules/finance/actions/fixed-assets.action.ts\" 2>&1 | Select-Object -First 30)",
+      "PowerShell(npx tsc --noEmit 2>&1 | Select-Object -First 30)",
+      "PowerShell(npx eslint \"app/\\(accounting\\)/accounting/_components/ExpenseLedgerView.tsx\" \"app/\\(accounting\\)/accounting/reports/expense-ledger/page.tsx\" 2>&1 | Select-Object -First 30)",
+      "PowerShell(npx eslint \"app/\\(accounting\\)/accounting/_components/TrialBalanceView.tsx\" \"app/\\(accounting\\)/accounting/_components/ExpenseLedgerView.tsx\" \"app/\\(accounting\\)/accounting/_components/MonthPicker.tsx\" \"app/\\(accounting\\)/accounting/reports/trial-balance/page.tsx\" 2>&1 | Select-Object -First 30)",
+      "PowerShell(npx prisma generate 2>&1 | Select-Object -Last 5)",
+      "PowerShell(npx eslint \"modules/finance/services/reports-accounting.service.ts\" \"app/\\(accounting\\)/accounting/_components/BalanceSheetView.tsx\" \"app/\\(accounting\\)/accounting/_components/CashFlowView.tsx\" \"app/\\(accounting\\)/accounting/reports/statement-of-financial-position/page.tsx\" \"app/\\(accounting\\)/accounting/reports/statement-of-cash-flow/page.tsx\" 2>&1 | Select-Object -First 40)",
+      "PowerShell(npx eslint \"modules/finance/services/reports-accounting.service.ts\" 2>&1 | Select-Object -First 20; Write-Output \"=== tsc ===\"; npx tsc --noEmit 2>&1 | Select-Object -First 15)"
     ]
   }
 }

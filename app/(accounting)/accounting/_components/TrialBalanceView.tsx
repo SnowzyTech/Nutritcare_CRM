@@ -1,10 +1,10 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Calendar } from '@/components/ui/calendar';
 import { Calendar as CalendarIcon } from 'lucide-react';
 import { format } from 'date-fns';
+import { MonthPicker } from './MonthPicker';
 import type { TrialBalanceRow } from '@/modules/finance/services/reports-accounting.service';
 
 interface Props {
@@ -15,6 +15,7 @@ interface Props {
 
 export function TrialBalanceView({ data, currentDate, onDateChange }: Props) {
   const rows = data ?? [];
+  const [open, setOpen] = useState(false);
 
   const totalDebit = rows.reduce((acc, curr) => acc + (curr.debit || 0), 0);
   const totalCredit = rows.reduce((acc, curr) => acc + (curr.credit || 0), 0);
@@ -42,17 +43,18 @@ export function TrialBalanceView({ data, currentDate, onDateChange }: Props) {
         </h2>
         <div className="text-[14px] text-gray-500 italic flex justify-center items-center gap-2 mt-2">
           For the Month Ended:
-          <Popover>
+          <Popover open={open} onOpenChange={setOpen}>
             <PopoverTrigger className="text-[#5C2B90] hover:text-purple-700 font-bold p-0 h-auto flex gap-1 items-center bg-transparent border-none outline-none cursor-pointer">
               {format(currentDate, 'MMMM yyyy')}
               <CalendarIcon size={14} />
             </PopoverTrigger>
             <PopoverContent className="w-auto p-0" align="center">
-              <Calendar
-                mode="single"
-                selected={currentDate}
-                onSelect={d => d && onDateChange?.('current', d.toISOString())}
-                initialFocus
+              <MonthPicker
+                value={currentDate}
+                onSelect={token => {
+                  onDateChange?.('current', token);
+                  setOpen(false);
+                }}
               />
             </PopoverContent>
           </Popover>

@@ -68,6 +68,7 @@ export type ProductBreakdownItem = {
   id: string;
   name: string;
   stock: string;
+  imageUrl: string | null;
   offers: { id: number; name: string; qty: number; price: string }[];
 };
 
@@ -78,6 +79,7 @@ export async function getInventoryProductBreakdown(): Promise<ProductBreakdownIt
       select: {
         id: true,
         name: true,
+        imageUrl: true,
         offers: {
           select: { id: true, offerName: true, offerQuantity: true, sellingPrice: true },
           orderBy: { offerQuantity: "asc" },
@@ -92,6 +94,7 @@ export async function getInventoryProductBreakdown(): Promise<ProductBreakdownIt
     id: p.id,
     name: p.name,
     stock: (totals[p.id] ?? 0).toLocaleString(),
+    imageUrl: p.imageUrl,
     offers: p.offers.map((o, i) => ({
       id: i + 1,
       name: o.offerName,

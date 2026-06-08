@@ -32,6 +32,7 @@ model User {
   deliveries              Delivery[]              @relation("DriverDeliveries")
   driversAdded            Driver[]                @relation("DriverAddedBy")
   expenses                Expense[]               @relation("ExpenseCreatedBy")
+  fixedAssets             FixedAsset[]            @relation("FixedAssetCreatedBy")
   forms                   Form[]                  @relation("FormCreatedBy")
   invoices                Invoice[]               @relation("InvoiceCreatedBy")
   journalEntries          JournalEntry[]          @relation("JournalEntryCreator")
@@ -987,14 +988,18 @@ model ExpenseName {
 }
 
 model PaymentAccount {
-  id        String    @id @default(cuid())
-  name      String
-  type      String
-  isActive  Boolean   @default(true)
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  logoUrl   String?
-  expenses  Expense[]
+  id                 String    @id @default(cuid())
+  name               String
+  type               String
+  isActive           Boolean   @default(true)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  logoUrl            String?
+  // Cash/bank opening balance for balance-sheet roll-forward. The derived cash
+  // position = openingBalance + collections − payments after openingBalanceAsOf.
+  openingBalance     Decimal   @default(0) @db.Decimal(10, 2)
+  openingBalanceAsOf DateTime?
+  expenses           Expense[]
 
   @@map("payment_accounts")
 }
@@ -1124,6 +1129,40 @@ model JournalEntryRow {
 
   @@index([journalEntryId])
   @@map("journal_entry_rows")
+}
+
+model FixedAsset {
+  id                       String    @id @default(cuid())
+  assetName                String
+  description              String?
+  nonDepreciable           Boolean   @default(false)
+  purchasePrice            Decimal   @db.Decimal(10, 2)
+  purchaseDate             DateTime
+  // Depreciation parameters (null when nonDepreciable)
+  depreciationStartDate    DateTime?
+  depreciationMethod       String? // "Straight Line" | "Declining Balance" | "Sum of Years"
+  usefulLifeYears          Int?
+  salvageValue             Decimal   @default(0) @db.Decimal(10, 2)
+  // Chart-of-Accounts mappings (account name + code snapshot)
+  assetAccount             String
+  assetAccountCode         String?
+  accumDepreciationAccount String?
+  accumDepreciationCode    String?
+  depExpenseAccount        String?
+  depExpenseCode           String?
+  // Lifecycle
+  status                   String    @default("Active") // Active | Disposed | Idle
+  disposedAt               DateTime?
+  createdById              String
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+  deletedAt                DateTime?
+  createdBy                User      @relation("FixedAssetCreatedBy", fields: [createdById], references: [id])
+
+  @@index([createdById])
+  @@index([status])
+  @@index([deletedAt])
+  @@map("fixed_assets")
 }
 
 enum UserRole {

@@ -7,15 +7,17 @@ import {
   getGeneralLedger,
   listCategoriesForLedger,
 } from "@/modules/finance/services/ledger.service";
+import { listFixedAssets } from "@/modules/finance/services/fixed-assets.service";
 
 export default async function AccountingLedgerPage() {
-  const [chartOfAccounts, rawJournals, nextJournalNo, generalLedger, categories] =
+  const [chartOfAccounts, rawJournals, nextJournalNo, generalLedger, categories, fixedAssets] =
     await Promise.all([
       getChartOfAccounts(),
       listJournalEntries(),
       getNextJournalNo(),
       getGeneralLedger(),
       listCategoriesForLedger(),
+      listFixedAssets(),
     ]);
 
   const savedJournals = rawJournals.map((j: any) => ({
@@ -40,6 +42,8 @@ export default async function AccountingLedgerPage() {
         initialSavedJournals={savedJournals}
         initialNextJournalNo={nextJournalNo}
         initialGeneralLedger={generalLedger}
+        initialCategories={categories}
+        initialFixedAssets={fixedAssets}
       />
     </Suspense>
   );

@@ -152,7 +152,13 @@ export function InventoryClient({ productList, productBreakdown, locationView }:
                       <span className="text-[10px] font-bold text-gray-400">{product.stock} in stock</span>
                     </div>
                     <div className="w-9 h-9 rounded-lg overflow-hidden bg-gray-100 flex-shrink-0">
-                      <img src="https://images.unsplash.com/photo-1611162458324-aae1eb4129a4?w=100&h=100&fit=crop" alt="product" className="w-full h-full object-cover" />
+                      {product.imageUrl ? (
+                        <img src={product.imageUrl} alt={product.name} className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-[12px] font-bold text-gray-400">
+                          {product.name.charAt(0)}
+                        </div>
+                      )}
                     </div>
                   </div>
 

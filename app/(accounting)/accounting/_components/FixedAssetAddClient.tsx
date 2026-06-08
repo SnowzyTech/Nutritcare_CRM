@@ -1,15 +1,27 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { X, Calendar, ChevronDown, Info, MessageSquare, Zap, ChevronRight } from 'lucide-react';
+import { X, Calendar, ChevronDown, Info, MessageSquare, Zap } from 'lucide-react';
+import { createFixedAssetAction } from '@/modules/finance/actions/fixed-assets.action';
+import {
+  buildSchedule,
+  accumulatedDepreciationAsOf,
+  type DepreciationMethod,
+} from '@/modules/finance/lib/depreciation';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-type DepreciationMethod = 'Straight Line' | 'Declining Balance' | 'Sum of Years';
-type AssetAccount = 'Property, plant and equipment' | 'Motor vehicles' | 'Furniture and fittings' | 'Computer equipment';
-type AccumAccount = 'Accumulated depreciation on property, plant and equipment' | 'Accumulated depreciation on motor vehicles' | 'Accumulated depreciation on furniture';
-type DepExpAccount = 'Amortisation expense' | 'Depreciation expense' | 'Depreciation - motor vehicles';
+interface AccountOption {
+  code: string;
+  name: string;
+}
+
+interface FixedAssetAddClientProps {
+  assetAccounts: AccountOption[];
+  accumDepAccounts: AccountOption[];
+  depExpenseAccounts: AccountOption[];
+}
 
 interface SetupForm {
   assetName: string;
@@ -21,10 +33,23 @@ interface SetupForm {
   depreciationMethod: DepreciationMethod;
   usefulLife: string;
   salvageValue: string;
-  assetAccount: AssetAccount;
-  accumDepreciationAccount: AccumAccount;
-  depExpenseAccount: DepExpAccount;
+  assetAccountCode: string;
+  accumDepreciationCode: string;
+  depExpenseCode: string;
 }
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+const parseMoney = (s: string): number => {
+  const n = parseFloat(String(s).replace(/[^0-9.]/g, ''));
+  return isNaN(n) ? 0 : n;
+};
+
+const fmtMoney = (n: number): string =>
+  `₦${n.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+const fmtDateLong = (d: Date): string =>
+  d.toLocaleDateString('en-NG', { day: '2-digit', month: 'long', year: 'numeric' });
 
 // ─── Shared input styles ─────────────────────────────────────────────────────
 
@@ -44,7 +69,7 @@ function InfoIcon() {
   );
 }
 
-// ─── SelectField ─────────────────────────────────────────────────────────────
+// ─── Generic string SelectField ──────────────────────────────────────────────
 
 function SelectField<T extends string>({
   value,
@@ -59,22 +84,42 @@ function SelectField<T extends string>({
 }) {
   return (
     <div className="relative">
-      <select
-        id={id}
-        value={value}
-        onChange={(e) => onChange(e.target.value as T)}
-        className={selectCls}
-      >
+      <select id={id} value={value} onChange={(e) => onChange(e.target.value as T)} className={selectCls}>
         {options.map((opt) => (
           <option key={opt} value={opt}>
             {opt}
           </option>
         ))}
       </select>
-      <ChevronDown
-        size={14}
-        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
-      />
+      <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+    </div>
+  );
+}
+
+// ─── Chart-of-Accounts SelectField (value = account code) ─────────────────────
+
+function AccountSelectField({
+  value,
+  onChange,
+  options,
+  id,
+}: {
+  value: string;
+  onChange: (code: string) => void;
+  options: AccountOption[];
+  id: string;
+}) {
+  return (
+    <div className="relative">
+      <select id={id} value={value} onChange={(e) => onChange(e.target.value)} className={selectCls}>
+        {options.length === 0 && <option value="">No accounts available</option>}
+        {options.map((opt) => (
+          <option key={opt.code} value={opt.code}>
+            {opt.code} — {opt.name}
+          </option>
+        ))}
+      </select>
+      <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
     </div>
   );
 }
@@ -84,13 +129,7 @@ function SelectField<T extends string>({
 function DateField({ value, onChange, id }: { value: string; onChange: (v: string) => void; id: string }) {
   return (
     <div className="relative">
-      <input
-        id={id}
-        type="date"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className={`${inputCls} pr-9`}
-      />
+      <input id={id} type="date" value={value} onChange={(e) => onChange(e.target.value)} className={`${inputCls} pr-9`} />
       <Calendar size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
     </div>
   );
@@ -98,9 +137,14 @@ function DateField({ value, onChange, id }: { value: string; onChange: (v: strin
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
-export function FixedAssetAddClient() {
+export function FixedAssetAddClient({
+  assetAccounts,
+  accumDepAccounts,
+  depExpenseAccounts,
+}: FixedAssetAddClientProps) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<'Setup' | 'Schedule'>('Setup');
+  const [saving, setSaving] = useState(false);
 
   const [form, setForm] = useState<SetupForm>({
     assetName: '',
@@ -112,21 +156,109 @@ export function FixedAssetAddClient() {
     depreciationMethod: 'Straight Line',
     usefulLife: '',
     salvageValue: '',
-    assetAccount: 'Property, plant and equipment',
-    accumDepreciationAccount: 'Accumulated depreciation on property, plant and equipment',
-    depExpenseAccount: 'Amortisation expense',
+    assetAccountCode: assetAccounts[0]?.code ?? '',
+    accumDepreciationCode: accumDepAccounts[0]?.code ?? '',
+    depExpenseCode: depExpenseAccounts[0]?.code ?? '',
   });
 
   const set = <K extends keyof SetupForm>(key: K, value: SetupForm[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }));
 
-  const handleSave = () => {
+  const findAccount = (opts: AccountOption[], code: string) => opts.find((o) => o.code === code);
+
+  // ── Live depreciation schedule ────────────────────────────────────────────
+  const purchasePriceNum = parseMoney(form.purchasePrice);
+  const salvageNum = parseMoney(form.salvageValue);
+  const usefulLifeNum = parseInt(form.usefulLife, 10) || 0;
+
+  const schedule = useMemo(() => {
+    if (form.nonDepreciable || !form.depreciationStartDate || usefulLifeNum <= 0) return [];
+    return buildSchedule({
+      purchasePrice: purchasePriceNum,
+      salvageValue: salvageNum,
+      usefulLifeYears: usefulLifeNum,
+      depreciationStartDate: form.depreciationStartDate,
+      method: form.depreciationMethod,
+    });
+  }, [
+    form.nonDepreciable,
+    form.depreciationStartDate,
+    form.depreciationMethod,
+    purchasePriceNum,
+    salvageNum,
+    usefulLifeNum,
+  ]);
+
+  const accumulatedToDate = useMemo(() => {
+    if (form.nonDepreciable || !form.depreciationStartDate || usefulLifeNum <= 0) return 0;
+    return accumulatedDepreciationAsOf({
+      purchasePrice: purchasePriceNum,
+      salvageValue: salvageNum,
+      usefulLifeYears: usefulLifeNum,
+      depreciationStartDate: form.depreciationStartDate,
+      method: form.depreciationMethod,
+    });
+  }, [
+    form.nonDepreciable,
+    form.depreciationStartDate,
+    form.depreciationMethod,
+    purchasePriceNum,
+    salvageNum,
+    usefulLifeNum,
+  ]);
+
+  const remainingToDate = Math.max(salvageNum, purchasePriceNum - accumulatedToDate);
+
+  // ── Save ────────────────────────────────────────────────────────────────────
+  const handleSave = async () => {
     if (!form.assetName.trim()) {
       alert('Asset name is required.');
       return;
     }
-    // TODO: wire up server action
-    router.back();
+    if (!form.purchaseDate) {
+      alert('Purchase date is required.');
+      return;
+    }
+    if (!form.assetAccountCode) {
+      alert('Please select a non-current asset account.');
+      return;
+    }
+    if (!form.nonDepreciable && (usefulLifeNum <= 0 || !form.depreciationMethod)) {
+      alert('Useful life and depreciation method are required for a depreciable asset.');
+      return;
+    }
+
+    const assetAcc = findAccount(assetAccounts, form.assetAccountCode);
+    const accumAcc = findAccount(accumDepAccounts, form.accumDepreciationCode);
+    const expAcc = findAccount(depExpenseAccounts, form.depExpenseCode);
+
+    setSaving(true);
+    const res = await createFixedAssetAction({
+      assetName: form.assetName.trim(),
+      description: form.description.trim() || undefined,
+      nonDepreciable: form.nonDepreciable,
+      purchasePrice: purchasePriceNum,
+      purchaseDate: form.purchaseDate,
+      depreciationStartDate: form.depreciationStartDate || undefined,
+      depreciationMethod: form.nonDepreciable ? undefined : form.depreciationMethod,
+      usefulLifeYears: form.nonDepreciable ? undefined : usefulLifeNum,
+      salvageValue: salvageNum,
+      assetAccount: assetAcc?.name ?? '',
+      assetAccountCode: assetAcc?.code,
+      accumDepreciationAccount: accumAcc?.name,
+      accumDepreciationCode: accumAcc?.code,
+      depExpenseAccount: expAcc?.name,
+      depExpenseCode: expAcc?.code,
+    });
+    setSaving(false);
+
+    if (res && 'error' in res) {
+      alert(res.error);
+      return;
+    }
+
+    router.push('/accounting/accounting-ledger?tab=Fixed+Assets');
+    router.refresh();
   };
 
   return (
@@ -236,6 +368,7 @@ export function FixedAssetAddClient() {
                         <input
                           id="fa-purchase-price"
                           type="text"
+                          inputMode="decimal"
                           value={form.purchasePrice}
                           onChange={(e) => set('purchasePrice', e.target.value)}
                           placeholder="₦0.00"
@@ -275,7 +408,7 @@ export function FixedAssetAddClient() {
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1">
                         <label htmlFor="fa-useful-life" className="block text-[11.5px] text-gray-500">
-                          Useful life
+                          Useful life (years)
                         </label>
                         <input
                           id="fa-useful-life"
@@ -294,6 +427,7 @@ export function FixedAssetAddClient() {
                         <input
                           id="fa-salvage"
                           type="text"
+                          inputMode="decimal"
                           value={form.salvageValue}
                           onChange={(e) => set('salvageValue', e.target.value)}
                           placeholder="₦1.00"
@@ -315,54 +449,45 @@ export function FixedAssetAddClient() {
                 {/* Non-Current Asset Account */}
                 <div className="space-y-1">
                   <p className="text-[13px] font-bold text-gray-700">Non-Current Asset Account</p>
-                  <SelectField
+                  <AccountSelectField
                     id="fa-asset-account"
-                    value={form.assetAccount}
-                    onChange={(v) => set('assetAccount', v)}
-                    options={[
-                      'Property, plant and equipment',
-                      'Motor vehicles',
-                      'Furniture and fittings',
-                      'Computer equipment',
-                    ]}
+                    value={form.assetAccountCode}
+                    onChange={(v) => set('assetAccountCode', v)}
+                    options={assetAccounts}
                   />
                 </div>
 
-                {/* Accumulated depreciation account */}
-                <div className="space-y-1">
-                  <p className="text-[12.5px] text-gray-600 flex items-center">
-                    Accumulated depreciation account
-                    <InfoIcon />
-                  </p>
-                  <SelectField
-                    id="fa-accum-dep-account"
-                    value={form.accumDepreciationAccount}
-                    onChange={(v) => set('accumDepreciationAccount', v)}
-                    options={[
-                      'Accumulated depreciation on property, plant and equipment',
-                      'Accumulated depreciation on motor vehicles',
-                      'Accumulated depreciation on furniture',
-                    ]}
-                  />
-                </div>
+                {!form.nonDepreciable && (
+                  <>
+                    {/* Accumulated depreciation account */}
+                    <div className="space-y-1">
+                      <p className="text-[12.5px] text-gray-600 flex items-center">
+                        Accumulated depreciation account
+                        <InfoIcon />
+                      </p>
+                      <AccountSelectField
+                        id="fa-accum-dep-account"
+                        value={form.accumDepreciationCode}
+                        onChange={(v) => set('accumDepreciationCode', v)}
+                        options={accumDepAccounts}
+                      />
+                    </div>
 
-                {/* Depreciation expense account */}
-                <div className="space-y-1">
-                  <p className="text-[12.5px] text-gray-600 flex items-center">
-                    Depreciation expense account
-                    <InfoIcon />
-                  </p>
-                  <SelectField
-                    id="fa-dep-expense-account"
-                    value={form.depExpenseAccount}
-                    onChange={(v) => set('depExpenseAccount', v)}
-                    options={[
-                      'Amortisation expense',
-                      'Depreciation expense',
-                      'Depreciation - motor vehicles',
-                    ]}
-                  />
-                </div>
+                    {/* Depreciation expense account */}
+                    <div className="space-y-1">
+                      <p className="text-[12.5px] text-gray-600 flex items-center">
+                        Depreciation expense account
+                        <InfoIcon />
+                      </p>
+                      <AccountSelectField
+                        id="fa-dep-expense-account"
+                        value={form.depExpenseCode}
+                        onChange={(v) => set('depExpenseCode', v)}
+                        options={depExpenseAccounts}
+                      />
+                    </div>
+                  </>
+                )}
               </div>
 
               {/* Bottom spacer so content doesn't hide behind sticky footer */}
@@ -376,29 +501,41 @@ export function FixedAssetAddClient() {
               <div className="space-y-3">
                 <div className="flex justify-between items-start">
                   <div>
-                    <h2 className="text-[18px] text-gray-800 font-medium">LAPTOP</h2>
-                    <p className="text-[13px] text-gray-500 mt-1">1255</p>
-                    <p className="text-[13px] text-gray-500">Straight Line, 3 years</p>
+                    <h2 className="text-[18px] text-gray-800 font-medium">{form.assetName || 'Untitled asset'}</h2>
+                    {form.assetAccountCode && (
+                      <p className="text-[13px] text-gray-500 mt-1">{form.assetAccountCode}</p>
+                    )}
+                    <p className="text-[13px] text-gray-500">
+                      {form.nonDepreciable
+                        ? 'Non-depreciable'
+                        : `${form.depreciationMethod}${usefulLifeNum ? `, ${usefulLifeNum} years` : ''}`}
+                    </p>
                   </div>
-                  <div className="flex items-center gap-1.5 text-[#E65100] bg-[#FFF3E0] px-2 py-1 rounded">
+                  <div
+                    className={`flex items-center gap-1.5 px-2 py-1 rounded ${
+                      form.nonDepreciable ? 'text-gray-600 bg-gray-100' : 'text-[#E65100] bg-[#FFF3E0]'
+                    }`}
+                  >
                     <Zap size={12} className="fill-current" />
-                    <span className="text-[12px] font-medium">Depreciating</span>
+                    <span className="text-[12px] font-medium">
+                      {form.nonDepreciable ? 'Non-depreciable' : 'Depreciating'}
+                    </span>
                   </div>
                 </div>
 
                 <div className="pt-4 space-y-2">
                   <div className="flex justify-between text-[13px]">
                     <span className="text-gray-600">Purchase price</span>
-                    <span className="text-gray-800">₦600,000.00</span>
+                    <span className="text-gray-800">{fmtMoney(purchasePriceNum)}</span>
                   </div>
                   <div className="flex justify-between text-[13px]">
-                    <span className="text-gray-600">Total depreciation as of June 01, 2026</span>
-                    <span className="text-gray-800">₦0.00</span>
+                    <span className="text-gray-600">Total depreciation as of {fmtDateLong(new Date())}</span>
+                    <span className="text-gray-800">{fmtMoney(accumulatedToDate)}</span>
                   </div>
                   <hr className="border-gray-200 my-2" />
                   <div className="flex justify-between text-[13px] font-medium">
                     <span className="text-gray-600">Remaining value</span>
-                    <span className="text-gray-800">₦600,000.00</span>
+                    <span className="text-gray-800">{fmtMoney(remainingToDate)}</span>
                   </div>
                 </div>
               </div>
@@ -406,60 +543,35 @@ export function FixedAssetAddClient() {
               <hr className="border-gray-200" />
 
               {/* Schedule Table */}
-              <div className="w-full text-left text-[13px]">
-                <div className="grid grid-cols-4 font-medium text-gray-600 mb-4 pb-2">
-                  <div>Year</div>
-                  <div>Asset value</div>
-                  <div>Depreciation</div>
-                  <div>Remaining value</div>
-                </div>
-
-                <div className="space-y-6">
-                  {/* 2026 */}
-                  <div className="grid grid-cols-4 items-center text-gray-800">
-                    <div className="font-medium">2026</div>
-                    <div>₦600,000.00</div>
-                    <div>₦116,666.47</div>
-                    <div className="flex items-center justify-between">
-                      <span>₦483,333.53</span>
-                      <ChevronDown size={14} className="text-gray-400" />
-                    </div>
+              {schedule.length === 0 ? (
+                <p className="text-[13px] text-gray-400 py-8 text-center">
+                  Enter purchase price, depreciation start date, useful life and method on the Setup tab to see the
+                  depreciation schedule.
+                </p>
+              ) : (
+                <div className="w-full text-left text-[13px]">
+                  <div className="grid grid-cols-4 font-medium text-gray-600 mb-4 pb-2 border-b border-gray-100">
+                    <div>Year</div>
+                    <div>Asset value</div>
+                    <div>Depreciation</div>
+                    <div>Remaining value</div>
                   </div>
 
-                  {/* 2027 */}
-                  <div className="grid grid-cols-4 items-center text-gray-800">
-                    <div className="font-medium">2027</div>
-                    <div>₦483,333.53</div>
-                    <div>₦199,999.67</div>
-                    <div className="flex items-center justify-between">
-                      <span>₦283,333.86</span>
-                      <ChevronDown size={14} className="text-gray-400" />
-                    </div>
-                  </div>
-
-                  {/* 2028 */}
-                  <div className="grid grid-cols-4 items-center text-gray-800">
-                    <div className="font-medium">2028</div>
-                    <div>₦283,333.86</div>
-                    <div>₦199,999.67</div>
-                    <div className="flex items-center justify-between">
-                      <span>₦83,334.19</span>
-                      <ChevronDown size={14} className="text-gray-400" />
-                    </div>
-                  </div>
-
-                  {/* 2029 */}
-                  <div className="grid grid-cols-4 items-center text-gray-800">
-                    <div className="font-medium">2029</div>
-                    <div>₦83,334.19</div>
-                    <div>₦83,333.19</div>
-                    <div className="flex items-center justify-between">
-                      <span>₦1.00</span>
-                      <ChevronDown size={14} className="text-gray-400" />
-                    </div>
+                  <div className="space-y-6">
+                    {schedule.map((row) => (
+                      <div key={row.year} className="grid grid-cols-4 items-center text-gray-800">
+                        <div className="font-medium">{row.year}</div>
+                        <div>{fmtMoney(row.openingValue)}</div>
+                        <div>{fmtMoney(row.depreciation)}</div>
+                        <div className="flex items-center justify-between">
+                          <span>{fmtMoney(row.remainingValue)}</span>
+                          <ChevronDown size={14} className="text-gray-400" />
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
-              </div>
+              )}
               {/* Bottom spacer */}
               <div className="h-4" />
             </div>
@@ -468,32 +580,21 @@ export function FixedAssetAddClient() {
 
         {/* ── Sticky footer ── */}
         <div className="flex items-center justify-between px-6 py-4 border-t border-gray-200 bg-white flex-shrink-0">
-          {activeTab === 'Setup' ? (
-            <>
-              <button
-                id="fixed-asset-add-cancel"
-                onClick={() => router.back()}
-                className="text-[13px] font-semibold text-green-600 hover:text-green-700 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                id="fixed-asset-add-save"
-                onClick={handleSave}
-                className="h-9 px-6 bg-green-700 text-white rounded text-[13px] font-bold hover:bg-green-800 transition-colors"
-              >
-                Save
-              </button>
-            </>
-          ) : (
-             <div className="w-full flex justify-end">
-                <button
-                  className="flex items-center gap-2 h-9 px-4 border-2 border-green-700 text-green-700 rounded text-[13px] font-bold hover:bg-green-50 transition-colors"
-                >
-                  More Actions <ChevronDown size={16} />
-                </button>
-             </div>
-          )}
+          <button
+            id="fixed-asset-add-cancel"
+            onClick={() => router.back()}
+            className="text-[13px] font-semibold text-green-600 hover:text-green-700 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            id="fixed-asset-add-save"
+            onClick={handleSave}
+            disabled={saving}
+            className="h-9 px-6 bg-green-700 text-white rounded text-[13px] font-bold hover:bg-green-800 transition-colors disabled:opacity-50"
+          >
+            {saving ? 'Saving…' : 'Save'}
+          </button>
         </div>
 
       </div>

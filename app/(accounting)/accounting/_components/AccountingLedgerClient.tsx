@@ -14,6 +14,7 @@ import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { createJournalEntryAction } from '@/modules/finance/actions/ledger.action';
 import { createExpenseCategoryAction, addExpenseNamesToCategoryAction } from '@/modules/finance/actions/expenses.action';
 import type { LedgerRow, ChartRow, CategoryForLedger } from '@/modules/finance/services/ledger.service';
+import type { FixedAssetRow } from '@/modules/finance/services/fixed-assets.service';
 
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -54,6 +55,7 @@ interface AccountingLedgerClientProps {
   initialNextJournalNo?: string;
   initialGeneralLedger?: LedgerRow[];
   initialCategories?: CategoryForLedger[];
+  initialFixedAssets?: FixedAssetRow[];
 }
 
 const TABS = ['Charts of Account', 'Journal Entry', 'Journal', 'General Ledger', 'Fixed Assets'] as const;
@@ -78,39 +80,7 @@ const emptyRow = (): JournalRow => ({
 
 // ── Fixed-asset types ─────────────────────────────────────────────────────────
 
-interface FixedAsset {
-  id: string;
-  assetName: string;
-  purchasePrice: string;
-  purchaseDate: string;
-  assetAccount: string;
-  accumulatedDepreciation: string;
-  remainingValue: string;
-  status: 'Active' | 'Disposed' | 'Idle';
-}
-
-const SEED_ASSETS: FixedAsset[] = [
-  {
-    id: '1',
-    assetName: 'Dell Latitude Laptop',
-    purchasePrice: '₦1,250,000',
-    purchaseDate: '15-Mar-2023',
-    assetAccount: 'Office Equipment',
-    accumulatedDepreciation: '₦500,000',
-    remainingValue: '₦750,000',
-    status: 'Active',
-  },
-  {
-    id: '2',
-    assetName: 'Dell Latitude Laptop',
-    purchasePrice: '₦1,250,000',
-    purchaseDate: '15-Mar-2023',
-    assetAccount: 'Office Equipment',
-    accumulatedDepreciation: '₦500,000',
-    remainingValue: '₦750,000',
-    status: 'Active',
-  },
-];
+type FixedAsset = FixedAssetRow;
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -120,6 +90,7 @@ export function AccountingLedgerClient({
   initialNextJournalNo = '1001',
   initialGeneralLedger = [],
   initialCategories = [],
+  initialFixedAssets = [],
 }: AccountingLedgerClientProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -139,12 +110,7 @@ export function AccountingLedgerClient({
   };
 
   // ── Fixed Assets state ────────────────────────────────────────────────────
-  const [fixedAssets, setFixedAssets] = useState<FixedAsset[]>(SEED_ASSETS);
-  const [showAddAsset, setShowAddAsset] = useState(false);
-  const [newAsset, setNewAsset] = useState<Omit<FixedAsset, 'id'>>({
-    assetName: '', purchasePrice: '', purchaseDate: '',
-    assetAccount: '', accumulatedDepreciation: '', remainingValue: '', status: 'Active',
-  });
+  const fixedAssets: FixedAsset[] = initialFixedAssets;
 
   const handleAddAsset = () => {
     router.push('/accounting/accounting-ledger/fixed-assets/add');
@@ -1173,6 +1139,7 @@ export function AccountingLedgerClient({
                       <td className="px-6 py-5">
                         <button
                           id={`fixed-asset-view-${asset.id}`}
+                          onClick={() => router.push(`/accounting/accounting-ledger/fixed-assets/${asset.id}`)}
                           className="text-[13px] font-bold text-[#AE00FF] hover:text-[#8B00CC] transition-colors"
                         >
                           View
