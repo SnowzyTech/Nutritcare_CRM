@@ -19,6 +19,11 @@ export const allNavItems: NavItem[] = [
     ],
   },
   {
+    label: "WhatsApp Marketing",
+    href: "/admin/whatsapp-marketing",
+    icon: "whatsapp",
+  },
+  {
     label: "Staff Management",
     icon: "staff",
     children: [

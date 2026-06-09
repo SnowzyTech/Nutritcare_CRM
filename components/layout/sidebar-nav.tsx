@@ -14,9 +14,10 @@ import {
   Settings,
   LogOut,
   ChevronDown,
+  Monitor,
 } from "lucide-react";
 
-import { allNavItems, type NavItem, type NavChild } from "./nav-config";
+import { type NavItem, type NavChild } from "./nav-config";
 
 /* ── Icon mapping ── */
 const IconMap: Record<string, React.ElementType> = {
@@ -28,6 +29,7 @@ const IconMap: Record<string, React.ElementType> = {
   forms: FileText,
   history: Clock,
   settings: Settings,
+  whatsapp: Monitor,
 };
 
 function IconLookup({ name, size = 18, style }: { name: string; size?: number; style?: React.CSSProperties }) {
@@ -44,17 +46,6 @@ type SidebarNavProps = {
 };
 
 /* ── Role label map ─────────────────────────────────────────────────────── */
-const roleLabels: Record<string, string> = {
-  ADMIN: "Administrative",
-  SALES_REP: "Sales Rep",
-  DELIVERY_AGENT: "Delivery Agent",
-  DATA_ANALYST: "Data Analyst",
-  ACCOUNTANT: "Accountant",
-  INVENTORY_MANAGER: "Inventory Manager",
-  WAREHOUSE_MANAGER: "Warehouse Manager",
-  LOGISTICS_MANAGER: "Logistics Manager",
-};
-
 /* ── Single nav item ─────────────────────────────────────────────────────── */
 function NavLink({
   href,
@@ -164,7 +155,7 @@ function NavGroup({
 }
 
 /* ── Main export ─────────────────────────────────────────────────────────── */
-export function SidebarNav({ items, user, onLogout, collapsed }: SidebarNavProps) {
+export function SidebarNav({ items, onLogout, collapsed }: SidebarNavProps) {
   const pathname = usePathname();
 
   return (
@@ -181,10 +172,11 @@ export function SidebarNav({ items, user, onLogout, collapsed }: SidebarNavProps
                 key={item.label}
                 iconName={item.icon}
                 label={item.label}
-                children={item.children}
                 isAnyChildActive={isAnyChildActive}
                 collapsed={collapsed}
-              />
+              >
+                {item.children}
+              </NavGroup>
             );
           }
 
