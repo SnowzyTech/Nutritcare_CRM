@@ -14,7 +14,8 @@ import {
   ChevronDown,
   Users,
   User,
-  Menu
+  Menu,
+  MessageCircle
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -42,6 +43,7 @@ export function DataSidebar({ user }: SidebarProps) {
   }, [pathname, isSalesRepDetail]);
 
   const navLinks = [
+    { href: '/chat', icon: MessageCircle, label: 'Chat' },
     { href: '/data/order', icon: ShoppingBag, label: 'Order' },
     { href: '/data/analytics', icon: BarChart3, label: 'Analytics' },
     { href: '/data/history', icon: Clock, label: 'History' },

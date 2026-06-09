@@ -19,6 +19,7 @@ import {
   ChevronDown,
   ChevronRight,
   DollarSign,
+  MessageCircle,
 } from 'lucide-react';
 
 const reportSubItems = [
@@ -34,6 +35,7 @@ const reportSubItems = [
 
 const navItems = [
   { href: '/accounting', icon: Monitor, label: 'Dashboard' },
+  { href: '/chat', icon: MessageCircle, label: 'Chat' },
   { href: '/accounting/sales-record', icon: ClipboardList, label: 'Sales Record' },
   { href: '/accounting/agent-settlement', icon: CreditCard, label: 'Agent Settlement' },
   { href: '/accounting/inventory', icon: Building, label: 'Inventory' },

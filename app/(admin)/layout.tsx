@@ -1,5 +1,6 @@
 import { auth } from "@/lib/auth/auth";
 import type { Metadata } from "next";
+import Link from "next/link";
 import { Sidebar } from "@/components/layout/sidebar";
 
 export const metadata: Metadata = {
@@ -64,7 +65,8 @@ export default async function DashboardLayout({
           </h1>
 
           {/* Chat / notification icon */}
-          <button
+          <Link
+            href="/chat"
             aria-label="Messages"
             style={{
               width: 42,
@@ -81,7 +83,7 @@ export default async function DashboardLayout({
             }}
           >
             💬
-          </button>
+          </Link>
         </header>
 
         {/* Page content */}

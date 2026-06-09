@@ -3,6 +3,7 @@ import type { UserRole } from "@prisma/client";
 import { monthRanges, parseMonthParam, type MonthPeriod } from "@/lib/month-period";
 import { generalPerformanceScore, kpiScore } from "@/lib/performance";
 import type { MonthMetrics } from "@/modules/orders/services/analytics.service";
+import { addUserToAllAgentGroups } from "@/modules/chat/services/conversations.service";
 
 // ── Analytics helpers ─────────────────────────────────────────────────────────
 
@@ -604,9 +605,17 @@ export async function assignWarehouseToUser(userId: string, warehouseId: string 
 }
 
 export async function approveAccount(id: string) {
-  return prisma.user.update({
-    where: { id },
-    data: { accountActivationStatus: "APPROVED", isActive: true },
+  return prisma.$transaction(async (tx) => {
+    const user = await tx.user.update({
+      where: { id },
+      data: { accountActivationStatus: "APPROVED", isActive: true },
+    });
+    // Seat newly-activated internal staff into every agent group chat.
+    // (Delivery agents only belong to their own group, created with the agent.)
+    if (user.role !== "DELIVERY_AGENT") {
+      await addUserToAllAgentGroups(user.id, tx);
+    }
+    return user;
   });
 }
 
