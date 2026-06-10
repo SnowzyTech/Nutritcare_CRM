@@ -6,6 +6,7 @@ import { useMemo, useState } from "react";
 import { ArrowLeft, AtSign, Search } from "lucide-react";
 import { getInitials } from "@/lib/utils";
 import type { ConversationListItem } from "@/modules/chat/services/conversations.service";
+import { ChatStoreProvider, useChatStore } from "./chat-store";
 
 function formatListTime(d: Date | string | null): string {
   if (!d) return "";
@@ -27,10 +28,24 @@ export function ChatShell({
   children,
 }: {
   conversations: ConversationListItem[];
-  currentUserId: string;
   homeHref: string;
   children: React.ReactNode;
 }) {
+  return (
+    <ChatStoreProvider initial={conversations}>
+      <ChatShellInner homeHref={homeHref}>{children}</ChatShellInner>
+    </ChatStoreProvider>
+  );
+}
+
+function ChatShellInner({
+  homeHref,
+  children,
+}: {
+  homeHref: string;
+  children: React.ReactNode;
+}) {
+  const { conversations } = useChatStore();
   const pathname = usePathname();
   const activeId = pathname.startsWith("/chat/") ? pathname.split("/")[2] : null;
   const [query, setQuery] = useState("");

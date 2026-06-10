@@ -1,9 +1,6 @@
 import { notFound } from "next/navigation";
 import { auth } from "@/lib/auth/auth";
-import {
-  getConversationForUser,
-} from "@/modules/chat/services/conversations.service";
-import { getMessages } from "@/modules/chat/services/messages.service";
+import { getThreadForUser } from "@/modules/chat/services/messages.service";
 import { ChatThread } from "../_components/chat-thread";
 
 export default async function ConversationPage({
@@ -15,10 +12,10 @@ export default async function ConversationPage({
   const session = await auth();
   if (!session?.user?.id) notFound();
 
-  const conversation = await getConversationForUser(conversationId, session.user.id);
-  if (!conversation) notFound();
+  const thread = await getThreadForUser(conversationId, session.user.id);
+  if (!thread) notFound();
 
-  const { messages, nextCursor } = await getMessages(conversationId, session.user.id);
+  const { conversation, messages, nextCursor } = thread;
 
   return (
     <ChatThread

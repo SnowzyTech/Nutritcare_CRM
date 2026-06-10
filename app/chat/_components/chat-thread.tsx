@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import {
@@ -12,9 +11,11 @@ import {
   firstUnreadMentionAction,
 } from "@/modules/chat/actions/chat.action";
 import type { ChatMessage } from "@/modules/chat/services/messages.service";
+import { toPlainText } from "@/lib/chat/tokens";
 import { MessageBubble } from "./message-bubble";
 import { MessageComposer } from "./message-composer";
 import { OrderTagModal } from "./order-tag-modal";
+import { useChatStore } from "./chat-store";
 
 function dayKey(d: Date | string): string {
   const date = typeof d === "string" ? new Date(d) : d;
@@ -48,7 +49,7 @@ export function ChatThread({
   initialMessages: ChatMessage[];
   initialCursor: string | null;
 }) {
-  const router = useRouter();
+  const { markRead, applyOutgoing } = useChatStore();
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [cursor, setCursor] = useState<string | null>(initialCursor);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -103,8 +104,8 @@ export function ChatThread({
       const mentionId = res.ok ? res.data.messageId : null;
       if (mentionId && refs.current.has(mentionId)) flash(mentionId);
       else scrollToBottom("auto");
+      markRead(conversationId); // clear the list badge instantly
       await markReadAction(conversationId);
-      if (!cancelled) router.refresh(); // refresh list unread counts
     })();
     return () => {
       cancelled = true;
@@ -138,7 +139,13 @@ export function ChatThread({
       setMessages((prev) => [...prev, res.data]);
       setReplyTo(null);
       requestAnimationFrame(() => scrollToBottom("smooth"));
-      router.refresh();
+      // Patch the list locally instead of refetching every server component.
+      applyOutgoing({
+        conversationId,
+        preview: res.data.imageUrl && !res.data.body ? "📷 Photo" : toPlainText(res.data.body),
+        senderName: res.data.senderName,
+        at: new Date(res.data.createdAt),
+      });
     }
   }
 

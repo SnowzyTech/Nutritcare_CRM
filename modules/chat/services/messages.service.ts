@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import {
   extractMentionUserIds,
@@ -85,17 +86,11 @@ async function assertMember(conversationId: string, userId: string) {
   return member;
 }
 
-/**
- * Cursor-paginated thread load (newest first), guarded by membership. The
- * cursor is a message id; results use the (conversationId, createdAt) index.
- */
-export async function getMessages(
+/** Unguarded page fetch — callers MUST have already proven membership. */
+async function fetchMessagesPage(
   conversationId: string,
-  userId: string,
   cursor?: string
 ): Promise<{ messages: ChatMessage[]; nextCursor: string | null }> {
-  await assertMember(conversationId, userId);
-
   const rows = await prisma.message.findMany({
     where: { conversationId },
     orderBy: { createdAt: "desc" },
@@ -112,6 +107,65 @@ export async function getMessages(
   return {
     messages: page.map(toChatMessage).reverse(),
     nextCursor,
+  };
+}
+
+/**
+ * Cursor-paginated thread load (newest first), guarded by membership. The
+ * cursor is a message id; results use the (conversationId, createdAt) index.
+ */
+export async function getMessages(
+  conversationId: string,
+  userId: string,
+  cursor?: string
+): Promise<{ messages: ChatMessage[]; nextCursor: string | null }> {
+  await assertMember(conversationId, userId);
+  return fetchMessagesPage(conversationId, cursor);
+}
+
+export type ChatThread = {
+  conversation: {
+    id: string;
+    title: string | null;
+    isArchived: boolean;
+    agent: { id: string; companyName: string; state: string | null } | null;
+  };
+  messages: ChatMessage[];
+  nextCursor: string | null;
+};
+
+/**
+ * Single-trip thread load for the page: the membership-guarded header and the
+ * first message page run in parallel, so the page does ONE round-trip's worth
+ * of wall time instead of (conversation → assertMember → messages) in series.
+ * Returns null when the user isn't a member (caller renders notFound).
+ */
+export async function getThreadForUser(
+  conversationId: string,
+  userId: string
+): Promise<ChatThread | null> {
+  const [member, page] = await Promise.all([
+    prisma.conversationMember.findUnique({
+      where: { conversationId_userId: { conversationId, userId } },
+      select: {
+        conversation: {
+          select: {
+            id: true,
+            title: true,
+            isArchived: true,
+            agent: { select: { id: true, companyName: true, state: true } },
+          },
+        },
+      },
+    }),
+    fetchMessagesPage(conversationId),
+  ]);
+
+  if (!member) return null;
+  return {
+    conversation: member.conversation,
+    messages: page.messages,
+    nextCursor: page.nextCursor,
   };
 }
 
@@ -160,14 +214,14 @@ export type SendMessageInput = {
 };
 
 /**
- * Authoritative message write. One transaction:
- *   1. guard membership + not archived
- *   2. validate tokens (mentions must be members; orders must exist)
- *   3. create message (+ denormalized reply preview)
- *   4. create mention / order-ref rows
- *   5. bump unread counters for all other members (single updateMany)
- *   6. flag mentioned members (single scoped updateMany)
- *   7. refresh conversation's denormalized last-message fields
+ * Authoritative message write.
+ *
+ * The validation READS (membership, mention/order validity, reply parent) run
+ * in parallel up front — outside any transaction — instead of as serial
+ * statements inside an interactive transaction held open over the Neon
+ * WebSocket. Only the WRITES go into a single batched `$transaction([...])`,
+ * which the serverless adapter pipelines in one BEGIN/COMMIT. Net effect:
+ * a plain text send drops from ~6 serial round-trips to ~2.
  */
 export async function sendMessage(input: SendMessageInput): Promise<ChatMessage> {
   const { conversationId, senderId } = input;
@@ -176,77 +230,75 @@ export async function sendMessage(input: SendMessageInput): Promise<ChatMessage>
 
   if (!body && !imageUrl) throw new Error("Message is empty.");
 
-  return prisma.$transaction(async (tx) => {
-    const member = await tx.conversationMember.findUnique({
+  // Resolve tokens server-side — never trust a client-supplied entity list.
+  const mentionIds = extractMentionUserIds(body);
+  const orderIds = extractOrderIds(body);
+
+  const [member, mentionRows, orderRows, parent] = await Promise.all([
+    prisma.conversationMember.findUnique({
       where: { conversationId_userId: { conversationId, userId: senderId } },
-      select: { id: true, conversation: { select: { isArchived: true } } },
-    });
-    if (!member) throw new Error("You are not a member of this conversation.");
-    if (member.conversation.isArchived)
-      throw new Error("This conversation is archived.");
+      select: {
+        id: true,
+        conversation: { select: { isArchived: true } },
+        user: { select: { name: true } },
+      },
+    }),
+    mentionIds.length > 0
+      ? prisma.conversationMember.findMany({
+          where: { conversationId, userId: { in: mentionIds } },
+          select: { userId: true },
+        })
+      : Promise.resolve<{ userId: string }[]>([]),
+    orderIds.length > 0
+      ? prisma.order.findMany({ where: { id: { in: orderIds } }, select: { id: true } })
+      : Promise.resolve<{ id: string }[]>([]),
+    input.replyToId
+      ? prisma.message.findFirst({
+          where: { id: input.replyToId, conversationId },
+          select: {
+            body: true,
+            imageUrl: true,
+            type: true,
+            sender: { select: { name: true } },
+          },
+        })
+      : Promise.resolve(null),
+  ]);
 
-    // Resolve tokens server-side — never trust a client-supplied entity list.
-    const mentionIds = extractMentionUserIds(body);
-    const orderIds = extractOrderIds(body);
+  if (!member) throw new Error("You are not a member of this conversation.");
+  if (member.conversation.isArchived) throw new Error("This conversation is archived.");
 
-    const validMentionIds =
-      mentionIds.length > 0
-        ? (
-            await tx.conversationMember.findMany({
-              where: { conversationId, userId: { in: mentionIds } },
-              select: { userId: true },
-            })
-          ).map((m) => m.userId)
-        : [];
+  const senderName = member.user?.name ?? null;
+  const validMentionIds = mentionRows.map((m) => m.userId);
+  const validOrderIds = orderRows.map((o) => o.id);
 
-    const validOrderIds =
-      orderIds.length > 0
-        ? (
-            await tx.order.findMany({
-              where: { id: { in: orderIds } },
-              select: { id: true },
-            })
-          ).map((o) => o.id)
-        : [];
+  // Denormalized reply preview.
+  let replyPreview: string | null = null;
+  let replySender: string | null = null;
+  if (parent) {
+    replySender = parent.sender?.name ?? "System";
+    replyPreview =
+      parent.type === "IMAGE" && !parent.body ? "📷 Photo" : toPlainText(parent.body);
+  }
 
-    // Denormalized reply preview.
-    let replyPreview: string | null = null;
-    let replySender: string | null = null;
-    if (input.replyToId) {
-      const parent = await tx.message.findFirst({
-        where: { id: input.replyToId, conversationId },
-        select: {
-          body: true,
-          imageUrl: true,
-          type: true,
-          sender: { select: { name: true } },
-        },
-      });
-      if (parent) {
-        replySender = parent.sender?.name ?? "System";
-        replyPreview =
-          parent.type === "IMAGE" && !parent.body ? "📷 Photo" : toPlainText(parent.body);
-      }
-    }
+  const now = new Date();
+  const preview = imageUrl && !body ? "📷 Photo" : toPlainText(body);
 
-    const message = await tx.message.create({
+  const writes: Prisma.PrismaPromise<unknown>[] = [
+    prisma.message.create({
       data: {
         conversationId,
         senderId,
         type: imageUrl ? "IMAGE" : "TEXT",
         body,
         imageUrl,
+        createdAt: now,
         replyToId: input.replyToId ?? null,
         replyPreview,
         replySender,
         mentions:
           validMentionIds.length > 0
-            ? {
-                create: validMentionIds.map((userId) => ({
-                  userId,
-                  conversationId,
-                })),
-              }
+            ? { create: validMentionIds.map((userId) => ({ userId, conversationId })) }
             : undefined,
         orderRefs:
           validOrderIds.length > 0
@@ -254,34 +306,34 @@ export async function sendMessage(input: SendMessageInput): Promise<ChatMessage>
             : undefined,
       },
       select: messageSelect,
-    });
-
+    }),
     // Bump unread for everyone except the sender — one query, group-size agnostic.
-    await tx.conversationMember.updateMany({
+    prisma.conversationMember.updateMany({
       where: { conversationId, userId: { not: senderId } },
       data: { unreadCount: { increment: 1 } },
-    });
-
-    // Flag mentioned members (drives the "@" glyph in their list).
-    if (validMentionIds.length > 0) {
-      await tx.conversationMember.updateMany({
-        where: { conversationId, userId: { in: validMentionIds } },
-        data: { hasUnreadMention: true },
-      });
-    }
-
-    const preview = imageUrl && !body ? "📷 Photo" : toPlainText(body);
-    await tx.conversation.update({
+    }),
+    prisma.conversation.update({
       where: { id: conversationId },
       data: {
-        lastMessageAt: message.createdAt,
+        lastMessageAt: now,
         lastMessagePreview: preview.slice(0, 140),
-        lastMessageSender: message.sender?.name ?? null,
+        lastMessageSender: senderName,
       },
-    });
+    }),
+  ];
 
-    return toChatMessage(message);
-  });
+  // Flag mentioned members (drives the "@" glyph in their list).
+  if (validMentionIds.length > 0) {
+    writes.push(
+      prisma.conversationMember.updateMany({
+        where: { conversationId, userId: { in: validMentionIds } },
+        data: { hasUnreadMention: true },
+      })
+    );
+  }
+
+  const [message] = await prisma.$transaction(writes);
+  return toChatMessage(message as RawMessage);
 }
 
 /** Reset the opening member's unread counters + mention flag. */

@@ -71,7 +71,8 @@
       "PowerShell(npx eslint \"app/\\(accounting\\)/accounting/_components/TrialBalanceView.tsx\" \"app/\\(accounting\\)/accounting/_components/ExpenseLedgerView.tsx\" \"app/\\(accounting\\)/accounting/_components/MonthPicker.tsx\" \"app/\\(accounting\\)/accounting/reports/trial-balance/page.tsx\" 2>&1 | Select-Object -First 30)",
       "PowerShell(npx prisma generate 2>&1 | Select-Object -Last 5)",
       "PowerShell(npx eslint \"modules/finance/services/reports-accounting.service.ts\" \"app/\\(accounting\\)/accounting/_components/BalanceSheetView.tsx\" \"app/\\(accounting\\)/accounting/_components/CashFlowView.tsx\" \"app/\\(accounting\\)/accounting/reports/statement-of-financial-position/page.tsx\" \"app/\\(accounting\\)/accounting/reports/statement-of-cash-flow/page.tsx\" 2>&1 | Select-Object -First 40)",
-      "PowerShell(npx eslint \"modules/finance/services/reports-accounting.service.ts\" 2>&1 | Select-Object -First 20; Write-Output \"=== tsc ===\"; npx tsc --noEmit 2>&1 | Select-Object -First 15)"
+      "PowerShell(npx eslint \"modules/finance/services/reports-accounting.service.ts\" 2>&1 | Select-Object -First 20; Write-Output \"=== tsc ===\"; npx tsc --noEmit 2>&1 | Select-Object -First 15)",
+      "PowerShell(npm run *)"
     ]
   }
 }
