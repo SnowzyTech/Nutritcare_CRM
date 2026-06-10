@@ -40,6 +40,13 @@ export function SettingsClient({ profile }: { profile: Profile }) {
   const [autoAssign, setAutoAssign] = useState("Enabled");
   const [lowStock, setLowStock] = useState("10 units");
 
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(profile.avatarUrl ?? null);
+  // Holds the Cloudinary secure_url returned after a successful upload.
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  // True when the user removed their saved photo (persist avatarUrl = null on save).
+  const [removeAvatar, setRemoveAvatar] = useState(false);
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -49,6 +56,43 @@ export function SettingsClient({ profile }: { profile: Profile }) {
       .split("_")
       .map(w => w.charAt(0) + w.slice(1).toLowerCase())
       .join(" ");
+  };
+
+  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setError("Please upload an image file.");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setError("Image size must be less than 5MB.");
+      return;
+    }
+    setError(null);
+    // Instant local preview while the upload runs.
+    setAvatarPreview(URL.createObjectURL(file));
+    setAvatarUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/upload/avatar", { method: "POST", body: fd });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? "Upload failed.");
+        setAvatarPreview(profile.avatarUrl ?? null);
+        return;
+      }
+      // Store only the Cloudinary URL — that is what gets saved to the DB.
+      setAvatarUrl(data.url);
+      setAvatarPreview(data.url);
+      setRemoveAvatar(false);
+    } catch {
+      setError("Upload failed. Please try again.");
+      setAvatarPreview(profile.avatarUrl ?? null);
+    } finally {
+      setAvatarUploading(false);
+    }
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -61,12 +105,17 @@ export function SettingsClient({ profile }: { profile: Profile }) {
       setError("First Name and Last Name are required.");
       return;
     }
+    if (avatarUploading) {
+      setError("Please wait for the image to finish uploading.");
+      return;
+    }
 
     setLoading(true);
     const result = await updateProfileAction({
       name: fullName,
       phone: phone.trim() || undefined,
       whatsappNumber: whatsapp.trim() || undefined,
+      avatarUrl: removeAvatar ? null : avatarUrl ?? undefined,
     });
     setLoading(false);
 
@@ -82,7 +131,6 @@ export function SettingsClient({ profile }: { profile: Profile }) {
 
   // Avatar resolution
   const displayInitials = (firstName.charAt(0) + lastName.charAt(0)).toUpperCase() || "WM";
-  const avatarSrc = profile.avatarUrl;
 
   return (
     <div className="space-y-8 max-w-6xl animate-fadeIn">
@@ -130,14 +178,25 @@ export function SettingsClient({ profile }: { profile: Profile }) {
 
           {/* Avatar Upload block */}
           <div className="flex flex-col sm:flex-row items-center gap-6 bg-gray-50/40 p-5 rounded-2xl border border-gray-100/50">
-            {avatarSrc ? (
-              <img 
-                src={avatarSrc} 
-                alt="Profile Avatar" 
-                className="w-20 h-20 rounded-full object-cover border-2 border-white shadow-md shrink-0" 
+            <input
+              type="file"
+              id="warehouse-avatar-input"
+              accept="image/*"
+              className="hidden"
+              onChange={handleAvatarChange}
+            />
+            {avatarPreview ? (
+              <img
+                src={avatarPreview}
+                alt="Profile Avatar"
+                onClick={() => document.getElementById("warehouse-avatar-input")?.click()}
+                className="w-20 h-20 rounded-full object-cover border-2 border-white shadow-md shrink-0 cursor-pointer hover:opacity-90 transition"
               />
             ) : (
-              <div className="w-20 h-20 rounded-full bg-gradient-to-br from-[#A020F0] to-[#7B1FA2] text-white flex items-center justify-center text-2xl font-black shadow-md border-2 border-white shrink-0">
+              <div
+                onClick={() => document.getElementById("warehouse-avatar-input")?.click()}
+                className="w-20 h-20 rounded-full bg-gradient-to-br from-[#A020F0] to-[#7B1FA2] text-white flex items-center justify-center text-2xl font-black shadow-md border-2 border-white shrink-0 cursor-pointer hover:opacity-90 transition"
+              >
                 {displayInitials}
               </div>
             )}
@@ -145,13 +204,35 @@ export function SettingsClient({ profile }: { profile: Profile }) {
               <h4 className="font-bold text-gray-800 text-base">Profile Photo</h4>
               <p className="text-xs text-gray-400">JPG, PNG or GIF. Recommended size 400x400px.</p>
               <div className="flex items-center justify-center sm:justify-start gap-3 pt-1">
-                <button type="button" className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg border border-gray-200 text-xs font-bold text-gray-600 bg-white hover:bg-gray-50 active:scale-95 transition-all shadow-sm cursor-pointer">
-                  <Upload className="w-3.5 h-3.5 text-gray-400" />
-                  Upload Photo
+                <button
+                  type="button"
+                  onClick={() => document.getElementById("warehouse-avatar-input")?.click()}
+                  disabled={avatarUploading}
+                  className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg border border-gray-200 text-xs font-bold text-gray-600 bg-white hover:bg-gray-50 active:scale-95 transition-all shadow-sm cursor-pointer disabled:opacity-60 disabled:cursor-wait"
+                >
+                  {avatarUploading ? (
+                    <span className="w-3.5 h-3.5 border-2 border-gray-300 border-t-[#A020F0] rounded-full animate-spin" />
+                  ) : (
+                    <Upload className="w-3.5 h-3.5 text-gray-400" />
+                  )}
+                  {avatarUploading ? "Uploading..." : "Upload Photo"}
                 </button>
-                <button type="button" className="text-xs font-bold text-red-500 hover:text-red-600 hover:underline px-2 py-1">
-                  Remove
-                </button>
+                {avatarPreview && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAvatarPreview(null);
+                      setAvatarUrl(null);
+                      setRemoveAvatar(true);
+                      setError(null);
+                      const input = document.getElementById("warehouse-avatar-input") as HTMLInputElement | null;
+                      if (input) input.value = "";
+                    }}
+                    className="text-xs font-bold text-red-500 hover:text-red-600 hover:underline px-2 py-1"
+                  >
+                    Remove
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -286,13 +367,13 @@ export function SettingsClient({ profile }: { profile: Profile }) {
           </div>
 
           {/* Action Trigger Button */}
-          <button 
-            type="submit" 
-            disabled={loading}
+          <button
+            type="submit"
+            disabled={loading || avatarUploading}
             className="w-full flex items-center justify-center gap-2 bg-[#A020F0] hover:bg-[#8B1ED2] disabled:bg-purple-300 text-white text-sm font-bold py-3.5 px-6 rounded-2xl transition-all duration-200 shadow-md hover:shadow-purple-200/50 active:scale-98 cursor-pointer"
           >
             <Save className="w-4 h-4 shrink-0" />
-            {loading ? "Saving Changes..." : "Save Changes"}
+            {loading ? "Saving Changes..." : avatarUploading ? "Uploading image..." : "Save Changes"}
           </button>
         </div>
 

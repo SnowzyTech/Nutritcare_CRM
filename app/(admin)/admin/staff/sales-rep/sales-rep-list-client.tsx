@@ -104,7 +104,7 @@ export default function SalesRepListClient({ reps }: { reps: SalesRep[] }) {
                   <div className="flex items-center gap-3">
                     <div className="w-8 h-8 rounded-full overflow-hidden shrink-0 bg-gray-100">
                       {rep.avatarUrl ? (
-                        <Image src={rep.avatarUrl} alt={rep.name} width={32} height={32} className="object-cover" />
+                        <Image src={rep.avatarUrl} alt={rep.name} width={32} height={32} className="w-full h-full object-cover" />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center text-xs font-bold text-gray-500">
                           {rep.name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase()}

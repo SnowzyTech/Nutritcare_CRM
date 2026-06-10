@@ -3,6 +3,7 @@ import { Mail, Phone, Calendar, ShieldCheck } from "lucide-react";
 import { auth } from "@/lib/auth/auth";
 import { getUserById } from "@/modules/auth/services/auth.service";
 import { formatDate, getInitials } from "@/lib/utils";
+import { AvatarUploaderClient } from "./avatar-uploader-client";
 
 function formatRole(role: string): string {
   return role
@@ -33,19 +34,8 @@ export default async function SettingsProfilePage() {
 
         {/* Profile info block */}
         <div className="px-8 pb-8 relative flex flex-col sm:flex-row items-center sm:items-end gap-6 sm:-mt-12">
-          {/* Avatar */}
-          <div className="w-32 h-32 rounded-full border-4 border-white shadow-md overflow-hidden bg-purple-100 flex items-center justify-center shrink-0">
-            {avatarUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={avatarUrl}
-                alt={name}
-                className="w-full h-full object-cover"
-              />
-            ) : (
-              <span className="text-[#9D00FF] font-bold text-3xl">{initials}</span>
-            )}
-          </div>
+          {/* Avatar (click to upload) */}
+          <AvatarUploaderClient name={name} initials={initials} avatarUrl={avatarUrl} />
 
           {/* Title / Role */}
           <div className="flex-1 text-center sm:text-left mt-4 sm:mt-0 mb-2">

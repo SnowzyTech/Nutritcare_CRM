@@ -33,7 +33,7 @@ export async function updateProfileAction(input: {
   name: string;
   phone?: string;
   whatsappNumber?: string;
-  avatarUrl?: string;
+  avatarUrl?: string | null;
 }): Promise<ActionResult> {
   try {
     const session = await auth();
@@ -47,6 +47,7 @@ export async function updateProfileAction(input: {
     revalidatePath("/warehouse", "layout");
     revalidatePath("/accounting", "layout");
     revalidatePath("/logistics", "layout");
+    revalidatePath("/inventory", "layout");
     revalidatePath("/data", "layout");
     return { success: true };
   } catch (e) {

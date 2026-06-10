@@ -96,7 +96,7 @@ export async function getSelfProfile(userId: string) {
 
 export async function updateSelfProfile(
   userId: string,
-  data: { name: string; phone?: string; whatsappNumber?: string; avatarUrl?: string }
+  data: { name: string; phone?: string; whatsappNumber?: string; avatarUrl?: string | null }
 ) {
   return prisma.user.update({
     where: { id: userId },

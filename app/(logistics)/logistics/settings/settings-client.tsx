@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { User, Mail, Phone, Briefcase, Calendar, MessageCircle } from "lucide-react";
+import { User, Mail, Phone, Briefcase, Calendar, MessageCircle, Camera } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
@@ -24,6 +24,13 @@ export default function SettingsClient({ profile }: { profile: Profile }) {
   const [phone, setPhone] = useState(profile.phone ?? "");
   const [whatsapp, setWhatsapp] = useState(profile.whatsappNumber ?? "");
 
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(profile.avatarUrl);
+  // Holds the Cloudinary secure_url returned after a successful upload.
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  // True when the user removed their saved photo (persist avatarUrl = null on save).
+  const [removeAvatar, setRemoveAvatar] = useState(false);
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
@@ -31,26 +38,79 @@ export default function SettingsClient({ profile }: { profile: Profile }) {
   const isDirty =
     name !== profile.name ||
     phone !== (profile.phone ?? "") ||
-    whatsapp !== (profile.whatsappNumber ?? "");
+    whatsapp !== (profile.whatsappNumber ?? "") ||
+    avatarUrl !== null ||
+    removeAvatar;
 
   const handleReset = () => {
     setName(profile.name);
     setPhone(profile.phone ?? "");
     setWhatsapp(profile.whatsappNumber ?? "");
+    setAvatarPreview(profile.avatarUrl);
+    setAvatarUrl(null);
+    setRemoveAvatar(false);
     setError("");
     setSuccess(false);
+  };
+
+  const handleRemoveAvatar = () => {
+    setAvatarPreview(null);
+    setAvatarUrl(null);
+    setRemoveAvatar(true);
+    setError("");
+    const input = document.getElementById("logistics-avatar-input") as HTMLInputElement | null;
+    if (input) input.value = "";
+  };
+
+  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setError("Please upload an image file.");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setError("Image size must be less than 5MB.");
+      return;
+    }
+    setError("");
+    // Instant local preview while the upload runs.
+    setAvatarPreview(URL.createObjectURL(file));
+    setAvatarUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/upload/avatar", { method: "POST", body: fd });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? "Upload failed.");
+        setAvatarPreview(profile.avatarUrl);
+        return;
+      }
+      // Store only the Cloudinary URL — that is what gets saved to the DB.
+      setAvatarUrl(data.url);
+      setAvatarPreview(data.url);
+      setRemoveAvatar(false);
+    } catch {
+      setError("Upload failed. Please try again.");
+      setAvatarPreview(profile.avatarUrl);
+    } finally {
+      setAvatarUploading(false);
+    }
   };
 
   const handleSave = async () => {
     setError("");
     setSuccess(false);
     if (!name.trim()) return setError("Full name is required.");
+    if (avatarUploading) return setError("Please wait for the image to finish uploading.");
 
     setLoading(true);
     const result = await updateProfileAction({
       name: name.trim(),
       phone: phone.trim() || undefined,
       whatsappNumber: whatsapp.trim() || undefined,
+      avatarUrl: removeAvatar ? null : avatarUrl ?? undefined,
     });
     setLoading(false);
 
@@ -79,11 +139,48 @@ export default function SettingsClient({ profile }: { profile: Profile }) {
 
       {/* Profile Header Card */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 flex flex-col md:flex-row items-center gap-8">
-        <div className="w-24 h-24 rounded-full bg-[#f3e8ff] flex items-center justify-center border-4 border-white shadow-md overflow-hidden text-2xl font-bold text-[#ad1df4] shrink-0">
-          {profile.avatarUrl ? (
-            <img src={profile.avatarUrl} alt={profile.name} className="w-full h-full object-cover" />
-          ) : (
-            getInitials(name || profile.name)
+        <div className="flex flex-col items-center gap-2 shrink-0">
+          <div className="relative">
+            <input
+              type="file"
+              id="logistics-avatar-input"
+              accept="image/*"
+              className="hidden"
+              onChange={handleAvatarChange}
+            />
+            <div
+              onClick={() => document.getElementById("logistics-avatar-input")?.click()}
+              className="w-24 h-24 rounded-full bg-[#f3e8ff] flex items-center justify-center border-4 border-white shadow-md overflow-hidden text-2xl font-bold text-[#ad1df4] cursor-pointer hover:opacity-90 transition"
+              title="Upload photo"
+            >
+              {avatarPreview ? (
+                <img src={avatarPreview} alt={profile.name} className="w-full h-full object-cover" />
+              ) : (
+                getInitials(name || profile.name)
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => document.getElementById("logistics-avatar-input")?.click()}
+              disabled={avatarUploading}
+              title="Upload photo"
+              className="absolute bottom-0 right-0 w-8 h-8 rounded-full bg-white border border-gray-100 shadow flex items-center justify-center text-gray-500 hover:text-[#ad1df4] transition active:scale-90 cursor-pointer disabled:opacity-60 disabled:cursor-wait"
+            >
+              {avatarUploading ? (
+                <span className="w-3.5 h-3.5 border-2 border-gray-300 border-t-[#ad1df4] rounded-full animate-spin" />
+              ) : (
+                <Camera className="w-3.5 h-3.5" />
+              )}
+            </button>
+          </div>
+          {avatarPreview && (
+            <button
+              type="button"
+              onClick={handleRemoveAvatar}
+              className="text-[11px] font-bold text-red-500 hover:text-red-600 hover:underline"
+            >
+              Remove
+            </button>
           )}
         </div>
 
@@ -117,10 +214,10 @@ export default function SettingsClient({ profile }: { profile: Profile }) {
           </Button>
           <Button
             onClick={handleSave}
-            disabled={!isDirty || loading}
+            disabled={!isDirty || loading || avatarUploading}
             className="bg-[#ad1df4] hover:bg-[#8e14cc] text-white px-8 h-10 font-bold shadow-lg shadow-purple-100 disabled:opacity-40"
           >
-            {loading ? "Saving..." : "Save Changes"}
+            {loading ? "Saving..." : avatarUploading ? "Uploading..." : "Save Changes"}
           </Button>
         </div>
       </div>
