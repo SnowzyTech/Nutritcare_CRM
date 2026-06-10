@@ -65,10 +65,14 @@ const fallbackSalesTrends = {
 };
 
 const fallbackSalesByProduct = [
-  { name: 'FORD', value: 8_000_000 }, { name: 'SHRED', value: 12_000_000 },
-  { name: 'AFTER-', value: 6_000_000 }, { name: 'PROMACT', value: 10_000_000 },
-  { name: 'TRM', value: 15_000_000, isMax: true }, { name: 'LINK', value: 8_000_000 },
-  { name: 'NEURO-VIVE', value: 11_000_000 }, { name: 'VITOMP', value: 9_000_000 },
+  { name: 'FONIO MILL', fullName: 'Fonio Mill', value: 8_000_000 },
+  { name: 'SHRED BELLY', fullName: 'Shred Belly', value: 12_000_000 },
+  { name: 'AFTER-NATAL', fullName: 'After-Natal', value: 6_000_000 },
+  { name: 'PROSXACT', fullName: 'Prosxact', value: 10_000_000 },
+  { name: 'TRIM AND TONE', fullName: 'Trim and Tone', value: 15_000_000, isMax: true },
+  { name: 'LINIX', fullName: 'Linix', value: 8_000_000 },
+  { name: 'NEURO-VIVE BALM', fullName: 'Neuro-Vive Balm', value: 11_000_000 },
+  { name: 'VITOREP', fullName: 'Vitorep', value: 9_000_000 },
 ];
 
 const fallbackSalesByState = [
@@ -79,6 +83,39 @@ const fallbackSalesByState = [
   { name: 'NASSARAWA', value: 2_000_000 }, { name: 'ABIA', value: 5_000_000 },
   { name: 'BAUCHI', value: 4_000_000 }, { name: 'JIGAWA', value: 3_000_000 },
 ];
+
+/* ── Axis labels ──────────────────────────────────────────────────────────── */
+
+// Split a long product label into (at most) two balanced lines, breaking on the
+// space nearest the middle, then on a hyphen — keeps full names readable on the
+// narrow x-axis instead of overlapping or being truncated.
+function wrapAxisLabel(label: string): string[] {
+  if (label.length <= 9) return [label];
+  const mid = Math.floor(label.length / 2);
+  const spaces: number[] = [];
+  for (let i = 0; i < label.length; i++) if (label[i] === ' ') spaces.push(i);
+  if (spaces.length) {
+    let best = spaces[0];
+    for (const s of spaces) if (Math.abs(s - mid) < Math.abs(best - mid)) best = s;
+    return [label.slice(0, best), label.slice(best + 1)];
+  }
+  const hyphen = label.indexOf('-');
+  if (hyphen !== -1) return [label.slice(0, hyphen + 1), label.slice(hyphen + 1)];
+  return [label];
+}
+
+function WrappedAxisTick({ x, y, payload }: { x?: number; y?: number; payload?: { value: string | number } }) {
+  const lines = wrapAxisLabel(String(payload?.value ?? ''));
+  return (
+    <g transform={`translate(${x},${y})`}>
+      {lines.map((line, i) => (
+        <text key={i} x={0} y={0} dy={12 + i * 8} textAnchor="middle" fontSize={7} fontWeight={600} fill="#9CA3AF">
+          {line}
+        </text>
+      ))}
+    </g>
+  );
+}
 
 /* ── Tooltips ─────────────────────────────────────────────────────────────── */
 
@@ -534,7 +571,7 @@ export function DashboardClient({
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={salesByProduct} margin={{ top: 10, right: 0, left: -25, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F3F4F6" />
-                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 7, fill: '#9CA3AF', fontWeight: 600 }} dy={10} />
+                  <XAxis dataKey="name" axisLine={false} tickLine={false} interval={0} tick={<WrappedAxisTick />} />
                   <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 8, fill: '#9CA3AF', fontWeight: 600 }} tickFormatter={(val) => val === 0 ? '0' : fmtCompact(val)} />
                   <Tooltip cursor={{ fill: 'transparent' }} content={<BarChartTooltip />} />
                   <Bar dataKey="value" radius={[2, 2, 0, 0]} barSize={8}>

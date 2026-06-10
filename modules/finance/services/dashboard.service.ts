@@ -187,7 +187,7 @@ export async function getSalesByProduct(limit = 8) {
     const total = Number(i._sum.lineTotal ?? 0);
     const fullName = productMap.get(i.productId) ?? "—";
     return {
-      name: fullName.toUpperCase().slice(0, 8),
+      name: fullName.toUpperCase(),
       fullName,
       value: total, // real ₦ — charts format for display, tooltip shows exact
       quantity: Number(i._sum.quantity ?? 0),
