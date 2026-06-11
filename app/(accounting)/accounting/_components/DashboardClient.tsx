@@ -270,8 +270,13 @@ export function DashboardClient({
       : activeRange === 'Weekly'
         ? 'Sales · Last 12 Weeks'
         : `Sales ${trends.year}`;
-  const salesByProduct = salesByProductData && salesByProductData.length > 0 ? salesByProductData : fallbackSalesByProduct;
-  const salesByState = salesByStateData && salesByStateData.length > 0 ? salesByStateData : fallbackSalesByState;
+  // Normalize so `fullName` is always a string — the prop type allows it to be
+  // optional while the fallback always sets it, which otherwise produces a union
+  // type the chart's `data` prop rejects. Falls back to `name` (same as the tooltip).
+  const salesByProduct = (salesByProductData && salesByProductData.length > 0 ? salesByProductData : fallbackSalesByProduct)
+    .map((d) => ({ ...d, fullName: (d as { fullName?: string }).fullName ?? d.name }));
+  const salesByState = (salesByStateData && salesByStateData.length > 0 ? salesByStateData : fallbackSalesByState)
+    .map((d) => ({ ...d, fullName: (d as { fullName?: string }).fullName ?? d.name }));
 
   const buildInventorySnapshot1 = () => {
     if (!inventory) return inventorySnapshot1;
