@@ -110,6 +110,19 @@ function seedPackagesFromProduct(product: ProductWithOffers): FormPackage[] {
   }));
 }
 
+// Build the "<qty> <unit> of <product>" tail for a variation label.
+// When the product has a unit set (e.g. "packs") it reads "2 packs of Prosxact".
+// When it has no unit, the unit word and the "of" are both dropped — no generic
+// "units" fallback — giving "2 Prosxact".
+function qtyUnitOfProduct(
+  qty: number,
+  unit: string | null | undefined,
+  productName: string,
+): string {
+  const u = unit?.trim();
+  return u ? `${qty} ${u} of ${productName}` : `${qty} ${productName}`;
+}
+
 // Turn the per-form packages into the priceVariations consumed downstream.
 // Only packages with at least one filled field become a variation.
 function variationsFromPackages(
@@ -117,7 +130,6 @@ function variationsFromPackages(
   product: ProductWithOffers | null,
 ): PriceVariation[] {
   const productName = product?.name ?? "";
-  const unit = product?.unit?.trim() || "units";
   return packages
     .filter((p) => p.name.trim() || p.quantity.trim() || p.price.trim())
     .map((p) => {
@@ -128,10 +140,10 @@ function variationsFromPackages(
         id: p.id,
         productId: product?.id ?? "",
         quantity: qty > 0 ? qty : 1,
-        // Render as "Plan Name - qty <unit> of productname"
+        // Render as "Plan Name - qty <unit> of productname" (unit omitted if unset)
         name:
           qty > 0 && productName
-            ? `${baseName} - ${qty} ${unit} of ${productName}`
+            ? `${baseName} - ${qtyUnitOfProduct(qty, product?.unit, productName)}`
             : baseName,
         price,
         formattedPrice: formatNaira(price),
@@ -150,11 +162,10 @@ function variationFromOffer(
   const price = parseFloat(offer.sellingPrice) || 0;
   const baseName = offer.offerName.trim() || "Offer";
   const productName = product?.name ?? "";
-  const unit = product?.unit?.trim() || "units";
-  // Render as "Plan Name - qty <unit> of productname"
+  // Render as "Plan Name - qty <unit> of productname" (unit omitted if unset)
   const name =
     qty > 0 && productName
-      ? `${baseName} - ${qty} ${unit} of ${productName}`
+      ? `${baseName} - ${qtyUnitOfProduct(qty, product?.unit, productName)}`
       : baseName;
   return [
     {
@@ -190,12 +201,11 @@ function variationsFromComboGift(
       if (!cp) return;
       const qty = parseInt(c.quantity, 10) || 1;
       const price = Number(cp.sellingPrice) * qty;
-      const unit = cp.unit?.trim() || "units";
       result.push({
         id: `combo-${baseId}-${c.id}`,
         productId: cp.id,
         quantity: qty,
-        name: `${offerName} - ${qty} ${unit} of ${cp.name}`,
+        name: `${offerName} - ${qtyUnitOfProduct(qty, cp.unit, cp.name)}`,
         price,
         formattedPrice: formatNaira(price),
       });
@@ -207,12 +217,11 @@ function variationsFromComboGift(
       const gp = lookup(g.productId);
       if (!gp) return;
       const qty = parseInt(g.quantity, 10) || 1;
-      const unit = gp.unit?.trim() || "units";
       result.push({
         id: `gift-${baseId}-${g.id}`,
         productId: gp.id,
         quantity: qty,
-        name: `${offerName} (Free Gift) - ${qty} ${unit} of ${gp.name}`,
+        name: `${offerName} (Free Gift) - ${qtyUnitOfProduct(qty, gp.unit, gp.name)}`,
         price: 0,
         formattedPrice: formatNaira(0),
       });
@@ -264,7 +273,7 @@ function computeVariations(
       quantity: pkg.quantity > 0 ? pkg.quantity : 1,
       name:
         pkg.quantity > 0
-          ? `${pkg.name} - ${pkg.quantity} ${product.unit ?? "units"} of ${product.name}`
+          ? `${pkg.name} - ${qtyUnitOfProduct(pkg.quantity, product.unit, product.name)}`
           : pkg.name,
       price: Number(pkg.price),
       formattedPrice: formatNaira(Number(pkg.price)),
@@ -273,7 +282,7 @@ function computeVariations(
       id: offer.id,
       productId: product.id,
       quantity: offer.offerQuantity,
-      name: `${offer.offerName} - ${offer.offerQuantity} ${offer.offerUnit} packs of ${product.name}`,
+      name: `${offer.offerName} - ${qtyUnitOfProduct(offer.offerQuantity, offer.offerUnit, product.name)}`,
       price: Number(offer.sellingPrice),
       formattedPrice: formatNaira(Number(offer.sellingPrice)),
     }));
@@ -445,11 +454,11 @@ export function FormBuilder({
 
     fields: {
       name: { label: "", required: false, show: false },
-      phone: { label: "", required: false, show: false },
-      whatsapp: { label: "", required: true, show: false },
       email: { label: "", required: true, show: true },
       address: { label: "", required: false, show: false },
       state: { label: "", required: true, show: true },
+      phone: { label: "", required: false, show: false },
+      whatsapp: { label: "", required: true, show: false },
     },
 
     showCountryCode: "YES",
@@ -831,11 +840,11 @@ export function FormBuilder({
       priceVariations: [],
       fields: {
         name: { label: "", required: false, show: false },
-        phone: { label: "", required: false, show: false },
-        whatsapp: { label: "", required: true, show: false },
         email: { label: "", required: true, show: true },
         address: { label: "", required: false, show: false },
         state: { label: "", required: true, show: true },
+        phone: { label: "", required: false, show: false },
+        whatsapp: { label: "", required: true, show: false },
       },
       showCountryCode: "YES",
       productQuantityDisplay: "Radio Button Option",
@@ -2040,12 +2049,12 @@ export function FormBuilder({
                       const pkgOptions = bumpProduct.packages.map((pkg) => ({
                         label:
                           pkg.quantity > 0
-                            ? `${pkg.name} - ${pkg.quantity} ${bumpProduct.unit ?? "units"}  of ${bumpProduct.name}`
+                            ? `${pkg.name} - ${qtyUnitOfProduct(pkg.quantity, bumpProduct.unit, bumpProduct.name)}`
                             : pkg.name,
                         value: pkg.id,
                       }));
                       const offerOptions = bumpProduct.offers.map((offer) => ({
-                        label: `${offer.offerName} - ${offer.offerQuantity} ${offer.offerUnit}  of ${bumpProduct.name}`,
+                        label: `${offer.offerName} - ${qtyUnitOfProduct(offer.offerQuantity, offer.offerUnit, bumpProduct.name)}`,
                         value: offer.id,
                       }));
                       return [...pkgOptions, ...offerOptions];

@@ -17,6 +17,15 @@ const NIGERIAN_STATES = [
   "Yobe State", "Zamfara State", "Federal Capital Territory (FCT)",
 ];
 
+/* ── Order the customer fields are displayed in, regardless of saved key order ──
+   name → email → address → state → phone → whatsapp. Any unlisted field falls
+   to the end, keeping its relative order. */
+const FIELD_DISPLAY_ORDER = ["name", "email", "address", "state", "phone", "whatsapp"];
+const fieldOrderIndex = (key: string) => {
+  const i = FIELD_DISPLAY_ORDER.indexOf(key);
+  return i === -1 ? FIELD_DISPLAY_ORDER.length : i;
+};
+
 
 
 /* ── Country Dialing Codes ── */
@@ -543,7 +552,22 @@ export default function OrderFormPreview() {
     if (!/^https?:\/\//i.test(targetUrl)) {
       targetUrl = `https://${targetUrl}`;
     }
-    window.location.href = targetUrl;
+    // When the form is embedded in an iframe (e.g. on a WordPress/Elementor
+    // landing page), `window.location` only navigates the iframe itself, trapping
+    // the redirect inside the embedded box. Navigate the top-level browsing
+    // context instead so the whole tab leaves for the thank-you / sales page.
+    // Top navigation triggered by a user gesture (Place Order click) is allowed
+    // even cross-origin; the catch falls back if a sandbox blocks it.
+    try {
+      const topWin = window.top;
+      if (topWin && topWin !== window.self) {
+        topWin.location.assign(targetUrl);
+      } else {
+        window.location.assign(targetUrl);
+      }
+    } catch {
+      window.location.assign(targetUrl);
+    }
     return true;
   };
 
@@ -1164,6 +1188,7 @@ export default function OrderFormPreview() {
                 <div className="space-y-1">
                   {Object.entries(fields)
                     .filter(([, f]) => f.show)
+                    .sort(([a], [b]) => fieldOrderIndex(a) - fieldOrderIndex(b))
                     .map(([key, f]) => {
                       if (key === "state") {
                         return (
