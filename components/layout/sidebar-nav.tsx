@@ -105,7 +105,7 @@ function NavGroup({
     <div className="mb-1">
       <button
         onClick={() => !collapsed && setOpen((o) => !o)}
-        className={`flex items-center ${collapsed ? 'justify-center' : 'gap-3 px-4'} py-3 rounded-xl w-full text-left transition-all duration-200 group relative ${
+        className={`flex items-center cursor-pointer ${collapsed ? 'justify-center' : 'gap-3 px-4'} py-3 rounded-xl w-full text-left transition-all duration-200 group relative ${
           isAnyChildActive 
             ? "text-white" 
             : "text-gray-400 hover:text-white hover:bg-white/5"

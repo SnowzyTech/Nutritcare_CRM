@@ -62,7 +62,11 @@
       "Bash(Select-String -Pattern \"sales-record\")",
       "Bash(npx tsc:*)",
       "Bash(npm run lint)",
-      "mcp__ide__getDiagnostics"
+      "mcp__ide__getDiagnostics",
+      "Bash(python -c \"from PIL import Image; im=Image.open\\(r'c:/Users/user/Downloads/Admin - WhatsApp Marketing - Contact List.png'\\); print\\(im.size\\)\")",
+      "Bash(python -m pip install Pillow -q)",
+      "Bash(python -c \"from PIL import Image; im=Image.open\\(r'c:/Users/user/Downloads/Admin - WhatsApp Marketing - Contact List.png'\\); print\\(im.size\\); im.crop\\(\\(400,80,1440,360\\)\\).resize\\(\\(1560,420\\)\\).save\\(r'c:/Users/user/Downloads/_contacts_top.png'\\); im.crop\\(\\(400,360,1440,700\\)\\).resize\\(\\(1560,510\\)\\).save\\(r'c:/Users/user/Downloads/_contacts_rows.png'\\)\")",
+      "Bash(python -c \"from PIL import Image; im=Image.open\\(r'c:/Users/user/Downloads/Admin - WhatsApp Marketing - Message Template List \\(2\\).png'\\); print\\(im.size\\); im.crop\\(\\(400,90,1440,360\\)\\).resize\\(\\(1560,405\\)\\).save\\(r'c:/Users/user/Downloads/_camp_top.png'\\); im.crop\\(\\(400,330,1440,760\\)\\).resize\\(\\(1560,645\\)\\).save\\(r'c:/Users/user/Downloads/_camp_rows.png'\\); im.crop\\(\\(400,860,1440,1010\\)\\).resize\\(\\(1560,225\\)\\).save\\(r'c:/Users/user/Downloads/_camp_bottom.png'\\)\")"
     ]
   }
 }

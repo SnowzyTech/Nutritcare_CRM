@@ -10,19 +10,6 @@ const phoneSummary = {
   contacts: "5000",
 };
 
-const menuItems = [
-  "Dashboard",
-  "Templates",
-  "Flows",
-  "Quick Reply",
-  "Contacts",
-  "Campaigns",
-  "Automation",
-  "Drip Sequence",
-  "Analytics",
-  "Inbox",
-];
-
 const tableRows = Array.from({ length: 5 }, () => ({
   name: "Balm New Price",
   date: "Balm New Price",
@@ -122,7 +109,7 @@ function AnalyticsChart() {
 
 function SummaryTable({ title }: { title: string }) {
   return (
-    <section className="h-[184px] rounded-[14px] border border-[#cecece] bg-white px-[18px] py-[18px]">
+    <section className="overflow-hidden rounded-[14px] border border-[#cecece] bg-white px-[18px] py-[18px]">
       <h2 className="mb-[18px] text-[14px] font-extrabold text-[#777777]">
         {title}
       </h2>
@@ -144,29 +131,8 @@ function SummaryTable({ title }: { title: string }) {
 
 export default function WhatsAppMarketingPage() {
   return (
-    <div className="mx-auto flex max-w-[1120px] gap-[38px]">
-      <aside className="min-h-[812px] w-[178px] shrink-0 rounded-[10px] bg-white px-5 py-[30px]">
-        <nav className="space-y-[6px]">
-          {menuItems.map((item) => {
-            const active = item === "Dashboard";
-
-            return (
-              <div
-                key={item}
-                className={`rounded-[7px] px-5 py-[11px] text-[14px] font-medium ${
-                  active
-                    ? "bg-[#f1ddfb] text-[#bd00ff]"
-                    : "text-[#828282]"
-                }`}
-              >
-                {item}
-              </div>
-            );
-          })}
-        </nav>
-      </aside>
-
-      <div className="min-w-0 flex-1 space-y-[14px]">
+    <div className="mx-auto max-w-[1120px]">
+      <div className="min-w-0 space-y-[14px]">
         <section className="flex h-[58px] items-center justify-between rounded-[10px] bg-white px-[18px]">
           <div className="grid flex-1 grid-cols-4 gap-8">
             <InfoBlock
@@ -242,11 +208,10 @@ export default function WhatsAppMarketingPage() {
         </section>
 
         <section className="min-h-[418px] rounded-[24px] bg-white px-5 py-5">
-          <div className="grid grid-cols-3 gap-3">
-            {summaryCards.slice(0, 3).map((card) => (
+          <div className="grid grid-cols-2 gap-3">
+            {summaryCards.map((card) => (
               <SummaryTable key={card.title} title={card.title} />
             ))}
-            <SummaryTable title={summaryCards[3].title} />
           </div>
         </section>
       </div>

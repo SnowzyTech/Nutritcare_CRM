@@ -20,8 +20,22 @@ export const allNavItems: NavItem[] = [
   },
   {
     label: "WhatsApp Marketing",
-    href: "/admin/whatsapp-marketing",
     icon: "whatsapp",
+    children: [
+      { label: "Dashboard", href: "/admin/whatsapp-marketing" },
+      { label: "Templates", href: "/admin/whatsapp-marketing/templates" },
+      { label: "Flows", href: "/admin/whatsapp-marketing/flows" },
+      { label: "Quick Reply", href: "/admin/whatsapp-marketing/quick-reply" },
+      { label: "Contacts", href: "/admin/whatsapp-marketing/contacts" },
+      { label: "Campaigns", href: "/admin/whatsapp-marketing/campaigns" },
+      { label: "Automation", href: "/admin/whatsapp-marketing/automation" },
+      {
+        label: "Drip Sequence",
+        href: "/admin/whatsapp-marketing/drip-sequence",
+      },
+      { label: "Analytics", href: "/admin/whatsapp-marketing/analytics" },
+      { label: "Inbox", href: "/admin/whatsapp-marketing/inbox" },
+    ],
   },
   {
     label: "Staff Management",
