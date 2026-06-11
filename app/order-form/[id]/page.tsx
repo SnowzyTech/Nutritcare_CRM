@@ -552,12 +552,24 @@ export default function OrderFormPreview() {
     if (!/^https?:\/\//i.test(targetUrl)) {
       targetUrl = `https://${targetUrl}`;
     }
-    // When the form is embedded in an iframe (e.g. on a WordPress/Elementor
-    // landing page), `window.location` only navigates the iframe itself, trapping
-    // the redirect inside the embedded box. Navigate the top-level browsing
-    // context instead so the whole tab leaves for the thank-you / sales page.
-    // Top navigation triggered by a user gesture (Place Order click) is allowed
-    // even cross-origin; the catch falls back if a sandbox blocks it.
+    const embedded = window.top !== window.self;
+    if (embedded) {
+      // Embedded in an iframe (e.g. WordPress/Elementor): `window.location` would
+      // only navigate the iframe, trapping the redirect inside the embedded box.
+      // The iframe can't reliably navigate the top window itself cross-origin —
+      // that needs "transient activation", which has usually expired by the time
+      // the async order submit + delay finishes. So we ask the host page to do it:
+      // the embed snippet on the host listens for this message and runs
+      // `window.location` in its own (unrestricted) context, navigating the whole
+      // tab to the thank-you / sales page.
+      try {
+        window.parent.postMessage({ type: "nc-redirect", url: targetUrl }, "*");
+      } catch {
+        /* fall through to the best-effort top navigation below */
+      }
+    }
+    // Standalone preview (not embedded), or a best-effort fallback when the host
+    // page lacks the embed script: navigate directly.
     try {
       const topWin = window.top;
       if (topWin && topWin !== window.self) {
@@ -566,7 +578,7 @@ export default function OrderFormPreview() {
         window.location.assign(targetUrl);
       }
     } catch {
-      window.location.assign(targetUrl);
+      /* top navigation blocked — rely on the host's nc-redirect handler above */
     }
     return true;
   };
