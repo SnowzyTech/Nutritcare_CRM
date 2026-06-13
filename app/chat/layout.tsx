@@ -21,7 +21,11 @@ export default async function ChatLayout({
   const homeHref = getRoleHome(session.user.role);
 
   return (
-    <ChatShell conversations={conversations} homeHref={homeHref}>
+    <ChatShell
+      conversations={conversations}
+      currentUserId={session.user.id}
+      homeHref={homeHref}
+    >
       {children}
     </ChatShell>
   );

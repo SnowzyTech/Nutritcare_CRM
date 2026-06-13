@@ -72,7 +72,18 @@
       "PowerShell(npx prisma generate 2>&1 | Select-Object -Last 5)",
       "PowerShell(npx eslint \"modules/finance/services/reports-accounting.service.ts\" \"app/\\(accounting\\)/accounting/_components/BalanceSheetView.tsx\" \"app/\\(accounting\\)/accounting/_components/CashFlowView.tsx\" \"app/\\(accounting\\)/accounting/reports/statement-of-financial-position/page.tsx\" \"app/\\(accounting\\)/accounting/reports/statement-of-cash-flow/page.tsx\" 2>&1 | Select-Object -First 40)",
       "PowerShell(npx eslint \"modules/finance/services/reports-accounting.service.ts\" 2>&1 | Select-Object -First 20; Write-Output \"=== tsc ===\"; npx tsc --noEmit 2>&1 | Select-Object -First 15)",
-      "PowerShell(npm run *)"
+      "PowerShell(npm run *)",
+      "PowerShell($env:PORT=\"4011\"; $env:CHAT_SOCKET_TOKEN_SECRET=\"smoke-token-secret\"; $env:CHAT_SOCKET_PUBLISH_SECRET=\"smoke-publish-secret\"; node chat-socket/node_modules/tsx/dist/cli.mjs chat-socket/src/index.ts)",
+      "PowerShell($env:PORT=\"4011\"; $env:CHAT_SOCKET_TOKEN_SECRET=\"smoke-token-secret\"; $env:CHAT_SOCKET_PUBLISH_SECRET=\"smoke-publish-secret\"; node chat-socket/smoke.mjs)",
+      "PowerShell($health = Invoke-WebRequest -Uri \"http://localhost:4011/health\" -UseBasicParsing; Write-Output \"HEALTH $\\($health.StatusCode\\): $\\($health.Content\\)\"; try { Invoke-WebRequest -Uri \"http://localhost:4011/publish\" -Method POST -Headers @{\"x-publish-secret\"=\"wrong\"} -Body \"{}\" -ContentType \"application/json\" -UseBasicParsing } catch { Write-Output \"PUBLISH bad-secret status: $\\($_.Exception.Response.StatusCode.value__\\)\" })",
+      "PowerShell(node -e \"const c=require\\('crypto'\\);console.log\\('CHAT_SOCKET_TOKEN_SECRET=' + c.randomBytes\\(48\\).toString\\('base64url'\\)\\);console.log\\('CHAT_SOCKET_PUBLISH_SECRET=' + c.randomBytes\\(48\\).toString\\('base64url'\\)\\);\")",
+      "PowerShell($link = \"chat-socket\\\\node_modules\\\\nutricare-crm\"; if \\(Test-Path $link\\) { $item = Get-Item $link -Force; Write-Output \"Exists. LinkType=$\\($item.LinkType\\) Target=$\\($item.Target\\)\"; if \\($item.LinkType\\) { $item.Delete\\(\\); Write-Output \"Deleted link only \\(target untouched\\).\" } else { Write-Output \"WARNING: not a link — leaving alone.\" } } else { Write-Output \"No symlink present.\" })",
+      "PowerShell(npm uninstall *)",
+      "PowerShell(Remove-Item *)",
+      "PowerShell(Write-Output \"parent has package.json \\(would re-nest\\): $\\(Test-Path '..\\\\package.json'\\)\"; Write-Output \"destination already exists: $\\(Test-Path '..\\\\chat-socket'\\)\"; Write-Output \"parent dir: $\\(\\(Get-Item '..'\\).FullName\\)\")",
+      "PowerShell(Get-CimInstance *)",
+      "Bash(cat)",
+      "Bash(rm -f /tmp/checkchat.ts /tmp/checkagent.ts /tmp/testgroup.ts /tmp/testcreate.ts /tmp/verify.ts)"
     ]
   }
 }

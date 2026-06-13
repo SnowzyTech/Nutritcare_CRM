@@ -15,6 +15,7 @@ import {
   searchOrdersForTag,
   getOrderTagSummary,
 } from "../services/tags.service";
+import { publishMessageCreated } from "@/lib/chat/socket";
 
 type Result<T> = { ok: true; data: T } | { ok: false; error: string };
 
@@ -37,14 +38,19 @@ export async function sendMessageAction(
   try {
     const userId = await requireUserId();
     const data = sendSchema.parse(input);
-    const message = await sendMessage({
+    const { message, recipientUserIds } = await sendMessage({
       conversationId: data.conversationId,
       senderId: userId,
       body: data.body,
       imageUrl: data.imageUrl ?? null,
       replyToId: data.replyToId ?? null,
     });
-    // Phase 2: publish `message.created` to the socket server here.
+    // Realtime fan-out (best-effort; no-op when the socket server is unset).
+    await publishMessageCreated({
+      conversationId: data.conversationId,
+      recipientUserIds,
+      message,
+    });
     return { ok: true, data: message };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Failed to send" };

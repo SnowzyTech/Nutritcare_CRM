@@ -24,15 +24,17 @@ function formatListTime(d: Date | string | null): string {
 
 export function ChatShell({
   conversations,
+  currentUserId,
   homeHref,
   children,
 }: {
   conversations: ConversationListItem[];
+  currentUserId: string;
   homeHref: string;
   children: React.ReactNode;
 }) {
   return (
-    <ChatStoreProvider initial={conversations}>
+    <ChatStoreProvider initial={conversations} currentUserId={currentUserId}>
       <ChatShellInner homeHref={homeHref}>{children}</ChatShellInner>
     </ChatStoreProvider>
   );

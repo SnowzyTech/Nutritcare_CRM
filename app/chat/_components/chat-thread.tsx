@@ -49,7 +49,7 @@ export function ChatThread({
   initialMessages: ChatMessage[];
   initialCursor: string | null;
 }) {
-  const { markRead, applyOutgoing } = useChatStore();
+  const { markRead, applyOutgoing, subscribeIncoming } = useChatStore();
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [cursor, setCursor] = useState<string | null>(initialCursor);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -112,6 +112,20 @@ export function ChatThread({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId]);
+
+  // Live messages from other members (the socket excludes our own sends, so no
+  // duplicate with the optimistic append). We're viewing this thread, so keep
+  // it marked read as messages arrive.
+  useEffect(() => {
+    return subscribeIncoming(conversationId, (incoming) => {
+      setMessages((prev) =>
+        prev.some((m) => m.id === incoming.id) ? prev : [...prev, incoming]
+      );
+      requestAnimationFrame(() => scrollToBottom("smooth"));
+      markRead(conversationId);
+      markReadAction(conversationId);
+    });
+  }, [conversationId, subscribeIncoming, markRead, scrollToBottom]);
 
   async function handleLoadMore() {
     if (!cursor || loadingMore) return;

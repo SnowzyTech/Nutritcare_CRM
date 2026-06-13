@@ -222,8 +222,13 @@ export type SendMessageInput = {
  * WebSocket. Only the WRITES go into a single batched `$transaction([...])`,
  * which the serverless adapter pipelines in one BEGIN/COMMIT. Net effect:
  * a plain text send drops from ~6 serial round-trips to ~2.
+ *
+ * Returns the created message plus `recipientUserIds` (every member except the
+ * sender) so the caller can publish `message.created` to the socket server.
  */
-export async function sendMessage(input: SendMessageInput): Promise<ChatMessage> {
+export async function sendMessage(
+  input: SendMessageInput
+): Promise<{ message: ChatMessage; recipientUserIds: string[] }> {
   const { conversationId, senderId } = input;
   const body = input.body.trim();
   const imageUrl = input.imageUrl ?? null;
@@ -234,7 +239,7 @@ export async function sendMessage(input: SendMessageInput): Promise<ChatMessage>
   const mentionIds = extractMentionUserIds(body);
   const orderIds = extractOrderIds(body);
 
-  const [member, mentionRows, orderRows, parent] = await Promise.all([
+  const [member, memberRows, orderRows, parent] = await Promise.all([
     prisma.conversationMember.findUnique({
       where: { conversationId_userId: { conversationId, userId: senderId } },
       select: {
@@ -243,12 +248,12 @@ export async function sendMessage(input: SendMessageInput): Promise<ChatMessage>
         user: { select: { name: true } },
       },
     }),
-    mentionIds.length > 0
-      ? prisma.conversationMember.findMany({
-          where: { conversationId, userId: { in: mentionIds } },
-          select: { userId: true },
-        })
-      : Promise.resolve<{ userId: string }[]>([]),
+    // All members — used both to validate mentions and to fan out the socket
+    // event. One indexed query serves both, so no extra round-trip.
+    prisma.conversationMember.findMany({
+      where: { conversationId },
+      select: { userId: true },
+    }),
     orderIds.length > 0
       ? prisma.order.findMany({ where: { id: { in: orderIds } }, select: { id: true } })
       : Promise.resolve<{ id: string }[]>([]),
@@ -269,7 +274,10 @@ export async function sendMessage(input: SendMessageInput): Promise<ChatMessage>
   if (member.conversation.isArchived) throw new Error("This conversation is archived.");
 
   const senderName = member.user?.name ?? null;
-  const validMentionIds = mentionRows.map((m) => m.userId);
+  const memberIds = memberRows.map((m) => m.userId);
+  const memberIdSet = new Set(memberIds);
+  const validMentionIds = mentionIds.filter((id) => memberIdSet.has(id));
+  const recipientUserIds = memberIds.filter((id) => id !== senderId);
   const validOrderIds = orderRows.map((o) => o.id);
 
   // Denormalized reply preview.
@@ -333,7 +341,7 @@ export async function sendMessage(input: SendMessageInput): Promise<ChatMessage>
   }
 
   const [message] = await prisma.$transaction(writes);
-  return toChatMessage(message as RawMessage);
+  return { message: toChatMessage(message as RawMessage), recipientUserIds };
 }
 
 /** Reset the opening member's unread counters + mention flag. */
