@@ -31,7 +31,7 @@ export function DeliveryAgentSidebarClient({ user, pendingCount, unreadNotificat
   const navItems = [
     { label: "Order", icon: ClipboardList, href: "/delivery-agents", badge: pendingCount || undefined },
     { label: "Notifications", icon: Bell, href: "/delivery-agents/notifications", badge: unreadNotifications || undefined },
-    { label: "Chat", icon: MessageCircle, href: "/delivery-agents/chat" },
+    { label: "Chat", icon: MessageCircle, href: "/chat" },
     { label: "Inventory", icon: Package, href: "/delivery-agents/inventory" },
     { label: "Account", icon: User, href: "/delivery-agents/account" },
     { label: "Profile", icon: UserCircle2, href: "/delivery-agents/profile" },

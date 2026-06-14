@@ -49,6 +49,11 @@ export const authConfig: NextAuthConfig = {
         return Response.redirect(new URL(getRoleHome(role), nextUrl));
       }
 
+      // Shared chat — any authenticated role, no role restriction.
+      if (path.startsWith("/chat")) {
+        return isLoggedIn;
+      }
+
       // Protect role-specific routes
       if (matchedRoleRoute) {
         if (!isLoggedIn) return false;

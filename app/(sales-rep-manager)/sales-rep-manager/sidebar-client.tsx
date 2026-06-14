@@ -13,6 +13,7 @@ import {
   ChevronDown,
   ChevronRight,
   Menu,
+  MessageCircle,
 } from "lucide-react";
 import { logoutAction } from "@/modules/auth/actions/logout.action";
 
@@ -213,6 +214,14 @@ export function SalesRepManagerSidebarClient({ userName, userRole, userAvatar }:
             />
           </div>
         )}
+
+        <SidebarNavLink
+          href="/chat"
+          icon={MessageCircle}
+          label="Chat"
+          isActive={pathname.startsWith("/chat")}
+          collapsed={isCollapsed}
+        />
 
         <SidebarNavLink
           href="/sales-rep-manager/analytics"
