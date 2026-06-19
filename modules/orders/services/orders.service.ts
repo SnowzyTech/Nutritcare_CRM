@@ -66,7 +66,7 @@ export async function getAdminOrders() {
         include: { product: { select: { name: true } } },
       },
       salesRep: {
-        select: { name: true },
+        select: { name: true, team: { select: { id: true, name: true } } },
       },
     },
   });

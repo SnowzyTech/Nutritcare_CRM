@@ -2,6 +2,7 @@ import { auth } from "@/lib/auth/auth";
 import { redirect } from "next/navigation";
 import { getAdminOrders } from "@/modules/orders/services/orders.service";
 import { getActiveProducts } from "@/modules/orders/services/products.service";
+import { getAllTeams } from "@/modules/users/services/users.service";
 import { AdminOrdersClient } from "./orders-client";
 import type { Metadata } from "next";
 
@@ -11,9 +12,10 @@ export default async function AllOrdersPage() {
   const session = await auth();
   if (!session?.user?.id) redirect("/login");
 
-  const [rawOrders, rawProducts] = await Promise.all([
+  const [rawOrders, rawProducts, rawTeams] = await Promise.all([
     getAdminOrders(),
     getActiveProducts(),
+    getAllTeams(),
   ]);
 
   const orders = rawOrders.map((o) => ({
@@ -35,6 +37,9 @@ export default async function AllOrdersPage() {
       product: { name: item.product.name },
     })),
     salesRep: { name: o.salesRep.name },
+    team: o.salesRep.team
+      ? { id: o.salesRep.team.id, name: o.salesRep.team.name }
+      : null,
   }));
 
   const counts = {
@@ -47,6 +52,14 @@ export default async function AllOrdersPage() {
   };
 
   const products = rawProducts.map((p) => ({ id: p.id, name: p.name }));
+  const teams = rawTeams.map((t) => ({ id: t.id, name: t.name }));
 
-  return <AdminOrdersClient orders={orders} counts={counts} products={products} />;
+  return (
+    <AdminOrdersClient
+      orders={orders}
+      counts={counts}
+      products={products}
+      teams={teams}
+    />
+  );
 }

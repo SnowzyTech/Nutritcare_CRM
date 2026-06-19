@@ -66,6 +66,7 @@ export type AdminOrderListItem = {
   agent: { companyName: string; state: string | null } | null;
   items: Array<{ quantity: number; product: { name: string } }>;
   salesRep: { name: string };
+  team?: { id: string; name: string } | null;
 };
 
 export type AdminOrderCounts = {
@@ -81,6 +82,7 @@ interface AdminOrdersClientProps {
   orders: AdminOrderListItem[];
   counts: AdminOrderCounts;
   products: Array<{ id: string; name: string }>;
+  teams?: Array<{ id: string; name: string }>;
 }
 
 const STATUS_DOT: Record<OrderStatus, string> = {
@@ -116,11 +118,13 @@ export function AdminOrdersClient({
   orders,
   counts,
   products,
+  teams = [],
 }: AdminOrdersClientProps) {
   const [activeTab, setActiveTab] = useState<OrderStatus | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedProduct, setSelectedProduct] = useState("__all__");
   const [selectedState, setSelectedState] = useState("__all__");
+  const [selectedTeam, setSelectedTeam] = useState("__all__");
   const [selectedDate, setSelectedDate] = useState("");
 
   const filteredOrders = useMemo(() => {
@@ -151,6 +155,10 @@ export function AdminOrdersClient({
       );
     }
 
+    if (selectedTeam && selectedTeam !== "__all__") {
+      result = result.filter((o) => o.team?.id === selectedTeam);
+    }
+
     if (selectedDate) {
       result = result.filter((o) => {
         const orderDate = new Date(o.createdAt).toISOString().split("T")[0];
@@ -165,6 +173,7 @@ export function AdminOrdersClient({
     searchQuery,
     selectedProduct,
     selectedState,
+    selectedTeam,
     selectedDate,
   ]);
 
@@ -289,16 +298,25 @@ export function AdminOrdersClient({
           </SelectContent>
         </Select>
 
-        {/* Team dropdown placeholder */}
+        {/* Team dropdown */}
         <Select
-          value="__all__"
-          onValueChange={() => {}}
+          value={selectedTeam}
+          onValueChange={(v) => setSelectedTeam(v ?? "__all__")}
         >
           <SelectTrigger className="w-[110px] h-[36px] bg-gray-900 text-white border-0 rounded-lg text-xs font-semibold shadow-sm px-3 [&>span]:text-white">
-            <span className="flex-1 text-left truncate">All Teams</span>
+            <span className="flex-1 text-left truncate">
+              {selectedTeam === "__all__"
+                ? "All Teams"
+                : teams.find((t) => t.id === selectedTeam)?.name ?? "All Teams"}
+            </span>
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className="max-h-[300px]">
             <SelectItem value="__all__">All Teams</SelectItem>
+            {teams.map((t) => (
+              <SelectItem key={t.id} value={t.id}>
+                {t.name}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
 
