@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/prisma";
 import bcrypt from "bcryptjs";
+import { createAgentGroup } from "@/modules/chat/services/conversations.service";
 
 function generateTempPassword(): string {
   const chars = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789@#!";
@@ -66,6 +67,13 @@ export async function createDeliveryAgentWithUser(input: CreateDeliveryAgentInpu
         accountActivationStatus: "APPROVED",
         agentId: agent.id,
       },
+    });
+
+    // Spin up the agent's group chat and seat all internal users + this DA.
+    await createAgentGroup(tx, {
+      agentId: agent.id,
+      agentName: agent.companyName,
+      daUserId: user.id,
     });
 
     return { user, agent };

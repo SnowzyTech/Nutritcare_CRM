@@ -9,6 +9,7 @@ export type NavItem = {
 
 export const allNavItems: NavItem[] = [
   { label: "Dashboard", href: "/admin", icon: "dashboard" },
+  { label: "Chat", href: "/chat", icon: "chat" },
   { label: "Account", href: "/admin/account", icon: "account" },
   {
     label: "Order",

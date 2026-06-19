@@ -12,6 +12,7 @@ import {
   LogOut,
   ShoppingBag,
   Menu,
+  MessageCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -175,6 +176,13 @@ export function SalesRepSidebarClient({ user }: SidebarProps) {
             icon={ShoppingBag}
             label="Order"
             isActive={pathname.startsWith('/sales-rep/orders')}
+            isCollapsed={isCollapsed}
+          />
+          <SalesRepNavLink
+            href="/chat"
+            icon={MessageCircle}
+            label="Chat"
+            isActive={pathname.startsWith('/chat')}
             isCollapsed={isCollapsed}
           />
           <SalesRepNavLink

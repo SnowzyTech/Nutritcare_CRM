@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "db:seed": "tsx prisma/seed.ts",
-    "db:seed:coa": "tsx prisma/seed-coa.ts"
+    "db:seed:coa": "tsx prisma/seed-coa.ts",
+    "db:seed:chat": "tsx prisma/seed-chat.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

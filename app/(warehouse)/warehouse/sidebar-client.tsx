@@ -15,6 +15,7 @@ import {
   Settings,
   LogOut,
   Menu,
+  MessageCircle,
 } from "lucide-react";
 import { getInitials } from "@/lib/utils";
 
@@ -28,6 +29,7 @@ interface SidebarProps {
 
 const navItems = [
   { name: "Dashboard",        href: "/warehouse",                     icon: LayoutDashboard },
+  { name: "Chat",             href: "/chat",                           icon: MessageCircle },
   { name: "Pick & Pack",      href: "/warehouse/pick-and-pack",       icon: Package,    badge: "5" },
   { name: "Location Mgmt",   href: "/warehouse/location-management",  icon: MapPin      },
   { name: "Incoming Goods",  href: "/warehouse/incoming-goods",        icon: PackageOpen },

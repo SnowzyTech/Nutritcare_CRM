@@ -14,6 +14,7 @@ import {
   Settings,
   LogOut,
   ChevronDown,
+  MessageCircle,
 } from "lucide-react";
 
 import { allNavItems, type NavItem, type NavChild } from "./nav-config";
@@ -28,6 +29,7 @@ const IconMap: Record<string, React.ElementType> = {
   forms: FileText,
   history: Clock,
   settings: Settings,
+  chat: MessageCircle,
 };
 
 function IconLookup({ name, size = 18, style }: { name: string; size?: number; style?: React.CSSProperties }) {

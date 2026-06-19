@@ -15,12 +15,14 @@ import {
   Sliders,
   Settings,
   LogOut,
-  Menu
+  Menu,
+  MessageCircle
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const menuItems = [
   { label: "Dashboard", href: "/inventory", icon: LayoutDashboard },
+  { label: "Chat", href: "/chat", icon: MessageCircle },
   { label: "Stock", href: "/inventory/stock", icon: Package },
   { label: "Incoming Stock", href: "/inventory/incoming", icon: ArrowDownToLine },
   { label: "Outgoing Stock", href: "/inventory/outgoing", icon: ArrowUpFromLine },

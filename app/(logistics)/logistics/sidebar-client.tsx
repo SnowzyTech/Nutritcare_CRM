@@ -15,6 +15,7 @@ import {
   Settings,
   LogOut,
   Menu,
+  MessageCircle,
 } from "lucide-react";
 import { getInitials } from "@/lib/utils";
 
@@ -32,6 +33,7 @@ export function LogisticsSidebarClient({ user }: SidebarProps) {
 
   const navItems = [
     { name: "Dashboard", href: "/logistics", icon: LayoutDashboard },
+    { name: "Chat", href: "/chat", icon: MessageCircle },
     { name: "Deliveries", href: "/logistics/deliveries", icon: Truck, badge: "9" },
     { name: "Live Tracking", href: "/logistics/tracking", icon: MapPin },
     { name: "Route Planner", href: "/logistics/route-planner", icon: Map },
