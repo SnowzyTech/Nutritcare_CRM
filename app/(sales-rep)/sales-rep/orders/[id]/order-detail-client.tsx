@@ -2,7 +2,7 @@
 
 import React, { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { X, Trash2 } from "lucide-react";
+import { X, Trash2, RotateCcw } from "lucide-react";
 import Image from "next/image";
 import { toast } from "sonner";
 import type { OrderStatus } from "@prisma/client";
@@ -18,6 +18,7 @@ import {
   applyOrderDiscountAction,
   reassignOrderAgentAction,
   setOrderContactMethodAction,
+  reviveOrderAction,
 } from "@/modules/orders/actions/orders.action";
 
 // Serialized types (Decimals as strings, Dates as ISO strings)
@@ -99,29 +100,41 @@ interface OrderDetailClientProps {
   agents: AgentOption[];
 }
 
+// Each step is coloured by the stage it represents (not a generic active/done
+// state): pending stays orange, confirmed is a lighter green, delivered a
+// thicker green. A node only lights up once that stage has been `reached`.
+type StepTone = "pending" | "confirmed" | "delivered" | "cancelled" | "failed" | "idle";
+
+const STEP_TONE_BG: Record<StepTone, string> = {
+  pending: "bg-[#FFA600]", // pending → orange
+  confirmed: "bg-green-400", // confirmed → lighter green
+  delivered: "bg-green-600", // delivered → thicker green
+  cancelled: "bg-red-500",
+  failed: "bg-red-600",
+  idle: "bg-gray-200",
+};
+
 function StepIndicator({
   number,
   label,
-  isActive,
-  isCompleted,
+  tone,
+  reached,
+  done,
 }: {
   number: number;
   label: string;
-  isActive: boolean;
-  isCompleted: boolean;
+  tone: StepTone;
+  reached: boolean;
+  done: boolean;
 }) {
-  const bg = isActive
-    ? "bg-[#FFA600]"
-    : isCompleted
-      ? "bg-green-500"
-      : "bg-gray-200";
-  const text = isActive || isCompleted ? "text-white" : "text-gray-400";
+  const bg = reached ? STEP_TONE_BG[tone] : "bg-gray-200";
+  const text = reached ? "text-white" : "text-gray-400";
   return (
     <div className="flex flex-col items-center gap-2 shrink-0">
       <div
         className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full ${bg} ${text} flex items-center justify-center font-bold text-base sm:text-lg shrink-0`}
       >
-        {isCompleted ? "✓" : number}
+        {done ? "✓" : number}
       </div>
       <span className="text-[10px] sm:text-xs text-gray-500 font-medium text-center w-20 sm:w-24 break-words">
         {label}
@@ -130,102 +143,45 @@ function StepIndicator({
   );
 }
 
-function getSteps(status: OrderStatus) {
+type Step = {
+  number: number;
+  label: string;
+  tone: StepTone;
+  reached: boolean;
+  done: boolean;
+};
+
+function getSteps(status: OrderStatus): Step[] {
   switch (status) {
     case "PENDING":
       return [
-        {
-          number: 1,
-          label: "Order is Pending",
-          isActive: true,
-          isCompleted: false,
-        },
-        {
-          number: 2,
-          label: "Order is yet to be Confirmed",
-          isActive: false,
-          isCompleted: false,
-        },
-        {
-          number: 3,
-          label: "Order is yet to be Delivered",
-          isActive: false,
-          isCompleted: false,
-        },
+        { number: 1, label: "Order is Pending", tone: "pending", reached: true, done: false },
+        { number: 2, label: "Order is yet to be Confirmed", tone: "confirmed", reached: false, done: false },
+        { number: 3, label: "Order is yet to be Delivered", tone: "delivered", reached: false, done: false },
       ];
     case "CONFIRMED":
       return [
-        {
-          number: 1,
-          label: "Order Processed",
-          isActive: false,
-          isCompleted: true,
-        },
-        {
-          number: 2,
-          label: "Order has been Confirmed",
-          isActive: true,
-          isCompleted: false,
-        },
-        {
-          number: 3,
-          label: "Order is yet to be Delivered",
-          isActive: false,
-          isCompleted: false,
-        },
+        { number: 1, label: "Order Pending", tone: "pending", reached: true, done: true },
+        { number: 2, label: "Order has been Confirmed", tone: "confirmed", reached: true, done: false },
+        { number: 3, label: "Order is yet to be Delivered", tone: "delivered", reached: false, done: false },
       ];
     case "DELIVERED":
       return [
-        {
-          number: 1,
-          label: "Order Processed",
-          isActive: false,
-          isCompleted: true,
-        },
-        {
-          number: 2,
-          label: "Order Confirmed",
-          isActive: false,
-          isCompleted: true,
-        },
-        {
-          number: 3,
-          label: "Order Delivered",
-          isActive: false,
-          isCompleted: true,
-        },
+        { number: 1, label: "Order Pending", tone: "pending", reached: true, done: true },
+        { number: 2, label: "Order Confirmed", tone: "confirmed", reached: true, done: true },
+        { number: 3, label: "Order Delivered", tone: "delivered", reached: true, done: true },
       ];
     case "CANCELLED":
       return [
-        {
-          number: 1,
-          label: "Order Processed",
-          isActive: false,
-          isCompleted: true,
-        },
-        {
-          number: 2,
-          label: "Order Cancelled",
-          isActive: true,
-          isCompleted: false,
-        },
-        { number: 3, label: "N/A", isActive: false, isCompleted: false },
+        { number: 1, label: "Order Pending", tone: "pending", reached: true, done: true },
+        { number: 2, label: "Order Cancelled", tone: "cancelled", reached: true, done: false },
+        { number: 3, label: "N/A", tone: "idle", reached: false, done: false },
       ];
     case "FAILED":
       return [
-        {
-          number: 1,
-          label: "Order Processed",
-          isActive: false,
-          isCompleted: true,
-        },
-        {
-          number: 2,
-          label: "Order Failed",
-          isActive: true,
-          isCompleted: false,
-        },
-        { number: 3, label: "N/A", isActive: false, isCompleted: false },
+        { number: 1, label: "Order Pending", tone: "pending", reached: true, done: true },
+        { number: 2, label: "Order Confirmed", tone: "confirmed", reached: true, done: true },
+        { number: 3, label: "Order Failed", tone: "failed", reached: true, done: false },
       ];
   }
 }
@@ -283,6 +239,22 @@ function FieldRow({ label, value, copyable }: { label: string; value: string; co
   );
 }
 
+// Common reasons a pending order gets cancelled; the rep can also enter a custom one.
+const CANCEL_REASONS = [
+  "Customer changed their mind",
+  "Unable to reach customer",
+  "Duplicate order",
+  "Product out of stock",
+];
+
+// Common reasons a delivery fails; the rep can also enter a custom one.
+const FAIL_REASONS = [
+  "Customer unavailable at delivery",
+  "Customer refused the order",
+  "Incorrect / incomplete address",
+  "Could not reach customer",
+];
+
 export function OrderDetailClient({ order, products, agents }: OrderDetailClientProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -290,6 +262,12 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
   const [isAgentDrawerOpen, setIsAgentDrawerOpen] = useState(false);
   const [isReassignOpen, setIsReassignOpen] = useState(false);
   const [selectedAgentId, setSelectedAgentId] = useState("");
+  const [isCancelOpen, setIsCancelOpen] = useState(false);
+  const [cancelReason, setCancelReason] = useState(""); // a preset reason, or ""
+  const [customCancelReason, setCustomCancelReason] = useState("");
+  const [isFailOpen, setIsFailOpen] = useState(false);
+  const [failReason, setFailReason] = useState(""); // a preset reason, or ""
+  const [customFailReason, setCustomFailReason] = useState("");
   const [prescription, setPrescription] = useState(order.notes ?? "");
   const [contactMethod, setContactMethod] = useState<"PHONE" | "WHATSAPP" | null>(order.contactMethod);
   const [deliveryDate, setDeliveryDate] = useState("");
@@ -344,6 +322,9 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
   const historyEvents: Array<{ label: string; sub?: string; date: string; time: string }> = [
     { label: "Order Created", ...fmtHistory(order.createdAt) },
     { label: "Sales Rep Assigned", sub: order.salesRep.name, ...fmtHistory(order.createdAt) },
+    ...(order.status !== "PENDING" && order.status !== "CANCELLED"
+      ? [{ label: "Order Confirmed", ...fmtHistory(delivery?.createdAt ?? order.updatedAt) }]
+      : []),
     ...(order.status !== "PENDING" && delivery
       ? [{ label: "Prescription Sent", ...fmtHistory(delivery.createdAt) }]
       : []),
@@ -477,7 +458,7 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
             <StepIndicator {...step} />
             {idx < steps.length - 1 && (
               <div
-                className={`flex-1 h-0.5 mt-5 sm:mt-6 min-w-[20px] ${step.isCompleted ? "bg-green-500" : "bg-gray-200"}`}
+                className={`flex-1 h-0.5 mt-5 sm:mt-6 min-w-[20px] ${step.done ? "bg-green-500" : "bg-gray-200"}`}
               />
             )}
           </React.Fragment>
@@ -533,13 +514,6 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
                     <p className="text-base sm:text-[1.1rem] font-bold text-gray-800">{item.quantity}</p>
                   </div>
                   <div className="text-left sm:text-right flex items-center gap-2 sm:justify-end">
-                    <button
-                      onClick={() => setIsAddProductOpen(true)}
-                      type="button"
-                      className="border border-[#E9D5FF] text-[#A855F7] hover:bg-[#FDF4FF] px-4 py-2 rounded-lg text-[0.65rem] font-bold tracking-wide uppercase transition w-full sm:w-auto"
-                    >
-                      Edit Product
-                    </button>
                     {order.status === "PENDING" && order.items.length > 1 && (
                       <button
                         type="button"
@@ -926,9 +900,9 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
               <button
                 disabled={isPending}
                 onClick={() => {
-                  const reason = window.prompt("Reason for cancelling this order? (optional)");
-                  if (reason === null) return;
-                  handleAction(() => cancelOrderAction(order.id, reason || undefined), "Order cancelled");
+                  setCancelReason("");
+                  setCustomCancelReason("");
+                  setIsCancelOpen(true);
                 }}
                 type="button"
                 className="bg-[#FAF5FF] hover:bg-[#F3E8FF] border border-purple-200 text-[#A855F7] py-3.5 rounded-xl font-bold text-sm transition flex items-center justify-center gap-2 disabled:opacity-50"
@@ -966,9 +940,9 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
               <button
                 disabled={isPending}
                 onClick={() => {
-                  const reason = window.prompt("Reason this delivery failed? (optional)");
-                  if (reason === null) return;
-                  handleAction(() => failOrderAction(order.id, reason || undefined), "Order marked as failed");
+                  setFailReason("");
+                  setCustomFailReason("");
+                  setIsFailOpen(true);
                 }}
                 type="button"
                 className="bg-red-50 border border-red-200 px-4 py-3 rounded-lg text-red-500 font-semibold text-sm hover:bg-red-100 transition disabled:opacity-50"
@@ -985,6 +959,26 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
               </button>
             </div>
           )}
+
+          {/* Revive button for cancelled / failed orders */}
+          {(order.status === "CANCELLED" || order.status === "FAILED") && (
+            <button
+              disabled={isPending}
+              onClick={() =>
+                handleAction(
+                  () => reviveOrderAction(order.id),
+                  order.status === "FAILED"
+                    ? "Order revived — back to confirmed"
+                    : "Order revived — it is now pending again",
+                )
+              }
+              type="button"
+              className="w-full mt-4 bg-[#A855F7] hover:bg-[#9333EA] text-white py-3.5 rounded-xl font-bold text-sm transition flex items-center justify-center gap-2 disabled:opacity-50 shadow-md shadow-purple-100"
+            >
+              <RotateCcw className="w-4 h-4" />
+              Revive Order
+            </button>
+          )}
         </div>
       </div>
 
@@ -995,6 +989,180 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
           isOpen={isAgentDrawerOpen}
           onClose={() => setIsAgentDrawerOpen(false)}
         />
+      )}
+
+      {/* Cancel Order Modal */}
+      {isCancelOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            onClick={() => setIsCancelOpen(false)}
+          />
+          <div className="relative bg-white rounded-[40px] shadow-2xl w-full max-w-[500px] p-10 animate-in fade-in zoom-in duration-300">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-black text-slate-800">Cancel Order</h2>
+              <button
+                onClick={() => setIsCancelOpen(false)}
+                className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-200 transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <p className="text-sm text-gray-500 mb-6">
+              Select a reason for cancelling this order, or enter your own.
+            </p>
+
+            <div className="flex flex-col gap-3 mb-6">
+              {CANCEL_REASONS.map((reason) => {
+                const selected = cancelReason === reason && !customCancelReason.trim();
+                return (
+                  <button
+                    key={reason}
+                    type="button"
+                    onClick={() => {
+                      setCancelReason(reason);
+                      setCustomCancelReason("");
+                    }}
+                    className={`flex items-center gap-3 p-4 rounded-2xl border-2 text-left text-sm font-bold transition-all ${
+                      selected
+                        ? "border-purple-600 bg-purple-50 text-purple-700"
+                        : "border-slate-100 bg-slate-50 text-slate-700 hover:border-purple-200"
+                    }`}
+                  >
+                    <span
+                      className={`w-4 h-4 rounded-full border-2 shrink-0 ${
+                        selected ? "border-purple-600 bg-purple-600" : "border-slate-300"
+                      }`}
+                    />
+                    {reason}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="mb-8">
+              <label className="text-xs text-gray-400 font-bold mb-2 block">
+                Other reason (optional)
+              </label>
+              <textarea
+                value={customCancelReason}
+                onChange={(e) => {
+                  setCustomCancelReason(e.target.value);
+                  if (e.target.value.trim()) setCancelReason("");
+                }}
+                placeholder="Enter a custom reason…"
+                className="w-full min-h-[80px] border-2 border-[#E9D5FF] focus:border-[#A855F7] rounded-xl px-4 py-3 text-sm font-semibold text-gray-600 resize-none outline-none transition"
+              />
+            </div>
+
+            {(() => {
+              const effectiveReason = customCancelReason.trim() || cancelReason;
+              return (
+                <button
+                  disabled={isPending || !effectiveReason}
+                  onClick={() =>
+                    handleAction(async () => {
+                      await cancelOrderAction(order.id, effectiveReason);
+                      setIsCancelOpen(false);
+                    }, "Order cancelled")
+                  }
+                  type="button"
+                  className="w-full bg-rose-600 text-white py-4 rounded-2xl text-[1rem] font-black hover:bg-rose-700 transition-all shadow-lg shadow-rose-100 flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  Confirm Cancellation
+                </button>
+              );
+            })()}
+          </div>
+        </div>
+      )}
+
+      {/* Fail Order Modal */}
+      {isFailOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            onClick={() => setIsFailOpen(false)}
+          />
+          <div className="relative bg-white rounded-[40px] shadow-2xl w-full max-w-[500px] p-10 animate-in fade-in zoom-in duration-300">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-black text-slate-800">Mark as Failed</h2>
+              <button
+                onClick={() => setIsFailOpen(false)}
+                className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-200 transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <p className="text-sm text-gray-500 mb-6">
+              Select a reason this delivery failed, or enter your own.
+            </p>
+
+            <div className="flex flex-col gap-3 mb-6">
+              {FAIL_REASONS.map((reason) => {
+                const selected = failReason === reason && !customFailReason.trim();
+                return (
+                  <button
+                    key={reason}
+                    type="button"
+                    onClick={() => {
+                      setFailReason(reason);
+                      setCustomFailReason("");
+                    }}
+                    className={`flex items-center gap-3 p-4 rounded-2xl border-2 text-left text-sm font-bold transition-all ${
+                      selected
+                        ? "border-rose-500 bg-rose-50 text-rose-700"
+                        : "border-slate-100 bg-slate-50 text-slate-700 hover:border-rose-200"
+                    }`}
+                  >
+                    <span
+                      className={`w-4 h-4 rounded-full border-2 shrink-0 ${
+                        selected ? "border-rose-500 bg-rose-500" : "border-slate-300"
+                      }`}
+                    />
+                    {reason}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="mb-8">
+              <label className="text-xs text-gray-400 font-bold mb-2 block">
+                Other reason (optional)
+              </label>
+              <textarea
+                value={customFailReason}
+                onChange={(e) => {
+                  setCustomFailReason(e.target.value);
+                  if (e.target.value.trim()) setFailReason("");
+                }}
+                placeholder="Enter a custom reason…"
+                className="w-full min-h-[80px] border-2 border-rose-200 focus:border-rose-500 rounded-xl px-4 py-3 text-sm font-semibold text-gray-600 resize-none outline-none transition"
+              />
+            </div>
+
+            {(() => {
+              const effectiveReason = customFailReason.trim() || failReason;
+              return (
+                <button
+                  disabled={isPending || !effectiveReason}
+                  onClick={() =>
+                    handleAction(async () => {
+                      await failOrderAction(order.id, effectiveReason);
+                      setIsFailOpen(false);
+                    }, "Order marked as failed")
+                  }
+                  type="button"
+                  className="w-full bg-rose-600 text-white py-4 rounded-2xl text-[1rem] font-black hover:bg-rose-700 transition-all shadow-lg shadow-rose-100 flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  Confirm Failure
+                </button>
+              );
+            })()}
+          </div>
+        </div>
       )}
 
       {/* Reassign Agent Modal */}

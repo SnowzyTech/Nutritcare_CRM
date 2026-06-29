@@ -26,16 +26,29 @@ export default function OrderDetailsClient({ order }: OrderDetailsClientProps) {
   const [downloading, setDownloading] = useState(false);
   const inv = order.invoice;
 
-  const productSummary = order.items.map((it) => it.description).join(', ') || '—';
   const qtyLabel = `${order.totalQty} pack${order.totalQty === 1 ? '' : 's'}`;
 
-  const detailRow = (label: string, value: string) => (
+  const detailRow = (label: string, value: React.ReactNode) => (
     <div className="flex items-center justify-between py-4">
       <span className="text-[14px] text-gray-500 font-medium">{label}</span>
       <div className="flex-1 mx-4 border-b border-dotted border-gray-300 translate-y-2"></div>
       <span className="text-[14px] text-gray-800 font-bold text-right">{value}</span>
     </div>
   );
+
+  const productList =
+    order.items.length > 0 ? (
+      <div className="flex flex-col items-end gap-1">
+        {order.items.map((it, i) => (
+          <span key={i}>
+            {it.description}
+            <span className="text-gray-400 font-medium"> × {it.quantity}</span>
+          </span>
+        ))}
+      </div>
+    ) : (
+      '—'
+    );
 
   async function handleDownloadPdf() {
     setDownloading(true);
@@ -74,10 +87,13 @@ export default function OrderDetailsClient({ order }: OrderDetailsClientProps) {
           <div className="flex items-center justify-between mb-8">
             <div className="flex items-center gap-4">
               <h2 className="text-[28px] font-bold text-gray-800">{order.orderNumber}</h2>
-              <span className={`text-[12px] font-bold px-4 py-1.5 rounded-lg text-white uppercase ${
-                order.remStatus === 'Paid' ? 'bg-[#10B981]' : 'bg-[#E5E7EB] text-gray-600'
+              <span className={`text-[12px] font-bold px-4 py-1.5 rounded-lg uppercase ${
+                order.orderStatus === 'Delivered' ? 'bg-[#10B981] text-white' :
+                order.orderStatus === 'Confirmed' ? 'bg-[#6EE7B7] text-[#065F46]' :
+                order.orderStatus === 'Pending' ? 'bg-[#F59E0B] text-white' :
+                'bg-[#EF4444] text-white'
               }`}>
-                {order.remStatus}
+                {order.orderStatus}
               </span>
             </div>
             <span className="text-gray-400 text-[14px] font-medium">{formatDate(order.orderDate)}</span>
@@ -86,7 +102,7 @@ export default function OrderDetailsClient({ order }: OrderDetailsClientProps) {
           <div className="space-y-1">
             {detailRow('Customer', order.customer.name)}
             {detailRow('State', order.customer.state)}
-            {detailRow('Product(s)', productSummary)}
+            {detailRow('Product(s)', productList)}
             {detailRow('Qty', qtyLabel)}
             {detailRow('Total', formatCurrency(order.totalAmount))}
             {detailRow('Agent', order.agent ?? '—')}
@@ -103,7 +119,7 @@ export default function OrderDetailsClient({ order }: OrderDetailsClientProps) {
           <div className="mt-12 flex items-center justify-between text-[13px] text-gray-400 font-bold uppercase tracking-wider border-t border-gray-50 pt-8">
             <div className="flex flex-col gap-1">
               <span>Agent Remittance</span>
-              <span className="text-gray-300 normal-case">{order.remStatus === 'Paid' ? 'Remitted' : 'Pending'}</span>
+              <span className="text-gray-300 normal-case">{order.remStatus}</span>
             </div>
             <div className="flex flex-col gap-1 items-center">
               <span>Order Delivered</span>

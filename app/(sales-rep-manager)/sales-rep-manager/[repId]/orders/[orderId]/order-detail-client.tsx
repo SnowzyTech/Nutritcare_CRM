@@ -10,34 +10,42 @@ interface OrderDetailClientProps {
   order: OrderDetail;
 }
 
+// Each step is coloured by the stage it represents: pending stays orange,
+// confirmed is a lighter green, delivered a thicker green. A node lights up
+// only once that stage is `reached`.
+type StepTone = "pending" | "confirmed" | "delivered" | "cancelled" | "failed" | "idle";
+
+const STEP_TONE_BG: Record<StepTone, string> = {
+  pending: "bg-amber-400", // pending → orange
+  confirmed: "bg-green-400", // confirmed → lighter green
+  delivered: "bg-green-600", // delivered → thicker green
+  cancelled: "bg-orange-500",
+  failed: "bg-red-500",
+  idle: "bg-gray-200",
+};
+
 function StepIndicator({
   number,
   label,
-  isActive,
-  isCompleted,
-  isFailed,
+  tone,
+  reached,
+  done,
 }: {
   number: number;
   label: string;
-  isActive: boolean;
-  isCompleted: boolean;
-  isFailed?: boolean;
+  tone: StepTone;
+  reached: boolean;
+  done: boolean;
 }) {
-  const bg = isFailed
-    ? "bg-red-500"
-    : isActive
-    ? "bg-amber-400"
-    : isCompleted
-    ? "bg-green-500"
-    : "bg-gray-200";
-  const text = isActive || isCompleted || isFailed ? "text-white" : "text-gray-400";
-  
+  const bg = reached ? STEP_TONE_BG[tone] : "bg-gray-200";
+  const text = reached ? "text-white" : "text-gray-400";
+
   return (
     <div className="flex flex-col items-center gap-2">
       <div
         className={`w-12 h-12 rounded-full ${bg} ${text} flex items-center justify-center font-bold text-lg`}
       >
-        {isCompleted ? "✓" : number}
+        {done ? "✓" : number}
       </div>
       <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider text-center max-w-[100px]">
         {label}
@@ -46,37 +54,39 @@ function StepIndicator({
   );
 }
 
-function getSteps(status: OrderDetail["status"]) {
+type Step = { number: number; label: string; tone: StepTone; reached: boolean; done: boolean };
+
+function getSteps(status: OrderDetail["status"]): Step[] {
   switch (status) {
     case "PENDING":
       return [
-        { number: 1, label: "Order is Pending", isActive: true, isCompleted: false },
-        { number: 2, label: "Order is yet to be Confirmed", isActive: false, isCompleted: false },
-        { number: 3, label: "Order is yet to Delivered", isActive: false, isCompleted: false },
+        { number: 1, label: "Order is Pending", tone: "pending", reached: true, done: false },
+        { number: 2, label: "Order is yet to be Confirmed", tone: "confirmed", reached: false, done: false },
+        { number: 3, label: "Order is yet to be Delivered", tone: "delivered", reached: false, done: false },
       ];
     case "CONFIRMED":
       return [
-        { number: 1, label: "Order Processed", isActive: false, isCompleted: true },
-        { number: 2, label: "Order has been confirmed", isActive: true, isCompleted: false },
-        { number: 3, label: "Order is yet to Delivered", isActive: false, isCompleted: false },
+        { number: 1, label: "Order Pending", tone: "pending", reached: true, done: true },
+        { number: 2, label: "Order has been Confirmed", tone: "confirmed", reached: true, done: false },
+        { number: 3, label: "Order is yet to be Delivered", tone: "delivered", reached: false, done: false },
       ];
     case "DELIVERED":
       return [
-        { number: 1, label: "Order is Pending", isActive: false, isCompleted: true }, // As requested in prompt: amber/green/green layout ? Actually prompt says: Pending -> amber -> green -> green. Let's make it green/green/green for completed
-        { number: 2, label: "Order is yet to be Confirmed", isActive: false, isCompleted: true },
-        { number: 3, label: "Order is yet to Delivered", isActive: false, isCompleted: true },
+        { number: 1, label: "Order Pending", tone: "pending", reached: true, done: true },
+        { number: 2, label: "Order Confirmed", tone: "confirmed", reached: true, done: true },
+        { number: 3, label: "Order Delivered", tone: "delivered", reached: true, done: true },
       ];
     case "CANCELLED":
       return [
-        { number: 1, label: "Order Processed", isActive: false, isCompleted: true },
-        { number: 2, label: "Order has been Cancelled", isActive: true, isCompleted: false, isFailed: true },
-        { number: 3, label: "Order is yet to Delivered", isActive: false, isCompleted: false },
+        { number: 1, label: "Order Pending", tone: "pending", reached: true, done: true },
+        { number: 2, label: "Order has been Cancelled", tone: "cancelled", reached: true, done: false },
+        { number: 3, label: "N/A", tone: "idle", reached: false, done: false },
       ];
     case "FAILED":
       return [
-        { number: 1, label: "Order Processed", isActive: false, isCompleted: true },
-        { number: 2, label: "Order has been confirmed", isActive: false, isCompleted: true },
-        { number: 3, label: "Order Failed", isActive: false, isCompleted: false, isFailed: true },
+        { number: 1, label: "Order Pending", tone: "pending", reached: true, done: true },
+        { number: 2, label: "Order Confirmed", tone: "confirmed", reached: true, done: true },
+        { number: 3, label: "Order Failed", tone: "failed", reached: true, done: false },
       ];
   }
 }
@@ -129,7 +139,7 @@ export function OrderDetailClient({ repName, order }: OrderDetailClientProps) {
             {idx < steps.length - 1 && (
               <div
                 className={`flex-1 h-0.5 mt-6 ${
-                  step.isCompleted ? "bg-green-500" : "bg-gray-200"
+                  step.done ? "bg-green-500" : "bg-gray-200"
                 }`}
               />
             )}

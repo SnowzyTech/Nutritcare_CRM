@@ -252,6 +252,51 @@ export async function failOrderAction(orderId: string, reason?: string) {
 }
 
 /**
+ * Revives a cancelled or failed order so it can go through the flow again.
+ * - FAILED orders keep their original agent and delivery record and go straight
+ *   back to CONFIRMED (the delivery is reset to PENDING_DISPATCH so it can be
+ *   delivered again).
+ * - CANCELLED orders are reset to a clean PENDING state (agent, delivery and
+ *   cancellation reason cleared) so they re-enter the flow as a fresh order.
+ */
+export async function reviveOrderAction(orderId: string) {
+  const session = await auth();
+  if (!session?.user?.id) throw new Error("Unauthorized");
+
+  const order = await getOwnedOrder(orderId, session.user.id);
+  if (!order || (order.status !== "CANCELLED" && order.status !== "FAILED")) {
+    throw new Error("Only cancelled or failed orders can be revived");
+  }
+
+  if (order.status === "FAILED") {
+    await prisma.$transaction([
+      prisma.order.update({ where: { id: orderId }, data: { status: "CONFIRMED" } }),
+      prisma.delivery.updateMany({
+        where: { orderId },
+        data: { status: "PENDING_DISPATCH", failureReason: null },
+      }),
+    ]);
+  } else {
+    await prisma.$transaction([
+      prisma.order.update({
+        where: { id: orderId },
+        data: { status: "PENDING", cancellationReason: null, agentId: null },
+      }),
+      prisma.delivery.deleteMany({ where: { orderId } }),
+    ]);
+  }
+
+  await logActivity({
+    userId: session.user.id,
+    action: "Revived",
+    entityType: "Order",
+    entityId: orderId,
+    description: `Order #${order.orderNumber} revived`,
+  });
+  revalidateOrderPaths(orderId);
+}
+
+/**
  * Records how the customer was contacted (phone or WhatsApp). Persisted on the
  * order so the sales-rep and manager views show the real value rather than a
  * default. Allowed for the owning sales rep on any non-deleted order.

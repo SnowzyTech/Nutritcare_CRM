@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Search,
@@ -30,11 +30,12 @@ interface SalesRecordClientProps {
   initialRecords?: SalesRecordRow[];
   products?: string[];
   agents?: { id: string; name: string }[];
+  states?: string[];
 }
 
 const PAGE_SIZE = 20;
 
-export function SalesRecordClient({ initialRecords = [], products: productProp, agents: agentProp }: SalesRecordClientProps = {}) {
+export function SalesRecordClient({ initialRecords = [], products: productProp, agents: agentProp, states: stateProp }: SalesRecordClientProps = {}) {
   const router = useRouter();
   const [records, setRecords] = useState<SalesRecordRow[]>(initialRecords);
   const [search, setSearch] = useState('');
@@ -51,10 +52,23 @@ export function SalesRecordClient({ initialRecords = [], products: productProp, 
 
   // UI state for dropdowns
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
+  const filterBarRef = useRef<HTMLDivElement>(null);
 
   const toggleDropdown = (name: string) => {
     setOpenDropdown(openDropdown === name ? null : name);
   };
+
+  // Close any open filter dropdown when clicking outside the filter bar.
+  useEffect(() => {
+    if (!openDropdown) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (filterBarRef.current && !filterBarRef.current.contains(e.target as Node)) {
+        setOpenDropdown(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [openDropdown]);
 
   const resetPage = () => setPage(1);
 
@@ -68,14 +82,9 @@ export function SalesRecordClient({ initialRecords = [], products: productProp, 
     try { await updateOrderDeliveryFeeAction({ orderId: id, deliveryFee: numeric }); } catch {}
   };
 
-  // Nigerian States
-  const nigerianStates = [
-    "Abia", "Adamawa", "Akwa Ibom", "Anambra", "Bauchi", "Bayelsa", "Benue", "Borno",
-    "Cross River", "Delta", "Ebonyi", "Edo", "Ekiti", "Enugu", "FCT", "Gombe", "Imo",
-    "Jigawa", "Kaduna", "Kano", "Katsina", "Kebbi", "Kogi", "Kwara", "Lagos",
-    "Nasarawa", "Niger", "Ogun", "Ondo", "Osun", "Oyo", "Plateau", "Rivers",
-    "Sokoto", "Taraba", "Yobe", "Zamfara"
-  ];
+  // States are derived from the orders' customers so the filter values match
+  // exactly how state was recorded at order creation.
+  const nigerianStates = stateProp ?? [];
 
   const products = productProp ?? ["Fonio Mill", "Trim & Tone", "Prosxact", "Shred Belly", "Neuro-Vive Balm"];
   const agents = (agentProp ?? []).map(a => a.name);
@@ -130,7 +139,7 @@ export function SalesRecordClient({ initialRecords = [], products: productProp, 
       <h1 className="text-[32px] font-bold text-gray-800 mb-8 tracking-tight">Sales Record</h1>
 
       {/* Filter Bar */}
-      <div className="flex flex-wrap items-center gap-3 mb-8">
+      <div ref={filterBarRef} className="flex flex-wrap items-center gap-3 mb-8">
         {/* Product Filter */}
         <div className="relative">
           <button
@@ -402,8 +411,10 @@ export function SalesRecordClient({ initialRecords = [], products: productProp, 
                     <div className="text-[13px] text-gray-700 leading-[1.3] font-medium whitespace-pre-line">{r.customer}</div>
                   </td>
                   <td className="px-5 py-6 text-[13px] text-gray-600 font-medium">{r.state}</td>
-                  <td className="px-5 py-6 text-[13px] text-gray-800 font-bold tracking-tight">{r.products}</td>
-                  <td className="px-5 py-6 text-[13px] text-gray-600 font-medium">{r.qty}</td>
+                  <td className="px-5 py-6 text-[13px] text-gray-800 font-bold tracking-tight">
+                    <div className="line-clamp-2 max-w-[220px]" title={r.products}>{r.products}</div>
+                  </td>
+                  <td className="px-5 py-6 text-[13px] text-gray-600 font-medium whitespace-nowrap">{r.qty}</td>
                   <td className="px-5 py-6 text-[13px] font-bold text-gray-800">{r.total}</td>
                   <td className="px-5 py-6 text-[13px] text-gray-600 font-medium">{r.discount}</td>
                   <td className="px-5 py-6 text-[13px] font-black text-gray-900">{r.netAmount}</td>
