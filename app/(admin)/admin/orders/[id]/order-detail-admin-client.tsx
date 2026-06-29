@@ -2,7 +2,7 @@
 
 import React, { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, MessageCircle, X, Trash2 } from "lucide-react";
+import { ChevronLeft, MessageCircle, X, Trash2, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { AgentInfoDrawer } from "@/components/ui/agent-info-drawer";
 import Image from "next/image";
@@ -12,6 +12,7 @@ import {
   adminCancelOrderAction,
   adminFailOrderAction,
   adminDeliverOrderAction,
+  adminReviveOrderAction,
   adminAddOrderItemsAction,
   adminRemoveOrderItemAction,
   adminApplyOrderDiscountAction,
@@ -34,6 +35,7 @@ export type SerializedOrder = {
   discountedByName: string | null;
   notes: string | null;
   createdAt: string;
+  updatedAt: string;
   customer: {
     name: string;
     phone: string;
@@ -63,6 +65,7 @@ export type SerializedOrder = {
   }>;
   salesRep: { id: string; name: string };
   deliveries: Array<{
+    createdAt: string;
     scheduledTime: string | null;
     deliveredTime: string | null;
     status: string;
@@ -99,11 +102,25 @@ const STATUS_BADGE: Record<OrderStatus, { bg: string; text: string; label: strin
   FAILED:    { bg: "bg-red-100",     text: "text-red-600",     label: "Failed Order" },
 };
 
+// Steps are coloured by the stage they represent: pending stays orange,
+// confirmed is a lighter green, delivered a thicker green. A node lights up
+// once reached (active or completed).
+type AdminStepTone = "pending" | "confirmed" | "delivered" | "cancelled" | "failed" | "idle";
+
+const ADMIN_STEP_TONE_BG: Record<AdminStepTone, string> = {
+  pending: "bg-amber-400", // pending → orange
+  confirmed: "bg-emerald-400", // confirmed → lighter green
+  delivered: "bg-emerald-600", // delivered → thicker green
+  cancelled: "bg-rose-500",
+  failed: "bg-red-500",
+  idle: "bg-slate-200",
+};
+
 function getStepState(status: OrderStatus) {
-  const steps = [
-    { label: "Order Pending", active: false, completed: false },
-    { label: "Order Confirmed", active: false, completed: false },
-    { label: "Order Delivered", active: false, completed: false },
+  const steps: { label: string; tone: AdminStepTone; active: boolean; completed: boolean }[] = [
+    { label: "Order Pending", tone: "pending", active: false, completed: false },
+    { label: "Order Confirmed", tone: "confirmed", active: false, completed: false },
+    { label: "Order Delivered", tone: "delivered", active: false, completed: false },
   ];
 
   switch (status) {
@@ -121,13 +138,13 @@ function getStepState(status: OrderStatus) {
       break;
     case "CANCELLED":
       steps[0].completed = true;
-      steps[1] = { label: "Cancelled", active: true, completed: false };
-      steps[2] = { label: "N/A", active: false, completed: false };
+      steps[1] = { label: "Cancelled", tone: "cancelled", active: true, completed: false };
+      steps[2] = { label: "N/A", tone: "idle", active: false, completed: false };
       break;
     case "FAILED":
       steps[0].completed = true;
-      steps[1] = { label: "Failed", active: true, completed: false };
-      steps[2] = { label: "N/A", active: false, completed: false };
+      steps[1].completed = true;
+      steps[2] = { label: "Failed", tone: "failed", active: true, completed: false };
       break;
   }
   return steps;
@@ -291,12 +308,9 @@ export function AdminOrderDetailClient({
       <div className="flex items-center justify-between px-10 relative">
         <div className="absolute top-5 left-20 right-20 h-0.5 bg-slate-200 -z-10" />
         {steps.map((step, idx) => {
-          const bg = step.completed
-            ? "bg-emerald-400"
-            : step.active
-              ? "bg-amber-400"
-              : "bg-slate-200";
-          const textColor = step.completed || step.active ? "text-white" : "text-slate-400";
+          const reached = step.active || step.completed;
+          const bg = reached ? ADMIN_STEP_TONE_BG[step.tone] : "bg-slate-200";
+          const textColor = reached ? "text-white" : "text-slate-400";
           return (
             <div
               key={idx}
@@ -432,10 +446,10 @@ export function AdminOrderDetailClient({
                 detail={order.salesRep.name}
                 dateStr={order.createdAt}
               />
-              {order.status !== "PENDING" && (
+              {order.status !== "PENDING" && order.status !== "CANCELLED" && (
                 <HistoryRow
                   event="Order Confirmed"
-                  dateStr={order.createdAt}
+                  dateStr={delivery?.createdAt ?? order.updatedAt}
                 />
               )}
               {order.agent && (
@@ -676,6 +690,24 @@ export function AdminOrderDetailClient({
                   ✓ Delivered
                 </button>
               </div>
+            )}
+
+            {(order.status === "CANCELLED" || order.status === "FAILED") && (
+              <button
+                disabled={isPending}
+                onClick={() =>
+                  handleAction(
+                    () => adminReviveOrderAction(order.id),
+                    order.status === "FAILED"
+                      ? "Order revived — back to confirmed"
+                      : "Order revived — it is now pending again",
+                  )
+                }
+                className="w-full mt-4 bg-purple-600 text-white px-4 py-3 rounded-xl font-bold text-sm hover:bg-purple-700 transition disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                <RotateCcw className="w-4 h-4" />
+                Revive Order
+              </button>
             )}
 
             <div className="mt-4">

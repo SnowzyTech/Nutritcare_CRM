@@ -6,5 +6,5 @@ export default async function SalesRecordPage() {
     getSalesRecords(),
     getSalesRecordFilterOptions(),
   ]);
-  return <SalesRecordClient initialRecords={records} products={options.products} agents={options.agents} />;
+  return <SalesRecordClient initialRecords={records} products={options.products} agents={options.agents} states={options.states} />;
 }

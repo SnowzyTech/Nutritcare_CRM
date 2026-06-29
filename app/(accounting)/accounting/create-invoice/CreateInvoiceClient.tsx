@@ -18,6 +18,7 @@ interface InvoiceRow {
   id: number;
   serviceDate?: string;
   productId?: string;
+  productName?: string;
   description?: string;
   quantity?: string;
   rate?: string;
@@ -53,6 +54,10 @@ export function CreateInvoiceClient({ title = "Invoice", invoiceType = 'INVOICE'
   const isRefund = invoiceType === 'REFUND_RECEIPT';
 
   const [rows, setRows] = useState<InvoiceRow[]>([{ id: 1 }, { id: 2 }, { id: 3 }]);
+
+  // Shared column template so the header and every row line up exactly.
+  const gridCols =
+    'grid grid-cols-[32px_120px_minmax(150px,1.6fr)_minmax(150px,1.6fr)_64px_96px_104px_64px_36px] gap-3 items-center';
 
   const updateRow = (id: number, field: keyof InvoiceRow, value: string) => {
     setRows(prev => prev.map(r => {
@@ -102,7 +107,7 @@ export function CreateInvoiceClient({ title = "Invoice", invoiceType = 'INVOICE'
       .map(r => ({
         serviceDate: r.serviceDate ? new Date(r.serviceDate) : undefined,
         productId: r.productId || undefined,
-        description: r.description || (products?.find(p => p.id === r.productId)?.name ?? 'Item'),
+        description: r.description || r.productName || (products?.find(p => p.id === r.productId)?.name ?? 'Item'),
         quantity: parseFloat(r.quantity ?? '0'),
         rate: parseFloat(r.rate ?? '0'),
         vatRate: r.vatRate ? parseFloat(r.vatRate) : undefined,
@@ -288,68 +293,73 @@ export function CreateInvoiceClient({ title = "Invoice", invoiceType = 'INVOICE'
         <div className="mb-6">
           <span className="text-[12px] text-gray-500 font-bold mb-3 block">Product or Service</span>
           <div className="border border-gray-200 rounded-xl overflow-hidden shadow-sm">
-            {/* Table Header */}
-            <div className="grid grid-cols-[40px_1fr_2fr_2fr_80px_100px_100px_80px_40px] bg-[#4B0082] py-3 px-5 gap-3">
-              <div className="text-[11px] font-medium text-white flex items-center">#</div>
-              <div className="text-[11px] font-medium text-white flex items-center">Service Date</div>
-              <div className="text-[11px] font-medium text-white flex items-center">Product/Service</div>
-              <div className="text-[11px] font-medium text-white flex items-center">Description</div>
-              <div className="text-[11px] font-medium text-white flex items-center">Qty</div>
-              <div className="text-[11px] font-medium text-white flex items-center">Rate</div>
-              <div className="text-[11px] font-medium text-white flex items-center">Amount</div>
-              <div className="text-[11px] font-medium text-white flex items-center">Vat</div>
-              <div></div>
-            </div>
-            
-            {/* Rows */}
-            {rows.map((row, index) => (
-              <div key={row.id} className="grid grid-cols-[40px_1fr_2fr_2fr_80px_100px_100px_80px_40px] py-3 px-5 gap-3 border-t border-gray-100 bg-white items-center">
-                <div className="text-[13px] font-bold text-gray-700 pl-1">{index + 1}</div>
-                <div className="relative">
-                  <input type="date" value={row.serviceDate ?? ''} onChange={e => updateRow(row.id, 'serviceDate', e.target.value)} className="w-full h-9 px-3 text-[11px] border border-gray-200 rounded-md outline-none focus:border-purple-300" />
+            <div className="overflow-x-auto">
+              <div className="min-w-[920px]">
+                {/* Table Header */}
+                <div className={`${gridCols} bg-[#4B0082] py-3 px-5`}>
+                  <div className="text-[11px] font-medium text-white">#</div>
+                  <div className="text-[11px] font-medium text-white">Service Date</div>
+                  <div className="text-[11px] font-medium text-white">Product/Service</div>
+                  <div className="text-[11px] font-medium text-white">Description</div>
+                  <div className="text-[11px] font-medium text-white">Qty</div>
+                  <div className="text-[11px] font-medium text-white">Rate</div>
+                  <div className="text-[11px] font-medium text-white">Amount</div>
+                  <div className="text-[11px] font-medium text-white">Vat</div>
+                  <div></div>
                 </div>
-                <div className="relative">
-                  <select
-                    value={row.productId ?? ''}
-                    onChange={e => {
-                      const p = (products ?? []).find(x => x.id === e.target.value);
-                      updateRow(row.id, 'productId', e.target.value);
-                      if (p) {
-                        const newRate = String(p.sellingPrice);
-                        updateRow(row.id, 'rate', newRate);
-                        updateRow(row.id, 'description', p.name);
-                      }
-                    }}
-                    className="w-full h-9 px-3 text-[11px] border border-gray-200 rounded-md outline-none focus:border-purple-300 appearance-none"
-                  >
-                    <option value="">Product/service</option>
-                    {(products ?? []).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                  </select>
-                  <ChevronDown size={12} className="absolute right-2.5 top-3 text-gray-400 pointer-events-none" />
-                </div>
-                <div>
-                  <input type="text" placeholder="Description" value={row.description ?? ''} onChange={e => updateRow(row.id, 'description', e.target.value)} className="w-full h-9 px-3 text-[11px] border border-gray-200 rounded-md outline-none focus:border-purple-300" />
-                </div>
-                <div>
-                  <input type="number" placeholder="Qty" value={row.quantity ?? ''} onChange={e => updateRow(row.id, 'quantity', e.target.value)} className="w-full h-9 px-3 text-[11px] border border-gray-200 rounded-md outline-none focus:border-purple-300" />
-                </div>
-                <div>
-                  <input type="number" placeholder="Rate" value={row.rate ?? ''} onChange={e => updateRow(row.id, 'rate', e.target.value)} className="w-full h-9 px-3 text-[11px] border border-gray-200 rounded-md outline-none focus:border-purple-300" />
-                </div>
-                <div>
-                  <input type="number" placeholder="Amount" value={row.amount ?? ''} onChange={e => updateRow(row.id, 'amount', e.target.value)} className="w-full h-9 px-3 text-[11px] border border-gray-200 rounded-md outline-none focus:border-purple-300" />
-                </div>
-                <div className="relative">
-                  <input type="number" placeholder="Vat" value={row.vatRate ?? ''} onChange={e => updateRow(row.id, 'vatRate', e.target.value)} className="w-full h-9 px-3 text-[11px] border border-gray-200 rounded-md outline-none focus:border-purple-300" />
-                </div>
-                <div 
-                  className="flex justify-center text-gray-400 hover:text-red-500 cursor-pointer transition-colors"
-                  onClick={() => deleteRow(row.id)}
-                >
-                  <Trash2 size={16} />
-                </div>
+
+                {/* Rows */}
+                {rows.map((row, index) => (
+                  <div key={row.id} className={`${gridCols} py-3 px-5 border-t border-gray-100 bg-white`}>
+                    <div className="text-[13px] font-bold text-gray-700">{index + 1}</div>
+                    <div>
+                      <input type="date" value={row.serviceDate ?? ''} onChange={e => updateRow(row.id, 'serviceDate', e.target.value)} className="w-full h-9 px-3 text-[11px] border border-gray-200 rounded-md outline-none focus:border-purple-300" />
+                    </div>
+                    <div>
+                      {/* Combobox: pick an existing product or type a custom one */}
+                      <input
+                        type="text"
+                        list={`products-list-${row.id}`}
+                        placeholder="Select or type product"
+                        value={row.productName ?? ''}
+                        onChange={e => {
+                          const val = e.target.value;
+                          const p = (products ?? []).find(x => x.name.toLowerCase() === val.toLowerCase());
+                          updateRow(row.id, 'productName', val);
+                          updateRow(row.id, 'productId', p ? p.id : '');
+                          if (p) updateRow(row.id, 'rate', String(p.sellingPrice));
+                        }}
+                        className="w-full h-9 px-3 text-[11px] border border-gray-200 rounded-md outline-none focus:border-purple-300"
+                      />
+                      <datalist id={`products-list-${row.id}`}>
+                        {(products ?? []).map(p => <option key={p.id} value={p.name} />)}
+                      </datalist>
+                    </div>
+                    <div>
+                      <input type="text" placeholder="Description" value={row.description ?? ''} onChange={e => updateRow(row.id, 'description', e.target.value)} className="w-full h-9 px-3 text-[11px] border border-gray-200 rounded-md outline-none focus:border-purple-300" />
+                    </div>
+                    <div>
+                      <input type="number" placeholder="Qty" value={row.quantity ?? ''} onChange={e => updateRow(row.id, 'quantity', e.target.value)} className="w-full h-9 px-3 text-[11px] border border-gray-200 rounded-md outline-none focus:border-purple-300" />
+                    </div>
+                    <div>
+                      <input type="number" placeholder="Rate" value={row.rate ?? ''} onChange={e => updateRow(row.id, 'rate', e.target.value)} className="w-full h-9 px-3 text-[11px] border border-gray-200 rounded-md outline-none focus:border-purple-300" />
+                    </div>
+                    <div>
+                      <input type="number" placeholder="Amount" value={row.amount ?? ''} onChange={e => updateRow(row.id, 'amount', e.target.value)} className="w-full h-9 px-3 text-[11px] border border-gray-200 rounded-md outline-none focus:border-purple-300" />
+                    </div>
+                    <div>
+                      <input type="number" placeholder="Vat" value={row.vatRate ?? ''} onChange={e => updateRow(row.id, 'vatRate', e.target.value)} className="w-full h-9 px-3 text-[11px] border border-gray-200 rounded-md outline-none focus:border-purple-300" />
+                    </div>
+                    <div
+                      className="flex justify-center text-gray-400 hover:text-red-500 cursor-pointer transition-colors"
+                      onClick={() => deleteRow(row.id)}
+                    >
+                      <Trash2 size={16} />
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
+            </div>
           </div>
         </div>
 

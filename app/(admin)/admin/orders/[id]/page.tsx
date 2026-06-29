@@ -44,6 +44,7 @@ export default async function AdminOrderDetailPage({ params }: Props) {
     discountedByName: rawOrder.discountedBy?.name ?? null,
     notes: rawOrder.notes ?? null,
     createdAt: rawOrder.createdAt.toISOString(),
+    updatedAt: rawOrder.updatedAt.toISOString(),
     customer: {
       name: rawOrder.customer.name,
       phone: rawOrder.customer.phone,
@@ -82,6 +83,7 @@ export default async function AdminOrderDetailPage({ params }: Props) {
       name: rawOrder.salesRep.name,
     },
     deliveries: rawOrder.deliveries.map((d) => ({
+      createdAt: d.createdAt.toISOString(),
       scheduledTime: d.scheduledTime?.toISOString() ?? null,
       deliveredTime: d.deliveredTime?.toISOString() ?? null,
       status: d.status,

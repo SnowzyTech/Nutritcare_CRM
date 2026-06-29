@@ -70,7 +70,7 @@ export async function getSalesRecords(filters: {
     const discountPct = Number(o.discountPercent);
     const remStatus: "Paid" | "Not Paid" = o.remittanceStatus === "REMITTED" ? "Paid" : "Not Paid";
 
-    const qtyPerItem = o.items.map(it => `${it.quantity} pack${it.quantity === 1 ? "" : "s"}`).join(", ");
+    const qtyPerItem = o.items.map(it => it.quantity).join(", ");
 
     return {
       id: o.id,
@@ -258,7 +258,7 @@ export async function getSalesRecordById(id: string): Promise<OrderInvoiceDetail
 }
 
 export async function getSalesRecordFilterOptions() {
-  const [products, agents] = await Promise.all([
+  const [products, agents, customerStates] = await Promise.all([
     prisma.product.findMany({
       where: { isActive: true, deletedAt: null },
       select: { name: true },
@@ -269,9 +269,21 @@ export async function getSalesRecordFilterOptions() {
       select: { id: true, companyName: true },
       orderBy: { companyName: "asc" },
     }),
+    // Derive states from the customers that actually have orders, so the
+    // filter values match exactly how state was stored at order creation.
+    prisma.customer.findMany({
+      where: { deletedAt: null, orders: { some: { deletedAt: null } } },
+      select: { state: true },
+      distinct: ["state"],
+      orderBy: { state: "asc" },
+    }),
   ]);
+  const states = Array.from(
+    new Set(customerStates.map(c => c.state).filter((s): s is string => !!s && s.trim() !== "")),
+  );
   return {
     products: products.map(p => p.name),
     agents: agents.map(a => ({ id: a.id, name: a.companyName })),
+    states,
   };
 }

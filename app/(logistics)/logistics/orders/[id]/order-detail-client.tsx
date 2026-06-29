@@ -49,66 +49,80 @@ type SerializedOrder = {
   }>;
 };
 
+// Each step is coloured by the stage it represents: pending (Order Placed)
+// stays orange, confirmed is a lighter green, delivered a thicker green. A node
+// lights up once reached (active or completed).
+type StepTone = "pending" | "confirmed" | "delivered" | "cancelled" | "failed" | "idle";
+
+const STEP_TONE_BG: Record<StepTone, string> = {
+  pending: "bg-amber-400", // pending → orange
+  confirmed: "bg-green-400", // confirmed → lighter green
+  delivered: "bg-green-600", // delivered → thicker green
+  cancelled: "bg-red-500",
+  failed: "bg-red-600",
+  idle: "bg-gray-200",
+};
+
 const STATUS_CONFIG: Record<
   OrderStatus,
-  { badge: string; label: string; steps: Array<{ label: string; completed: boolean; active: boolean }> }
+  { badge: string; label: string; steps: Array<{ label: string; tone: StepTone; completed: boolean; active: boolean }> }
 > = {
   PENDING: {
     badge: "bg-amber-400 text-white",
     label: "Pending Order",
     steps: [
-      { label: "Order Placed", completed: false, active: true },
-      { label: "Order Confirmed", completed: false, active: false },
-      { label: "Dispatched & Delivered", completed: false, active: false },
+      { label: "Order Placed", tone: "pending", completed: false, active: true },
+      { label: "Order Confirmed", tone: "confirmed", completed: false, active: false },
+      { label: "Dispatched & Delivered", tone: "delivered", completed: false, active: false },
     ],
   },
   CONFIRMED: {
     badge: "bg-green-500 text-white",
     label: "Confirmed Order",
     steps: [
-      { label: "Order Placed", completed: true, active: false },
-      { label: "Order Confirmed", completed: false, active: true },
-      { label: "Dispatched & Delivered", completed: false, active: false },
+      { label: "Order Placed", tone: "pending", completed: true, active: false },
+      { label: "Order Confirmed", tone: "confirmed", completed: false, active: true },
+      { label: "Dispatched & Delivered", tone: "delivered", completed: false, active: false },
     ],
   },
   DELIVERED: {
     badge: "bg-green-600 text-white",
     label: "Delivered Order",
     steps: [
-      { label: "Order Placed", completed: true, active: false },
-      { label: "Order Confirmed", completed: true, active: false },
-      { label: "Dispatched & Delivered", completed: true, active: false },
+      { label: "Order Placed", tone: "pending", completed: true, active: false },
+      { label: "Order Confirmed", tone: "confirmed", completed: true, active: false },
+      { label: "Dispatched & Delivered", tone: "delivered", completed: true, active: false },
     ],
   },
   CANCELLED: {
     badge: "bg-red-500 text-white",
     label: "Cancelled Order",
     steps: [
-      { label: "Order Placed", completed: true, active: false },
-      { label: "Order Cancelled", completed: false, active: true },
-      { label: "N/A", completed: false, active: false },
+      { label: "Order Placed", tone: "pending", completed: true, active: false },
+      { label: "Order Cancelled", tone: "cancelled", completed: false, active: true },
+      { label: "N/A", tone: "idle", completed: false, active: false },
     ],
   },
   FAILED: {
     badge: "bg-red-600 text-white",
     label: "Failed Order",
     steps: [
-      { label: "Order Placed", completed: true, active: false },
-      { label: "Order Failed", completed: false, active: true },
-      { label: "N/A", completed: false, active: false },
+      { label: "Order Placed", tone: "pending", completed: true, active: false },
+      { label: "Order Failed", tone: "failed", completed: false, active: true },
+      { label: "N/A", tone: "idle", completed: false, active: false },
     ],
   },
 };
 
-function StepIndicator({ number, label, isActive, isCompleted }: {
-  number: number; label: string; isActive: boolean; isCompleted: boolean;
+function StepIndicator({ number, label, tone, reached, done }: {
+  number: number; label: string; tone: StepTone; reached: boolean; done: boolean;
 }) {
-  const bg = isActive ? "bg-[#ad1df4]" : isCompleted ? "bg-green-500" : "bg-gray-200";
-  const text = isActive || isCompleted ? "text-white" : "text-gray-400";
+  const bg = reached ? STEP_TONE_BG[tone] : "bg-gray-200";
+  const text = reached ? "text-white" : "text-gray-400";
   return (
     <div className="flex flex-col items-center gap-2">
       <div className={`w-12 h-12 rounded-full ${bg} ${text} flex items-center justify-center font-bold text-lg`}>
-        {isCompleted ? "✓" : number}
+        {done ? "✓" : number}
       </div>
       <span className="text-xs text-gray-500 font-medium text-center max-w-24">{label}</span>
     </div>
@@ -149,7 +163,7 @@ export function LogisticsOrderDetailClient({ order }: { order: SerializedOrder }
       <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-100 flex items-start gap-4">
         {config.steps.map((step, idx) => (
           <React.Fragment key={idx}>
-            <StepIndicator number={idx + 1} label={step.label} isActive={step.active} isCompleted={step.completed} />
+            <StepIndicator number={idx + 1} label={step.label} tone={step.tone} reached={step.active || step.completed} done={step.completed} />
             {idx < config.steps.length - 1 && (
               <div className={`flex-1 h-0.5 mt-6 ${step.completed ? "bg-green-500" : "bg-gray-200"}`} />
             )}

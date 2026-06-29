@@ -83,7 +83,10 @@
       "PowerShell(Write-Output \"parent has package.json \\(would re-nest\\): $\\(Test-Path '..\\\\package.json'\\)\"; Write-Output \"destination already exists: $\\(Test-Path '..\\\\chat-socket'\\)\"; Write-Output \"parent dir: $\\(\\(Get-Item '..'\\).FullName\\)\")",
       "PowerShell(Get-CimInstance *)",
       "Bash(cat)",
-      "Bash(rm -f /tmp/checkchat.ts /tmp/checkagent.ts /tmp/testgroup.ts /tmp/testcreate.ts /tmp/verify.ts)"
+      "Bash(rm -f /tmp/checkchat.ts /tmp/checkagent.ts /tmp/testgroup.ts /tmp/testcreate.ts /tmp/verify.ts)",
+      "PowerShell(npx tsx --env-file=.env prisma/delete-all-orders.ts)",
+      "PowerShell(npx tsx --env-file=.env prisma/ping-db.ts)",
+      "PowerShell(npx tsc --noEmit -p tsconfig.json 2>&1 | Select-Object -First 30)"
     ]
   }
 }

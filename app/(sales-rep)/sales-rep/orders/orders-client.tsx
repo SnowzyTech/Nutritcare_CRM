@@ -261,7 +261,8 @@ export function OrdersClient({ orders, counts, userName, products }: OrdersClien
             <Plus className="w-4 h-4 sm:w-5 sm:h-5 stroke-[2.5]" />
           </button>
           {/* Circular Chat Button */}
-          <button 
+          <button
+            onClick={() => router.push("/chat")}
             className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-[#A020F0] text-white flex items-center justify-center shadow-lg shadow-purple-100 hover:bg-[#8B1ED2] active:scale-95 transition-all duration-200"
             title="Messages"
           >

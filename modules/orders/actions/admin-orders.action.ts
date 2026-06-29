@@ -106,6 +106,41 @@ export async function adminFailOrderAction(orderId: string) {
   revalidate(orderId);
 }
 
+export async function adminReviveOrderAction(orderId: string) {
+  await checkAdmin();
+  const order = await getOrder(orderId);
+  if (!order || (order.status !== "CANCELLED" && order.status !== "FAILED")) {
+    throw new Error("Only cancelled or failed orders can be revived");
+  }
+  if (order.status === "FAILED") {
+    // Keep original agent + delivery; back to CONFIRMED so it can be delivered again.
+    await prisma.$transaction([
+      prisma.order.update({ where: { id: orderId }, data: { status: "CONFIRMED" } }),
+      prisma.delivery.updateMany({
+        where: { orderId },
+        data: { status: "PENDING_DISPATCH", failureReason: null },
+      }),
+    ]);
+  } else {
+    // Cancelled → fresh pending order.
+    await prisma.$transaction([
+      prisma.order.update({
+        where: { id: orderId },
+        data: { status: "PENDING", cancellationReason: null, agentId: null },
+      }),
+      prisma.delivery.deleteMany({ where: { orderId } }),
+    ]);
+  }
+  await logActivity({
+    userId: order.salesRepId,
+    action: "Revived",
+    entityType: "Order",
+    entityId: orderId,
+    description: `Order #${order.orderNumber} revived`,
+  });
+  revalidate(orderId);
+}
+
 export async function adminDeliverOrderAction(orderId: string) {
   await checkAdmin();
   const order = await getOrder(orderId);

@@ -24,6 +24,12 @@ export function mapOrderToDetail(dbOrder: DbOrder, repName: string): OrderDetail
     { label: "Order Created", date: orderDate },
     { label: `Sales Rep Assigned: ${repName}`, date: orderDate },
   ];
+  if (dbOrder.status !== "PENDING" && dbOrder.status !== "CANCELLED") {
+    history.push({
+      label: "Order Confirmed",
+      date: delivery ? formatDate(delivery.createdAt) : formatDate(dbOrder.updatedAt),
+    });
+  }
   if (dbOrder.status !== "PENDING" && delivery) {
     history.push({ label: "Prescription Sent", date: formatDate(delivery.createdAt) });
   }
