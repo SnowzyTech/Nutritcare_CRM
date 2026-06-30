@@ -1,52 +1,15 @@
 'use client';
 
-import React, { useState } from 'react';
+import React from 'react';
 import {
   MessageCircle,
   ChevronRight,
   ArrowUpRight,
   BarChart3,
-  ChevronDown
 } from 'lucide-react';
 import { SalesRepProfile } from '@/modules/data-analysis/services/data-analysis.service';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
-
-const MONTHS = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December'
-];
-
-function MonthDropdown({ value, onChange }: { value: string; onChange: (val: string) => void }) {
-  const [isOpen, setIsOpen] = useState(false);
-  return (
-    <div className="relative">
-      <div
-        onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-1 px-2 py-0.5 bg-gray-50 rounded-lg border border-gray-100 cursor-pointer hover:bg-gray-100 transition-colors"
-      >
-        <span className="text-[10px] font-bold text-gray-500">{value}</span>
-        <ChevronDown size={10} className="text-gray-400" />
-      </div>
-      {isOpen && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
-          <div className="absolute right-0 top-full mt-1 bg-white border border-gray-100 rounded-lg shadow-lg z-50 py-1 min-w-[120px] max-h-[200px] overflow-y-auto">
-            {['This Month', ...MONTHS].map((month) => (
-              <button
-                key={month}
-                onClick={() => { onChange(month); setIsOpen(false); }}
-                className={`w-full text-left px-3 py-1.5 text-[10px] font-bold hover:bg-purple-50 transition-colors ${value === month ? 'text-[#A020F0] bg-purple-50' : 'text-gray-600'}`}
-              >
-                {month}
-              </button>
-            ))}
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
 
 interface SalesRepSummaryClientProps {
   repData: SalesRepProfile;
@@ -54,7 +17,6 @@ interface SalesRepSummaryClientProps {
 
 export function SalesRepSummaryClient({ repData }: SalesRepSummaryClientProps) {
   const router = useRouter();
-  const [selectedMonth, setSelectedMonth] = useState('This Month');
 
   return (
     <div className="p-8 max-w-[1400px] mx-auto space-y-10">
@@ -161,7 +123,6 @@ export function SalesRepSummaryClient({ repData }: SalesRepSummaryClientProps) {
           <div className="bg-white p-8 rounded-3xl border border-gray-50 shadow-sm space-y-8">
             <div className="flex items-center justify-between">
               <span className="text-sm font-bold text-gray-800">General Performance</span>
-              <MonthDropdown value={selectedMonth} onChange={setSelectedMonth} />
             </div>
             <div className="flex items-end justify-between">
               <span className="text-5xl font-black text-gray-900 tracking-tighter">{repData.generalPerformance}%</span>
@@ -174,7 +135,6 @@ export function SalesRepSummaryClient({ repData }: SalesRepSummaryClientProps) {
           <div className="bg-white p-8 rounded-3xl border border-gray-50 shadow-sm space-y-8">
             <div className="flex items-center justify-between">
               <span className="text-sm font-bold text-gray-800">Delivery Rate</span>
-              <MonthDropdown value={selectedMonth} onChange={setSelectedMonth} />
             </div>
             <div className="flex items-end justify-between">
               <span className="text-5xl font-black text-gray-900 tracking-tighter">{repData.kpiAchievement}%</span>

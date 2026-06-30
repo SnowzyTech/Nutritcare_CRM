@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/prisma";
 import { OrderStatus } from "@prisma/client";
+import { generalPerformanceScore, kpiScore } from "@/lib/performance";
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
 
@@ -52,20 +53,39 @@ function avatarUrl(name: string, url: string | null): string {
 
 // ─── Compute lightweight performance from order status counts ─────────────────
 
-function computePerformance(orders: { status: OrderStatus; createdAt: Date }[]): number {
+// General Performance for the current month, using the SAME canonical weighted
+// score as the sales-rep analytics page (lib/performance.ts) so the rep summary
+// cards agree with the full analytics view.
+function computePerformance(
+  orders: { status: OrderStatus; createdAt: Date; isReorder: boolean; items: { productId: string }[] }[],
+): number {
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
   const monthOrders = orders.filter((o) => o.createdAt >= monthStart);
   const total = monthOrders.length;
   if (total === 0) return 0;
-  const confirmed = monthOrders.filter((o) => o.status === "CONFIRMED").length;
   const delivered = monthOrders.filter((o) => o.status === "DELIVERED").length;
   const failed = monthOrders.filter((o) => o.status === "FAILED").length;
   const cancelled = monthOrders.filter((o) => o.status === "CANCELLED").length;
-  const attempted = confirmed + delivered + failed;
-  const confirmationRate = (attempted / total) * 100;
-  const cancellationRate = (cancelled / total) * 100;
-  return Math.round(confirmationRate * 0.7 + (100 - cancellationRate) * 0.3);
+  const reorders = monthOrders.filter((o) => o.isReorder).length;
+  const multiItem = monthOrders.filter(
+    (o) => new Set(o.items.map((i) => i.productId)).size > 1,
+  ).length;
+
+  const deliveryRate = kpiScore(delivered, total);
+  const recoveryRate =
+    delivered + failed > 0 ? Math.round((delivered / (delivered + failed)) * 100) : 0;
+  const cancellationRate = Math.round((cancelled / total) * 100);
+  const reorderRate = Math.round((reorders / total) * 100);
+  const upsellRate = Math.round((multiItem / total) * 100);
+
+  return generalPerformanceScore({
+    deliveryRate,
+    recoveryRate,
+    upsellRate,
+    reorderRate,
+    cancellationRate,
+  });
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -93,6 +113,8 @@ export type OrderRow = {
   teamId: string | null;
   teamName: string | null;
   product: string;
+  itemCount: number;  // total number of distinct products on the order
+  isReorder: boolean;
   quantity: number;
   date: string;
   status: OrderDisplayStatus;
@@ -244,14 +266,19 @@ function computeMetrics(orders: OrderForMetrics[]) {
   const attempted = confirmed + delivered + failed;
 
   const confirmationRate = total > 0 ? Math.round((attempted / total) * 100) : 0;
-  const deliveryRate = attempted > 0 ? Math.round((delivered / attempted) * 100) : 0;
+  // Delivery Rate mirrors the KPI (delivered / total handled), same as the
+  // sales-rep analytics — keeps every analytics surface in agreement.
+  const deliveryRate = kpiScore(delivered, total);
   const cancellationRate = total > 0 ? Math.round((cancelled / total) * 100) : 0;
   const recoveryRate =
     delivered + failed > 0 ? Math.round((delivered / (delivered + failed)) * 100) : 0;
-  const generalPerformance = Math.round(confirmationRate * 0.7 + (100 - cancellationRate) * 0.3);
 
-  const nonCancelled = orders.filter((o) => o.status !== "CANCELLED");
-  const totalProductsSold = nonCancelled.flatMap((o) => o.items).reduce((s, i) => s + i.quantity, 0);
+  // Total products sold = item quantities across DELIVERED orders only (actual
+  // sales), matching the canonical sales-rep definition.
+  const totalProductsSold = orders
+    .filter((o) => o.status === "DELIVERED")
+    .flatMap((o) => o.items)
+    .reduce((s, i) => s + i.quantity, 0);
   const uniqueCustomers = new Set(orders.map((o) => o.customerId)).size;
 
   const deliveredQty = new Map<string, number>();
@@ -283,8 +310,22 @@ function computeMetrics(orders: OrderForMetrics[]) {
     .sort((a, b) => b[1] - a[1])
     .map(([name, qty]) => ({ name, qty }));
 
-  // KPI = delivered / total * 100 (same formula as sales-rep)
-  const kpi = total > 0 ? Math.round((delivered / total) * 100) : 0;
+  // General Performance = canonical weighted score (delivery 50%, recovery 12%,
+  // upsell 20%, reorder 15%, low-cancellation 3%) — shared with the sales-rep
+  // view. No orders handled → 0 (avoid the low-cancellation baseline).
+  const generalPerformance =
+    total > 0
+      ? generalPerformanceScore({
+          deliveryRate,
+          recoveryRate,
+          upsellRate,
+          reorderRate,
+          cancellationRate,
+        })
+      : 0;
+
+  // KPI = delivered / total handled, same helper as the sales-rep analytics.
+  const kpi = kpiScore(delivered, total);
 
   return {
     totalProductsSold,
@@ -577,7 +618,12 @@ export async function getSalesRepsList(): Promise<SalesRepItem[]> {
       team: { select: { name: true } },
       orders: {
         where: { deletedAt: null },
-        select: { status: true, createdAt: true },
+        select: {
+          status: true,
+          createdAt: true,
+          isReorder: true,
+          items: { select: { productId: true } },
+        },
       },
     },
     orderBy: { name: "asc" },
@@ -604,11 +650,13 @@ export async function getAllOrders(): Promise<OrderRow[]> {
       id: true,
       orderNumber: true,
       status: true,
+      isReorder: true,
       createdAt: true,
       updatedAt: true,
       customer: { select: { name: true, email: true, state: true } },
       agent: { select: { id: true, companyName: true, state: true } },
       salesRep: { select: { id: true, name: true, team: { select: { id: true, name: true } } } },
+      _count: { select: { items: true } },
       items: {
         select: {
           quantity: true,
@@ -631,6 +679,8 @@ export async function getAllOrders(): Promise<OrderRow[]> {
     teamId: o.salesRep.team?.id ?? null,
     teamName: o.salesRep.team?.name ?? null,
     product: o.items[0]?.product.name ?? "—",
+    itemCount: o._count.items,
+    isReorder: o.isReorder,
     quantity: o.items[0]?.quantity ?? 0,
     date: fmtDate(o.createdAt),
     status: STATUS_MAP[o.status] ?? "Pending",
@@ -685,11 +735,13 @@ export async function getOrderByOrderNumber(orderNumber: string): Promise<OrderD
       date: fmtDateTime(firstDelivery.createdAt),
       repName: order.salesRep.name,
     });
-    history.push({
-      event: "Prescription Sent",
-      date: fmtDateTime(firstDelivery.createdAt),
-      repName: order.salesRep.name,
-    });
+    if ((order.notes?.trim() ?? "") !== "") {
+      history.push({
+        event: "Prescription Sent",
+        date: fmtDateTime(firstDelivery.createdAt),
+        repName: order.salesRep.name,
+      });
+    }
     if (order.agent) {
       history.push({
         event: "Delivery Agent Assigned",
@@ -798,7 +850,12 @@ export async function getSalesRepProfile(userId: string): Promise<SalesRepProfil
       team: { select: { name: true } },
       orders: {
         where: { deletedAt: null },
-        select: { status: true, createdAt: true },
+        select: {
+          status: true,
+          createdAt: true,
+          isReorder: true,
+          items: { select: { productId: true } },
+        },
       },
     },
   });
@@ -844,11 +901,13 @@ export async function getSalesRepOrders(salesRepId: string): Promise<OrderRow[]>
       id: true,
       orderNumber: true,
       status: true,
+      isReorder: true,
       createdAt: true,
       updatedAt: true,
       customer: { select: { name: true, email: true, state: true } },
       agent: { select: { id: true, companyName: true, state: true } },
       salesRep: { select: { id: true, name: true, team: { select: { id: true, name: true } } } },
+      _count: { select: { items: true } },
       items: {
         select: {
           quantity: true,
@@ -871,6 +930,8 @@ export async function getSalesRepOrders(salesRepId: string): Promise<OrderRow[]>
     teamId: o.salesRep.team?.id ?? null,
     teamName: o.salesRep.team?.name ?? null,
     product: o.items[0]?.product.name ?? "—",
+    itemCount: o._count.items,
+    isReorder: o.isReorder,
     quantity: o.items[0]?.quantity ?? 0,
     date: fmtDate(o.createdAt),
     status: STATUS_MAP[o.status] ?? "Pending",

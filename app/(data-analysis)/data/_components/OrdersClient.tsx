@@ -9,7 +9,8 @@ import {
   MessageCircle,
   X,
   Trash2,
-  AlertTriangle
+  AlertTriangle,
+  RotateCcw
 } from 'lucide-react';
 import { OrderRow } from '@/modules/data-analysis/services/data-analysis.service';
 import { useRouter } from 'next/navigation';
@@ -60,9 +61,11 @@ interface OrdersClientProps {
   salesReps?: AgentItem[];
   teams?: TeamItem[];
   products?: string[];
+  userName?: string | null;
 }
 
-export function OrdersClient({ initialOrders = [], deliveryAgents = [], salesReps = [], teams = [], products = [] }: OrdersClientProps) {
+export function OrdersClient({ initialOrders = [], deliveryAgents = [], salesReps = [], teams = [], products = [], userName = null }: OrdersClientProps) {
+  const firstName = userName?.trim().split(/\s+/)[0] ?? "";
   const router = useRouter();
   const [activeTab, setActiveTab] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
@@ -237,7 +240,7 @@ export function OrdersClient({ initialOrders = [], deliveryAgents = [], salesRep
     <div className="p-8 max-w-[1400px] mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
-        <h1 className="text-2xl font-bold text-gray-700">Welcome Back, Favour</h1>
+        <h1 className="text-2xl font-bold text-gray-700">{firstName ? `Welcome Back, ${firstName}` : "Welcome Back"}</h1>
         <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center text-purple-600 cursor-pointer shadow-sm hover:bg-purple-200 transition-colors">
           <MessageCircle size={22} fill="currentColor" />
         </div>
@@ -874,7 +877,14 @@ export function OrdersClient({ initialOrders = [], deliveryAgents = [], salesRep
                     </div>
                   </td>
                   <td className="px-6 py-4">
-                    <span className="text-sm font-medium text-gray-700">{order.name}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-gray-700">{order.name}</span>
+                      {order.isReorder && (
+                        <span className="inline-flex items-center gap-1 bg-purple-100 text-[#532194] text-[10px] font-bold px-2 py-0.5 rounded-full">
+                          <RotateCcw size={10} /> Reorder
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="px-6 py-4">
                     {order.agent ? (
@@ -895,7 +905,14 @@ export function OrdersClient({ initialOrders = [], deliveryAgents = [], salesRep
                     <span className="text-sm text-gray-600 font-medium">{order.salesRep}</span>
                   </td>
                   <td className="px-6 py-4">
-                    <span className="text-sm text-gray-600 font-medium">{order.product}</span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-sm text-gray-600 font-medium truncate max-w-[160px]">{order.product}</span>
+                      {order.itemCount > 1 && (
+                        <span className="shrink-0 inline-flex items-center bg-purple-100 text-[#532194] text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                          +{order.itemCount - 1}
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="px-6 py-4 text-center">
                     <span className="text-sm text-gray-600">{order.quantity}</span>

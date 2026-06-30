@@ -325,7 +325,7 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
     ...(order.status !== "PENDING" && order.status !== "CANCELLED"
       ? [{ label: "Order Confirmed", ...fmtHistory(delivery?.createdAt ?? order.updatedAt) }]
       : []),
-    ...(order.status !== "PENDING" && delivery
+    ...(order.status !== "PENDING" && delivery && (order.notes?.trim() ?? "") !== ""
       ? [{ label: "Prescription Sent", ...fmtHistory(delivery.createdAt) }]
       : []),
     ...(order.status === "DELIVERED" && delivery?.deliveredTime
@@ -538,7 +538,7 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
             ))}
           </div>
 
-          {order.status === "PENDING" && (
+          {(order.status === "PENDING" || order.status === "CONFIRMED") && (
             <button
               onClick={() => setIsAddProductOpen(true)}
               type="button"

@@ -67,8 +67,8 @@ function computeMetrics(orders: OrderRow[]): MonthMetrics {
 
   const confirmationRate =
     total > 0 ? Math.round((attemptedDelivery / total) * 100) : 0;
-  const deliveryRate =
-    attemptedDelivery > 0 ? Math.round((delivered / attemptedDelivery) * 100) : 0;
+  // Delivery Rate mirrors the KPI: delivered / total orders handled.
+  const deliveryRate = kpiScore(delivered, total);
   const cancellationRate =
     total > 0 ? Math.round((cancelled / total) * 100) : 0;
   const recoveryRate =
@@ -82,13 +82,17 @@ function computeMetrics(orders: OrderRow[]): MonthMetrics {
   const upsellRate =
     total > 0 ? Math.round((multiItemOrders.length / total) * 100) : 0;
 
-  const generalPerformance = generalPerformanceScore({
-    deliveryRate,
-    recoveryRate,
-    upsellRate,
-    reorderRate,
-    cancellationRate,
-  });
+  // No orders handled → no performance (avoid the low-cancellation baseline).
+  const generalPerformance =
+    total > 0
+      ? generalPerformanceScore({
+          deliveryRate,
+          recoveryRate,
+          upsellRate,
+          reorderRate,
+          cancellationRate,
+        })
+      : 0;
 
   const kpi = kpiScore(delivered, total);
 

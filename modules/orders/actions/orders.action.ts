@@ -575,8 +575,14 @@ export async function addOrderItemsAction(
   const session = await auth();
   if (!session?.user?.id) throw new Error("Unauthorized");
 
-  const order = await getOwnedOrder(orderId, session.user.id);
-  if (!order || order.status !== "PENDING") throw new Error("Cannot modify this order");
+  const order = await prisma.order.findFirst({
+    where: { id: orderId, salesRepId: session.user.id, deletedAt: null },
+    include: { items: { select: { lineTotal: true } } },
+  });
+  if (!order) throw new Error("Order not found");
+  if (order.status !== "PENDING" && order.status !== "CONFIRMED") {
+    throw new Error("Products can only be added to pending or confirmed orders.");
+  }
 
   const products = await prisma.product.findMany({
     where: { id: { in: items.map((i) => i.productId) } },
@@ -584,6 +590,36 @@ export async function addOrderItemsAction(
   });
 
   const productMap = new Map(products.map((p) => [p.id, p]));
+
+  // For confirmed orders the delivery agent is already assigned, so the agent
+  // must physically hold the new product. Block additions the agent can't carry.
+  if (order.status === "CONFIRMED" && order.agentId) {
+    const requestedQty = new Map<string, number>();
+    for (const item of items) {
+      requestedQty.set(item.productId, (requestedQty.get(item.productId) ?? 0) + item.quantity);
+    }
+
+    const stockLevels = await prisma.stockLevel.findMany({
+      where: {
+        locationKind: "AGENT",
+        locationId: order.agentId,
+        productId: { in: [...requestedQty.keys()] },
+      },
+      select: { productId: true, quantity: true },
+    });
+    const availableQty = new Map<string, number>();
+    for (const sl of stockLevels) {
+      availableQty.set(sl.productId, (availableQty.get(sl.productId) ?? 0) + sl.quantity);
+    }
+
+    for (const [productId, qty] of requestedQty) {
+      if ((availableQty.get(productId) ?? 0) < qty) {
+        const name = productMap.get(productId)?.name ?? "this product";
+        throw new Error(`The assigned agent doesn't have ${name} in stock.`);
+      }
+    }
+  }
+
   let addedTotal = 0;
 
   const itemsToCreate = items.map((item) => {
@@ -595,15 +631,25 @@ export async function addOrderItemsAction(
     return { orderId, productId: item.productId, quantity: item.quantity, unitPrice, lineTotal, costPriceAtSale: Number(product.costPrice), isUpsell: true, addedById: session.user.id };
   });
 
+  // Recompute totals from the authoritative gross, preserving any existing
+  // discount (same approach as removeOrderItemAction) so discountPercent never
+  // goes stale when the order total changes.
+  const existingGross = order.items.reduce((s, i) => s + Number(i.lineTotal), 0);
+  const newGross = Math.round((existingGross + addedTotal) * 100) / 100;
+  const discountAmount = Math.min(Number(order.discountAmount), newGross);
+  const netAmount = Math.round((newGross - discountAmount) * 100) / 100;
+  const discountPercent =
+    newGross > 0 ? Math.round((discountAmount / newGross) * 10000) / 100 : 0;
+
   await prisma.$transaction([
     prisma.orderItem.createMany({ data: itemsToCreate }),
     prisma.order.update({
       where: { id: orderId },
-      data: { totalAmount: { increment: addedTotal }, netAmount: { increment: addedTotal } },
+      data: { totalAmount: newGross, netAmount, discountAmount, discountPercent },
     }),
   ]);
 
-  revalidatePath(`/sales-rep/orders/${orderId}`);
+  revalidateOrderPaths(orderId);
 }
 
 /**

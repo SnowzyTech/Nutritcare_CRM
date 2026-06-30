@@ -172,77 +172,42 @@ interface AnalyticsClientProps {
 }
 
 export function AnalyticsClient({ teamsData = [], companyData }: AnalyticsClientProps) {
-  const [activeView, setActiveView] = useState<'team' | 'sales'>('team');
-  const [selectedTeamIndex, setSelectedTeamIndex] = useState(0);
+  // `selected` is either 'all' (company-wide rollup) or a team index into currentTeamsData.
+  const [selected, setSelected] = useState<'all' | number>('all');
   const [selectedMonth, setSelectedMonth] = useState('This Month');
   const [selectedPeriod, setSelectedPeriod] = useState<Period>('month');
   const [currentTeamsData, setCurrentTeamsData] = useState(teamsData);
   const [currentCompanyData, setCurrentCompanyData] = useState(companyData);
   const [isPending, startTransition] = useTransition();
 
-  // Derive active metrics based on which tab is shown
+  // 'all' shows the company-wide rollup; otherwise the selected team's metrics.
   const activeMetrics: RepAnalyticsData | undefined =
-    activeView === 'team'
-      ? currentTeamsData[selectedTeamIndex]?.currentMetrics
-      : currentCompanyData;
+    selected === 'all'
+      ? currentCompanyData
+      : currentTeamsData[selected]?.currentMetrics;
 
   const metricByKey = buildMetricByKey(activeMetrics);
 
-  function handleTabChange(view: 'team' | 'sales') {
-    if (view === activeView) return;
-    setActiveView(view);
-    // Re-fetch for the new tab with current period
-    startTransition(async () => {
-      if (selectedPeriod === 'week') {
-        if (view === 'sales') {
-          const data = await fetchCompanyAnalyticsForPeriod('week');
-          setCurrentCompanyData(data);
-        } else {
-          const data = await fetchTeamsAnalyticsForPeriod('week');
-          setCurrentTeamsData(data);
-          setSelectedTeamIndex((prev) => Math.min(prev, data.length - 1));
-        }
-      } else if (selectedMonth !== 'This Month') {
-        const { month: m, year: y } = monthIndexFromName(selectedMonth);
-        if (view === 'sales') {
-          const data = await fetchCompanyAnalyticsForMonth(m, y);
-          setCurrentCompanyData(data);
-        } else {
-          const data = await fetchTeamsAnalyticsForMonth(m, y);
-          setCurrentTeamsData(data);
-          setSelectedTeamIndex((prev) => Math.min(prev, data.length - 1));
-        }
-      }
-    });
-  }
+  // Keep a team selection valid if the teams list shrinks after a refetch.
+  const clampSelection = (teamsLen: number) =>
+    setSelected((prev) => (prev === 'all' ? 'all' : Math.min(prev, Math.max(teamsLen - 1, 0))));
 
+  // Refetch both the per-team and company rollups together, so toggling the
+  // selector between "All Teams" and a specific team needs no extra fetch.
   function handlePeriodChange(period: Period) {
-    if (period === selectedPeriod) return;
+    // No-op only if already where this button points (already week, or already
+    // showing the current month) — otherwise snap back to the current period.
+    if (period === selectedPeriod && (period === 'week' || selectedMonth === 'This Month')) return;
     setSelectedPeriod(period);
-    if (period === 'week') {
-      setSelectedMonth('This Month'); // Reset month when switching to week
-    }
+    setSelectedMonth('This Month'); // anchor back to the current month/week
     startTransition(async () => {
-      if (period === 'week') {
-        if (activeView === 'team') {
-          const data = await fetchTeamsAnalyticsForPeriod('week');
-          setCurrentTeamsData(data);
-          setSelectedTeamIndex((prev) => Math.min(prev, data.length - 1));
-        } else {
-          const data = await fetchCompanyAnalyticsForPeriod('week');
-          setCurrentCompanyData(data);
-        }
-      } else {
-        // Switch to month - fetch current month
-        if (activeView === 'team') {
-          const data = await fetchTeamsAnalyticsForPeriod('month');
-          setCurrentTeamsData(data);
-          setSelectedTeamIndex((prev) => Math.min(prev, data.length - 1));
-        } else {
-          const data = await fetchCompanyAnalyticsForPeriod('month');
-          setCurrentCompanyData(data);
-        }
-      }
+      const [teams, company] = await Promise.all([
+        fetchTeamsAnalyticsForPeriod(period),
+        fetchCompanyAnalyticsForPeriod(period),
+      ]);
+      setCurrentTeamsData(teams);
+      setCurrentCompanyData(company);
+      clampSelection(teams.length);
     });
   }
 
@@ -250,58 +215,40 @@ export function AnalyticsClient({ teamsData = [], companyData }: AnalyticsClient
     setSelectedMonth(month);
     const { month: m, year: y } = monthIndexFromName(month);
     startTransition(async () => {
-      if (activeView === 'team') {
-        const data = await fetchTeamsAnalyticsForMonth(m, y);
-        setCurrentTeamsData(data);
-        setSelectedTeamIndex((prev) => Math.min(prev, data.length - 1));
-      } else {
-        const data = await fetchCompanyAnalyticsForMonth(m, y);
-        setCurrentCompanyData(data);
-      }
+      const [teams, company] = await Promise.all([
+        fetchTeamsAnalyticsForMonth(m, y),
+        fetchCompanyAnalyticsForMonth(m, y),
+      ]);
+      setCurrentTeamsData(teams);
+      setCurrentCompanyData(company);
+      clampSelection(teams.length);
     });
   }
-
-  const showTeamEmptyState = activeView === 'team' && currentTeamsData.length === 0;
 
   return (
     <div className="p-8 max-w-[1400px] mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <h1 className="text-2xl font-bold text-gray-700">
-          {activeView === 'team' ? "Team's Analytics" : "Sales Analytics"}
+          {selected === 'all'
+            ? 'Sales Analytics'
+            : `${currentTeamsData[selected]?.teamName ?? 'Team'}'s Analytics`}
         </h1>
         <div className="flex items-center gap-4">
-          {/* Tab toggle */}
-          <div className="flex items-center bg-gray-100 rounded-lg p-1">
-            <button
-              onClick={() => handleTabChange('team')}
-              className={`px-6 py-2 rounded-md text-xs font-bold transition-all ${activeView === 'team' ? 'bg-[#A020F0] text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+          {/* Team selector — "All Teams" (company-wide) or a specific team */}
+          <div className="relative">
+            <select
+              value={selected === 'all' ? 'all' : String(selected)}
+              onChange={(e) => setSelected(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+              className="appearance-none bg-black text-white px-4 py-2 rounded-lg text-xs font-bold pr-8 focus:outline-none cursor-pointer"
             >
-              Team Analytics
-            </button>
-            <button
-              onClick={() => handleTabChange('sales')}
-              className={`px-6 py-2 rounded-md text-xs font-bold transition-all ${activeView === 'sales' ? 'bg-[#A020F0] text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-            >
-              Sales Analytics
-            </button>
+              <option value="all">All Teams</option>
+              {currentTeamsData.map((t, i) => (
+                <option key={t.teamId} value={i}>{t.teamName}</option>
+              ))}
+            </select>
+            <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-white" />
           </div>
-
-          {/* Team selector — only on Team Analytics tab */}
-          {activeView === 'team' && currentTeamsData.length > 0 && (
-            <div className="relative">
-              <select
-                value={selectedTeamIndex}
-                onChange={(e) => setSelectedTeamIndex(Number(e.target.value))}
-                className="appearance-none bg-black text-white px-4 py-2 rounded-lg text-xs font-bold pr-8 focus:outline-none cursor-pointer"
-              >
-                {currentTeamsData.map((t, i) => (
-                  <option key={t.teamId} value={i}>{t.teamName}</option>
-                ))}
-              </select>
-              <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-white" />
-            </div>
-          )}
 
           {/* Period toggle (Week/Month) */}
           <div className="flex items-center bg-gray-100 rounded-lg p-1">
@@ -336,10 +283,7 @@ export function AnalyticsClient({ teamsData = [], companyData }: AnalyticsClient
         </div>
       </div>
 
-      {showTeamEmptyState ? (
-        <div className="text-center py-16 text-gray-400">No teams found. Create sales teams to see analytics.</div>
-      ) : (
-        <>
+      <>
           {/* Metrics Grid */}
           <div className={`grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 transition-opacity duration-200 ${isPending ? 'opacity-50' : 'opacity-100'}`}>
             {METRIC_KEYS.map((key) => (
@@ -514,7 +458,6 @@ export function AnalyticsClient({ teamsData = [], companyData }: AnalyticsClient
             </div>
           </div>
         </>
-      )}
     </div>
   );
 }

@@ -21,7 +21,9 @@ export type PerformanceRates = {
 
 /**
  * Weighted "General Performance" score:
- *   delivery 50%, recovery 12%, upsell 20%, reorder 15%, cancellation 3%.
+ *   delivery 50%, recovery 12%, upsell 20%, reorder 15%, low-cancellation 3%.
+ * Cancellation is scored as (100 − cancellationRate) so FEWER cancellations
+ * raise the score — a perfect rep (all good rates, 0 cancellations) scores 100.
  */
 export function generalPerformanceScore(rates: PerformanceRates): number {
   return Math.round(
@@ -29,7 +31,7 @@ export function generalPerformanceScore(rates: PerformanceRates): number {
       rates.recoveryRate * 0.12 +
       rates.upsellRate * 0.2 +
       rates.reorderRate * 0.15 +
-      rates.cancellationRate * 0.03,
+      (100 - rates.cancellationRate) * 0.03,
   );
 }
 

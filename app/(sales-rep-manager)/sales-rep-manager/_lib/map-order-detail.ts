@@ -30,7 +30,7 @@ export function mapOrderToDetail(dbOrder: DbOrder, repName: string): OrderDetail
       date: delivery ? formatDate(delivery.createdAt) : formatDate(dbOrder.updatedAt),
     });
   }
-  if (dbOrder.status !== "PENDING" && delivery) {
+  if (dbOrder.status !== "PENDING" && delivery && (dbOrder.notes?.trim() ?? "") !== "") {
     history.push({ label: "Prescription Sent", date: formatDate(delivery.createdAt) });
   }
   if (dbOrder.agent) {

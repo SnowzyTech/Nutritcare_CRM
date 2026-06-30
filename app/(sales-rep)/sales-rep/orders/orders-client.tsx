@@ -413,7 +413,7 @@ export function OrdersClient({ orders, counts, userName, products }: OrdersClien
                     <div className="grid grid-cols-2 gap-y-1.5 text-xs text-gray-500 mt-1">
                       <div className="truncate"><span className="text-gray-400">Email:</span> {order.customer.email ?? '—'}</div>
                       <div className="text-right"><span className="text-gray-400">Date:</span> {dateLabel}</div>
-                      <div className="truncate"><span className="text-gray-400">Product:</span> <span className="text-gray-700 font-medium">{firstItem?.product.name ?? '—'}</span></div>
+                      <div className="truncate flex items-center gap-1"><span className="text-gray-400">Product:</span> <span className="text-gray-700 font-medium truncate">{firstItem?.product.name ?? '—'}</span>{order.items.length > 1 && (<span className="shrink-0 inline-flex items-center bg-purple-100 text-[#532194] text-[9px] font-bold px-1 py-0.5 rounded-full">+{order.items.length - 1}</span>)}</div>
                       <div className="text-right"><span className="text-gray-400">Qty:</span> <span className="text-gray-700 font-medium">{totalQty}</span></div>
                       {order.agent && (
                         <div className="col-span-2 truncate"><span className="text-gray-400">Agent:</span> {order.agent.companyName}</div>
@@ -486,9 +486,19 @@ export function OrdersClient({ orders, counts, userName, products }: OrdersClien
                           )}
                         </td>
                         <td className="px-4 sm:px-6 py-4 sm:py-5">
-                          <span className="text-xs sm:text-sm font-medium text-gray-700">
-                            {firstItem?.product.name ?? '—'}
-                          </span>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs sm:text-sm font-medium text-gray-700 truncate max-w-[140px]">
+                              {firstItem?.product.name ?? '—'}
+                            </span>
+                            {order.items.length > 1 && (
+                              <span
+                                title={order.items.map((i) => i.product.name).join(', ')}
+                                className="shrink-0 inline-flex items-center bg-purple-100 text-[#532194] text-[10px] font-bold px-1.5 py-0.5 rounded-full"
+                              >
+                                +{order.items.length - 1}
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="px-4 sm:px-6 py-4 sm:py-5 text-center">
                           <span className="text-xs sm:text-sm text-gray-500">{totalQty}</span>

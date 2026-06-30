@@ -86,7 +86,10 @@
       "Bash(rm -f /tmp/checkchat.ts /tmp/checkagent.ts /tmp/testgroup.ts /tmp/testcreate.ts /tmp/verify.ts)",
       "PowerShell(npx tsx --env-file=.env prisma/delete-all-orders.ts)",
       "PowerShell(npx tsx --env-file=.env prisma/ping-db.ts)",
-      "PowerShell(npx tsc --noEmit -p tsconfig.json 2>&1 | Select-Object -First 30)"
+      "PowerShell(npx tsc --noEmit -p tsconfig.json 2>&1 | Select-Object -First 30)",
+      "Bash(rm scripts/verify-rep-teams.ts)",
+      "Bash(rmdir scripts *)",
+      "Bash(rm scripts/verify-gp.ts)"
     ]
   }
 }
