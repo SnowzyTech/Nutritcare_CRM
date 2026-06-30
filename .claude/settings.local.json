@@ -89,7 +89,9 @@
       "PowerShell(npx tsc --noEmit -p tsconfig.json 2>&1 | Select-Object -First 30)",
       "Bash(rm scripts/verify-rep-teams.ts)",
       "Bash(rmdir scripts *)",
-      "Bash(rm scripts/verify-gp.ts)"
+      "Bash(rm scripts/verify-gp.ts)",
+      "Bash(wait)",
+      "PowerShell(npx tsc --noEmit; \"EXIT=$LASTEXITCODE\")"
     ]
   }
 }

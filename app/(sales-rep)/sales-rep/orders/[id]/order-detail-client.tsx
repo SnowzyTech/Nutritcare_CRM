@@ -11,7 +11,6 @@ import {
   confirmOrderAction,
   cancelOrderAction,
   failOrderAction,
-  deliverOrderAction,
   addOrderItemsAction,
   removeOrderItemAction,
   updateOrderNotesAction,
@@ -934,9 +933,10 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
             </div>
           )}
 
-          {/* Confirm/Fail buttons for confirmed orders */}
+          {/* Fail button for confirmed orders (delivery is now marked by the
+              delivery agent or data analyst, not the sales rep) */}
           {order.status === "CONFIRMED" && (
-            <div className="grid grid-cols-2 gap-4 mt-4">
+            <div className="mt-4">
               <button
                 disabled={isPending}
                 onClick={() => {
@@ -945,17 +945,9 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
                   setIsFailOpen(true);
                 }}
                 type="button"
-                className="bg-red-50 border border-red-200 px-4 py-3 rounded-lg text-red-500 font-semibold text-sm hover:bg-red-100 transition disabled:opacity-50"
+                className="w-full bg-red-50 border border-red-200 px-4 py-3 rounded-lg text-red-500 font-semibold text-sm hover:bg-red-100 transition disabled:opacity-50"
               >
                 ✕ Fail
-              </button>
-              <button
-                disabled={isPending}
-                onClick={() => handleAction(() => deliverOrderAction(order.id), "Order marked as delivered")}
-                type="button"
-                className="bg-purple-600 text-white px-4 py-3 rounded-lg font-semibold text-sm hover:bg-purple-700 transition disabled:opacity-50"
-              >
-                ✓ Delivered
               </button>
             </div>
           )}

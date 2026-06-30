@@ -3,14 +3,12 @@
 import { auth } from "@/lib/auth/auth";
 import { prisma } from "@/lib/db/prisma";
 import { revalidatePath } from "next/cache";
-import { recordDeliveryFeeEntry } from "@/modules/finance/services/agent-settlement.service";
 import { getSalesRepWeeklyAnalytics } from "@/modules/orders/services/analytics.service";
 import type { MonthMetrics } from "@/modules/orders/services/analytics.service";
 import { findEligibleAgentForOrder } from "@/modules/delivery/services/agents.service";
 import {
   sendOrderConfirmationTemplate,
   sendDeliveryCodeTemplate,
-  sendOrderDeliveredTemplate,
 } from "@/lib/whatsapp/whatsapp";
 import { formatCurrency, formatDate, generateOrderNumber } from "@/lib/utils";
 import { logActivity } from "@/modules/audit/services/audit-log.service";
@@ -20,27 +18,6 @@ function generateDeliveryCode(): string {
   const min = 100_000;
   const max = 999_999;
   return String(Math.floor(min + Math.random() * (max - min + 1)));
-}
-
-/**
- * Deducts order items from the assigned agent's StockLevel rows inside a
- * transaction. Safe to call even if a StockLevel row doesn't exist yet
- * (updateMany with 0 matches is a no-op).
- */
-function buildStockDeductionOps(
-  items: { productId: string; quantity: number }[],
-  agentId: string,
-) {
-  return items.map((item) =>
-    prisma.stockLevel.updateMany({
-      where: {
-        productId: item.productId,
-        locationKind: "AGENT",
-        locationId: agentId,
-      },
-      data: { quantity: { decrement: item.quantity } },
-    }),
-  );
 }
 
 export async function getWeeklyAnalyticsAction(): Promise<MonthMetrics | { error: string }> {
@@ -315,66 +292,6 @@ export async function setOrderContactMethodAction(
     where: { id: orderId },
     data: { contactMethod: method },
   });
-  revalidateOrderPaths(orderId);
-}
-
-export async function deliverOrderAction(orderId: string) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Unauthorized");
-
-  // Fetch with items (stock deduction) and customer (WhatsApp notification)
-  const order = await prisma.order.findFirst({
-    where: { id: orderId, salesRepId: session.user.id, deletedAt: null },
-    include: {
-      items: { select: { productId: true, quantity: true } },
-      customer: { select: { name: true, whatsappNumber: true, phone: true } },
-    },
-  });
-  if (!order || order.status !== "CONFIRMED") throw new Error("Cannot mark order as delivered");
-
-  const now = new Date();
-  const stockOps = order.agentId
-    ? buildStockDeductionOps(order.items, order.agentId)
-    : [];
-
-  await prisma.$transaction([
-    prisma.order.update({ where: { id: orderId }, data: { status: "DELIVERED" } }),
-    prisma.delivery.updateMany({
-      where: { orderId },
-      data: { status: "DELIVERED", deliveredTime: now },
-    }),
-    ...stockOps,
-  ]);
-
-  await logActivity({
-    userId: session.user.id,
-    action: "Delivered",
-    entityType: "Order",
-    entityId: orderId,
-    description: `Order #${order.orderNumber} delivered`,
-  });
-
-  if (order.agentId) {
-    await recordDeliveryFeeEntry({
-      agentId: order.agentId,
-      netAmount: Number(order.netAmount),
-      orderNumber: order.orderNumber,
-      date: order.date,
-    });
-  }
-
-  // Send WhatsApp delivery notification (fire-and-forget — never throws)
-  const waPhone = order.customer.whatsappNumber || order.customer.phone;
-  if (waPhone) {
-    sendOrderDeliveredTemplate({
-      to: waPhone,
-      customerName: order.customer.name,
-      orderNumber: order.orderNumber,
-    })
-      .then((result) => console.log("[WhatsApp] delivery notification result:", JSON.stringify(result)))
-      .catch((err) => console.error("[WhatsApp] deliverOrder send error:", err));
-  }
-
   revalidateOrderPaths(orderId);
 }
 
