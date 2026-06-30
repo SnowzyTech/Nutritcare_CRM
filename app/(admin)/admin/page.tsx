@@ -11,29 +11,18 @@ import {
   DashboardBarChart,
 } from "@/components/dashboard/dashboard-charts";
 import { getAdminDashboardData } from "@/modules/orders/services/admin-dashboard.service";
+import { formatCurrency } from "@/lib/utils";
 import { PeriodSelector } from "./period-selector-client";
 
 export const metadata: Metadata = { title: "Admin Dashboard" };
 
 /* ── Helpers ── */
 function delta(current: number, last: number): string {
-  if (last === 0) return current > 0 ? "+100%" : "0%";
+  // No prior-month baseline — a percentage change is undefined, so show an
+  // honest indicator instead of a fake "+100%".
+  if (last === 0) return current > 0 ? "New" : "—";
   const pct = Math.round(((current - last) / last) * 100);
   return pct >= 0 ? `+${pct}%` : `${pct}%`;
-}
-
-function compactCurrency(amount: number): string {
-  if (amount >= 1_000_000_000)
-    return `₦${(amount / 1_000_000_000).toFixed(1)}B`;
-  if (amount >= 1_000_000) return `₦${(amount / 1_000_000).toFixed(1)}M`;
-  if (amount >= 1_000) return `₦${(amount / 1_000).toFixed(1)}K`;
-  return `₦${amount.toLocaleString("en-NG")}`;
-}
-
-function compactNumber(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return n.toLocaleString("en-NG");
 }
 
 /* ── Delta badge ── */
@@ -179,6 +168,15 @@ export default async function AdminDashboardPage({
     0
   );
 
+  // Real delta for remaining stock: StockLevel holds no history, so derive the
+  // month's opening balance from this period's movements (received − dispatched)
+  // and compare the current snapshot against it. Floored at 0 to stay sane when
+  // off-movement adjustments (e.g. agent deliveries) outpace tracked movements.
+  const openingStock = Math.max(
+    0,
+    data.remainingStock - (c.totalStockIn - c.totalStockOut)
+  );
+
   return (
     <div className="flex flex-col gap-8 max-w-[1400px] mx-auto p-4">
 
@@ -203,17 +201,17 @@ export default async function AdminDashboardPage({
         <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-5">
           <AccountStatCard
             label="Total Revenue"
-            value={compactCurrency(c.totalRevenue)}
+            value={formatCurrency(c.totalRevenue)}
             deltaValue={delta(c.totalRevenue, l.totalRevenue)}
           />
           <AccountStatCard
             label="Net Profit"
-            value={compactCurrency(c.netProfit)}
+            value={formatCurrency(c.netProfit)}
             deltaValue={delta(c.netProfit, l.netProfit)}
           />
           <AccountStatCard
             label="Total Expenses"
-            value={compactCurrency(c.totalExpenses)}
+            value={formatCurrency(c.totalExpenses)}
             deltaValue={delta(c.totalExpenses, l.totalExpenses)}
           />
         </div>
@@ -226,7 +224,7 @@ export default async function AdminDashboardPage({
                   Revenue {year}
                 </p>
                 <p className="text-xl font-bold text-gray-900">
-                  {compactCurrency(totalSalesThisYear)}
+                  {formatCurrency(totalSalesThisYear)}
                 </p>
               </div>
               <div className="flex items-center gap-4">
@@ -248,7 +246,7 @@ export default async function AdminDashboardPage({
                   Profit {year}
                 </p>
                 <p className="text-xl font-bold text-gray-900">
-                  {compactCurrency(c.netProfit)}
+                  {formatCurrency(c.netProfit)}
                 </p>
               </div>
               <div className="flex items-center gap-4">
@@ -274,7 +272,7 @@ export default async function AdminDashboardPage({
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <ProductTile
               label="Total Products Sold"
-              value={compactNumber(c.totalProductsSold)}
+              value={c.totalProductsSold.toLocaleString("en-NG")}
               sub={delta(c.totalProductsSold, l.totalProductsSold)}
               subLabel="vs last month"
               valueClassName={
@@ -286,7 +284,7 @@ export default async function AdminDashboardPage({
 
             <ProductTile
               label="Total Orders / Customers"
-              value={`${compactNumber(c.totalOrders)} / ${compactNumber(c.uniqueCustomers)}`}
+              value={`${c.totalOrders.toLocaleString("en-NG")} / ${c.uniqueCustomers.toLocaleString("en-NG")}`}
               sub={delta(c.totalOrders, l.totalOrders)}
               subLabel="vs last month"
             />
@@ -311,7 +309,7 @@ export default async function AdminDashboardPage({
 
             <ProductTile
               label="Delivered Orders"
-              value={compactNumber(c.deliveredOrders)}
+              value={c.deliveredOrders.toLocaleString("en-NG")}
               sub={delta(c.deliveredOrders, l.deliveredOrders)}
               subLabel="vs last month"
               className="p-6 rounded-2xl bg-[#FFEDD5] border border-[#FED7AA] flex flex-col justify-between h-[150px]"
@@ -346,7 +344,7 @@ export default async function AdminDashboardPage({
             <div className="flex items-center gap-3 mb-8">
               <div className="w-5 h-5 rounded bg-[#8B2FE8]" />
               <span className="text-3xl font-bold text-gray-900 tracking-tight">
-                {compactNumber(c.totalOrders)}
+                {c.totalOrders.toLocaleString("en-NG")}
               </span>
               <span className="text-[0.7rem] text-gray-400 mt-2 font-medium">
                 Orders
@@ -394,23 +392,23 @@ export default async function AdminDashboardPage({
           <div className="grid grid-cols-2 gap-5">
             <InsightTile
               label="Stock Received"
-              value={compactNumber(c.totalStockIn)}
+              value={c.totalStockIn.toLocaleString("en-NG")}
               deltaValue={delta(c.totalStockIn, l.totalStockIn)}
             />
             <InsightTile
               label="Stock Dispatched"
-              value={compactNumber(c.totalStockOut)}
+              value={c.totalStockOut.toLocaleString("en-NG")}
               deltaValue={delta(c.totalStockOut, l.totalStockOut)}
             />
             <InsightTile
               label="Cancelled Orders"
-              value={compactNumber(c.cancelledOrders)}
+              value={c.cancelledOrders.toLocaleString("en-NG")}
               deltaValue={delta(c.cancelledOrders, l.cancelledOrders)}
             />
             <InsightTile
               label="Total Remaining Stock"
               value={data.remainingStock.toLocaleString("en-NG")}
-              deltaValue="0%"
+              deltaValue={delta(data.remainingStock, openingStock)}
             />
           </div>
         </div>

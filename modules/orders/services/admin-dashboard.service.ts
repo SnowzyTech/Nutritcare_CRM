@@ -53,9 +53,13 @@ function emptyStats(): PeriodStats {
 }
 
 async function computePeriodStats(from: Date, to: Date): Promise<PeriodStats> {
+  // For a month still in progress, only count days elapsed so far — otherwise
+  // dividing by the full calendar month understates the running daily average.
+  // Past/complete months clamp to their real end (`to`).
+  const effectiveEnd = Math.min(to.getTime(), Date.now());
   const daysInPeriod = Math.max(
     1,
-    Math.ceil((to.getTime() - from.getTime()) / (86400 * 1000))
+    Math.ceil((effectiveEnd - from.getTime()) / (86400 * 1000))
   );
 
   const [orders, expensesAgg, stockInAgg, stockOutAgg] = await Promise.all([
@@ -79,13 +83,21 @@ async function computePeriodStats(from: Date, to: Date): Promise<PeriodStats> {
     }),
     prisma.stockMovementItem.aggregate({
       where: {
-        stockMovement: { type: "INCOMING", date: { gte: from, lt: to } },
+        stockMovement: {
+          type: "INCOMING",
+          date: { gte: from, lt: to },
+          status: { not: "REVERSED" },
+        },
       },
       _sum: { quantity: true },
     }),
     prisma.stockMovementItem.aggregate({
       where: {
-        stockMovement: { type: "OUTGOING", date: { gte: from, lt: to } },
+        stockMovement: {
+          type: "OUTGOING",
+          date: { gte: from, lt: to },
+          status: { not: "REVERSED" },
+        },
       },
       _sum: { quantity: true },
     }),
@@ -109,10 +121,10 @@ async function computePeriodStats(from: Date, to: Date): Promise<PeriodStats> {
   const attemptedDelivery = confirmed + delivered + failed;
   const confirmationRate =
     total > 0 ? Math.round((attemptedDelivery / total) * 100) : 0;
+  // Delivery Rate mirrors the sales-rep analytics KPI: delivered / total orders
+  // handled (same base as Confirmation and Failed Order rates).
   const deliveryRate =
-    attemptedDelivery > 0
-      ? Math.round((delivered / attemptedDelivery) * 100)
-      : 0;
+    total > 0 ? Math.round((delivered / total) * 100) : 0;
   const failedOrderRate =
     total > 0 ? Math.round((failed / total) * 100) : 0;
   const avgOrdersPerDay = Math.round(total / daysInPeriod);
