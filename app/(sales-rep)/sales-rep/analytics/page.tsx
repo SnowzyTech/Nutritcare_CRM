@@ -146,8 +146,8 @@ export default async function AnalyticsPage(props: {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         <KPICard
           label="Total Products Sold (Delivered)"
-          value={cur.totalProductsSold.toString()}
-          delta={pctDelta(cur.totalProductsSold, l?.totalProductsSold ?? null)}
+          value={cur.ordersDelivered.toString()}
+          delta={pctDelta(cur.ordersDelivered, l?.ordersDelivered ?? null)}
           vsLabel={vsLabel}
         />
         <KPICard

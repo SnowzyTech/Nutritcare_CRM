@@ -13,44 +13,7 @@ import {
   fetchCompanyAnalyticsForPeriod,
 } from '@/modules/data-analysis/actions/data-analysis.action';
 import type { Period } from '@/modules/data-analysis/services/data-analysis.service';
-
-const KPI_TARGET = 65; // 65% KPI target
-const MIN_ORDERS_PER_REP_WEEK = 180; // 30 orders/day * 6 days
-
-// Weekly bonus tiers based on KPI (delivered/total)
-// Minimum orders scale by number of sales reps: 180 orders/week per rep
-function calculateWeeklyBonus(
-  kpi: number,
-  totalOrders: number,
-  salesRepCount: number
-): { amount: number; eligible: boolean; reason?: string } {
-  // Scale minimum orders by number of sales reps
-  const minRequired = MIN_ORDERS_PER_REP_WEEK * Math.max(salesRepCount, 1);
-
-  if (totalOrders < minRequired) {
-    return {
-      amount: 0,
-      eligible: false,
-      reason: `Need ${minRequired} orders (${totalOrders} handled)`
-    };
-  }
-
-  if (kpi < 70) {
-    return {
-      amount: 0,
-      eligible: false,
-      reason: "KPI below 70%"
-    };
-  }
-
-  if (kpi >= 90) {
-    return { amount: 50000, eligible: true };
-  } else if (kpi >= 80) {
-    return { amount: 35000, eligible: true };
-  } else { // 70-79%
-    return { amount: 20000, eligible: true };
-  }
-}
+import { calculateBonus, KPI_TARGET } from '@/lib/bonus';
 
 const METRIC_KEYS = [
   'totalProductsSold', 'totalOrderCustomer', 'bestSellingProduct',
@@ -59,8 +22,8 @@ const METRIC_KEYS = [
 ] as const;
 
 const METRIC_LABELS: Record<string, string> = {
-  totalProductsSold: 'Total Products Sold',
-  totalOrderCustomer: 'Total Order/Customer',
+  totalProductsSold: 'Total Products Sold (Delivered)',
+  totalOrderCustomer: 'Total Orders',
   bestSellingProduct: 'Best Selling Product',
   generalPerformance: 'General Performance',
   upsellingRate: 'Upselling Rate',
@@ -301,7 +264,10 @@ export function AnalyticsClient({ teamsData = [], companyData }: AnalyticsClient
               const kpiValue = activeMetrics?.kpi.value ?? 0;
               const kpiMet = kpiValue >= KPI_TARGET;
               const salesRepCount = activeMetrics?.salesRepCount ?? 1;
-              const bonus = calculateWeeklyBonus(kpiValue, activeMetrics?.kpi.totalOrders ?? 0, salesRepCount);
+              // Threshold scales with BOTH the period (180/wk vs 720/mo) and the
+              // number of reps in the current selection (team, or all reps for
+              // "All Teams"), matching the sales-rep portal and manager views.
+              const bonus = calculateBonus(kpiValue, activeMetrics?.kpi.totalOrders ?? 0, selectedPeriod, salesRepCount);
               const periodLabel = selectedPeriod === 'week' ? 'week' : 'month';
 
               return (

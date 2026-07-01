@@ -4,7 +4,6 @@ import { generalPerformanceScore, kpiScore } from "@/lib/performance";
 export type ProductStat = { name: string; qty: number };
 
 export type MonthMetrics = {
-  totalProductsSold: number;
   totalOrders: number;
   ordersDelivered: number;
   uniqueCustomers: number;
@@ -96,12 +95,6 @@ function computeMetrics(orders: OrderRow[]): MonthMetrics {
 
   const kpi = kpiScore(delivered, total);
 
-  // Total products sold = item quantities across DELIVERED orders only
-  const totalProductsSold = orders
-    .filter((o) => o.status === "DELIVERED")
-    .flatMap((o) => o.items)
-    .reduce((sum, item) => sum + item.quantity, 0);
-
   const uniqueCustomers = new Set(orders.map((o) => o.customerId)).size;
 
   // Top products by quantity in DELIVERED orders
@@ -131,7 +124,6 @@ function computeMetrics(orders: OrderRow[]): MonthMetrics {
     .map(([name, qty]) => ({ name, qty }));
 
   return {
-    totalProductsSold,
     totalOrders: total,
     ordersDelivered: delivered,
     uniqueCustomers,

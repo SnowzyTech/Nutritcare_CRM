@@ -91,8 +91,8 @@ export default async function SalesRepAnalyticsPage({ params, searchParams }: Pr
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-        <StatCard title="Total Products Sold" value={current.totalProductsSold} trend={trends.totalProductsSold} />
-        <StatCard title="Total Orders" value={current.total} trend={trends.distinctCustomers} />
+        <StatCard title="Total Products Sold (Delivered)" value={current.delivered} trend={trends.delivered} />
+        <StatCard title="Total Orders" value={current.total} trend={trends.total} />
         <StatCard title="Best Selling Product" value={bestProduct} isProduct />
       </div>
 

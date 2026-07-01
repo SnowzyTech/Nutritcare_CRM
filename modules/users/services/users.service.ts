@@ -250,8 +250,9 @@ export async function getSalesRepAnalytics(salesRepId: string, period?: MonthPer
   return {
     current,
     trends: {
-      totalProductsSold: trendLabel(current.totalProductsSold, previous.totalProductsSold),
       distinctCustomers: trendLabel(current.distinctCustomers, previous.distinctCustomers),
+      total: trendLabel(current.total, previous.total),
+      delivered: trendLabel(current.delivered, previous.delivered),
       generalPerformance: trendLabel(current.generalPerformance, previous.generalPerformance),
       kpi: trendLabel(current.kpi, previous.kpi),
       upsellRate: trendLabel(current.upsellRate, previous.upsellRate),
@@ -463,7 +464,6 @@ function toReportMetrics(orders: ReportOrder[]): MonthMetrics {
   const m = computeRepMetrics(orders);
   const t = computeProductTables(orders);
   return {
-    totalProductsSold: m.totalProductsSold,
     totalOrders: m.total,
     ordersDelivered: m.delivered,
     uniqueCustomers: m.distinctCustomers,
@@ -493,8 +493,9 @@ export async function getTeamAnalytics(teamId: string, period?: MonthPeriod) {
     return {
       current: empty,
       trends: {
-        totalProductsSold: emptyTrend,
         distinctCustomers: emptyTrend,
+        total: emptyTrend,
+        delivered: emptyTrend,
         generalPerformance: emptyTrend,
         upsellRate: emptyTrend,
         confirmationRate: emptyTrend,
@@ -531,8 +532,9 @@ export async function getTeamAnalytics(teamId: string, period?: MonthPeriod) {
   return {
     current,
     trends: {
-      totalProductsSold: trendLabel(current.totalProductsSold, previous.totalProductsSold),
       distinctCustomers: trendLabel(current.distinctCustomers, previous.distinctCustomers),
+      total: trendLabel(current.total, previous.total),
+      delivered: trendLabel(current.delivered, previous.delivered),
       generalPerformance: trendLabel(current.generalPerformance, previous.generalPerformance),
       upsellRate: trendLabel(current.upsellRate, previous.upsellRate),
       confirmationRate: trendLabel(current.confirmationRate, previous.confirmationRate),

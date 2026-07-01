@@ -76,12 +76,12 @@ export default async function RepAnalyticsPage({
   const data: AnalyticsData = {
     monthLabel: periodText,
     totalProductsSold: {
-      value: String(current.totalProductsSold),
-      trend: trends.totalProductsSold,
+      value: String(current.delivered),
+      trend: trends.delivered,
     },
     totalOrderCustomer: {
-      value: String(current.distinctCustomers),
-      trend: trends.distinctCustomers,
+      value: String(current.total),
+      trend: trends.total,
     },
     bestSellingProduct: {
       name: current.bestProduct?.name ?? "—",

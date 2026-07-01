@@ -95,7 +95,12 @@
       "Bash(rm -f scripts/negative-stock-report.ts scripts/negative-stock-history.ts scripts/negative-stock-meta.ts scripts/ondo-manager.ts scripts/cleanup-ondo-orphans.ts scripts/test-advisory-lock.ts scripts/test-reservation-level1.ts)",
       "Bash(ls scripts/)",
       "PowerShell($out = npx tsc --noEmit 2>&1; $srm = $out | Select-String -Pattern \"sales-rep-manager|users.service|analytics.service\"; if \\($srm\\) { $srm } else { \"NO ERRORS in changed areas\" }; \"---TOTAL error TS LINES---\"; \\($out | Select-String -Pattern \"error TS\"\\).Count)",
-      "PowerShell($out = npx tsc --noEmit 2>&1; $srm = $out | Select-String -Pattern \"sales-rep|analytics|bonus\"; if \\($srm\\) { $srm } else { \"NO ERRORS in changed areas\" }; \"---TOTAL error TS LINES---\"; \\($out | Select-String -Pattern \"error TS\"\\).Count)"
+      "PowerShell($out = npx tsc --noEmit 2>&1; $srm = $out | Select-String -Pattern \"sales-rep|analytics|bonus\"; if \\($srm\\) { $srm } else { \"NO ERRORS in changed areas\" }; \"---TOTAL error TS LINES---\"; \\($out | Select-String -Pattern \"error TS\"\\).Count)",
+      "Bash(Select-String -Pattern \"AnalyticsClient|bonus\")",
+      "Bash(Select-Object -First 20)",
+      "PowerShell($out = npx tsc --noEmit -p tsconfig.json 2>&1; $ours = $out | Select-String -Pattern \"AnalyticsClient\"; if \\($ours\\) { Write-Output \"ERRORS IN OUR FILE:\"; $ours } else { Write-Output \"No errors in AnalyticsClient.tsx\" }; Write-Output \"--- total error lines: $\\(\\( $out | Select-String -Pattern 'error TS'\\).Count \\)\")",
+      "PowerShell(npx tsx scripts/_diag-esther.ts)",
+      "PowerShell($out = npx tsc --noEmit -p tsconfig.json 2>&1; $rel = $out | Select-String -Pattern \"users.service|data-analysis|analytics\"; if \\($rel\\) { $rel } else { Write-Output \"No errors in changed areas\" }; Write-Output \"--- total error lines: $\\(\\( $out | Select-String -Pattern 'error TS'\\).Count \\)\")"
     ]
   }
 }

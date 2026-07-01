@@ -239,8 +239,8 @@ export function AnalyticsDashboardClient({ header, data, monthSelector, reportBu
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* Row 1 */}
-        <StatCard label="Total Products Sold" value={data.totalProductsSold.value} trend={data.totalProductsSold.trend} />
-        <StatCard label="Total Order/Customer" value={data.totalOrderCustomer.value} trend={data.totalOrderCustomer.trend} />
+        <StatCard label="Total Products Sold (Delivered)" value={data.totalProductsSold.value} trend={data.totalProductsSold.trend} />
+        <StatCard label="Total Orders" value={data.totalOrderCustomer.value} trend={data.totalOrderCustomer.trend} />
         <BestSellingCard label="Best Selling Product" value={data.bestSellingProduct.name} subtitle={data.bestSellingProduct.subtitle} />
 
         {/* Row 2 */}

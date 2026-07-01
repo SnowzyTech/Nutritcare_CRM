@@ -34,7 +34,7 @@ export default async function TeamAnalyticsPage(props: {
       total: 0, delivered: 0,
     },
     trends: {
-      totalProductsSold: "—", distinctCustomers: "—", generalPerformance: "—",
+      distinctCustomers: "—", total: "—", delivered: "—", generalPerformance: "—",
       upsellRate: "—", confirmationRate: "—", deliveryRate: "—", cancellationRate: "—",
       recoveryRate: "—", reorderRate: "—", kpi: "—",
     },
@@ -48,8 +48,8 @@ export default async function TeamAnalyticsPage(props: {
 
   const data: AnalyticsData = {
     monthLabel: periodText,
-    totalProductsSold: { value: String(current.totalProductsSold), trend: trends.totalProductsSold },
-    totalOrderCustomer: { value: String(current.distinctCustomers), trend: trends.distinctCustomers },
+    totalProductsSold: { value: String(current.delivered), trend: trends.delivered },
+    totalOrderCustomer: { value: String(current.total), trend: trends.total },
     bestSellingProduct: { name: current.bestProduct?.name ?? "—", subtitle: periodText },
     generalPerformance: { value: `${current.generalPerformance}%`, trend: trends.generalPerformance },
     upsellingRate: { value: `${current.upsellRate}%`, trend: trends.upsellRate },

@@ -79,9 +79,8 @@ export async function downloadReportPdf(
     startY: 122,
     head: [["Key Performance Indicator", "Value"]],
     body: [
-      ["Total Products Sold (Delivered)", String(data.totalProductsSold)],
+      ["Total Products Sold (Delivered)", String(data.ordersDelivered)],
       ["Total Orders Handled", String(data.totalOrders)],
-      ["Orders Delivered", String(data.ordersDelivered)],
       ["Unique Customers", String(data.uniqueCustomers)],
       ["Best Selling Product", data.bestSellingProduct],
       ["KPI (Delivered / Handled)", `${data.kpi}%`],

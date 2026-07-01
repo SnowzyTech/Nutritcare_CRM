@@ -273,12 +273,6 @@ function computeMetrics(orders: OrderForMetrics[]) {
   const recoveryRate =
     delivered + failed > 0 ? Math.round((delivered / (delivered + failed)) * 100) : 0;
 
-  // Total products sold = item quantities across DELIVERED orders only (actual
-  // sales), matching the canonical sales-rep definition.
-  const totalProductsSold = orders
-    .filter((o) => o.status === "DELIVERED")
-    .flatMap((o) => o.items)
-    .reduce((s, i) => s + i.quantity, 0);
   const uniqueCustomers = new Set(orders.map((o) => o.customerId)).size;
 
   const deliveredQty = new Map<string, number>();
@@ -328,7 +322,6 @@ function computeMetrics(orders: OrderForMetrics[]) {
   const kpi = kpiScore(delivered, total);
 
   return {
-    totalProductsSold,
     totalOrders: total,
     ordersDelivered: delivered,
     uniqueCustomers,
@@ -359,16 +352,16 @@ function toRepAnalyticsData(
 
   const metrics: MetricCard[] = [
     {
-      label: "Total Products Sold",
-      value: current.totalProductsSold,
-      change: delta(current.totalProductsSold, last?.totalProductsSold),
-      isPositive: current.totalProductsSold >= (last?.totalProductsSold ?? 0),
+      label: "Total Products Sold (Delivered)",
+      value: current.ordersDelivered,
+      change: delta(current.ordersDelivered, last?.ordersDelivered),
+      isPositive: current.ordersDelivered >= (last?.ordersDelivered ?? 0),
     },
     {
-      label: "Total Order/Customer",
-      value: current.uniqueCustomers,
-      change: delta(current.uniqueCustomers, last?.uniqueCustomers),
-      isPositive: current.uniqueCustomers >= (last?.uniqueCustomers ?? 0),
+      label: "Total Orders",
+      value: current.totalOrders,
+      change: delta(current.totalOrders, last?.totalOrders),
+      isPositive: current.totalOrders >= (last?.totalOrders ?? 0),
     },
     {
       label: "Best Selling Product",
