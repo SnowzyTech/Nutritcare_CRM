@@ -28,6 +28,8 @@ export type AdminDashboardData = {
   monthlyRevenue: ChartPoint[];
   weeklyOrders: ChartPoint[];
   remainingStock: number;
+  /** Total units sitting in negative (impossible) balances — a data-quality signal. */
+  negativeStockUnits: number;
 };
 
 function emptyStats(): PeriodStats {
@@ -221,9 +223,31 @@ async function getWeeklyOrders(from: Date, to: Date): Promise<ChartPoint[]> {
   ];
 }
 
+/**
+ * Real physical stock on hand: sum of POSITIVE balances (per row) for active,
+ * non-deleted products, across every location kind. This is the same basis the
+ * accounting Inventory Snapshot uses, so the two dashboards agree. We floor at
+ * the row level (`quantity > 0`) rather than netting the grand total, so an
+ * impossible negative balance in one place can't erase real stock elsewhere.
+ */
 async function getRemainingStock(): Promise<number> {
-  const agg = await prisma.stockLevel.aggregate({ _sum: { quantity: true } });
-  return Math.max(0, agg._sum.quantity ?? 0);
+  const rows = await prisma.stockLevel.findMany({
+    where: {
+      quantity: { gt: 0 },
+      product: { deletedAt: null, isActive: true },
+    },
+    select: { quantity: true },
+  });
+  return rows.reduce((sum, r) => sum + r.quantity, 0);
+}
+
+/** Total units held in negative (impossible) balances — a data-quality signal. */
+async function getNegativeStockUnits(): Promise<number> {
+  const agg = await prisma.stockLevel.aggregate({
+    where: { quantity: { lt: 0 } },
+    _sum: { quantity: true },
+  });
+  return Math.abs(agg._sum.quantity ?? 0);
 }
 
 export async function getAdminDashboardData(
@@ -235,14 +259,15 @@ export async function getAdminDashboardData(
   const lastFrom = new Date(year, month - 2, 1);
   const lastTo = from;
 
-  const [current, last, monthlyRevenue, weeklyOrders, remainingStock] =
+  const [current, last, monthlyRevenue, weeklyOrders, remainingStock, negativeStockUnits] =
     await Promise.all([
       computePeriodStats(from, to),
       computePeriodStats(lastFrom, lastTo),
       getMonthlyRevenue(year),
       getWeeklyOrders(from, to),
       getRemainingStock(),
+      getNegativeStockUnits(),
     ]);
 
-  return { current, last, monthlyRevenue, weeklyOrders, remainingStock };
+  return { current, last, monthlyRevenue, weeklyOrders, remainingStock, negativeStockUnits };
 }

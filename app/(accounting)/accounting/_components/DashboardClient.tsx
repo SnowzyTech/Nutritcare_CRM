@@ -9,6 +9,7 @@ import {
   Plus, MessageCircle, ChevronLeft, ChevronRight, RotateCcw, ChevronDown, X,
 } from 'lucide-react';
 import Link from 'next/link';
+import { getFinancialSummaryForMonthAction } from '@/modules/finance/actions/dashboard.action';
 
 /* ── Fallback Mock Data ─────────────────────────────────────────────────── */
 
@@ -248,15 +249,38 @@ export function DashboardClient({
   const [activeRange, setActiveRange] = useState<'Daily' | 'Weekly' | 'Monthly'>('Monthly');
   const [selectedMonth, setSelectedMonth] = useState('This Month');
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  // Financial Summary data — starts from the server-rendered current month, then
+  // refetches when a specific month is chosen from the picker.
+  const [liveSummary, setLiveSummary] = useState(summary);
 
   useEffect(() => { setMounted(true); }, []);
 
-  const financialSummary = summary
+  useEffect(() => {
+    // 'This Month' → use the server-rendered current-month summary.
+    if (selectedMonth === 'This Month') {
+      setLiveSummary(summary);
+      return;
+    }
+    const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    const idx = monthNames.indexOf(selectedMonth);
+    if (idx === -1) return;
+    const now = new Date();
+    const month = idx + 1;
+    // A month name after the current month refers to last year's occurrence.
+    const year = month > now.getMonth() + 1 ? now.getFullYear() - 1 : now.getFullYear();
+    let cancelled = false;
+    getFinancialSummaryForMonthAction(month, year).then((res) => {
+      if (!cancelled && res) setLiveSummary(res);
+    });
+    return () => { cancelled = true; };
+  }, [selectedMonth, summary]);
+
+  const financialSummary = liveSummary
     ? [
-        { label: 'Total Revenue', value: fmtN(summary.totalRevenue), change: `${summary.revenueChangePct >= 0 ? '+' : ''}${summary.revenueChangePct}%`, isPositive: summary.revenueChangePct >= 0, subText: 'vs last month', highlight: 'default' as const },
-        { label: 'Net Profit', value: fmtN(summary.netProfit), change: `${summary.profitChangePct >= 0 ? '+' : ''}${summary.profitChangePct}%`, isPositive: summary.profitChangePct >= 0, subText: 'vs last month', highlight: 'purple' as const },
-        { label: 'Total Expenses', value: fmtN(summary.totalExpenses), change: `${summary.expenseChangePct >= 0 ? '+' : ''}${summary.expenseChangePct}%`, isPositive: summary.expenseChangePct <= 0, subText: 'vs last month', highlight: 'default' as const },
-        { label: 'Delivery Expenses', value: fmtN(summary.deliveryExpenses), change: `${summary.deliveryChangePct >= 0 ? '+' : ''}${summary.deliveryChangePct}%`, isPositive: summary.deliveryChangePct <= 0, subText: 'vs last month', highlight: 'default' as const },
+        { label: 'Total Revenue', value: fmtN(liveSummary.totalRevenue), change: `${liveSummary.revenueChangePct >= 0 ? '+' : ''}${liveSummary.revenueChangePct}%`, isPositive: liveSummary.revenueChangePct >= 0, subText: 'vs last month', highlight: 'default' as const },
+        { label: 'Net Profit', value: fmtN(liveSummary.netProfit), change: `${liveSummary.profitChangePct >= 0 ? '+' : ''}${liveSummary.profitChangePct}%`, isPositive: liveSummary.profitChangePct >= 0, subText: 'vs last month', highlight: 'purple' as const },
+        { label: 'Total Expenses', value: fmtN(liveSummary.totalExpenses), change: `${liveSummary.expenseChangePct >= 0 ? '+' : ''}${liveSummary.expenseChangePct}%`, isPositive: liveSummary.expenseChangePct <= 0, subText: 'vs last month', highlight: 'default' as const },
+        { label: 'Delivery Expenses', value: fmtN(liveSummary.deliveryExpenses), change: `${liveSummary.deliveryChangePct >= 0 ? '+' : ''}${liveSummary.deliveryChangePct}%`, isPositive: liveSummary.deliveryChangePct <= 0, subText: 'vs last month', highlight: 'default' as const },
         { label: 'Tax Payable', value: '24%', change: '', isPositive: true, subText: '', highlight: 'default' as const },
       ]
     : fallbackFinancialSummary;

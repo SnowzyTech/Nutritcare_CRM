@@ -1607,10 +1607,25 @@ export async function updateProductCategoryAction(
 export async function deleteWarehouseAction(id: string): Promise<{ error?: string }> {
   await requireAuth();
   try {
-    await prisma.warehouse.update({
-      where: { id },
-      data: { deletedAt: new Date() },
+    // Block deletion while the warehouse still holds real (positive) stock, and
+    // clean up any leftover zero/negative rows on delete so nothing gets
+    // orphaned (this is how the ONDO warehouse left stranded negative balances).
+    const rows = await prisma.stockLevel.findMany({
+      where: { locationKind: "WAREHOUSE", locationId: id },
+      select: { quantity: true },
     });
+    const positiveUnits = rows.reduce((sum, r) => sum + Math.max(0, r.quantity), 0);
+
+    if (positiveUnits > 0) {
+      return {
+        error: `Cannot delete this warehouse — it still holds ${positiveUnits.toLocaleString()} units of stock. Move or write off the stock before deleting.`,
+      };
+    }
+
+    await prisma.$transaction([
+      prisma.stockLevel.deleteMany({ where: { locationKind: "WAREHOUSE", locationId: id } }),
+      prisma.warehouse.update({ where: { id }, data: { deletedAt: new Date() } }),
+    ]);
   } catch (e) {
     return { error: "Failed to delete warehouse" };
   }
@@ -1635,6 +1650,33 @@ export async function deleteProductCategoryAction(id: string): Promise<{ error?:
 export async function deleteProductAction(id: string): Promise<{ error?: string }> {
   await requireAuth();
   try {
+    // Hard-block deletion while the product still has stock in ANY location —
+    // warehouses, agents, or unassigned. A product must reach zero stock
+    // everywhere before it can be deleted, so physical units never get orphaned.
+    const byKind = await prisma.stockLevel.groupBy({
+      by: ["locationKind"],
+      where: { productId: id },
+      _sum: { quantity: true },
+    });
+    const kindQty = (kind: string) =>
+      byKind.find((k) => k.locationKind === kind)?._sum.quantity ?? 0;
+    const warehouseQty = kindQty("WAREHOUSE");
+    const agentQty = kindQty("AGENT");
+    const otherQty = byKind
+      .filter((k) => k.locationKind !== "WAREHOUSE" && k.locationKind !== "AGENT")
+      .reduce((s, k) => s + (k._sum.quantity ?? 0), 0);
+    const remaining = warehouseQty + agentQty + otherQty;
+
+    if (remaining > 0) {
+      const parts: string[] = [];
+      if (warehouseQty > 0) parts.push(`${warehouseQty.toLocaleString()} in warehouses`);
+      if (agentQty > 0) parts.push(`${agentQty.toLocaleString()} with agents`);
+      if (otherQty > 0) parts.push(`${otherQty.toLocaleString()} unassigned`);
+      return {
+        error: `Cannot delete this product — it still has ${remaining.toLocaleString()} units in stock (${parts.join(", ")}). Move or write off the remaining stock before deleting.`,
+      };
+    }
+
     await prisma.product.update({
       where: { id },
       data: { deletedAt: new Date() },

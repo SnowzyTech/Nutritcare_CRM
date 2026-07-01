@@ -368,10 +368,19 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
     );
   }
 
-  function handleAction(action: () => Promise<void>, successMsg?: string) {
+  function handleAction(
+    action: () => Promise<void | { error?: string }>,
+    successMsg?: string,
+  ) {
     startTransition(async () => {
       try {
-        await action();
+        const res = await action();
+        // Actions that return { error } (production-safe pattern) surface it here;
+        // actions that throw are handled by the catch below.
+        if (res && typeof res === "object" && "error" in res && res.error) {
+          toast.error(res.error);
+          return;
+        }
         if (successMsg) toast.success(successMsg);
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Action failed");
@@ -387,7 +396,8 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
           productId: r.productId,
           quantity: parseInt(r.qty) || 1,
         }));
-      await addOrderItemsAction(order.id, items);
+      const res = await addOrderItemsAction(order.id, items);
+      if (res?.error) return res; // surface error, skip the UI updates below
       // Added items increase both gross and net by the same amount, so bump the
       // negotiated-price input to keep any existing discount intact.
       const added = productRows
@@ -1213,10 +1223,15 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
             <button
               disabled={isPending || !selectedAgentId}
               onClick={() =>
-                handleAction(async () => {
-                  await reassignOrderAgentAction(order.id, selectedAgentId);
+                startTransition(async () => {
+                  const res = await reassignOrderAgentAction(order.id, selectedAgentId);
+                  if (res?.error) {
+                    toast.error(res.error);
+                    return;
+                  }
                   setIsReassignOpen(false);
-                }, "Agent reassigned successfully")
+                  toast.success("Agent reassigned successfully");
+                })
               }
               className="w-full bg-purple-600 text-white py-4 rounded-2xl text-[1rem] font-black hover:bg-purple-700 transition-all shadow-lg shadow-purple-100 flex items-center justify-center gap-2 disabled:opacity-50"
             >
