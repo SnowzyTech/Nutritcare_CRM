@@ -972,7 +972,7 @@ export async function addSupplierAction(
   });
 
   revalidatePath("/inventory/stock");
-  redirect("/inventory/stock");
+  redirect("/inventory/stock?tab=Suppliers");
 }
 
 // ── Add Agent ─────────────────────────────────────────────────────────────────
@@ -1036,7 +1036,7 @@ export async function addAgentAction(
   });
 
   revalidatePath("/inventory/stock");
-  redirect("/inventory/stock");
+  redirect("/inventory/stock?tab=Agents");
 }
 
 // ── Add Warehouse ─────────────────────────────────────────────────────────────
@@ -1091,7 +1091,7 @@ export async function addWarehouseAction(
   });
 
   revalidatePath("/inventory/stock");
-  redirect("/inventory/stock");
+  redirect("/inventory/stock?tab=Warehouse");
 }
 
 // ── Add Product Category ──────────────────────────────────────────────────────
@@ -1135,7 +1135,7 @@ export async function addProductCategoryAction(
   });
 
   revalidatePath("/inventory/stock");
-  redirect("/inventory/stock");
+  redirect("/inventory/stock?tab=Product%20Categories");
 }
 
 // ── Add Product ───────────────────────────────────────────────────────────────
@@ -1300,7 +1300,7 @@ export async function addProductAction(
   }
 
   revalidatePath("/inventory/stock");
-  redirect("/inventory/stock");
+  redirect("/inventory/stock?tab=Product");
 }
 
 export async function updateProductAction(
@@ -1413,7 +1413,7 @@ export async function updateProductAction(
 
     revalidatePath("/inventory/stock");
     revalidatePath(`/inventory/stock/product/${id}`);
-    redirect("/inventory/stock");
+    redirect(`/inventory/stock/product/${id}`);
   } catch (e) {
     if (e instanceof Error && e.message === "NEXT_REDIRECT") throw e;
     console.error("updateProductAction error:", e);
