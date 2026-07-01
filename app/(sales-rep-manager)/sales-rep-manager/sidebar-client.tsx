@@ -14,6 +14,7 @@ import {
   ChevronRight,
   Menu,
   MessageCircle,
+  ArrowLeftRight,
 } from "lucide-react";
 import { logoutAction } from "@/modules/auth/actions/logout.action";
 
@@ -77,6 +78,34 @@ function SidebarNavLink({
   );
 }
 
+/* ─── Mobile bottom tab link ─── */
+function BottomTabLink({
+  href,
+  icon: Icon,
+  label,
+  isActive,
+}: {
+  href: string;
+  icon: React.ElementType;
+  label: string;
+  isActive: boolean;
+}) {
+  return (
+    <Link
+      href={href}
+      className={`flex flex-col items-center justify-center gap-0.5 flex-1 py-2 transition-colors relative ${
+        isActive ? "text-white" : "text-purple-300"
+      }`}
+    >
+      {isActive && (
+        <span className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-[3px] rounded-full bg-[#A020F0]" />
+      )}
+      <Icon size={20} strokeWidth={isActive ? 2.5 : 2} />
+      <span className="text-[10px] font-semibold">{label}</span>
+    </Link>
+  );
+}
+
 function SubItem({ href, label, isActive }: { href: string; label: string; isActive: boolean }) {
   return (
     <Link
@@ -124,22 +153,23 @@ export function SalesRepManagerSidebarClient({ userName, userRole, userAvatar }:
     `https://ui-avatars.com/api/?name=${encodeURIComponent(userName || "User")}&background=f3f4f6&color=6b7280`;
 
   return (
+    <>
     <aside
-      className={`h-screen bg-[#3B0069] border-r border-[#4A0080] flex flex-col shrink-0 z-20 overflow-y-auto no-scrollbar transition-all duration-300 ${
+      className={`h-screen bg-[#3B0069] border-r border-[#4A0080] hidden md:flex flex-col shrink-0 z-20 overflow-y-auto no-scrollbar transition-all duration-300 ${
         isCollapsed ? "w-20" : "w-[248px]"
       }`}
     >
       {/* Logo + Hamburger toggle */}
       <div className={`py-8 flex items-center ${isCollapsed ? "justify-center px-0" : "justify-between px-6"}`}>
         {!isCollapsed && (
-          <div className="relative h-10 w-24">
+          <div className="relative h-10 w-28">
             <Image
-              src="/nuycle-logo.png"
+              src="/white-nuycle.jpg"
               alt="Nuycle Logo"
               fill
-              className="object-contain object-left"
+              className="object-contain object-left mix-blend-screen"
               priority
-              sizes="100px"
+              sizes="112px"
             />
           </div>
         )}
@@ -256,5 +286,51 @@ export function SalesRepManagerSidebarClient({ userName, userRole, userAvatar }:
         </form>
       </div>
     </aside>
+
+    {/* ══════════════ Mobile Bottom Nav (visible only on small screens) ══════════════ */}
+    <nav className="fixed bottom-0 left-0 right-0 z-50 md:hidden bg-[#3B0069] border-t border-[#4A0080] shadow-[0_-4px_20px_rgba(0,0,0,0.15)]">
+      <div className="flex items-stretch justify-around h-16 px-1">
+        <BottomTabLink
+          href="/sales-rep-manager"
+          icon={Users}
+          label="Reps"
+          isActive={isRepsActive && !isAnalyticsActive}
+        />
+        <BottomTabLink
+          href="/sales-rep-manager/orders"
+          icon={ClipboardList}
+          label="Orders"
+          isActive={isOrdersActive && !isOrderAssignmentActive}
+        />
+        <BottomTabLink
+          href="/sales-rep-manager/order-assignment"
+          icon={ArrowLeftRight}
+          label="Assign"
+          isActive={isOrderAssignmentActive}
+        />
+        <BottomTabLink
+          href="/sales-rep-manager/analytics"
+          icon={BarChart3}
+          label="Analytics"
+          isActive={isAnalyticsActive}
+        />
+        <BottomTabLink
+          href="/sales-rep-manager/history"
+          icon={Clock}
+          label="History"
+          isActive={isHistoryActive}
+        />
+        <form action={logoutAction} className="flex-1 flex">
+          <button
+            type="submit"
+            className="flex flex-col items-center justify-center gap-0.5 flex-1 py-2 text-purple-300 transition-colors"
+          >
+            <LogOut size={20} strokeWidth={2} />
+            <span className="text-[10px] font-semibold">Logout</span>
+          </button>
+        </form>
+      </div>
+    </nav>
+    </>
   );
 }

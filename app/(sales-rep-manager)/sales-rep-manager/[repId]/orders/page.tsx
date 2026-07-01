@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { getSalesRepById } from "@/modules/users/services/users.service";
 import { getSalesRepOrders } from "@/modules/orders/services/orders.service";
+import { getActiveProducts } from "@/modules/orders/services/products.service";
 import { OrdersClient, type OrderListItem } from "./orders-client";
 
 export const dynamic = "force-dynamic";
@@ -15,7 +16,11 @@ export default async function RepOrdersPage({
 
   if (!rep) notFound();
 
-  const dbOrders = await getSalesRepOrders(repId);
+  const [dbOrders, allProducts] = await Promise.all([
+    getSalesRepOrders(repId),
+    getActiveProducts(),
+  ]);
+  const products = allProducts.map(p => p.name);
 
   const orders: OrderListItem[] = dbOrders.map(o => ({
     id: o.id,
@@ -25,6 +30,8 @@ export default async function RepOrdersPage({
     agent: o.agent ? { name: o.agent.companyName, state: o.agent.state ?? "" } : null,
     product: o.items[0]?.product.name ?? "—",
     qty: o.items.reduce((sum, i) => sum + i.quantity, 0),
+    isReorder: o.isReorder,
+    itemNames: o.items.map(i => i.product.name),
     date: o.createdAt.toISOString().split("T")[0],
   }));
 
@@ -37,5 +44,5 @@ export default async function RepOrdersPage({
     failed: orders.filter(o => o.status === "FAILED").length,
   };
 
-  return <OrdersClient repId={repId} repName={rep.name} orders={orders} counts={counts} />;
+  return <OrdersClient repId={repId} repName={rep.name} orders={orders} counts={counts} products={products} />;
 }

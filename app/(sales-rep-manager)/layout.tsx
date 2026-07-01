@@ -27,21 +27,26 @@ export default async function SalesRepManagerLayout({
         userAvatar={userRecord?.avatarUrl ?? undefined}
       />
       <div className="flex flex-col flex-1 overflow-hidden relative">
-        <header className="absolute top-0 right-0 left-0 h-20 px-8 flex justify-between items-center z-10 pointer-events-none">
+        <header className="absolute top-0 right-0 left-0 h-16 md:h-20 px-4 md:px-8 flex justify-between items-center z-10 pointer-events-none">
           <div></div>
-          <div className="flex items-center gap-4 pointer-events-auto">
+          <div className="flex items-center gap-3 md:gap-4 pointer-events-auto">
             <Link
               href="/sales-rep"
-              className="bg-gray-900 text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-gray-800 transition flex items-center gap-2"
+              className="bg-gray-900 text-white px-3 md:px-4 py-2 rounded-xl text-xs md:text-sm font-semibold hover:bg-gray-800 transition flex items-center gap-2"
             >
-              ← Sales Rep Mode
+              ← <span className="hidden sm:inline">Sales Rep Mode</span>
+              <span className="sm:hidden">Rep Mode</span>
             </Link>
-            <button className="w-10 h-10 bg-purple-100 text-[#A020F0] rounded-full flex items-center justify-center hover:bg-purple-200 transition">
+            <Link
+              href="/chat"
+              className="w-9 h-9 md:w-10 md:h-10 bg-purple-100 text-[#A020F0] rounded-full flex items-center justify-center hover:bg-purple-200 transition"
+              title="Chat"
+            >
               <MessageSquare size={18} fill="currentColor" />
-            </button>
+            </Link>
           </div>
         </header>
-        <main className="flex-1 overflow-y-auto p-8">{children}</main>
+        <main className="flex-1 overflow-y-auto p-4 pt-20 md:p-8 pb-24 md:pb-8">{children}</main>
       </div>
     </div>
   );

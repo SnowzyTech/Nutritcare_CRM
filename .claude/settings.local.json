@@ -93,7 +93,9 @@
       "Bash(wait)",
       "PowerShell(npx tsc --noEmit; \"EXIT=$LASTEXITCODE\")",
       "Bash(rm -f scripts/negative-stock-report.ts scripts/negative-stock-history.ts scripts/negative-stock-meta.ts scripts/ondo-manager.ts scripts/cleanup-ondo-orphans.ts scripts/test-advisory-lock.ts scripts/test-reservation-level1.ts)",
-      "Bash(ls scripts/)"
+      "Bash(ls scripts/)",
+      "PowerShell($out = npx tsc --noEmit 2>&1; $srm = $out | Select-String -Pattern \"sales-rep-manager|users.service|analytics.service\"; if \\($srm\\) { $srm } else { \"NO ERRORS in changed areas\" }; \"---TOTAL error TS LINES---\"; \\($out | Select-String -Pattern \"error TS\"\\).Count)",
+      "PowerShell($out = npx tsc --noEmit 2>&1; $srm = $out | Select-String -Pattern \"sales-rep|analytics|bonus\"; if \\($srm\\) { $srm } else { \"NO ERRORS in changed areas\" }; \"---TOTAL error TS LINES---\"; \\($out | Select-String -Pattern \"error TS\"\\).Count)"
     ]
   }
 }

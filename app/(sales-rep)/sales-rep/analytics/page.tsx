@@ -2,6 +2,7 @@ import { auth } from "@/lib/auth/auth";
 import { redirect } from "next/navigation";
 import { getSalesRepAnalytics } from "@/modules/orders/services/analytics.service";
 import type { MonthMetrics, Period } from "@/modules/orders/services/analytics.service";
+import { calculateBonus, KPI_TARGET } from "@/lib/bonus";
 import { PeriodFilter } from "./period-filter";
 import { AnalyticsReportButtons } from "./report-buttons";
 import type { Metadata } from "next";
@@ -14,8 +15,6 @@ function pctDelta(current: number, last: number | null): string {
   const pct = Math.round(((current - last) / last) * 100);
   return pct >= 0 ? `+${pct}%` : `${pct}%`;
 }
-
-const KPI_TARGET = 65; // 65% delivery rate target
 
 function KPICard({
   label,
@@ -45,39 +44,6 @@ function KPICard({
       </div>
     </div>
   );
-}
-
-// Weekly bonus tiers based on KPI (delivered/total)
-function calculateWeeklyBonus(kpi: number, totalOrders: number, period: Period): { amount: number; eligible: boolean; reason?: string } {
-  // Minimum orders required: 180/week or 30/day equivalent for month
-  const minOrdersWeek = 180;
-  const minOrdersMonth = 30 * 4 * 6; // ~720 orders/month (30/day * 4 weeks * 6 days)
-
-  const minRequired = period === "week" ? minOrdersWeek : minOrdersMonth;
-
-  if (totalOrders < minRequired) {
-    return {
-      amount: 0,
-      eligible: false,
-      reason: `Need ${minRequired} orders (${totalOrders} handled)`
-    };
-  }
-
-  if (kpi < 70) {
-    return {
-      amount: 0,
-      eligible: false,
-      reason: "KPI below 70%"
-    };
-  }
-
-  if (kpi >= 90) {
-    return { amount: 50000, eligible: true };
-  } else if (kpi >= 80) {
-    return { amount: 35000, eligible: true };
-  } else { // 70-79%
-    return { amount: 20000, eligible: true };
-  }
 }
 
 function WeeklyBonusCard({
@@ -243,7 +209,7 @@ export default async function AnalyticsPage(props: {
       <div className="flex flex-col sm:flex-row gap-4 items-stretch">
         {(() => {
           const kpiMet = cur.kpi >= KPI_TARGET;
-          const bonus = calculateWeeklyBonus(cur.kpi, cur.totalOrders, period);
+          const bonus = calculateBonus(cur.kpi, cur.totalOrders, period);
           return (
             <>
               <div className={`rounded-xl p-6 text-white w-full sm:max-w-xs flex flex-col justify-between ${

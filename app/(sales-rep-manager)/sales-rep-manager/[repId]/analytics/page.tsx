@@ -1,6 +1,9 @@
 import { notFound } from "next/navigation";
 import { getSalesRepById, getSalesRepAnalytics } from "@/modules/users/services/users.service";
 import { getTeamOrders } from "@/modules/orders/services/orders.service";
+import { monthRanges, parseMonthParam, monthLabel } from "@/lib/month-period";
+import { calculateBonus } from "@/lib/bonus";
+import { MonthSelect } from "@/app/(sales-rep)/sales-rep/analytics/month-select";
 import { AnalyticsDashboardClient, AnalyticsData } from "../../analytics/analytics-dashboard-client";
 
 export const dynamic = "force-dynamic";
@@ -40,23 +43,38 @@ function computeProductTables(orders: Array<{
 
 export default async function RepAnalyticsPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ repId: string }>;
+  searchParams: Promise<{ month?: string }>;
 }) {
   const { repId } = await params;
+  const { month } = await searchParams;
+  const period = parseMonthParam(month);
   const rep = await getSalesRepById(repId);
 
   if (!rep) notFound();
 
   const [analytics, dbOrders] = await Promise.all([
-    getSalesRepAnalytics(repId),
+    getSalesRepAnalytics(repId, period),
     getTeamOrders([repId]),
   ]);
 
   const { current, trends } = analytics;
-  const tables = computeProductTables(dbOrders);
+
+  // Scope the product tables to the selected month so they match the stat cards
+  // (which are month-scoped) and the sales-rep portal.
+  const { currentStart, currentEnd } = monthRanges(period);
+  const monthOrders = dbOrders.filter(
+    o => o.createdAt >= currentStart && o.createdAt <= currentEnd
+  );
+  const tables = computeProductTables(monthOrders);
+
+  const ml = monthLabel(period);
+  const periodText = ml === "This Month" ? "this month" : `in ${ml}`;
 
   const data: AnalyticsData = {
+    monthLabel: periodText,
     totalProductsSold: {
       value: String(current.totalProductsSold),
       trend: trends.totalProductsSold,
@@ -67,7 +85,7 @@ export default async function RepAnalyticsPage({
     },
     bestSellingProduct: {
       name: current.bestProduct?.name ?? "—",
-      subtitle: "this month",
+      subtitle: periodText,
     },
     generalPerformance: {
       value: `${current.generalPerformance}%`,
@@ -91,7 +109,18 @@ export default async function RepAnalyticsPage({
     },
     recoveryRate: { value: `${current.recoveryRate}%`, trend: trends.recoveryRate },
     reorderRate: { value: `${current.reorderRate}%`, trend: trends.reorderRate },
-    kpi: { value: `${current.kpi}%`, trend: trends.kpi, target: "65%" },
+    kpi: {
+      value: `${current.kpi}%`,
+      trend: trends.kpi,
+      target: "65%",
+      delivered: current.delivered,
+      handled: current.total,
+    },
+    bonus: {
+      ...calculateBonus(current.kpi, current.total, "month"),
+      kpi: current.kpi,
+      periodLabel: "Monthly",
+    },
     bestSellingTable: tables.bestSellingTable,
     upsellingTable: tables.upsellingTable,
   };
@@ -104,6 +133,7 @@ export default async function RepAnalyticsPage({
         repTeam: rep.team?.name ?? "No Team",
       }}
       data={data}
+      monthSelector={<MonthSelect />}
     />
   );
 }

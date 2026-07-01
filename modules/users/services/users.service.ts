@@ -26,7 +26,8 @@ function computeRepMetrics(orders: Array<{
   const reorders = orders.filter(o => o.isReorder).length;
 
   const confirmationRate = total > 0 ? Math.round((attemptedDelivery / total) * 100) : 0;
-  const deliveryRate = attemptedDelivery > 0 ? Math.round((delivered / attemptedDelivery) * 100) : 0;
+  // Delivery Rate mirrors the KPI (delivered / total orders handled), matching the sales-rep portal.
+  const deliveryRate = kpiScore(delivered, total);
   const recoveryRate = deliveryAttempted > 0 ? Math.round((delivered / deliveryAttempted) * 100) : 0;
   const cancellationRate = total > 0 ? Math.round((cancelled / total) * 100) : 0;
   const reorderRate = total > 0 ? Math.round((reorders / total) * 100) : 0;
@@ -38,13 +39,16 @@ function computeRepMetrics(orders: Array<{
   const upsellRate = total > 0 ? Math.round((multiItemOrders / total) * 100) : 0;
 
   // Weighted general performance + KPI, shared with the sales-rep portal.
-  const generalPerformance = generalPerformanceScore({
-    deliveryRate,
-    recoveryRate,
-    upsellRate,
-    reorderRate,
-    cancellationRate,
-  });
+  // No orders handled → no performance (avoid the low-cancellation baseline).
+  const generalPerformance = total > 0
+    ? generalPerformanceScore({
+        deliveryRate,
+        recoveryRate,
+        upsellRate,
+        reorderRate,
+        cancellationRate,
+      })
+    : 0;
   const kpi = kpiScore(delivered, total);
 
   const deliveredOrders = orders.filter(o => o.status === "DELIVERED");
@@ -502,6 +506,7 @@ export async function getTeamAnalytics(teamId: string, period?: MonthPeriod) {
       },
       tables: { bestSellingTable: [], upsellingTable: [] },
       reportMetrics: toReportMetrics([]),
+      memberCount: 0,
     };
   }
 
@@ -539,6 +544,7 @@ export async function getTeamAnalytics(teamId: string, period?: MonthPeriod) {
     },
     tables,
     reportMetrics: toReportMetrics(thisMonthOrders),
+    memberCount: members.length,
   };
 }
 

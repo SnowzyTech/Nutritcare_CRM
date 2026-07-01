@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
-import { Search, SlidersHorizontal, ArrowUpDown, ChevronLeft, ChevronDown, CalendarDays, ArrowLeftRight, X } from "lucide-react";
+import { Search, SlidersHorizontal, ArrowUpDown, ChevronLeft, ChevronDown, CalendarDays, ArrowLeftRight, X, RotateCcw } from "lucide-react";
 import type { TeamOrderListItem, OrderCounts } from "../orders/team-orders-client";
 import { reassignOrdersAction } from "@/modules/orders/actions/orders.action";
 import { formatDate } from "@/lib/utils";
@@ -69,7 +69,7 @@ export function OrderAssignmentClient({ orders, counts, salesReps, products = []
   // Full catalog when provided; otherwise fall back to products seen in the orders.
   const uniqueProducts = useMemo(() => {
     if (products.length > 0) return products;
-    return Array.from(new Set(orders.map(o => o.product).filter(Boolean))).sort();
+    return Array.from(new Set(orders.flatMap(o => o.itemNames).filter(Boolean))).sort();
   }, [products, orders]);
 
   const filteredOrders = useMemo(() => {
@@ -79,7 +79,7 @@ export function OrderAssignmentClient({ orders, counts, salesReps, products = []
       const ymd = toYMD(dateValue);
       result = result.filter(o => o.date === ymd);
     }
-    if (productFilter) result = result.filter(o => o.product === productFilter);
+    if (productFilter) result = result.filter(o => o.itemNames.includes(productFilter));
     if (stateFilter) result = result.filter(o => o.agent?.state === stateFilter);
 
     const q = searchQuery.trim().toLowerCase();
@@ -248,24 +248,85 @@ export function OrderAssignmentClient({ orders, counts, salesReps, products = []
           })}
         </div>
 
-        <div className="ml-auto relative">
+        <div className="w-full sm:w-auto sm:ml-auto relative">
           <input
             type="text"
             placeholder="search"
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
-            className="pl-10 pr-4 py-2 bg-white border border-gray-200 rounded-lg text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-100 w-48 transition-all"
+            className="pl-10 pr-4 py-2 bg-white border border-gray-200 rounded-lg text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-100 w-full sm:w-48 transition-all"
           />
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
         </div>
       </div>
 
-      {/* Table */}
-      <div className="bg-[#FAFAFA] rounded-2xl border border-gray-100 overflow-x-auto mb-8">
-        {filteredOrders.length === 0 ? (
-          <div className="py-20 text-center text-gray-400 text-sm bg-white">No orders found.</div>
-        ) : (
-          <table className="w-full min-w-[900px] text-sm text-left">
+      {/* List */}
+      {filteredOrders.length === 0 ? (
+        <div className="bg-white rounded-2xl border border-gray-100 py-20 text-center text-gray-400 text-sm mb-8">No orders found.</div>
+      ) : (
+        <>
+          {/* ── Mobile Card List (visible on small screens) ── */}
+          <div className="flex flex-col gap-3 md:hidden mb-8">
+            {filteredOrders.map(order => {
+              const style = STATUS_STYLES[order.status as OrderStatus];
+              const isSelected = selectedOrders.has(order.id);
+              return (
+                <div
+                  key={order.id}
+                  onClick={() => toggleOrderSelection(order.id)}
+                  className={`bg-white rounded-xl p-4 border shadow-sm active:bg-gray-50 transition-colors cursor-pointer ${
+                    isSelected ? "border-[#A020F0] ring-1 ring-[#A020F0]" : "border-gray-100"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${style?.dot}`} />
+                      <span className="text-sm font-bold text-gray-900 truncate">{order.name}</span>
+                      {order.isReorder && (
+                        <span className="inline-flex items-center gap-0.5 bg-purple-100 text-[#532194] text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0">
+                          <RotateCcw size={8} /> Re
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {style && (
+                        <span className={`${style.bg} ${style.text} text-[10px] font-bold px-2.5 py-1 rounded-full`}>
+                          {style.label}
+                        </span>
+                      )}
+                      <div
+                        className={`w-5 h-5 rounded-full border-[1.5px] flex items-center justify-center transition-colors ${
+                          isSelected ? "border-[#A020F0] bg-[#A020F0]" : "border-gray-300 bg-white"
+                        }`}
+                      >
+                        {isSelected && <div className="w-2 h-2 bg-white rounded-full" />}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-y-1.5 gap-x-3 text-xs text-gray-500">
+                    <div className="truncate col-span-2"><span className="text-gray-400">Email:</span> {order.email}</div>
+                    <div className="truncate flex items-center gap-1">
+                      <span className="text-gray-400">Product:</span>{" "}
+                      <span className="text-gray-700 font-medium truncate">{order.product}</span>
+                      {order.itemNames.length > 1 && (
+                        <span className="shrink-0 inline-flex items-center bg-purple-100 text-[#532194] text-[9px] font-bold px-1 py-0.5 rounded-full">
+                          +{order.itemNames.length - 1}
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-right"><span className="text-gray-400">Qty:</span> <span className="text-gray-700 font-medium">{order.qty}</span></div>
+                    <div className="truncate"><span className="text-gray-400">Sales Rep:</span> {order.salesRep}</div>
+                    <div className="text-right"><span className="text-gray-400">Date:</span> {formatDate(order.date)}</div>
+                    <div className="truncate col-span-2"><span className="text-gray-400">Agent:</span> {order.agent ? `${order.agent.name} (${order.agent.state})` : "—"}</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* ── Desktop Table (hidden on small screens) ── */}
+          <div className="hidden md:block bg-[#FAFAFA] rounded-2xl border border-gray-100 overflow-x-auto mb-8">
+            <table className="w-full min-w-[900px] text-sm text-left">
             <thead>
               <tr className="bg-[#F8F7FB] border-b border-gray-100">
                 <th className="pl-10 pr-6 py-4 font-bold text-gray-500 text-sm w-16">G-Mail</th>
@@ -297,9 +358,18 @@ export function OrderAssignmentClient({ orders, counts, salesReps, products = []
                       </div>
                     </td>
                     <td className="px-6 py-4 text-gray-500 font-medium whitespace-nowrap">
-                      {order.name.split(" ").map((word, i) => (
-                        <div key={i}>{word}</div>
-                      ))}
+                      <div className="flex items-start gap-2">
+                        <div>
+                          {order.name.split(" ").map((word, i) => (
+                            <div key={i}>{word}</div>
+                          ))}
+                        </div>
+                        {order.isReorder && (
+                          <span className="inline-flex items-center gap-1 bg-purple-100 text-[#532194] text-[10px] font-bold px-2 py-0.5 rounded-full mt-0.5">
+                            <RotateCcw size={10} /> Reorder
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-6 py-4 text-gray-500">
                       {order.agent ? (
@@ -316,7 +386,19 @@ export function OrderAssignmentClient({ orders, counts, salesReps, products = []
                         <div key={i}>{word}</div>
                       ))}
                     </td>
-                    <td className="px-6 py-4 text-gray-500 font-medium">{order.product}</td>
+                    <td className="px-6 py-4 text-gray-500 font-medium">
+                      <div className="flex items-center gap-1.5">
+                        <span className="truncate max-w-[160px]">{order.product}</span>
+                        {order.itemNames.length > 1 && (
+                          <span
+                            title={order.itemNames.join(", ")}
+                            className="shrink-0 inline-flex items-center bg-purple-100 text-[#532194] text-[10px] font-bold px-1.5 py-0.5 rounded-full"
+                          >
+                            +{order.itemNames.length - 1}
+                          </span>
+                        )}
+                      </div>
+                    </td>
                     <td className="px-6 py-4 text-center text-gray-500 font-medium">{order.qty}</td>
                     <td className="px-6 py-4 text-right text-gray-500 font-medium whitespace-nowrap">
                       {formatDate(order.date)}
@@ -335,14 +417,15 @@ export function OrderAssignmentClient({ orders, counts, salesReps, products = []
               })}
             </tbody>
           </table>
-        )}
-      </div>
+          </div>
+        </>
+      )}
 
       {/* Floating Re-Assign Button */}
       {selectedOrders.size > 0 && (
         <button
           onClick={() => setIsModalOpen(true)}
-          className="fixed bottom-10 right-10 bg-[#A020F0] hover:bg-[#8B2FE8] text-white px-6 py-3.5 rounded-xl font-bold shadow-[0_8px_30px_rgb(160,32,240,0.3)] transition-all flex items-center gap-3 z-30 transform hover:scale-105 active:scale-95"
+          className="fixed bottom-20 right-4 md:bottom-10 md:right-10 bg-[#A020F0] hover:bg-[#8B2FE8] text-white px-6 py-3.5 rounded-xl font-bold shadow-[0_8px_30px_rgb(160,32,240,0.3)] transition-all flex items-center gap-3 z-30 transform hover:scale-105 active:scale-95"
         >
           <ArrowLeftRight size={18} />
           Re-Assign {selectedOrders.size} Order{selectedOrders.size > 1 ? "s" : ""}
@@ -356,18 +439,18 @@ export function OrderAssignmentClient({ orders, counts, salesReps, products = []
           <div className="bg-white rounded-[24px] shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col relative z-10 overflow-hidden">
 
             {/* Modal Header */}
-            <div className="flex items-center justify-between p-8 border-b border-gray-100">
-              <h2 className="text-xl font-bold text-gray-500">
+            <div className="flex flex-wrap gap-4 items-center justify-between p-5 md:p-8 border-b border-gray-100">
+              <h2 className="text-lg md:text-xl font-bold text-gray-500">
                 {selectedOrders.size} order{selectedOrders.size > 1 ? "s" : ""} selected
               </h2>
-              <div className="flex items-center gap-6">
+              <div className="flex items-center gap-3 md:gap-6">
                 <div className="relative">
                   <input
                     type="text"
                     placeholder="search"
                     value={repSearchQuery}
                     onChange={e => setRepSearchQuery(e.target.value)}
-                    className="pl-10 pr-4 py-2 bg-[#FAFAFA] border-none rounded-xl text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-100 w-64 transition-all"
+                    className="pl-10 pr-4 py-2 bg-[#FAFAFA] border-none rounded-xl text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-100 w-40 sm:w-64 transition-all"
                   />
                   <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
                 </div>
@@ -381,8 +464,8 @@ export function OrderAssignmentClient({ orders, counts, salesReps, products = []
             </div>
 
             {/* Reps Grid */}
-            <div className="flex-1 overflow-y-auto p-8">
-              <div className="grid grid-cols-3 gap-6">
+            <div className="flex-1 overflow-y-auto p-5 md:p-8">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
                 {filteredReps.map(rep => {
                   const isRepSelected = selectedReps.has(rep.id);
                   return (
@@ -425,7 +508,7 @@ export function OrderAssignmentClient({ orders, counts, salesReps, products = []
             </div>
 
             {/* Selected Reps Footer */}
-            <div className="p-8 border-t border-gray-100 bg-white flex flex-col gap-6">
+            <div className="p-5 md:p-8 border-t border-gray-100 bg-white flex flex-col gap-6">
               <div className="flex items-center justify-between text-gray-500 text-sm font-semibold">
                 <span>Assign to</span>
                 <span>{selectedReps.size} Sales Rep{selectedReps.size !== 1 ? "s" : ""} Selected</span>

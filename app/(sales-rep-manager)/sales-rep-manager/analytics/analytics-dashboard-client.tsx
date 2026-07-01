@@ -3,6 +3,8 @@
 import React from "react";
 
 export interface AnalyticsData {
+  /** e.g. "this month" or "in July 2026" — used in period-specific labels. */
+  monthLabel: string;
   totalProductsSold: { value: string; trend: string };
   totalOrderCustomer: { value: string; trend: string };
   bestSellingProduct: { name: string; subtitle: string };
@@ -13,7 +15,24 @@ export interface AnalyticsData {
   cancellationRate: { value: string; trend: string };
   recoveryRate: { value: string; trend: string };
   reorderRate: { value: string; trend: string };
-  kpi: { value: string; trend: string; target: string };
+  kpi: {
+    value: string;
+    trend: string;
+    target: string;
+    /** KPI = delivered / handled — shown as substantiating context. */
+    delivered: number;
+    handled: number;
+  };
+  /** Monthly bonus derived from the KPI (see lib/bonus.ts). */
+  bonus: {
+    amount: number;
+    eligible: boolean;
+    reason?: string;
+    /** KPI % the bonus is based on. */
+    kpi: number;
+    /** "Monthly" / "Weekly" label. */
+    periodLabel: string;
+  };
   bestSellingTable: Array<{ product: string; amountSold: number }>;
   upsellingTable: Array<{ product: string; noOfUpsell: number }>;
 }
@@ -72,23 +91,106 @@ function BestSellingCard({ label, value, subtitle }: { label: string; value: str
   );
 }
 
-function KpiCard({ value, trend, target }: { value: string; trend: string; target: string }) {
+function KpiCard({
+  value,
+  trend,
+  target,
+  delivered,
+  handled,
+  monthLabel,
+}: {
+  value: string;
+  trend: string;
+  target: string;
+  delivered: number;
+  handled: number;
+  monthLabel: string;
+}) {
   const tone = trendTone(trend);
+  const kpiNum = parseInt(value, 10) || 0;
+  const targetNum = parseInt(target, 10) || 0;
+  const met = kpiNum >= targetNum;
   return (
-    <div className="bg-[#3B0069] rounded-[24px] p-6 text-white flex flex-col justify-between h-[150px]">
+    <div
+      className={`rounded-[24px] p-6 text-white flex flex-col justify-between min-h-[150px] ${
+        met ? "bg-[#3B0069]" : "bg-gradient-to-br from-red-500 to-red-600"
+      }`}
+    >
       <div className="flex justify-between items-start">
         <p className="text-sm font-bold">KPI</p>
         <div className="text-right">
-          <p className="text-[11px] text-purple-200">Target for the month:</p>
+          <p className={`text-[11px] ${met ? "text-purple-200" : "text-red-100"}`}>Target for the month:</p>
           <p className="text-lg font-bold">{target}</p>
         </div>
       </div>
-      <div className="flex justify-between items-end">
-        <p className="text-[52px] font-bold leading-none">{value}</p>
-        <p className="text-[11px] font-bold mb-2">
-          <span className={tone === "down" ? "text-red-300" : "text-white"}>{trend}</span>{" "}
-          <span className="text-purple-200 font-medium">vs last month</span>
+      <div>
+        <div className="flex justify-between items-end">
+          <p className="text-[52px] font-bold leading-none">{value}</p>
+          <p className="text-[11px] font-bold mb-2">
+            <span className={tone === "down" ? "text-red-300" : "text-white"}>{trend}</span>{" "}
+            <span className={`font-medium ${met ? "text-purple-200" : "text-red-100"}`}>vs last month</span>
+          </p>
+        </div>
+        <p className={`text-[11px] font-medium mt-2 ${met ? "text-purple-200" : "text-red-100"}`}>
+          {handled > 0
+            ? `${delivered} delivered of ${handled} handled ${monthLabel}${met ? "" : ` · need ${targetNum - kpiNum}% more`}`
+            : `No orders handled ${monthLabel}`}
         </p>
+      </div>
+    </div>
+  );
+}
+
+function BonusCard({
+  amount,
+  eligible,
+  reason,
+  kpi,
+  periodLabel,
+}: {
+  amount: number;
+  eligible: boolean;
+  reason?: string;
+  kpi: number;
+  periodLabel: string;
+}) {
+  return (
+    <div
+      className={`rounded-[24px] p-6 border flex flex-col justify-between min-h-[150px] ${
+        eligible ? "bg-[#FAF5FF] border-[#E9D5FF]" : "bg-gray-50 border-gray-200"
+      }`}
+    >
+      <div className="flex justify-between items-start">
+        <p className="text-sm font-bold text-gray-900">{periodLabel} Bonus</p>
+        {eligible && (
+          <span className="text-[10px] font-bold text-green-600 bg-green-100 px-2 py-0.5 rounded-full">
+            Eligible
+          </span>
+        )}
+      </div>
+      <div className="flex items-end justify-between">
+        {eligible ? (
+          <>
+            <p className="text-[32px] font-bold text-gray-800 leading-none tracking-tight">
+              ₦{amount.toLocaleString()}
+            </p>
+            <div className="text-right">
+              <p className="text-base font-bold text-green-500">{kpi}%</p>
+              <p className="text-[10px] font-bold text-gray-400">KPI</p>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="flex flex-col">
+              <span className="text-2xl font-bold text-gray-400 tracking-tight">Not Eligible</span>
+              {reason && <span className="text-[11px] text-gray-500 mt-1">{reason}</span>}
+            </div>
+            <div className="text-right">
+              <p className="text-base font-bold text-gray-400">{kpi}%</p>
+              <p className="text-[10px] font-bold text-gray-400">KPI</p>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -96,13 +198,13 @@ function KpiCard({ value, trend, target }: { value: string; trend: string; targe
 
 export function AnalyticsDashboardClient({ header, data, monthSelector, reportButtons }: AnalyticsDashboardClientProps) {
   return (
-    <div className="max-w-6xl mx-auto flex flex-col gap-10 pb-20">
+    <div className="max-w-6xl mx-auto flex flex-col gap-10 pb-20 md:pt-14">
 
       {/* Header */}
       {header.type === "rep" ? (
-        <div className="flex items-start justify-between gap-4">
+        <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="flex items-start gap-4">
-            <div className="w-16 h-16 rounded-full overflow-hidden shrink-0">
+            <div className="w-14 h-14 md:w-16 md:h-16 rounded-full overflow-hidden shrink-0">
               <img
                 src={`https://ui-avatars.com/api/?name=${encodeURIComponent(header.repName || "")}&background=f3f4f6&color=6b7280`}
                 alt={header.repName}
@@ -110,8 +212,8 @@ export function AnalyticsDashboardClient({ header, data, monthSelector, reportBu
               />
             </div>
             <div>
-              <div className="flex items-center gap-4 mb-1">
-                <h1 className="text-[28px] font-bold text-gray-800 leading-tight">{header.repName}’s</h1>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mb-1">
+                <h1 className="text-2xl md:text-[28px] font-bold text-gray-800 leading-tight">{header.repName}’s</h1>
                 <div className="flex items-center gap-2">
                   <span className="text-gray-600 font-semibold text-sm">Manager Mode</span>
                   <span className="bg-[#F3E8FF] text-[#A020F0] text-[10px] uppercase font-bold px-2 py-0.5 rounded-md">
@@ -125,8 +227,8 @@ export function AnalyticsDashboardClient({ header, data, monthSelector, reportBu
           {monthSelector}
         </div>
       ) : (
-        <div className="flex items-center justify-between gap-4">
-          <h1 className="text-3xl font-bold text-gray-800">Team&apos;s Analytics</h1>
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <h1 className="text-2xl md:text-3xl font-bold text-gray-800">Team&apos;s Analytics</h1>
           {monthSelector}
         </div>
       )}
@@ -153,7 +255,21 @@ export function AnalyticsDashboardClient({ header, data, monthSelector, reportBu
 
         {/* Row 4 */}
         <StatCard label="Reorder Rate" value={data.reorderRate.value} trend={data.reorderRate.trend} />
-        <KpiCard value={data.kpi.value} trend={data.kpi.trend} target={data.kpi.target} />
+        <KpiCard
+          value={data.kpi.value}
+          trend={data.kpi.trend}
+          target={data.kpi.target}
+          delivered={data.kpi.delivered}
+          handled={data.kpi.handled}
+          monthLabel={data.monthLabel}
+        />
+        <BonusCard
+          amount={data.bonus.amount}
+          eligible={data.bonus.eligible}
+          reason={data.bonus.reason}
+          kpi={data.bonus.kpi}
+          periodLabel={data.bonus.periodLabel}
+        />
       </div>
 
       {/* Divider */}
