@@ -5,7 +5,15 @@ export async function getAllForms() {
   return prisma.form.findMany({
     where: { deletedAt: null },
     orderBy: { createdAt: "desc" },
-    select: { id: true, name: true, hits: true, orders: true, data: true, createdAt: true },
+    select: {
+      id: true,
+      name: true,
+      hits: true,
+      orders: true,
+      data: true,
+      createdAt: true,
+      createdBy: { select: { name: true, role: true } },
+    },
   });
 }
 

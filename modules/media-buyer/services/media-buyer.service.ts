@@ -9,8 +9,7 @@ import { prisma } from "@/lib/db/prisma";
  * unscoped `getAllForms()` in modules/admin/services/forms.service.ts.
  *
  * Metrics are now real and time-filterable:
- *  - views     → count of `FormView` rows (logged when the embedded iframe loads)
- *  - leads     → count of `Order` rows linked to the form (`Order.formId`)
+ * ed to the form (`Order.formId`)
  *  - delivered → those orders with status DELIVERED
  *  - conv %    → delivered ÷ leads
  * Orders placed before the `Order.formId` link existed are not attributed.

@@ -27,6 +27,19 @@ function copyToClipboard(text: string, label: string) {
   });
 }
 
+/* ─── Prettify a UserRole enum for display ─────────────────────── */
+function prettyRole(role?: string) {
+  if (!role) return "";
+  const map: Record<string, string> = { ADMIN: "Admin", MEDIA_BUYER: "Media Buyer" };
+  return (
+    map[role] ??
+    role
+      .split("_")
+      .map((w) => w[0] + w.slice(1).toLowerCase())
+      .join(" ")
+  );
+}
+
 /* ─── Action button variant ────────────────────────────────── */
 function ActionBtn({
   icon,
@@ -98,10 +111,21 @@ export default function FormsListClient({
   const [search, setSearch] = useState("");
   const [selectedForms, setSelectedForms] = useState<Set<string>>(new Set());
   const [selectAction, setSelectAction] = useState("");
+  const [page, setPage] = useState(1);
 
   const filtered = initialForms.filter((f) =>
     f.formName.toLowerCase().includes(search.toLowerCase())
   );
+
+  const PAGE_SIZE = 10;
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const pageItems = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+
+  // Reset to the first page whenever the search filter changes.
+  useEffect(() => {
+    setPage(1);
+  }, [search]);
 
   const toggleSelect = (id: string) => {
     setSelectedForms((prev) => {
@@ -268,7 +292,7 @@ export default function FormsListClient({
               : "No forms match your search."}
           </div>
         ) : (
-          filtered.map((form) => {
+          pageItems.map((form) => {
             const origin = typeof window !== "undefined" ? window.location.origin : "";
             const data = (form.data || {}) as Record<string, any>;
             const hasOptin = data.createOptinForm === "Yes";
@@ -299,6 +323,16 @@ export default function FormsListClient({
                 {/* Form name */}
                 <div className="space-y-1">
                   <p className="text-base font-extrabold text-slate-800 leading-tight">{form.formName}</p>
+                  {form.creatorName && (
+                    <p className="text-xs text-gray-500 font-medium flex flex-wrap items-center gap-1.5 pt-0.5">
+                      By <span className="font-bold text-slate-700">{form.creatorName}</span>
+                      {form.creatorRole && (
+                        <span className="text-[9px] font-bold uppercase tracking-wide bg-purple-100 text-purple-700 rounded px-1.5 py-0.5">
+                          {prettyRole(form.creatorRole)}
+                        </span>
+                      )}
+                    </p>
+                  )}
                   <p className="text-xs text-purple-600 font-bold cursor-pointer hover:underline leading-relaxed">
                     ({form.orders} Orders)
                   </p>
@@ -432,6 +466,43 @@ export default function FormsListClient({
               </div>
             );
           })
+        )}
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-center gap-1.5 pt-4">
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={currentPage === 1}
+              className="px-3 py-1.5 text-xs font-bold rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+            >
+              Prev
+            </button>
+            {Array.from({ length: totalPages }).map((_, i) => {
+              const n = i + 1;
+              const active = n === currentPage;
+              return (
+                <button
+                  key={n}
+                  onClick={() => setPage(n)}
+                  className={`w-8 h-8 text-xs font-bold rounded-lg border transition-colors cursor-pointer ${
+                    active
+                      ? "bg-purple-600 border-purple-600 text-white"
+                      : "bg-white border-gray-200 text-gray-600 hover:bg-gray-50"
+                  }`}
+                >
+                  {n}
+                </button>
+              );
+            })}
+            <button
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={currentPage === totalPages}
+              className="px-3 py-1.5 text-xs font-bold rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+            >
+              Next
+            </button>
+          </div>
         )}
       </div>
     </div>

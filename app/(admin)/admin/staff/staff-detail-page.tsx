@@ -22,9 +22,11 @@ type Props = {
   id: string;
   roleLabel: string;
   basePath: string;
+  /** Optional extra content rendered below the account controls (e.g. a media buyer's forms). */
+  extra?: React.ReactNode;
 };
 
-export default async function StaffDetailPage({ id, roleLabel, basePath }: Props) {
+export default async function StaffDetailPage({ id, roleLabel, basePath, extra }: Props) {
   const [member, warehouses] = await Promise.all([
     getStaffMemberById(id),
     getWarehousesList(),
@@ -141,6 +143,8 @@ export default async function StaffDetailPage({ id, roleLabel, basePath }: Props
         warehouses={member.role === "WAREHOUSE_MANAGER" ? warehouses : undefined}
         currentWarehouseId={member.warehouse?.id ?? null}
       />
+
+      {extra && <section className="mt-10">{extra}</section>}
     </div>
   );
 }

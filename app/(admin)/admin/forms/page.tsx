@@ -14,6 +14,8 @@ export default async function FormsPage() {
     hits: f.hits,
     orders: f.orders,
     data: f.data as Record<string, unknown>,
+    creatorName: f.createdBy?.name,
+    creatorRole: f.createdBy?.role,
   }));
   return <FormsListClient initialForms={forms} />;
 }
