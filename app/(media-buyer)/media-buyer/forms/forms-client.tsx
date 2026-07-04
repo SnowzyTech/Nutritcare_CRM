@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import {
   Search,
@@ -14,7 +15,7 @@ import {
   Check,
 } from "lucide-react";
 import type { MediaBuyerFormRow } from "@/modules/media-buyer/services/media-buyer.service";
-import { buildFormEmbedCodes } from "@/lib/forms/embed-codes";
+import { buildFormEmbedCodes, buildUpsellEmbedCode } from "@/lib/forms/embed-codes";
 
 const BRAND = "#8B2FE8";
 
@@ -134,6 +135,115 @@ function SolidBtn({ children, onClick }: { children: React.ReactNode; onClick?: 
       <Copy size={11} />
       {children}
     </button>
+  );
+}
+
+/* ── Upsell button → popover to preview / copy each upsell's embed code ─────
+   Rendered via a portal so it isn't clipped by the table's horizontal scroll. */
+function UpsellButton({
+  formId,
+  origin,
+  count,
+}: {
+  formId: string;
+  origin: string;
+  count: number;
+}) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const popRef = useRef<HTMLDivElement>(null);
+  const WIDTH = 288; // w-72
+
+  const toggle = () => {
+    if (!open && triggerRef.current) {
+      const r = triggerRef.current.getBoundingClientRect();
+      setCoords({ top: r.bottom + 8, left: Math.max(8, r.right - WIDTH) });
+    }
+    setOpen((o) => !o);
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (triggerRef.current?.contains(t) || popRef.current?.contains(t)) return;
+      setOpen(false);
+    };
+    const onScroll = () => setOpen(false);
+    document.addEventListener("mousedown", onDown);
+    window.addEventListener("scroll", onScroll, true);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      window.removeEventListener("scroll", onScroll, true);
+    };
+  }, [open]);
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={toggle}
+        className="inline-flex items-center gap-1.5 text-[11px] font-bold text-purple-700 bg-purple-100 hover:bg-purple-200 rounded-md px-2.5 py-1.5 transition-colors whitespace-nowrap cursor-pointer"
+      >
+        Upsell
+      </button>
+
+      {open &&
+        coords &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            ref={popRef}
+            style={{ position: "fixed", top: coords.top, left: coords.left, width: WIDTH }}
+            className="z-50 bg-white rounded-xl border border-slate-100 shadow-xl shadow-slate-200/60 p-3"
+          >
+            {count === 0 ? (
+              <p className="text-xs text-slate-400 text-center py-4">
+                No upsells configured for this form.
+              </p>
+            ) : (
+              <div className="space-y-2.5">
+                {Array.from({ length: count }).map((_, idx) => (
+                  <div key={idx} className="bg-slate-50 rounded-xl p-3 space-y-2 border border-slate-100">
+                    <span className="text-xs font-extrabold text-slate-700">Upsell {idx + 1}</span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => window.open(`/order-form/${formId}?tab=upsell&index=${idx}`, "_blank")}
+                        className="inline-flex items-center gap-1.5 text-[11px] font-bold text-purple-700 bg-purple-100 hover:bg-purple-200 rounded-md px-2.5 py-1.5 transition-colors cursor-pointer"
+                      >
+                        <Monitor size={11} /> Preview
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => copy(buildUpsellEmbedCode(formId, origin, idx), `Upsell ${idx + 1} form code`)}
+                        className="inline-flex items-center gap-1.5 text-[11px] font-bold text-white rounded-md px-2.5 py-1.5 transition-colors cursor-pointer hover:opacity-90"
+                        style={{ background: BRAND }}
+                      >
+                        <Copy size={11} /> Copy Upsell Form Code
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                router.push(`/media-buyer/forms/${formId}`);
+              }}
+              className="w-full text-center text-[11px] font-bold text-purple-600 hover:underline mt-2.5 cursor-pointer"
+            >
+              View all
+            </button>
+          </div>,
+          document.body
+        )}
+    </>
   );
 }
 
@@ -314,9 +424,7 @@ export default function MediaBuyerFormsClient({ rows }: { rows: MediaBuyerFormRo
                     <SoftBtn onClick={() => copy(c.orderIframe, "iFrame code")}>iFrame Code</SoftBtn>
                     <SolidBtn onClick={() => copy(c.formCode, "Form code")}>Form Code</SolidBtn>
                     <SoftBtn onClick={() => copy(f.id, "Form ID")}>Form ID</SoftBtn>
-                    <SoftBtn icon={false} onClick={() => window.open(`/order-form/${f.id}?tab=upsell&index=0`, "_blank")}>
-                      Upsell
-                    </SoftBtn>
+                    <UpsellButton formId={f.id} origin={origin} count={f.upsellCount} />
                   </div>
                 </div>
               );

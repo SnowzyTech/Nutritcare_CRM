@@ -29,6 +29,7 @@ export type MediaBuyerFormRow = {
   delivered: number;
   conversionPct: number; // delivered ÷ leads
   disabled: boolean;
+  upsellCount: number;
 };
 
 export type MediaBuyerDashboard = {
@@ -158,6 +159,9 @@ export async function getMyFormRows(
     const leads = leadsMap.get(f.id) ?? 0;
     const delivered = deliveredMap.get(f.id) ?? 0;
     const views = viewsMap.get(f.id) ?? 0;
+    const d = (f.data ?? {}) as Record<string, unknown>;
+    const upsellCount =
+      d.addUpsell === "Yes" && Array.isArray(d.upsellItems) ? d.upsellItems.length : 0;
     return {
       id: f.id,
       name: f.name,
@@ -168,6 +172,7 @@ export async function getMyFormRows(
       delivered,
       conversionPct: leads > 0 ? Math.round((delivered / leads) * 100) : 0,
       disabled: !!f.disabledAt,
+      upsellCount,
     };
   });
 }

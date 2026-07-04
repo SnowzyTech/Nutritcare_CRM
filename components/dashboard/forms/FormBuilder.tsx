@@ -580,6 +580,7 @@ export function FormBuilder({
     return defaultFormData;
   });
   const [saving, setSaving] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
 
   const updateField = (key: string, value: any) => {
     setFormData((prev) => ({ ...prev, [key]: value }));
@@ -975,7 +976,8 @@ export function FormBuilder({
           return;
         }
       }
-      router.push(basePath);
+      setToast(editId ? "Form updated" : "Form created");
+      setTimeout(() => router.push(basePath), 1200);
     } finally {
       setSaving(false);
     }
@@ -1038,6 +1040,14 @@ export function FormBuilder({
 
   return (
     <div className="bg-gray-50 min-h-screen pb-10">
+      {toast && (
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-slate-900 text-white px-5 py-3 rounded-xl shadow-2xl text-sm font-semibold">
+          <span className="w-5 h-5 rounded-full bg-emerald-500 text-slate-900 flex items-center justify-center font-bold text-xs">
+            ✓
+          </span>
+          {toast}
+        </div>
+      )}
       {/* Header */}
       <div className="px-6 py-6 flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-800">Welcome Back Linda</h1>
