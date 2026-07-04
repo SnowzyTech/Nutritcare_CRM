@@ -611,8 +611,9 @@ export async function approveAccount(id: string) {
       data: { accountActivationStatus: "APPROVED", isActive: true },
     });
     // Seat newly-activated internal staff into every agent group chat.
-    // (Delivery agents only belong to their own group, created with the agent.)
-    if (user.role !== "DELIVERY_AGENT") {
+    // (Delivery agents only belong to their own group, created with the agent.
+    //  Media buyers are external marketers — they don't belong in agent chats.)
+    if (user.role !== "DELIVERY_AGENT" && user.role !== "MEDIA_BUYER") {
       await addUserToAllAgentGroups(user.id, tx);
     }
     return user;

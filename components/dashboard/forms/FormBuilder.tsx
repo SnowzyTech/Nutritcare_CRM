@@ -433,10 +433,13 @@ export function FormBuilder({
   editId,
   initialData,
   products = [],
+  basePath = "/admin/forms",
 }: {
   editId?: string;
   initialData?: Record<string, unknown>;
   products?: ProductWithOffers[];
+  /** Where to return after a successful save (list page for the current dashboard). */
+  basePath?: string;
 } = {}) {
   const productOptions = products.map((p) => ({ label: p.name, value: p.id }));
   const defaultFormData = {
@@ -972,7 +975,7 @@ export function FormBuilder({
           return;
         }
       }
-      router.push("/admin/forms");
+      router.push(basePath);
     } finally {
       setSaving(false);
     }

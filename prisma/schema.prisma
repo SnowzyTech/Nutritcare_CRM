@@ -403,6 +403,7 @@ model Order {
   discountedAt    DateTime?
   contactMethod      ContactMethod?
   cancellationReason String?
+  formId          String?
   deliveries      Delivery[]
   invoices        Invoice[]
   items           OrderItem[]
@@ -410,6 +411,7 @@ model Order {
   customer        Customer    @relation(fields: [customerId], references: [id])
   salesRep        User        @relation("SalesRepOrders", fields: [salesRepId], references: [id])
   discountedBy    User?       @relation("DiscountedOrders", fields: [discountedById], references: [id])
+  form            Form?       @relation("FormOrders", fields: [formId], references: [id])
   pickPacks       PickPack[]
   messageRefs     MessageOrderRef[]
 
@@ -421,6 +423,7 @@ model Order {
   @@index([orderNumber])
   @@index([createdAt])
   @@index([discountedById])
+  @@index([formId])
   @@map("orders")
 }
 
@@ -1112,13 +1115,27 @@ model Form {
   orders      Int       @default(0)
   data        Json
   createdById String
+  disabledAt  DateTime?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   deletedAt   DateTime?
-  createdBy   User      @relation("FormCreatedBy", fields: [createdById], references: [id])
+  createdBy   User        @relation("FormCreatedBy", fields: [createdById], references: [id])
+  formOrders  Order[]     @relation("FormOrders")
+  formViews   FormView[]
 
   @@index([createdById])
   @@map("forms")
+}
+
+model FormView {
+  id        String   @id @default(cuid())
+  formId    String
+  createdAt DateTime @default(now())
+  form      Form     @relation(fields: [formId], references: [id], onDelete: Cascade)
+
+  @@index([formId])
+  @@index([createdAt])
+  @@map("form_views")
 }
 
 model JournalEntryRow {
@@ -1281,6 +1298,7 @@ enum UserRole {
   INVENTORY_MANAGER
   WAREHOUSE_MANAGER
   LOGISTICS_MANAGER
+  MEDIA_BUYER
 }
 
 enum AccountActivationStatus {

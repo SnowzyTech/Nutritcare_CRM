@@ -7,15 +7,35 @@ import {
   updateForm,
   softDeleteForm,
   duplicateForm,
+  getFormById,
+  setFormDisabled,
 } from "../services/forms.service";
 
 type ActionResult = { success: true } | { error: string };
 type CreateResult = { success: true; id: string } | { error: string };
 
-async function requireAdmin() {
+type Actor = { userId: string; role: "ADMIN" | "MEDIA_BUYER" };
+
+/** Both admins and media buyers may manage forms; everyone else is rejected. */
+async function requireFormActor(): Promise<Actor> {
   const session = await auth();
-  if (!session?.user?.id || session.user.role !== "ADMIN") throw new Error("Unauthorized");
-  return session.user.id;
+  const role = session?.user?.role;
+  if (!session?.user?.id || (role !== "ADMIN" && role !== "MEDIA_BUYER")) {
+    throw new Error("Unauthorized");
+  }
+  return { userId: session.user.id, role };
+}
+
+/** A media buyer may only mutate their own forms; an admin may mutate any. */
+async function assertCanMutate(id: string, actor: Actor) {
+  if (actor.role === "ADMIN") return;
+  const form = await getFormById(id);
+  if (!form || form.createdById !== actor.userId) throw new Error("Unauthorized");
+}
+
+function revalidateForms() {
+  revalidatePath("/admin/forms");
+  revalidatePath("/media-buyer/forms");
 }
 
 export async function createFormAction(
@@ -23,10 +43,10 @@ export async function createFormAction(
   data: Record<string, unknown>
 ): Promise<CreateResult> {
   try {
-    const userId = await requireAdmin();
+    const actor = await requireFormActor();
     if (!name.trim()) return { error: "Form name is required" };
-    const form = await createForm(userId, name.trim(), data);
-    revalidatePath("/admin/forms");
+    const form = await createForm(actor.userId, name.trim(), data);
+    revalidateForms();
     return { success: true, id: form.id };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Failed to create form" };
@@ -39,10 +59,11 @@ export async function updateFormAction(
   data: Record<string, unknown>
 ): Promise<ActionResult> {
   try {
-    await requireAdmin();
+    const actor = await requireFormActor();
     if (!name.trim()) return { error: "Form name is required" };
+    await assertCanMutate(id, actor);
     await updateForm(id, name.trim(), data);
-    revalidatePath("/admin/forms");
+    revalidateForms();
     return { success: true };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Failed to update form" };
@@ -51,20 +72,37 @@ export async function updateFormAction(
 
 export async function deleteFormAction(id: string): Promise<ActionResult> {
   try {
-    await requireAdmin();
+    const actor = await requireFormActor();
+    await assertCanMutate(id, actor);
     await softDeleteForm(id);
-    revalidatePath("/admin/forms");
+    revalidateForms();
     return { success: true };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Failed to delete form" };
   }
 }
 
+export async function setFormDisabledAction(
+  id: string,
+  disabled: boolean
+): Promise<ActionResult> {
+  try {
+    const actor = await requireFormActor();
+    await assertCanMutate(id, actor);
+    await setFormDisabled(id, disabled);
+    revalidateForms();
+    return { success: true };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Failed to update form" };
+  }
+}
+
 export async function duplicateFormAction(id: string): Promise<ActionResult> {
   try {
-    const userId = await requireAdmin();
-    await duplicateForm(id, userId);
-    revalidatePath("/admin/forms");
+    const actor = await requireFormActor();
+    await assertCanMutate(id, actor);
+    await duplicateForm(id, actor.userId);
+    revalidateForms();
     return { success: true };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Failed to duplicate form" };

@@ -23,6 +23,7 @@ const ROLE_ROUTES: { prefix: string; roles: string[] }[] = [
   { prefix: "/inventory", roles: ["ADMIN", "INVENTORY_MANAGER"] },
   { prefix: "/warehouse", roles: ["ADMIN", "WAREHOUSE_MANAGER"] },
   { prefix: "/logistics", roles: ["ADMIN", "LOGISTICS_MANAGER"] },
+  { prefix: "/media-buyer", roles: ["ADMIN", "MEDIA_BUYER"] },
 ];
 
 export const authConfig: NextAuthConfig = {

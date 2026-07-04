@@ -27,6 +27,14 @@ export async function softDeleteForm(id: string) {
   return prisma.form.update({ where: { id }, data: { deletedAt: new Date() } });
 }
 
+/** Reversibly disable / re-enable a form (blocks new orders while disabled). */
+export async function setFormDisabled(id: string, disabled: boolean) {
+  return prisma.form.update({
+    where: { id },
+    data: { disabledAt: disabled ? new Date() : null },
+  });
+}
+
 export async function duplicateForm(id: string, createdById: string) {
   const original = await prisma.form.findFirst({ where: { id, deletedAt: null } });
   if (!original) return null;

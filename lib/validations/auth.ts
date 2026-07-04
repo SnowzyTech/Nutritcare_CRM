@@ -30,6 +30,7 @@ export const registerSchema = z
         "WAREHOUSE_MANAGER",
         "LOGISTICS_MANAGER",
         "SALES_REP_MANAGER",
+        "MEDIA_BUYER",
       ],
       { message: "Please select a valid role." }
     ),

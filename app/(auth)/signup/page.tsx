@@ -15,6 +15,7 @@ const roleOptions = [
   { value: "INVENTORY_MANAGER", label: "Inventory Manager" },
   { value: "WAREHOUSE_MANAGER", label: "Warehouse Manager" },
   { value: "LOGISTICS_MANAGER", label: "Logistics Manager" },
+  { value: "MEDIA_BUYER", label: "Media Buyer" },
 ];
 
 const inp: React.CSSProperties = {

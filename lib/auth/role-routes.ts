@@ -8,6 +8,7 @@ export const ROLE_HOME: Record<string, string> = {
   INVENTORY_MANAGER: "/inventory",
   WAREHOUSE_MANAGER: "/warehouse",
   LOGISTICS_MANAGER: "/logistics",
+  MEDIA_BUYER: "/media-buyer",
 };
 
 export function getRoleHome(role: string | null | undefined): string {

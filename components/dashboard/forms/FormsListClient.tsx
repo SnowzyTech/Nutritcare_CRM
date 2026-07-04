@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import type { SavedForm } from "@/lib/formsStore";
 import { deleteFormAction, duplicateFormAction } from "@/modules/admin/actions/forms.action";
+import { buildFormEmbedCodes } from "@/lib/forms/embed-codes";
 
 /* ─── tiny helpers ─────────────────────────────────────────── */
 function copyToClipboard(text: string, label: string) {
@@ -82,7 +83,17 @@ function IconBtn({
 }
 
 /* ─── Main Component ───────────────────────────────────────── */
-export default function FormsListClient({ initialForms }: { initialForms: SavedForm[] }) {
+export default function FormsListClient({
+  initialForms,
+  basePath = "/admin/forms",
+  showAddOrder = true,
+}: {
+  initialForms: SavedForm[];
+  /** List route for this dashboard (used for Add/Edit links). */
+  basePath?: string;
+  /** Whether to show the per-row "Add Order…" shortcut (admin only). */
+  showAddOrder?: boolean;
+}) {
   const router = useRouter();
   const [search, setSearch] = useState("");
   const [selectedForms, setSelectedForms] = useState<Set<string>>(new Set());
@@ -175,7 +186,7 @@ export default function FormsListClient({ initialForms }: { initialForms: SavedF
 
           {/* Add form */}
           <Link
-            href="/admin/forms/add"
+            href={`${basePath}/add`}
             className="flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-700 text-white text-sm font-semibold rounded-md px-4 py-2.5 transition-colors whitespace-nowrap"
           >
             <Plus size={14} />
@@ -263,11 +274,11 @@ export default function FormsListClient({ initialForms }: { initialForms: SavedF
             const hasOptin = data.createOptinForm === "Yes";
             const hasUpsell = data.addUpsell === "Yes" && Array.isArray(data.upsellItems) && data.upsellItems.length > 0;
 
-            const resizeScript = `<script>window.addEventListener('message',function(e){if(e.origin!=='${origin}')return;if(e.data&&e.data.type==='nc-resize'){var f=document.querySelector('iframe[data-nc-id="${form.id}-optin"]');if(f)f.style.height=e.data.height+'px';}if(e.data&&e.data.type==='nc-redirect'&&e.data.url){window.location.href=e.data.url;}});<\/script>`;
-            const resizeScriptOrder = `<script>window.addEventListener('message',function(e){if(e.origin!=='${origin}')return;if(e.data&&e.data.type==='nc-resize'){var f=document.querySelector('iframe[data-nc-id="${form.id}-order"]');if(f)f.style.height=e.data.height+'px';}if(e.data&&e.data.type==='nc-redirect'&&e.data.url){window.location.href=e.data.url;}});<\/script>`;
-            const optinIframeCode = `<iframe data-nc-id="${form.id}-optin" src="${origin}/order-form/${form.id}?tab=optin" width="100%" style="border:none; overflow:hidden; min-height:500px; display:block;" frameborder="0" scrolling="no"></iframe>\n${resizeScript}`;
-            const iframeCode = `<iframe data-nc-id="${form.id}-order" src="${origin}/order-form/${form.id}?tab=order" width="100%" style="border:none; overflow:hidden; min-height:500px; display:block;" frameborder="0" scrolling="no"></iframe>\n${resizeScriptOrder}`;
-            const formCode = `<div data-form-id="${form.id}"></div><script src="${origin}/embed.js"></script>`;
+            const {
+              optinIframe: optinIframeCode,
+              orderIframe: iframeCode,
+              formCode,
+            } = buildFormEmbedCodes(form.id, origin);
             const formId = form.id;
 
             return (
@@ -323,13 +334,15 @@ export default function FormsListClient({ initialForms }: { initialForms: SavedF
                       Preview Order Form
                     </ActionBtn>
                   )}
-                  <ActionBtn
-                    icon={<Plus size={12} />}
-                    variant="indigo"
-                    onClick={() => router.push(`/admin/orders`)}
-                  >
-                    Add Order…
-                  </ActionBtn>
+                  {showAddOrder && (
+                    <ActionBtn
+                      icon={<Plus size={12} />}
+                      variant="indigo"
+                      onClick={() => router.push(`/admin/orders`)}
+                    >
+                      Add Order…
+                    </ActionBtn>
+                  )}
                   {hasOptin && (
                     <ActionBtn
                       icon={<Copy size={12} />}
@@ -398,7 +411,7 @@ export default function FormsListClient({ initialForms }: { initialForms: SavedF
                   <IconBtn
                     icon={<Pencil size={14} />}
                     title="Edit form"
-                    onClick={() => router.push(`/admin/forms/${form.id}/edit`)}
+                    onClick={() => router.push(`${basePath}/${form.id}/edit`)}
                   />
                   <IconBtn
                     icon={<Files size={14} />}

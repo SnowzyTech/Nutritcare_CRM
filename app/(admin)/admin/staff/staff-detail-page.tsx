@@ -14,6 +14,7 @@ const ROLE_LABELS: Record<string, string> = {
   SALES_REP_MANAGER: "Sales Rep Manager",
   LOGISTICS_MANAGER: "Logistics Manager",
   DELIVERY_AGENT: "Delivery Agent",
+  MEDIA_BUYER: "Media Buyer",
   ADMIN: "Administrator",
 };
 
