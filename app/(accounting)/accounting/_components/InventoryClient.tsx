@@ -17,7 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import type { ProductBreakdownItem } from '@/modules/finance/services/inventory-accounting.service';
 import { updateProductCostPriceAction } from '@/modules/finance/actions/inventory-accounting.action';
 
-const fallbackMainTableData = [
+const fallbackMainTableData: ProductRow[] = [
   { name: 'Prosxact', cost: '₦3,500', selling: '₦5,200', total: '1,200', warehouse: '800', agents: '400', value: '₦1,250,000' },
   { name: 'Neuro-Vive Balm', cost: '₦2,800', selling: '₦4,500', total: '980', warehouse: '620', agents: '360', value: '₦887,900' },
   { name: 'After-Natal', cost: '₦4,200', selling: '₦6,800', total: '1,450', warehouse: '1,050', agents: '400', value: '₦1,250,000' },

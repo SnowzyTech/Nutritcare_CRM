@@ -89,7 +89,9 @@
       "PowerShell(npx tsc --noEmit -p tsconfig.json 2>&1 | Select-Object -First 30)",
       "Bash(node -e \"try{require.resolve\\('sharp'\\);console.log\\('sharp: YES'\\)}catch\\(e\\){console.log\\('sharp: NO'\\)}\")",
       "Bash(where magick *)",
-      "Bash(node scripts/make-logo.mjs)"
+      "Bash(node scripts/make-logo.mjs)",
+      "Bash(echo \"EXIT=$?\")",
+      "Read(//c/Users/user/AppData/Local/Temp/**)"
     ]
   }
 }

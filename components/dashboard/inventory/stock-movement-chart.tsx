@@ -76,7 +76,7 @@ export function StockMovementChart({ data, receivedTotal, dispatchedTotal }: Pro
               />
               <Tooltip
                 cursor={{ fill: "transparent" }}
-                formatter={(value: number) => value.toLocaleString()}
+                formatter={(value) => Number(value).toLocaleString()}
                 contentStyle={{ borderRadius: "12px", border: "none", boxShadow: "0 10px 15px -3px rgb(0 0 0 / 0.1)" }}
               />
               <Bar name="Received" dataKey="received" fill="#C6E2FF" radius={[4, 4, 0, 0]} barSize={12} />
