@@ -19,11 +19,11 @@ export default function LoginPage() {
         className="hidden lg:flex flex-col items-center justify-center flex-1 relative overflow-hidden"
         style={{ minHeight: "100vh", background: "radial-gradient(ellipse at 55% 45%, #ede9fe 0%, #f5f3ff 40%, #faf5ff 100%)" }}
       >
-        {/* Nuycle logo */}
+        {/* Nucle logo */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src="/nuycle-logo.png"
-          alt="Nuycle logo"
+          src="/nucle-logo.png"
+          alt="Nucle logo"
           width={150}
           style={{ marginBottom: "2.5rem", objectFit: "contain" }}
         />
