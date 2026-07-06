@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db/prisma";
 import { OrderStatus, InvoiceStatus, PurchaseOrderStatus } from "@prisma/client";
 import { getChartOfAccounts } from "@/modules/finance/services/ledger.service";
+import { getProductTotalsMap } from "@/modules/inventory/services/stock-level.service";
 import {
   accumulatedDepreciationAsOf,
   type DepreciationMethod,
@@ -28,6 +29,12 @@ export interface NamedAmount {
 
 // Treat these order statuses as "earned revenue" for accounting purposes.
 const REVENUE_STATUSES = ["DELIVERED", "CONFIRMED"] as const;
+
+// Must match the value the Chart of Accounts seed writes onto
+// ExpenseCategory.financialStatement (see prisma/seed-coa.ts + chart-of-accounts.ts).
+// Previously this was mistyped as "Profit & Loss Statement", so the P&L report's
+// operating-expenses query matched nothing and showed empty.
+const PL_STATEMENT = "Statement of Profit or Loss";
 
 const DEC = (v: any) => Number(v ?? 0);
 
@@ -160,7 +167,7 @@ export async function getProfitAndLoss(periods: ComparePeriods): Promise<ProfitA
   const [curProd, priProd, operatingExpenses] = await Promise.all([
     getProductPnL(periods.current),
     getProductPnL(periods.prior),
-    getExpensesGroupedByCategoryForStatement("Profit & Loss Statement", periods),
+    getExpensesGroupedByCategoryForStatement(PL_STATEMENT, periods),
   ]);
 
   const productNames = new Set<string>();
@@ -436,7 +443,7 @@ async function operatingProfitForPeriod(period: Period): Promise<number> {
       select: { quantity: true, lineTotal: true, costPriceAtSale: true },
     }),
     prisma.expenseCategory.findMany({
-      where: { financialStatement: "Profit & Loss Statement" },
+      where: { financialStatement: PL_STATEMENT },
       select: { id: true },
     }),
   ]);
@@ -482,28 +489,112 @@ export interface BalanceSheetReport {
   };
 }
 
+// ── Balance-sheet-specific sourcing ────────────────────────────────────────────
+// These power the Statement of Financial Position and are intentionally separate
+// from the cash-flow helpers above so the two statements can evolve independently.
+
+/** Cash & bank: money agents remitted into the two company accounts ≤ asOf. */
+async function bankCashAsOf(asOf: Date): Promise<number> {
+  const agg = await prisma.agentSettlement.aggregate({
+    _sum: { totalRemitted: true },
+    where: { bank: { in: ["MONIEPOINT", "ZENITH"] }, date: { lte: asOf } },
+  });
+  return DEC(agg._sum.totalRemitted);
+}
+
+/**
+ * Accounts receivable: what delivery agents are still expected to remit but
+ * haven't. Per agent this is their net ledger position as of the date (Σ debits −
+ * Σ credits); only agents who still owe (positive balance) are counted.
+ */
+async function agentReceivablesAsOf(asOf: Date): Promise<number> {
+  const grouped = await prisma.agentLedgerEntry.groupBy({
+    by: ["agentId"],
+    where: { date: { lte: asOf } },
+    _sum: { debit: true, credit: true },
+  });
+  let total = 0;
+  for (const g of grouped) {
+    const bal = DEC(g._sum.debit) - DEC(g._sum.credit);
+    if (bal > 0) total += bal;
+  }
+  return total;
+}
+
+/** Live inventory valued at cost — Σ on-hand stock × product cost price. */
+async function currentInventoryValue(): Promise<number> {
+  const [totals, products] = await Promise.all([
+    getProductTotalsMap(),
+    prisma.product.findMany({ where: { deletedAt: null }, select: { id: true, costPrice: true } }),
+  ]);
+  let total = 0;
+  for (const p of products) total += (totals[p.id] ?? 0) * DEC(p.costPrice);
+  return total;
+}
+
+/**
+ * Expenses booked to categories of a given account class (1 = Assets,
+ * 2 = Liabilities, 3 = Equity), grouped by category name, dated ≤ asOf. This is
+ * how asset purchases, liabilities incurred and equity contributions enter the
+ * balance sheet — every such movement is captured through Expense Entry (an asset
+ * was money spent before it became an asset).
+ */
+async function expensesByAccountClassAsOf(accountClass: number, asOf: Date): Promise<Map<string, number>> {
+  const cats = await prisma.expenseCategory.findMany({
+    where: { accountClass },
+    select: { id: true, name: true },
+  });
+  if (cats.length === 0) return new Map();
+  const nameById = new Map(cats.map((c) => [c.id, c.name]));
+  const grouped = await prisma.expense.groupBy({
+    by: ["expenseCategoryId"],
+    where: { expenseCategoryId: { in: cats.map((c) => c.id) }, date: { lte: asOf } },
+    _sum: { amount: true },
+  });
+  const out = new Map<string, number>();
+  for (const g of grouped) {
+    const name = nameById.get(g.expenseCategoryId) ?? "Other";
+    out.set(name, (out.get(name) ?? 0) + DEC(g._sum.amount));
+  }
+  return out;
+}
+
+/** Merge two as-of category→amount maps into comparative balance-sheet lines. */
+function mergeAccountLines(cur: Map<string, number>, pri: Map<string, number>): BalanceSheetLine[] {
+  const names = new Set([...cur.keys(), ...pri.keys()]);
+  return [...names]
+    .map((name) => ({ label: name, current: cur.get(name) ?? 0, prior: pri.get(name) ?? 0 }))
+    .filter((l) => l.current !== 0 || l.prior !== 0)
+    .sort((a, b) => b.current - a.current);
+}
+
 interface PositionColumn {
   cash: number;
   receivables: number;
   inventory: number;
   ppeNet: number;
+  ppeAccumulated: number;
+  otherAssets: Map<string, number>;
   payables: number;
-  liabilitiesOther: number;
-  capital: number;
+  liabilities: Map<string, number>;
+  equityContributions: Map<string, number>;
   retainedEarnings: number;
 }
 
 async function positionAsOf(asOf: Date): Promise<PositionColumn> {
   const epoch = new Date(0);
-  const [cash, receivables, inventory, ppe, payables, jcls, profit] = await Promise.all([
-    cashAsOf(asOf),
-    receivablesAsOf(asOf),
-    inventoryValueAsOf(asOf),
-    fixedAssetsNetAsOf(asOf),
-    payablesAsOf(asOf),
-    journalClassBalancesAsOf(asOf),
-    operatingProfitForPeriod({ from: epoch, to: asOf }),
-  ]);
+  const [cash, receivables, inventory, ppe, otherAssets, payables, liabilities, equityContributions, profit] =
+    await Promise.all([
+      bankCashAsOf(asOf),
+      agentReceivablesAsOf(asOf),
+      currentInventoryValue(),
+      fixedAssetsNetAsOf(asOf),
+      expensesByAccountClassAsOf(1, asOf),
+      payablesAsOf(asOf),
+      expensesByAccountClassAsOf(2, asOf),
+      expensesByAccountClassAsOf(3, asOf),
+      operatingProfitForPeriod({ from: epoch, to: asOf }),
+    ]);
 
   // Retained earnings = cumulative operating profit less accumulated depreciation
   // (a non-cash charge already reflected in the net PP&E figure).
@@ -514,9 +605,11 @@ async function positionAsOf(asOf: Date): Promise<PositionColumn> {
     receivables,
     inventory,
     ppeNet: ppe.net,
+    ppeAccumulated: ppe.accumulated,
+    otherAssets,
     payables,
-    liabilitiesOther: jcls[2] ?? 0,
-    capital: jcls[3] ?? 0,
+    liabilities,
+    equityContributions,
     retainedEarnings,
   };
 }
@@ -527,15 +620,18 @@ export async function getBalanceSheet(periods: ComparePeriods): Promise<BalanceS
   const [cur, pri] = await Promise.all([positionAsOf(curAsOf), positionAsOf(priAsOf)]);
 
   const assets: BalanceSheetLine[] = [
-    { label: "Cash & bank (derived)", current: cur.cash, prior: pri.cash, derived: true },
-    { label: "Accounts receivable", current: cur.receivables, prior: pri.receivables },
-    { label: "Inventory", current: cur.inventory, prior: pri.inventory },
+    { label: "Cash & bank (agent remittances — Moniepoint + Zenith)", current: cur.cash, prior: pri.cash },
+    { label: "Accounts receivable (agent remittances outstanding)", current: cur.receivables, prior: pri.receivables },
+    { label: "Inventory (stock at cost)", current: cur.inventory, prior: pri.inventory },
     { label: "Property, plant & equipment (net)", current: cur.ppeNet, prior: pri.ppeNet },
+    // Any expense booked to an Asset category (current or non-current).
+    ...mergeAccountLines(cur.otherAssets, pri.otherAssets),
   ];
 
   const liabilities: BalanceSheetLine[] = [
+    // Expenses booked to Liability categories.
+    ...mergeAccountLines(cur.liabilities, pri.liabilities),
     { label: "Accounts payable (open POs)", current: cur.payables, prior: pri.payables, derived: true },
-    { label: "Other liabilities (per journals)", current: cur.liabilitiesOther, prior: pri.liabilitiesOther },
   ];
 
   const totalAssets = {
@@ -547,19 +643,26 @@ export async function getBalanceSheet(periods: ComparePeriods): Promise<BalanceS
     prior: liabilities.reduce((s, l) => s + l.prior, 0),
   };
 
-  // Equity is presented so the statement balances; the difference between net
-  // assets and the computed capital + retained earnings is shown explicitly.
+  // Equity = contributed equity (booked via Expense Entry to Equity categories)
+  // + retained earnings, with a balancing line to reconcile the heterogeneous
+  // subledger sources so the statement ties out (Assets = Liabilities + Equity).
+  const equityContribLines = mergeAccountLines(cur.equityContributions, pri.equityContributions);
+  const equityContribTotal = {
+    current: equityContribLines.reduce((s, l) => s + l.current, 0),
+    prior: equityContribLines.reduce((s, l) => s + l.prior, 0),
+  };
+
   const netAssets = {
     current: totalAssets.current - totalLiabilities.current,
     prior: totalAssets.prior - totalLiabilities.prior,
   };
   const balancing = {
-    current: netAssets.current - cur.capital - cur.retainedEarnings,
-    prior: netAssets.prior - pri.capital - pri.retainedEarnings,
+    current: netAssets.current - equityContribTotal.current - cur.retainedEarnings,
+    prior: netAssets.prior - equityContribTotal.prior - pri.retainedEarnings,
   };
 
   const equity: BalanceSheetLine[] = [
-    { label: "Capital (per journals)", current: cur.capital, prior: pri.capital },
+    ...equityContribLines,
     { label: "Retained earnings (derived)", current: cur.retainedEarnings, prior: pri.retainedEarnings, derived: true },
     { label: "Balancing adjustment", current: balancing.current, prior: balancing.prior, derived: true },
   ];
@@ -666,47 +769,82 @@ async function cashFlowForPeriod(period: Period): Promise<CashFlowColumn> {
   };
 }
 
+/**
+ * Fixed-asset acquisitions in each period as investing-activity cash outflows
+ * (negative), merged across the current & prior columns by asset name — i.e.
+ * "anything recorded under fixed assets" during the period.
+ */
+async function fixedAssetAcquisitionLines(periods: ComparePeriods): Promise<CashFlowLine[]> {
+  const [curAssets, priAssets] = await Promise.all([
+    prisma.fixedAsset.findMany({
+      where: { deletedAt: null, purchaseDate: { gte: periods.current.from, lte: periods.current.to } },
+      select: { assetName: true, purchasePrice: true },
+    }),
+    prisma.fixedAsset.findMany({
+      where: { deletedAt: null, purchaseDate: { gte: periods.prior.from, lte: periods.prior.to } },
+      select: { assetName: true, purchasePrice: true },
+    }),
+  ]);
+  const cur = new Map<string, number>();
+  for (const a of curAssets) cur.set(a.assetName, (cur.get(a.assetName) ?? 0) + DEC(a.purchasePrice));
+  const pri = new Map<string, number>();
+  for (const a of priAssets) pri.set(a.assetName, (pri.get(a.assetName) ?? 0) + DEC(a.purchasePrice));
+  const names = new Set([...cur.keys(), ...pri.keys()]);
+  return [...names].map((name) => ({
+    label: `Purchase of ${name}`,
+    current: -(cur.get(name) ?? 0),
+    prior: -(pri.get(name) ?? 0),
+  }));
+}
+
 export async function getCashFlow(periods: ComparePeriods): Promise<CashFlowReport> {
-  const [cur, pri] = await Promise.all([
-    cashFlowForPeriod(periods.current),
+  const [cur, pri, opexGroups, investingLines] = await Promise.all([
+    cashFlowForPeriod(periods.current), // retained only for the opening/closing cash position
     cashFlowForPeriod(periods.prior),
+    getExpensesGroupedByCategoryForStatement(PL_STATEMENT, periods),
+    fixedAssetAcquisitionLines(periods),
   ]);
 
+  const sumLines = (lines: CashFlowLine[]) => ({
+    current: lines.reduce((s, l) => s + l.current, 0),
+    prior: lines.reduce((s, l) => s + l.prior, 0),
+  });
+
+  // Operating activities — every P&L expense category as a cash outflow, grouped
+  // by category (category totals only, no per-item breakdown), mirroring the
+  // Profit & Loss statement's operating expenses.
+  const operatingLines: CashFlowLine[] = opexGroups.map((g) => ({
+    label: g.categoryName,
+    current: -g.total.current,
+    prior: -g.total.prior,
+  }));
+  const operatingSubtotal = sumLines(operatingLines);
+
+  // Investing activities — fixed-asset acquisitions recorded in the period.
+  const investingSubtotal = sumLines(investingLines);
+
+  // Financing activities — intentionally left at zero for now.
+  const financingSubtotal = { current: 0, prior: 0 };
+
+  const netChange = {
+    current: operatingSubtotal.current + investingSubtotal.current + financingSubtotal.current,
+    prior: operatingSubtotal.prior + investingSubtotal.prior + financingSubtotal.prior,
+  };
+
+  const openingCash = { current: cur.openingCash, prior: pri.openingCash };
+  const closingCash = { current: cur.closingCash, prior: pri.closingCash };
+  const unexplained = {
+    current: cur.closingCash - cur.openingCash - netChange.current,
+    prior: pri.closingCash - pri.openingCash - netChange.prior,
+  };
+
   const sections: CashFlowSection[] = [
-    {
-      title: "Cash flow from operating activities",
-      lines: [
-        { label: "Net profit for the period", current: cur.operating.netProfit, prior: pri.operating.netProfit },
-        { label: "Add: Depreciation", current: cur.operating.depreciation, prior: pri.operating.depreciation },
-        { label: "(Increase)/decrease in receivables", current: -cur.operating.dAR, prior: -pri.operating.dAR },
-        { label: "(Increase)/decrease in inventory", current: -cur.operating.dInv, prior: -pri.operating.dInv },
-        { label: "Increase/(decrease) in payables", current: cur.operating.dAP, prior: pri.operating.dAP },
-      ],
-      subtotal: { current: cur.operating.subtotal, prior: pri.operating.subtotal },
-    },
-    {
-      title: "Cash flow from investing activities",
-      lines: [
-        { label: "Purchase of fixed assets", current: cur.investing.subtotal, prior: pri.investing.subtotal },
-      ],
-      subtotal: { current: cur.investing.subtotal, prior: pri.investing.subtotal },
-    },
-    {
-      title: "Cash flow from financing activities",
-      lines: [
-        { label: "Loans & capital movements (per journals)", current: cur.financing.subtotal, prior: pri.financing.subtotal },
-      ],
-      subtotal: { current: cur.financing.subtotal, prior: pri.financing.subtotal },
-    },
+    { title: "Cash flow from operating activities", lines: operatingLines, subtotal: operatingSubtotal },
+    { title: "Cash flow from investing activities", lines: investingLines, subtotal: investingSubtotal },
+    { title: "Cash flow from financing activities", lines: [], subtotal: financingSubtotal },
   ];
 
-  return {
-    sections,
-    netChange: { current: cur.netChange, prior: pri.netChange },
-    openingCash: { current: cur.openingCash, prior: pri.openingCash },
-    closingCash: { current: cur.closingCash, prior: pri.closingCash },
-    unexplained: { current: cur.unexplained, prior: pri.unexplained },
-  };
+  return { sections, netChange, openingCash, closingCash, unexplained };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

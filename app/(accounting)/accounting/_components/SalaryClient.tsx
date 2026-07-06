@@ -41,6 +41,16 @@ export interface SalaryRow {
 
 interface SalaryClientProps {
   initialRows?: SalaryRow[];
+  months?: string[];
+  selectedMonth?: string;
+}
+
+// "2026-07" → "July 2026"
+function formatMonth(key: string): string {
+  if (!key || key === 'All') return 'All Months';
+  const [y, m] = key.split('-').map(Number);
+  if (!y || !m) return key;
+  return new Date(y, m - 1, 1).toLocaleString('en-NG', { month: 'long', year: 'numeric' });
 }
 
 // ─── Mock fallback data ───────────────────────────────────────────────────────
@@ -189,9 +199,68 @@ function FilterDropdown({
   );
 }
 
+// ─── Month dropdown (server-side filter, drives ?month=) ──────────────────────
+
+interface MonthDropdownProps {
+  value: string;
+  months: string[];
+  isOpen: boolean;
+  onToggle: () => void;
+  onSelect: (v: string) => void;
+}
+
+function MonthDropdown({ value, months, isOpen, onToggle, onSelect }: MonthDropdownProps) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleOutside = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node) && isOpen) onToggle();
+    };
+    document.addEventListener('mousedown', handleOutside);
+    return () => document.removeEventListener('mousedown', handleOutside);
+  }, [isOpen, onToggle]);
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        id="salary-filter-month"
+        onClick={onToggle}
+        className="flex items-center gap-1.5 bg-[#AE00FF] text-white h-9 px-3.5 rounded-md text-[12.5px] font-semibold justify-between hover:bg-[#9900E6] transition-colors"
+        style={{ minWidth: 130 }}
+      >
+        <span className="whitespace-nowrap">{formatMonth(value)}</span>
+        <ChevronDown size={12} strokeWidth={2.5} className={`transition-transform flex-shrink-0 ${isOpen ? 'rotate-180' : ''}`} />
+      </button>
+
+      {isOpen && (
+        <div className="absolute top-full left-0 mt-1.5 bg-white rounded-xl shadow-xl border border-gray-100 z-50 py-1.5 min-w-[180px] max-h-[300px] overflow-y-auto">
+          <div
+            className={`px-4 py-2 text-[13px] hover:bg-gray-50 cursor-pointer font-medium ${value === 'All' ? 'text-[#AE00FF] font-bold' : 'text-gray-600'}`}
+            onClick={() => onSelect('All')}
+          >
+            All Months
+          </div>
+          {months.length === 0 && (
+            <div className="px-4 py-2 text-[13px] text-gray-400 font-medium">No payroll yet</div>
+          )}
+          {months.map((mo) => (
+            <div
+              key={mo}
+              className={`px-4 py-2 text-[13px] hover:bg-gray-50 cursor-pointer font-medium ${value === mo ? 'text-[#AE00FF] font-bold' : 'text-gray-600'}`}
+              onClick={() => onSelect(mo)}
+            >
+              {formatMonth(mo)}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
-export function SalaryClient({ initialRows }: SalaryClientProps) {
+export function SalaryClient({ initialRows, months = [], selectedMonth = 'All' }: SalaryClientProps) {
   const router = useRouter();
   // Use the real records when provided (even an empty list → shows the empty
   // state). The mock rows are only a design-time fallback when no prop is passed.
@@ -257,10 +326,24 @@ export function SalaryClient({ initialRows }: SalaryClientProps) {
       </div>
 
       {/* ── Page title ── */}
-      <h1 className="text-[32px] font-bold text-gray-800 mb-8 tracking-tight">Salary</h1>
+      <div className="flex items-baseline gap-3 mb-8">
+        <h1 className="text-[32px] font-bold text-gray-800 tracking-tight">Salary</h1>
+        <span className="text-[15px] font-semibold text-gray-400">
+          {selectedMonth === 'All' ? 'All Months' : `${formatMonth(selectedMonth)} payroll`}
+        </span>
+      </div>
 
       {/* ── Filter bar — matches image exactly ── */}
       <div className="flex flex-wrap items-center gap-2.5 mb-0">
+
+        {/* Month — primary payroll filter (server-side) */}
+        <MonthDropdown
+          value={selectedMonth}
+          months={months}
+          isOpen={openDropdown === 'month'}
+          onToggle={() => toggleDropdown('month')}
+          onSelect={(v) => { closeAll(); router.push(`/accounting/salary?month=${encodeURIComponent(v)}`); }}
+        />
 
         {/* Nucle */}
         <FilterDropdown
@@ -310,13 +393,16 @@ export function SalaryClient({ initialRows }: SalaryClientProps) {
           onSelect={(v) => { setLevelFilter(v); closeAll(); }}
         />
 
-        {/* Edit/Add — routes to the add page */}
+        {/* New month payroll — pre-fills from the selected month, editable before save */}
         <button
           id="salary-edit-add-btn"
-          onClick={() => router.push('/accounting/salary/add')}
+          onClick={() => {
+            const from = selectedMonth && selectedMonth !== 'All' ? selectedMonth : (months[0] ?? '');
+            router.push(`/accounting/salary/add${from ? `?from=${encodeURIComponent(from)}` : ''}`);
+          }}
           className="h-9 px-5 bg-[#AE00FF] text-white rounded-md text-[12.5px] font-bold hover:bg-[#9900E6] transition-colors shadow-sm shadow-purple-200 whitespace-nowrap"
         >
-          Edit/Add
+          New / Edit Payroll
         </button>
 
         {/* Search — same height, border-radius */}

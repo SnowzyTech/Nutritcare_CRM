@@ -54,8 +54,10 @@ async function computeProductStock(): Promise<ProductStock[]> {
 export async function getInventoryProductList() {
   const stocks = await computeProductStock();
   return stocks.map((s) => ({
+    id: s.id,
     name: s.name,
     cost: fmt(s.cost),
+    costValue: s.cost, // raw numeric cost for inline editing
     selling: fmt(s.selling),
     total: s.total.toLocaleString(),
     warehouse: s.warehouse.toLocaleString(),

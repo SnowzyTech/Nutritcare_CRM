@@ -100,7 +100,8 @@
       "Bash(Select-Object -First 20)",
       "PowerShell($out = npx tsc --noEmit -p tsconfig.json 2>&1; $ours = $out | Select-String -Pattern \"AnalyticsClient\"; if \\($ours\\) { Write-Output \"ERRORS IN OUR FILE:\"; $ours } else { Write-Output \"No errors in AnalyticsClient.tsx\" }; Write-Output \"--- total error lines: $\\(\\( $out | Select-String -Pattern 'error TS'\\).Count \\)\")",
       "PowerShell(npx tsx scripts/_diag-esther.ts)",
-      "PowerShell($out = npx tsc --noEmit -p tsconfig.json 2>&1; $rel = $out | Select-String -Pattern \"users.service|data-analysis|analytics\"; if \\($rel\\) { $rel } else { Write-Output \"No errors in changed areas\" }; Write-Output \"--- total error lines: $\\(\\( $out | Select-String -Pattern 'error TS'\\).Count \\)\")"
+      "PowerShell($out = npx tsc --noEmit -p tsconfig.json 2>&1; $rel = $out | Select-String -Pattern \"users.service|data-analysis|analytics\"; if \\($rel\\) { $rel } else { Write-Output \"No errors in changed areas\" }; Write-Output \"--- total error lines: $\\(\\( $out | Select-String -Pattern 'error TS'\\).Count \\)\")",
+      "Bash(grep -v \"Update available\\\\|prisma@latest\\\\|major-version\\\\|^$\\\\|─\\\\|│\\\\|┌\\\\|└\")"
     ]
   }
 }

@@ -7,7 +7,6 @@ import {
   nextExpenseReference,
 } from "@/modules/finance/services/expenses.service";
 import { listSuppliers } from "@/modules/finance/services/suppliers.service";
-import { EXPENSE_CLASSES } from "@/modules/finance/data/chart-of-accounts";
 
 export default async function ExpensesPage() {
   const [expenses, categories, accounts, suppliers, nextRef] = await Promise.all([
@@ -54,13 +53,11 @@ export default async function ExpensesPage() {
     balance: fmt(Number(s.payableBalance)),
   }));
 
-  // Expense Entry only deals with expense-type accounts (Cost of Sales,
-  // Operating Expenses, Finance Costs, Tax). Categories without a class (custom
-  // ones added in-app) are kept so they remain usable.
-  const expenseClasses = EXPENSE_CLASSES as readonly number[];
-  const expenseCategories = categories.filter(
-    c => c.accountClass == null || expenseClasses.includes(c.accountClass),
-  );
+  // Every account class is bookable through Expense Entry, not just expense-type
+  // accounts (classes 5-8). The accountant records asset, liability and equity
+  // movements here too — an asset was money spent before it became an asset — and
+  // the Balance Sheet scopes each entry by its category's account class.
+  const expenseCategories = categories;
 
   return (
     <ExpensesClient

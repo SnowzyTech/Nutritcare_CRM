@@ -155,3 +155,44 @@ export async function getGeneralLedger(filters: {
 
   return rows.reverse();
 }
+
+// Every ledger line for a single account (the "ledger" a general-ledger entry
+// belongs to). Grouped by the specific account — account type + account name —
+// with a running balance computed chronologically for just that account.
+export async function getAccountLedger(params: {
+  account: string;
+  name: string;
+}): Promise<{ account: string; name: string; rows: LedgerRow[] }> {
+  const db = prisma as any;
+  const { account, name } = params;
+
+  const rowWhere = { account, ...(name ? { name } : { name: "" }) };
+  const entries = await db.journalEntry.findMany({
+    where: { rows: { some: rowWhere } },
+    include: { rows: { where: rowWhere } },
+    orderBy: { date: "asc" },
+    take: 1000,
+  });
+
+  const rows: LedgerRow[] = [];
+  let running = 0;
+  for (const entry of entries) {
+    for (const row of entry.rows) {
+      const debit = Number(row.debits ?? 0);
+      const credit = Number(row.credits ?? 0);
+      running += debit - credit;
+      rows.push({
+        account: (row.account as string | null) ?? "",
+        name: (row.name as string | null) ?? "",
+        description: (row.description as string | null) ?? "",
+        ref: entry.journalNo as string,
+        debit: debit > 0 ? fmt(debit) : "—",
+        credit: credit > 0 ? fmt(credit) : "—",
+        balance: fmt(Math.abs(running)),
+        date: (entry.date as Date).toISOString().slice(0, 10),
+      });
+    }
+  }
+
+  return { account, name, rows };
+}

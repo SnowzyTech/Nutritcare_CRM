@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import {
   Search,
   ChevronLeft,
@@ -23,8 +23,9 @@ import { AgentSettlement, AgentLedgerEntry } from '@/lib/mock-data/agent-settlem
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { format } from "date-fns";
+import { toast } from "sonner";
 import { createRemittanceAction, createSettlementAdjustmentAction } from "@/modules/finance/actions/settlements.action";
-import { fetchDeliveredOrdersAction, fetchAgentRemittancesAction, fetchAgentBalanceAction, fetchAgentAdjustmentsAction, fetchAgentLedgerRefsAction } from "@/modules/finance/actions/agent-data.action";
+import { fetchDeliveredOrdersAction, fetchAgentOrdersForAdjustmentAction, fetchAgentRemittancesAction, fetchAgentBalanceAction, fetchAgentAdjustmentsAction, fetchAgentLedgerRefsAction } from "@/modules/finance/actions/agent-data.action";
 
 interface AgentSettlementWithId extends AgentSettlement { agentId?: string }
 type AnyLedgerEntry = Omit<AgentLedgerEntry, 'referenceType'> & { referenceType: string; agentId?: string };
@@ -70,9 +71,35 @@ interface FilterButtonProps {
   isOpen: boolean;
 }
 
+const TAB_IDS = ['list', 'ledger', 'remittance', 'adjustment'] as const;
+type TabId = (typeof TAB_IDS)[number];
+
 export function AgentSettlementClient({ initialAgents, initialLedger, agentOptions }: AgentSettlementClientProps = {}) {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<'list' | 'ledger' | 'remittance' | 'adjustment'>('list');
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  const tabParam = searchParams.get('tab');
+  const initialTab: TabId = (TAB_IDS as readonly string[]).includes(tabParam ?? '')
+    ? (tabParam as TabId)
+    : 'list';
+  const [activeTab, setActiveTab] = useState<TabId>(initialTab);
+  const prefillAgentId = searchParams.get('agentId') ?? undefined;
+  const prefillOrderId = searchParams.get('orderId') ?? undefined;
+
+  // Keep the active tab in sync with the ?tab= query param (back/forward, deep links).
+  React.useEffect(() => {
+    setActiveTab(initialTab);
+  }, [initialTab]);
+
+  // Reflect the active tab in the URL without adding a history entry per switch.
+  const selectTab = (tab: TabId) => {
+    setActiveTab(tab);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('tab', tab);
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+  };
+
   const [search, setSearch] = useState('');
 
   // Filter States
@@ -126,7 +153,7 @@ export function AgentSettlementClient({ initialAgents, initialLedger, agentOptio
           {tabs.map((tab) => (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id as any)}
+              onClick={() => selectTab(tab.id as TabId)}
               className={`px-6 py-2.5 rounded-lg text-[13px] font-bold transition-all duration-200 ${activeTab === tab.id
                 ? 'bg-[#AE00FF] text-white shadow-md'
                 : 'text-gray-500 hover:bg-gray-50'
@@ -170,7 +197,7 @@ export function AgentSettlementClient({ initialAgents, initialLedger, agentOptio
           setOpenDropdown={setOpenDropdown}
         />
       ) : activeTab === 'remittance' ? (
-        <RemittanceEntryView agentOptions={agentOptions} />
+        <RemittanceEntryView agentOptions={agentOptions} prefillAgentId={prefillAgentId} prefillOrderId={prefillOrderId} />
       ) : activeTab === 'adjustment' ? (
         <SettlementAdjustmentView agentOptions={agentOptions} />
       ) : (
@@ -189,6 +216,7 @@ function SettlementAdjustmentView({ agentOptions }: { agentOptions?: { id: strin
   const [selectedOrders, setSelectedOrders] = useState<string[]>([]);
   const [tempSelected, setTempSelected] = useState<string[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [orderSearch, setOrderSearch] = useState('');
   const [selectedHistory, setSelectedHistory] = useState<any>(null);
   const [agentId, setAgentId] = useState(agentOptions?.[0]?.id ?? '');
   const [referenceId, setReferenceId] = useState('');
@@ -212,7 +240,7 @@ function SettlementAdjustmentView({ agentOptions }: { agentOptions?: { id: strin
     setTempSelected([]);
     setReferenceId('');
     Promise.all([
-      fetchDeliveredOrdersAction(agentId),
+      fetchAgentOrdersForAdjustmentAction(agentId),
       fetchAgentRemittancesAction(agentId),
       fetchAgentAdjustmentsAction(agentId),
       fetchAgentLedgerRefsAction(agentId),
@@ -292,58 +320,80 @@ function SettlementAdjustmentView({ agentOptions }: { agentOptions?: { id: strin
   return (
     <div className="animate-in fade-in duration-500">
       {/* Order Selection Modal */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-8 bg-black/60 backdrop-blur-md animate-in fade-in duration-300">
-          <div className="bg-white w-full max-w-[1100px] h-[85vh] rounded-[48px] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-300">
-            <div className="p-12 border-b border-gray-100 flex items-center justify-between bg-white sticky top-0 z-10">
-              <div>
-                <h2 className="text-[36px] font-black text-gray-800 tracking-tight leading-tight">Select Delivered Order</h2>
-                <p className="text-gray-400 text-[18px] font-medium mt-2">Pick the order to tie this adjustment to</p>
+      {isModalOpen && (() => {
+        const q = orderSearch.trim().toLowerCase();
+        const filteredOrders = q
+          ? deliveredOrders.filter((o: any) =>
+              o.orderId.toLowerCase().includes(q) ||
+              o.customer.toLowerCase().includes(q) ||
+              (o.state ?? '').toLowerCase().includes(q))
+          : deliveredOrders;
+        return (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/50 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="bg-white w-full max-w-[720px] h-[75vh] rounded-3xl shadow-xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-300">
+            <div className="p-6 border-b border-gray-100 bg-white sticky top-0 z-10">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h2 className="text-[20px] font-bold text-gray-800 tracking-tight">Select Order</h2>
+                  <p className="text-gray-400 text-[13px] font-medium mt-0.5">Pick the order to tie this adjustment to</p>
+                </div>
+                <button onClick={() => setIsModalOpen(false)} className="w-9 h-9 rounded-xl bg-gray-50 flex items-center justify-center text-gray-400 hover:bg-gray-100 transition-all">
+                  <X size={18} />
+                </button>
               </div>
-              <button onClick={() => setIsModalOpen(false)} className="w-14 h-14 rounded-2xl bg-gray-50 flex items-center justify-center text-gray-400 hover:bg-gray-100 transition-all hover:rotate-90">
-                <RotateCcw size={24} />
-              </button>
+              <div className="relative">
+                <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input
+                  value={orderSearch}
+                  onChange={e => setOrderSearch(e.target.value)}
+                  placeholder="Search by order ID, customer or state…"
+                  className="w-full h-11 bg-gray-50 border border-gray-100 rounded-xl pl-11 pr-4 text-[13px] text-gray-800 font-medium focus:outline-none focus:ring-1 focus:ring-purple-200"
+                />
+              </div>
             </div>
-            <div className="flex-1 overflow-y-auto p-12 custom-scrollbar bg-[#F9FAFB]/50">
+            <div className="flex-1 overflow-y-auto p-5 custom-scrollbar bg-[#F9FAFB]/50">
               {loadingOrders ? (
-                <div className="flex items-center justify-center h-full text-gray-400 font-medium">Loading orders…</div>
+                <div className="flex items-center justify-center h-full text-gray-400 text-[13px] font-medium">Loading orders…</div>
               ) : deliveredOrders.length === 0 ? (
-                <div className="flex items-center justify-center h-full text-gray-400 font-medium">No delivered orders for this agent</div>
+                <div className="flex items-center justify-center h-full text-gray-400 text-[13px] font-medium">No confirmed or delivered orders for this agent</div>
+              ) : filteredOrders.length === 0 ? (
+                <div className="flex items-center justify-center h-full text-gray-400 text-[13px] font-medium">No orders match “{orderSearch}”</div>
               ) : (
-                <div className="grid grid-cols-3 gap-8">
-                  {deliveredOrders.map((order: any) => (
+                <div className="grid grid-cols-2 gap-4">
+                  {filteredOrders.map((order: any) => (
                     <div key={order.id} onClick={() => toggleTempOrder(order.id)}
-                      className={`p-8 rounded-[40px] border-2 transition-all cursor-pointer flex flex-col justify-between min-h-[220px] ${tempSelected.includes(order.id) ? 'border-[#AE00FF] bg-white shadow-2xl shadow-purple-100 ring-4 ring-purple-50' : 'border-white bg-white hover:border-purple-200 shadow-sm hover:shadow-md'}`}>
-                      <div className="flex justify-between items-start mb-6">
-                        <span className={`text-[12px] font-black px-4 py-1.5 rounded-full uppercase tracking-wider ${tempSelected.includes(order.id) ? 'bg-[#AE00FF] text-white' : 'bg-gray-100 text-gray-500'}`}>{order.orderId}</span>
-                        {tempSelected.includes(order.id) && <div className="w-8 h-8 rounded-full bg-green-500 flex items-center justify-center text-white shadow-lg shadow-green-100"><Check size={18} strokeWidth={4} /></div>}
+                      className={`p-4 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between min-h-[130px] ${tempSelected.includes(order.id) ? 'border-[#AE00FF] bg-white shadow-md ring-1 ring-purple-100' : 'border-gray-100 bg-white hover:border-purple-200 hover:shadow-sm'}`}>
+                      <div className="flex justify-between items-start mb-3">
+                        <span className={`text-[11px] font-bold px-3 py-1 rounded-full uppercase tracking-wide ${tempSelected.includes(order.id) ? 'bg-[#AE00FF] text-white' : 'bg-gray-100 text-gray-500'}`}>{order.orderId}</span>
+                        {tempSelected.includes(order.id) && <div className="w-6 h-6 rounded-full bg-green-500 flex items-center justify-center text-white"><Check size={14} strokeWidth={3} /></div>}
                       </div>
-                      <div className="space-y-1">
-                        <p className="text-[20px] font-black text-gray-800 line-clamp-1">{order.customer}</p>
-                        <p className="text-[14px] text-gray-400 font-bold uppercase tracking-tight flex items-center gap-2"><MapPin size={14} className="text-purple-300" />{order.state}</p>
+                      <div className="space-y-0.5">
+                        <p className="text-[15px] font-bold text-gray-800 line-clamp-1">{order.customer}</p>
+                        <p className="text-[12px] text-gray-400 font-medium uppercase tracking-tight flex items-center gap-1.5"><MapPin size={12} className="text-purple-300" />{order.state}</p>
                       </div>
-                      <div className="mt-8 pt-6 border-t border-gray-50 flex justify-between items-center">
-                        <div><span className="text-[10px] text-gray-400 font-black uppercase mb-1 block">Net Amount</span><span className="text-[18px] font-black text-[#AE00FF]">{order.netAmount}</span></div>
-                        <div className="text-right"><span className="text-[10px] text-gray-400 font-black uppercase mb-1 block">Date</span><span className="text-[13px] font-bold text-gray-600">{order.date}</span></div>
+                      <div className="mt-3 pt-3 border-t border-gray-50 flex justify-between items-center">
+                        <div><span className="text-[10px] text-gray-400 font-bold uppercase block">Net Amount</span><span className="text-[14px] font-bold text-[#AE00FF]">{order.netAmount}</span></div>
+                        <div className="text-right"><span className="text-[10px] text-gray-400 font-bold uppercase block">Date</span><span className="text-[12px] font-medium text-gray-600">{order.date}</span></div>
                       </div>
                     </div>
                   ))}
                 </div>
               )}
             </div>
-            <div className="p-12 border-t border-gray-100 bg-white flex items-center justify-between">
-              <div className="flex items-center gap-6">
-                <div className="w-16 h-16 rounded-3xl bg-purple-50 flex items-center justify-center text-[#AE00FF]"><Check size={32} strokeWidth={3} /></div>
-                <div><p className="text-[24px] font-black text-gray-800 leading-none">{tempSelected.length} Order{tempSelected.length === 1 ? '' : 's'}</p><p className="text-gray-400 font-bold uppercase tracking-widest text-[12px] mt-1">Selected</p></div>
+            <div className="p-5 border-t border-gray-100 bg-white flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-purple-50 flex items-center justify-center text-[#AE00FF]"><Check size={20} strokeWidth={3} /></div>
+                <div><p className="text-[16px] font-bold text-gray-800 leading-none">{tempSelected.length} Order{tempSelected.length === 1 ? '' : 's'}</p><p className="text-gray-400 font-medium uppercase tracking-wide text-[11px] mt-0.5">Selected</p></div>
               </div>
-              <div className="flex gap-6">
-                <button onClick={() => setIsModalOpen(false)} className="px-10 py-5 rounded-2xl text-gray-400 font-black text-[16px] hover:bg-gray-50 transition-colors uppercase tracking-widest">Cancel</button>
-                <button onClick={handleConfirm} className="px-16 py-5 bg-[#AE00FF] text-white rounded-[24px] text-[20px] font-black shadow-2xl shadow-purple-200 hover:scale-[1.05] active:scale-95 transition-all uppercase tracking-widest">Okay</button>
+              <div className="flex gap-3">
+                <button onClick={() => setIsModalOpen(false)} className="px-6 py-3 rounded-xl text-gray-500 font-bold text-[14px] hover:bg-gray-50 transition-colors">Cancel</button>
+                <button onClick={handleConfirm} className="px-8 py-3 bg-[#AE00FF] text-white rounded-xl text-[14px] font-bold shadow-md shadow-purple-200 hover:bg-[#9500dd] transition-colors">Okay</button>
               </div>
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* History Details Modal */}
       {selectedHistory && (
@@ -476,7 +526,7 @@ function SettlementAdjustmentView({ agentOptions }: { agentOptions?: { id: strin
             {adjustmentType === 'Payment' ? (
               <div className="space-y-2">
                 <label className="text-[14px] font-bold text-gray-700">Order</label>
-                <div onClick={() => { setTempSelected(selectedOrders); setIsModalOpen(true); }}
+                <div onClick={() => { setTempSelected(selectedOrders); setOrderSearch(''); setIsModalOpen(true); }}
                   className="w-full h-[54px] bg-white border border-gray-100 rounded-2xl px-6 flex items-center justify-between text-[14px] font-medium cursor-pointer hover:border-purple-200 transition-colors">
                   <span className={selectedOrders.length > 0 ? 'text-gray-800 font-bold' : 'text-gray-300'}>
                     {selectedOrders.length > 0
@@ -662,16 +712,28 @@ function SettlementAdjustmentView({ agentOptions }: { agentOptions?: { id: strin
 }
 
 
-function RemittanceEntryView({ agentOptions }: { agentOptions?: { id: string; companyName: string; state: string | null }[] }) {
+function RemittanceEntryView({ agentOptions, prefillAgentId, prefillOrderId }: {
+  agentOptions?: { id: string; companyName: string; state: string | null }[];
+  prefillAgentId?: string;
+  prefillOrderId?: string;
+}) {
   const [date, setDate] = useState<Date | undefined>(new Date());
   const [selectedOrders, setSelectedOrders] = useState<string[]>([]);
   const [tempSelected, setTempSelected] = useState<string[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [agentId, setAgentId] = useState(agentOptions?.[0]?.id ?? '');
+  const [agentId, setAgentId] = useState(
+    prefillAgentId && (agentOptions ?? []).some(a => a.id === prefillAgentId)
+      ? prefillAgentId
+      : (agentOptions?.[0]?.id ?? '')
+  );
   const [amountRemitted, setAmountRemitted] = useState('');
+  const [bank, setBank] = useState('');
   const [noteText, setNoteText] = useState('');
   const [savingRem, setSavingRem] = useState(false);
   const router = useRouter();
+  const bankLabels: Record<string, string> = { MONIEPOINT: 'Moniepoint', ZENITH: 'Zenith' };
+  // Apply the deep-link order prefill only once, on the first matching load.
+  const prefillAppliedRef = React.useRef(false);
 
   // Real data state
   const [deliveredOrders, setDeliveredOrders] = useState<any[]>([]);
@@ -694,8 +756,19 @@ function RemittanceEntryView({ agentOptions }: { agentOptions?: { id: string; co
       setRecentRemittances(remittances);
       setCurrentBalance(balance);
       setLoadingOrders(false);
+      // Preselect the order the accountant arrived from (deep link from a sales
+      // record) and prefill the amount with its net. Match on record id or order number.
+      if (!prefillAppliedRef.current && prefillOrderId && agentId === prefillAgentId) {
+        const match = orders.find((o: any) => o.id === prefillOrderId || o.orderId === prefillOrderId);
+        if (match) {
+          setSelectedOrders([match.id]);
+          setTempSelected([match.id]);
+          toast.info(`Order ${match.orderId} loaded for remittance`);
+        }
+        prefillAppliedRef.current = true;
+      }
     });
-  }, [agentId]);
+  }, [agentId, prefillAgentId, prefillOrderId]);
 
   const selectedAgent = agentOptions?.find(a => a.id === agentId);
 
@@ -710,7 +783,11 @@ function RemittanceEntryView({ agentOptions }: { agentOptions?: { id: string; co
 
   const handleSubmitRemittance = async () => {
     if (!agentId || selectedOrders.length === 0 || !amountRemitted) {
-      alert('Select agent, orders, and amount');
+      toast.error('Select agent, orders, and amount');
+      return;
+    }
+    if (bank !== 'MONIEPOINT' && bank !== 'ZENITH') {
+      toast.error('Select the bank the agent paid into');
       return;
     }
     setSavingRem(true);
@@ -719,10 +796,15 @@ function RemittanceEntryView({ agentOptions }: { agentOptions?: { id: string; co
       date: date ?? new Date(),
       orderIds: selectedOrders,
       amountRemitted: parseFloat(amountRemitted) || 0,
+      bank,
       note: noteText,
     });
     setSavingRem(false);
-    if ('error' in res) { alert(res.error); return; }
+    if ('error' in res) {
+      toast.error(res.error ?? 'Remittance failed. Please try again.');
+      return;
+    }
+    toast.success(`Remittance of ${fmt(parseFloat(amountRemitted) || 0)} recorded successfully`);
     // Refresh remittances and balance after submission
     const [remittances, balance] = await Promise.all([
       fetchAgentRemittancesAction(agentId),
@@ -732,6 +814,7 @@ function RemittanceEntryView({ agentOptions }: { agentOptions?: { id: string; co
     setCurrentBalance(balance);
     setSelectedOrders([]);
     setAmountRemitted('');
+    setBank('');
     setNoteText('');
     router.refresh();
   };
@@ -906,6 +989,25 @@ function RemittanceEntryView({ agentOptions }: { agentOptions?: { id: string; co
             </div>
           </div>
 
+          <div className="grid grid-cols-2 gap-8">
+            <div className="space-y-2">
+              <label className="text-[14px] font-bold text-gray-700">Bank Paid Into</label>
+              <div className="relative">
+                <select
+                  value={bank}
+                  onChange={e => setBank(e.target.value)}
+                  className={`w-full h-[54px] bg-white border rounded-2xl px-6 text-[14px] appearance-none focus:outline-none focus:ring-1 focus:ring-purple-200 font-medium ${bank ? 'text-gray-800 border-gray-100' : 'text-gray-300 border-gray-100'}`}
+                >
+                  <option value="" disabled>Select Bank</option>
+                  <option value="MONIEPOINT">Moniepoint</option>
+                  <option value="ZENITH">Zenith</option>
+                </select>
+                <ChevronDown size={18} className="absolute right-5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+              </div>
+            </div>
+            <div />
+          </div>
+
           <div className="grid grid-cols-2 gap-8 items-center">
             <div className="space-y-2">
               <label className="text-[14px] font-bold text-gray-400">Total Expected Amount (auto-calculated)</label>
@@ -991,6 +1093,10 @@ function RemittanceEntryView({ agentOptions }: { agentOptions?: { id: string; co
                 </span>
               </div>
               <div className="flex items-center justify-between">
+                <span className="text-[12px] text-gray-400 font-medium uppercase">Bank Paid Into</span>
+                <span className={`text-[14px] font-bold ${bank ? 'text-gray-600' : 'text-gray-300'}`}>{bank ? bankLabels[bank] : '—'}</span>
+              </div>
+              <div className="flex items-center justify-between">
                 <span className="text-[12px] text-gray-400 font-medium uppercase">Current Balance</span>
                 <span className="text-[14px] font-bold text-gray-600">{fmt(currentBalance)}</span>
               </div>
@@ -1021,6 +1127,7 @@ function RemittanceEntryView({ agentOptions }: { agentOptions?: { id: string; co
             <tr className="bg-[#E5E7EB]/80 text-[12px] font-bold text-gray-600">
               <th className="px-6 py-4">Date</th>
               <th className="px-6 py-4">Reference ID</th>
+              <th className="px-6 py-4">Bank</th>
               <th className="px-6 py-4">Amount</th>
               <th className="px-6 py-4">Running Balance</th>
             </tr>
@@ -1028,7 +1135,7 @@ function RemittanceEntryView({ agentOptions }: { agentOptions?: { id: string; co
           <tbody className="divide-y divide-gray-50">
             {recentRemittances.length === 0 && (
               <tr>
-                <td colSpan={4} className="px-6 py-12 text-center text-[13px] text-gray-400 font-medium">
+                <td colSpan={5} className="px-6 py-12 text-center text-[13px] text-gray-400 font-medium">
                   No remittances recorded for this agent yet
                 </td>
               </tr>
@@ -1037,6 +1144,13 @@ function RemittanceEntryView({ agentOptions }: { agentOptions?: { id: string; co
               <tr key={row.id} className={`${idx % 2 === 1 ? 'bg-gray-50/30' : 'bg-white'} hover:bg-gray-50/50 transition-colors`}>
                 <td className="px-6 py-5 text-[13px] text-gray-400 font-medium">{row.date}</td>
                 <td className="px-6 py-5 text-[13px] text-gray-800 font-bold tracking-tight">{row.referenceId}</td>
+                <td className="px-6 py-5">
+                  {row.bankLabel ? (
+                    <span className="text-[11px] font-bold text-[#AE00FF] bg-purple-50 px-2.5 py-1 rounded-md whitespace-nowrap">{row.bankLabel}</span>
+                  ) : (
+                    <span className="text-[13px] text-gray-300 font-medium">—</span>
+                  )}
+                </td>
                 <td className="px-6 py-5 text-[13px] font-bold text-gray-800">{row.credit}</td>
                 <td className="px-6 py-5 text-[13px] font-bold text-gray-800">{row.runningBalance}</td>
               </tr>
@@ -1287,7 +1401,7 @@ function AgentLedgerView({
   setOpenDropdown,
 }: AgentLedgerViewProps) {
   const ledgerSource = initialLedger ?? [];
-  const referenceTypes = ["Remittance", "Delivery Fee", "Adjustment"];
+  const referenceTypes = ["Remittance", "Agent Funding", "Adjustment"];
   const dateRangeLabel = dateRange?.from && dateRange?.to
     ? `${dateRange.from} - ${dateRange.to}`
     : dateRange?.from

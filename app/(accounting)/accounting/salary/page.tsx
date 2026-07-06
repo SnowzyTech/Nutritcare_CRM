@@ -1,14 +1,27 @@
 import type { Metadata } from "next";
 import { SalaryClient } from "../_components/SalaryClient";
-import { listSalaryRecords } from "@/modules/finance/services/salary.service";
+import { listSalaryRecords, listSalaryMonths, monthKey } from "@/modules/finance/services/salary.service";
 
 export const metadata: Metadata = {
   title: "Salary",
   description: "View and manage employee salary records, allowances, deductions and net pay.",
 };
 
-export default async function SalaryPage() {
-  const records = await listSalaryRecords();
+export default async function SalaryPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ month?: string }>;
+}) {
+  const { month } = await searchParams;
+  const months = await listSalaryMonths();
+
+  // Default to the most recent payroll month so the page opens on the current
+  // payroll rather than every month mixed together. "All" shows everything.
+  const selectedMonth = month ?? months[0] ?? monthKey(new Date());
+  const records = await listSalaryRecords(
+    selectedMonth && selectedMonth !== "All" ? { month: selectedMonth } : {},
+  );
+
   const fmt = (n: unknown) =>
     `₦${Number(n ?? 0).toLocaleString("en-NG", { maximumFractionDigits: 0 })}`;
 
@@ -38,5 +51,11 @@ export default async function SalaryPage() {
     remark: r.remark || "--------",
   }));
 
-  return <SalaryClient initialRows={initialRows} />;
+  return (
+    <SalaryClient
+      initialRows={initialRows}
+      months={months}
+      selectedMonth={selectedMonth}
+    />
+  );
 }

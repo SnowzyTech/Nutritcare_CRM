@@ -34,6 +34,9 @@ const rowSchema = z.object({
 const createSalarySchema = z.object({
   company: z.string().optional(),
   date: z.coerce.date().optional(),
+  // Payroll month as "YYYY-MM". When provided, the batch is saved into (and
+  // replaces) that month's payroll for the given company.
+  month: z.string().regex(/^\d{4}-\d{2}$/, "Pick a valid payroll month").optional(),
   rows: z.array(rowSchema).min(1, "Add at least one salary row"),
 });
 
@@ -52,37 +55,57 @@ export async function createSalaryRecordsAction(input: z.infer<typeof createSala
 
   const data = parsed.data;
   const company = data.company && data.company !== "All" ? data.company : null;
-  const date = data.date ?? new Date();
+  // A month anchors the payroll to the first day of that month; otherwise use
+  // the explicit date, else now.
+  const date = data.month
+    ? new Date(Date.UTC(Number(data.month.slice(0, 4)), Number(data.month.slice(5, 7)) - 1, 1))
+    : data.date ?? new Date();
 
-  const created = await prisma.salaryRecord.createMany({
-    data: data.rows.map(r => ({
-      company,
-      name: r.name.trim(),
-      department: r.department?.trim() || null,
-      designation: r.designation?.trim() || null,
-      level: r.level?.trim() || null,
-      amount: r.amount,
-      basic: r.basic,
-      housingAllowance: r.housingAllowance,
-      grossPay: r.grossPay,
-      transportation: r.transportation,
-      wardrobe: r.wardrobe,
-      utilityAllowance: r.utilityAllowance,
-      grossPayTotal: r.grossPayTotal,
-      paye: r.paye,
-      pension: r.pension,
-      hmo: r.hmo,
-      otherDeduction: r.otherDeduction,
-      netPay: r.netPay,
-      bank: r.bank,
-      cash: r.cash,
-      zenithAccountNumber: r.zenithAccountNumber?.trim() || null,
-      remark: r.remark?.trim() || null,
-      date,
-      createdById: dbUser.id,
-    })),
+  const rowData = data.rows.map(r => ({
+    company,
+    name: r.name.trim(),
+    department: r.department?.trim() || null,
+    designation: r.designation?.trim() || null,
+    level: r.level?.trim() || null,
+    amount: r.amount,
+    basic: r.basic,
+    housingAllowance: r.housingAllowance,
+    grossPay: r.grossPay,
+    transportation: r.transportation,
+    wardrobe: r.wardrobe,
+    utilityAllowance: r.utilityAllowance,
+    grossPayTotal: r.grossPayTotal,
+    paye: r.paye,
+    pension: r.pension,
+    hmo: r.hmo,
+    otherDeduction: r.otherDeduction,
+    netPay: r.netPay,
+    bank: r.bank,
+    cash: r.cash,
+    zenithAccountNumber: r.zenithAccountNumber?.trim() || null,
+    remark: r.remark?.trim() || null,
+    date,
+    createdById: dbUser.id,
+  }));
+
+  // Saving a month is idempotent per (month, company): replace any existing
+  // rows for that month/company so re-saving edits the payroll instead of
+  // duplicating it. Without a month, fall back to a plain insert.
+  const count = await prisma.$transaction(async (tx) => {
+    if (data.month) {
+      const y = Number(data.month.slice(0, 4));
+      const m = Number(data.month.slice(5, 7));
+      await tx.salaryRecord.deleteMany({
+        where: {
+          date: { gte: new Date(Date.UTC(y, m - 1, 1)), lt: new Date(Date.UTC(y, m, 1)) },
+          company,
+        },
+      });
+    }
+    const created = await tx.salaryRecord.createMany({ data: rowData });
+    return created.count;
   });
 
   revalidatePath("/accounting/salary");
-  return { count: created.count };
+  return { count };
 }
