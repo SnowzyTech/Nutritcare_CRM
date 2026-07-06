@@ -10,6 +10,8 @@ const remittanceSchema = z.object({
   date: z.coerce.date(),
   orderIds: z.array(z.string()).min(1),
   amountRemitted: z.coerce.number().min(0),
+  // Which company bank account the agent paid into.
+  bank: z.enum(["MONIEPOINT", "ZENITH"], { message: "Select the bank the agent paid into" }),
   note: z.string().optional(),
 });
 
@@ -77,6 +79,7 @@ export async function createRemittanceAction(input: z.infer<typeof remittanceSch
         overpayment,
         underpayment,
         ordersJson: data.orderIds,
+        bank: data.bank,
       },
     });
     await tx.agentLedgerEntry.create({

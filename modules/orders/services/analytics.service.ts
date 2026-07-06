@@ -4,7 +4,6 @@ import { generalPerformanceScore, kpiScore } from "@/lib/performance";
 export type ProductStat = { name: string; qty: number };
 
 export type MonthMetrics = {
-  totalProductsSold: number;
   totalOrders: number;
   ordersDelivered: number;
   uniqueCustomers: number;
@@ -67,8 +66,8 @@ function computeMetrics(orders: OrderRow[]): MonthMetrics {
 
   const confirmationRate =
     total > 0 ? Math.round((attemptedDelivery / total) * 100) : 0;
-  const deliveryRate =
-    attemptedDelivery > 0 ? Math.round((delivered / attemptedDelivery) * 100) : 0;
+  // Delivery Rate mirrors the KPI: delivered / total orders handled.
+  const deliveryRate = kpiScore(delivered, total);
   const cancellationRate =
     total > 0 ? Math.round((cancelled / total) * 100) : 0;
   const recoveryRate =
@@ -82,21 +81,19 @@ function computeMetrics(orders: OrderRow[]): MonthMetrics {
   const upsellRate =
     total > 0 ? Math.round((multiItemOrders.length / total) * 100) : 0;
 
-  const generalPerformance = generalPerformanceScore({
-    deliveryRate,
-    recoveryRate,
-    upsellRate,
-    reorderRate,
-    cancellationRate,
-  });
+  // No orders handled → no performance (avoid the low-cancellation baseline).
+  const generalPerformance =
+    total > 0
+      ? generalPerformanceScore({
+          deliveryRate,
+          recoveryRate,
+          upsellRate,
+          reorderRate,
+          cancellationRate,
+        })
+      : 0;
 
   const kpi = kpiScore(delivered, total);
-
-  // Total products sold = item quantities across DELIVERED orders only
-  const totalProductsSold = orders
-    .filter((o) => o.status === "DELIVERED")
-    .flatMap((o) => o.items)
-    .reduce((sum, item) => sum + item.quantity, 0);
 
   const uniqueCustomers = new Set(orders.map((o) => o.customerId)).size;
 
@@ -127,7 +124,6 @@ function computeMetrics(orders: OrderRow[]): MonthMetrics {
     .map(([name, qty]) => ({ name, qty }));
 
   return {
-    totalProductsSold,
     totalOrders: total,
     ordersDelivered: delivered,
     uniqueCustomers,

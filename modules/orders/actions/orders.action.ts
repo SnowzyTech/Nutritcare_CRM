@@ -3,14 +3,16 @@
 import { auth } from "@/lib/auth/auth";
 import { prisma } from "@/lib/db/prisma";
 import { revalidatePath } from "next/cache";
-import { recordDeliveryFeeEntry } from "@/modules/finance/services/agent-settlement.service";
 import { getSalesRepWeeklyAnalytics } from "@/modules/orders/services/analytics.service";
 import type { MonthMetrics } from "@/modules/orders/services/analytics.service";
-import { findEligibleAgentForOrder } from "@/modules/delivery/services/agents.service";
+import {
+  findEligibleAgentForOrder,
+  agentHasAvailableStock,
+  lockAgent,
+} from "@/modules/delivery/services/agents.service";
 import {
   sendOrderConfirmationTemplate,
   sendDeliveryCodeTemplate,
-  sendOrderDeliveredTemplate,
 } from "@/lib/whatsapp/whatsapp";
 import { formatCurrency, formatDate, generateOrderNumber } from "@/lib/utils";
 import { logActivity } from "@/modules/audit/services/audit-log.service";
@@ -20,27 +22,6 @@ function generateDeliveryCode(): string {
   const min = 100_000;
   const max = 999_999;
   return String(Math.floor(min + Math.random() * (max - min + 1)));
-}
-
-/**
- * Deducts order items from the assigned agent's StockLevel rows inside a
- * transaction. Safe to call even if a StockLevel row doesn't exist yet
- * (updateMany with 0 matches is a no-op).
- */
-function buildStockDeductionOps(
-  items: { productId: string; quantity: number }[],
-  agentId: string,
-) {
-  return items.map((item) =>
-    prisma.stockLevel.updateMany({
-      where: {
-        productId: item.productId,
-        locationKind: "AGENT",
-        locationId: agentId,
-      },
-      data: { quantity: { decrement: item.quantity } },
-    }),
-  );
 }
 
 export async function getWeeklyAnalyticsAction(): Promise<MonthMetrics | { error: string }> {
@@ -92,11 +73,15 @@ export async function confirmOrderAction(
   orderId: string,
   notes?: string,
   deliveryDate?: string,
-) {
+): Promise<{ error?: string }> {
+  // Returns { error } rather than throwing so messages reach the UI clearly in
+  // production (Next.js redacts thrown Server Action errors).
   const session = await auth();
-  if (!session?.user?.id) throw new Error("Unauthorized");
+  if (!session?.user?.id) {
+    return { error: "You are not signed in. Please refresh and try again." };
+  }
 
-  if (!deliveryDate) throw new Error("Please select a delivery date before confirming.");
+  if (!deliveryDate) return { error: "Please select a delivery date before confirming." };
 
   const order = await prisma.order.findFirst({
     where: { id: orderId, salesRepId: session.user.id, deletedAt: null },
@@ -119,28 +104,40 @@ export async function confirmOrderAction(
       },
     },
   });
-  if (!order || order.status !== "PENDING") throw new Error("Cannot confirm this order");
+  if (!order || order.status !== "PENDING") {
+    return { error: "This order can no longer be confirmed." };
+  }
 
   const agentId = await findEligibleAgentForOrder(order.customer.state, order.items);
 
   if (!agentId) {
-    throw new Error(
-      "No delivery agent is currently available in this area with the required stock. Please try again later or contact your manager.",
-    );
+    return {
+      error:
+        "No delivery agent is currently available in this area with the required stock. Please try again later or contact your manager.",
+    };
   }
 
   const deliveryCode = generateDeliveryCode();
 
-  await prisma.$transaction([
-    prisma.order.update({
+  // Assign under a per-agent lock and re-verify availability inside it, so two
+  // orders confirmed at the same instant can't both grab the same agent's stock.
+  let capacityHit = false;
+  await prisma.$transaction(async (tx) => {
+    await lockAgent(tx, agentId);
+    const ok = await agentHasAvailableStock(tx, agentId, order.items);
+    if (!ok) {
+      capacityHit = true;
+      return; // leave the order untouched
+    }
+    await tx.order.update({
       where: { id: orderId },
       data: {
         status: "CONFIRMED",
         agentId,
         ...(notes !== undefined && { notes: notes || null }),
       },
-    }),
-    prisma.delivery.create({
+    });
+    await tx.delivery.create({
       data: {
         orderId,
         agentId,
@@ -148,8 +145,15 @@ export async function confirmOrderAction(
         status: "PENDING_DISPATCH",
         deliveryCode,
       },
-    }),
-  ]);
+    });
+  });
+
+  if (capacityHit) {
+    return {
+      error:
+        "The selected delivery agent just reached capacity for one or more items. Please try again — another agent will be chosen.",
+    };
+  }
 
   await logActivity({
     userId: session.user.id,
@@ -191,6 +195,7 @@ export async function confirmOrderAction(
   }
 
   revalidateOrderPaths(orderId);
+  return {};
 }
 
 export async function updateOrderNotesAction(orderId: string, notes: string) {
@@ -259,23 +264,46 @@ export async function failOrderAction(orderId: string, reason?: string) {
  * - CANCELLED orders are reset to a clean PENDING state (agent, delivery and
  *   cancellation reason cleared) so they re-enter the flow as a fresh order.
  */
-export async function reviveOrderAction(orderId: string) {
+export async function reviveOrderAction(orderId: string): Promise<{ error?: string }> {
   const session = await auth();
-  if (!session?.user?.id) throw new Error("Unauthorized");
+  if (!session?.user?.id) {
+    return { error: "You are not signed in. Please refresh and try again." };
+  }
 
-  const order = await getOwnedOrder(orderId, session.user.id);
+  const order = await prisma.order.findFirst({
+    where: { id: orderId, salesRepId: session.user.id, deletedAt: null },
+    include: { items: { select: { productId: true, quantity: true } } },
+  });
   if (!order || (order.status !== "CANCELLED" && order.status !== "FAILED")) {
-    throw new Error("Only cancelled or failed orders can be revived");
+    return { error: "Only cancelled or failed orders can be revived." };
   }
 
   if (order.status === "FAILED") {
-    await prisma.$transaction([
-      prisma.order.update({ where: { id: orderId }, data: { status: "CONFIRMED" } }),
-      prisma.delivery.updateMany({
+    // Reviving re-commits the order's stock to its agent — verify availability
+    // under the agent's lock first, so a revive can't overbook the agent.
+    let capacityHit = false;
+    await prisma.$transaction(async (tx) => {
+      if (order.agentId) {
+        await lockAgent(tx, order.agentId);
+        const ok = await agentHasAvailableStock(tx, order.agentId, order.items);
+        if (!ok) {
+          capacityHit = true;
+          return; // leave the order untouched
+        }
+      }
+      await tx.order.update({ where: { id: orderId }, data: { status: "CONFIRMED" } });
+      await tx.delivery.updateMany({
         where: { orderId },
         data: { status: "PENDING_DISPATCH", failureReason: null },
-      }),
-    ]);
+      });
+    });
+
+    if (capacityHit) {
+      return {
+        error:
+          "The assigned agent no longer has enough available stock to revive this order. Reassign it to another agent first.",
+      };
+    }
   } else {
     await prisma.$transaction([
       prisma.order.update({
@@ -294,6 +322,7 @@ export async function reviveOrderAction(orderId: string) {
     description: `Order #${order.orderNumber} revived`,
   });
   revalidateOrderPaths(orderId);
+  return {};
 }
 
 /**
@@ -315,66 +344,6 @@ export async function setOrderContactMethodAction(
     where: { id: orderId },
     data: { contactMethod: method },
   });
-  revalidateOrderPaths(orderId);
-}
-
-export async function deliverOrderAction(orderId: string) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Unauthorized");
-
-  // Fetch with items (stock deduction) and customer (WhatsApp notification)
-  const order = await prisma.order.findFirst({
-    where: { id: orderId, salesRepId: session.user.id, deletedAt: null },
-    include: {
-      items: { select: { productId: true, quantity: true } },
-      customer: { select: { name: true, whatsappNumber: true, phone: true } },
-    },
-  });
-  if (!order || order.status !== "CONFIRMED") throw new Error("Cannot mark order as delivered");
-
-  const now = new Date();
-  const stockOps = order.agentId
-    ? buildStockDeductionOps(order.items, order.agentId)
-    : [];
-
-  await prisma.$transaction([
-    prisma.order.update({ where: { id: orderId }, data: { status: "DELIVERED" } }),
-    prisma.delivery.updateMany({
-      where: { orderId },
-      data: { status: "DELIVERED", deliveredTime: now },
-    }),
-    ...stockOps,
-  ]);
-
-  await logActivity({
-    userId: session.user.id,
-    action: "Delivered",
-    entityType: "Order",
-    entityId: orderId,
-    description: `Order #${order.orderNumber} delivered`,
-  });
-
-  if (order.agentId) {
-    await recordDeliveryFeeEntry({
-      agentId: order.agentId,
-      netAmount: Number(order.netAmount),
-      orderNumber: order.orderNumber,
-      date: order.date,
-    });
-  }
-
-  // Send WhatsApp delivery notification (fire-and-forget — never throws)
-  const waPhone = order.customer.whatsappNumber || order.customer.phone;
-  if (waPhone) {
-    sendOrderDeliveredTemplate({
-      to: waPhone,
-      customerName: order.customer.name,
-      orderNumber: order.orderNumber,
-    })
-      .then((result) => console.log("[WhatsApp] delivery notification result:", JSON.stringify(result)))
-      .catch((err) => console.error("[WhatsApp] deliverOrder send error:", err));
-  }
-
   revalidateOrderPaths(orderId);
 }
 
@@ -451,20 +420,47 @@ export async function applyOrderDiscountAction(
   return { discountAmount, discountPercent, netAmount: negotiatedPrice, totalAmount: gross };
 }
 
-export async function reassignOrderAgentAction(orderId: string, agentId: string) {
+export async function reassignOrderAgentAction(
+  orderId: string,
+  agentId: string,
+): Promise<{ error?: string }> {
+  // Returns { error } rather than throwing so the message always reaches the UI
+  // clearly — Next.js redacts thrown Server Action errors in production.
   const session = await auth();
-  if (!session?.user?.id) throw new Error("Unauthorized");
-
-  const order = await getOwnedOrder(orderId, session.user.id);
-  if (!order || (order.status !== "CONFIRMED" && order.status !== "FAILED")) {
-    throw new Error("Cannot reassign agent for this order");
+  if (!session?.user?.id) {
+    return { error: "You are not signed in. Please refresh and try again." };
   }
 
-  await prisma.order.update({
-    where: { id: orderId },
-    data: { agentId, ...(order.status === "FAILED" ? { status: "CONFIRMED" } : {}) },
+  const order = await prisma.order.findFirst({
+    where: { id: orderId, salesRepId: session.user.id, deletedAt: null },
+    include: { items: { select: { productId: true, quantity: true } } },
   });
+  if (!order || (order.status !== "CONFIRMED" && order.status !== "FAILED")) {
+    return { error: "This order can no longer be reassigned." };
+  }
+
+  // Verify the TARGET agent has enough available stock, under its lock, before
+  // moving the order (excludes this order in case it's already on that agent).
+  let hasStock = true;
+  await prisma.$transaction(async (tx) => {
+    await lockAgent(tx, agentId);
+    hasStock = await agentHasAvailableStock(tx, agentId, order.items, { excludeOrderId: orderId });
+    if (!hasStock) return; // leave the order untouched
+    await tx.order.update({
+      where: { id: orderId },
+      data: { agentId, ...(order.status === "FAILED" ? { status: "CONFIRMED" } : {}) },
+    });
+  });
+
+  if (!hasStock) {
+    return {
+      error:
+        "The selected agent doesn't have enough available stock to take this order. Please choose another agent.",
+    };
+  }
+
   revalidateOrderPaths(orderId);
+  return {};
 }
 
 export async function createOrderAction(input: {
@@ -571,12 +567,20 @@ export async function createOrderAction(input: {
 export async function addOrderItemsAction(
   orderId: string,
   items: Array<{ productId: string; quantity: number }>
-) {
+): Promise<{ error?: string }> {
   const session = await auth();
-  if (!session?.user?.id) throw new Error("Unauthorized");
+  if (!session?.user?.id) {
+    return { error: "You are not signed in. Please refresh and try again." };
+  }
 
-  const order = await getOwnedOrder(orderId, session.user.id);
-  if (!order || order.status !== "PENDING") throw new Error("Cannot modify this order");
+  const order = await prisma.order.findFirst({
+    where: { id: orderId, salesRepId: session.user.id, deletedAt: null },
+    include: { items: { select: { lineTotal: true } } },
+  });
+  if (!order) return { error: "Order not found." };
+  if (order.status !== "PENDING" && order.status !== "CONFIRMED") {
+    return { error: "Products can only be added to pending or confirmed orders." };
+  }
 
   const products = await prisma.product.findMany({
     where: { id: { in: items.map((i) => i.productId) } },
@@ -584,26 +588,65 @@ export async function addOrderItemsAction(
   });
 
   const productMap = new Map(products.map((p) => [p.id, p]));
+
+  for (const item of items) {
+    if (!productMap.has(item.productId)) {
+      return { error: "One or more selected products are unavailable." };
+    }
+  }
+
+  // For confirmed orders the delivery agent is already assigned, so the agent
+  // must physically hold the new product on top of everything already promised.
+  const confirmedAgentId =
+    order.status === "CONFIRMED" && order.agentId ? order.agentId : null;
+
   let addedTotal = 0;
 
   const itemsToCreate = items.map((item) => {
-    const product = productMap.get(item.productId);
-    if (!product) throw new Error(`Product ${item.productId} not found`);
+    const product = productMap.get(item.productId)!;
     const unitPrice = Number(product.sellingPrice);
     const lineTotal = unitPrice * item.quantity;
     addedTotal += lineTotal;
     return { orderId, productId: item.productId, quantity: item.quantity, unitPrice, lineTotal, costPriceAtSale: Number(product.costPrice), isUpsell: true, addedById: session.user.id };
   });
 
-  await prisma.$transaction([
-    prisma.orderItem.createMany({ data: itemsToCreate }),
-    prisma.order.update({
-      where: { id: orderId },
-      data: { totalAmount: { increment: addedTotal }, netAmount: { increment: addedTotal } },
-    }),
-  ]);
+  // Recompute totals from the authoritative gross, preserving any existing
+  // discount (same approach as removeOrderItemAction) so discountPercent never
+  // goes stale when the order total changes.
+  const existingGross = order.items.reduce((s, i) => s + Number(i.lineTotal), 0);
+  const newGross = Math.round((existingGross + addedTotal) * 100) / 100;
+  const discountAmount = Math.min(Number(order.discountAmount), newGross);
+  const netAmount = Math.round((newGross - discountAmount) * 100) / 100;
+  const discountPercent =
+    newGross > 0 ? Math.round((discountAmount / newGross) * 10000) / 100 : 0;
 
-  revalidatePath(`/sales-rep/orders/${orderId}`);
+  let capacityHit = false;
+  await prisma.$transaction(async (tx) => {
+    if (confirmedAgentId) {
+      await lockAgent(tx, confirmedAgentId);
+      // Available already nets out this confirmed order's existing items, so we
+      // only need room for the NEW items on top of the agent's commitments.
+      const ok = await agentHasAvailableStock(tx, confirmedAgentId, items);
+      if (!ok) {
+        capacityHit = true;
+        return; // leave the order untouched
+      }
+    }
+    await tx.orderItem.createMany({ data: itemsToCreate });
+    await tx.order.update({
+      where: { id: orderId },
+      data: { totalAmount: newGross, netAmount, discountAmount, discountPercent },
+    });
+  });
+
+  if (capacityHit) {
+    return {
+      error: "The assigned agent doesn't have enough available stock for the added product(s).",
+    };
+  }
+
+  revalidateOrderPaths(orderId);
+  return {};
 }
 
 /**

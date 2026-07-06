@@ -9,6 +9,7 @@ import {
   Plus, MessageCircle, ChevronLeft, ChevronRight, RotateCcw, ChevronDown, X,
 } from 'lucide-react';
 import Link from 'next/link';
+import { getFinancialSummaryForMonthAction, getSalesBreakdownForPeriodAction } from '@/modules/finance/actions/dashboard.action';
 
 /* ── Fallback Mock Data ─────────────────────────────────────────────────── */
 
@@ -184,6 +185,53 @@ function MonthDropdown({ value, onChange, theme = 'light' }: { value: string; on
   );
 }
 
+/* ── Activity Period Dropdown ─────────────────────────────────────────────── */
+// Filter for the Sales-by-Product / Sales-by-State charts. Offers the current
+// week, the current month, and any specific calendar month.
+const ACTIVITY_PERIODS = ['This Week', 'This Month', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+function ActivityPeriodDropdown({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-1.5 px-2.5 py-1 rounded-md border bg-[#F9FAFB] border-gray-100 hover:bg-gray-100 transition-colors"
+      >
+        <span className="text-[8px] font-bold text-gray-500">{value}</span>
+        <ChevronDown size={10} className="text-gray-400" />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-full mt-1 border rounded-lg shadow-lg z-50 py-1 min-w-[110px] max-h-[180px] overflow-y-auto bg-white border-gray-100">
+            {ACTIVITY_PERIODS.map((m) => (
+              <button key={m} onClick={() => { onChange(m); setOpen(false); }}
+                className={`w-full text-left px-3 py-1.5 text-[10px] font-bold transition-colors ${value === m ? 'text-[#AE00FF] bg-purple-50' : 'text-gray-600 hover:bg-gray-50'
+                  }`}
+              >{m}</button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** Resolve an activity-period label into a server-action period descriptor. */
+type ActivityPeriodDescriptor = { type: 'week' } | { type: 'month'; month: number; year: number };
+function resolveActivityPeriod(label: string): ActivityPeriodDescriptor {
+  const now = new Date();
+  if (label === 'This Week') return { type: 'week' };
+  if (label === 'This Month') return { type: 'month', month: now.getMonth() + 1, year: now.getFullYear() };
+  const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  const idx = monthNames.indexOf(label);
+  const month = idx + 1;
+  // A month later than the current month refers to last year's occurrence.
+  const year = month > now.getMonth() + 1 ? now.getFullYear() - 1 : now.getFullYear();
+  return { type: 'month', month, year };
+}
+
 /* ── Dashboard Component ──────────────────────────────────────────────────── */
 
 interface DashboardClientProps {
@@ -248,15 +296,61 @@ export function DashboardClient({
   const [activeRange, setActiveRange] = useState<'Daily' | 'Weekly' | 'Monthly'>('Monthly');
   const [selectedMonth, setSelectedMonth] = useState('This Month');
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  // Financial Summary data — starts from the server-rendered current month, then
+  // refetches when a specific month is chosen from the picker.
+  const [liveSummary, setLiveSummary] = useState(summary);
+  // Sales-by-Product / Sales-by-State activity charts — server-rendered for the
+  // current month, then refetched when a week/month is chosen from the filter.
+  const [activityPeriod, setActivityPeriod] = useState('This Month');
+  const [liveSalesByProduct, setLiveSalesByProduct] = useState(salesByProductData);
+  const [liveSalesByState, setLiveSalesByState] = useState(salesByStateData);
 
   useEffect(() => { setMounted(true); }, []);
 
-  const financialSummary = summary
+  // Keep the server-rendered (current-month) data in sync if props change.
+  useEffect(() => {
+    if (activityPeriod === 'This Month') {
+      setLiveSalesByProduct(salesByProductData);
+      setLiveSalesByState(salesByStateData);
+    }
+  }, [salesByProductData, salesByStateData, activityPeriod]);
+
+  useEffect(() => {
+    let cancelled = false;
+    getSalesBreakdownForPeriodAction(resolveActivityPeriod(activityPeriod)).then((res) => {
+      if (cancelled || !res) return;
+      setLiveSalesByProduct(res.byProduct);
+      setLiveSalesByState(res.byState);
+    });
+    return () => { cancelled = true; };
+  }, [activityPeriod]);
+
+  useEffect(() => {
+    // 'This Month' → use the server-rendered current-month summary.
+    if (selectedMonth === 'This Month') {
+      setLiveSummary(summary);
+      return;
+    }
+    const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    const idx = monthNames.indexOf(selectedMonth);
+    if (idx === -1) return;
+    const now = new Date();
+    const month = idx + 1;
+    // A month name after the current month refers to last year's occurrence.
+    const year = month > now.getMonth() + 1 ? now.getFullYear() - 1 : now.getFullYear();
+    let cancelled = false;
+    getFinancialSummaryForMonthAction(month, year).then((res) => {
+      if (!cancelled && res) setLiveSummary(res);
+    });
+    return () => { cancelled = true; };
+  }, [selectedMonth, summary]);
+
+  const financialSummary = liveSummary
     ? [
-        { label: 'Total Revenue', value: fmtN(summary.totalRevenue), change: `${summary.revenueChangePct >= 0 ? '+' : ''}${summary.revenueChangePct}%`, isPositive: summary.revenueChangePct >= 0, subText: 'vs last month', highlight: 'default' as const },
-        { label: 'Net Profit', value: fmtN(summary.netProfit), change: `${summary.profitChangePct >= 0 ? '+' : ''}${summary.profitChangePct}%`, isPositive: summary.profitChangePct >= 0, subText: 'vs last month', highlight: 'purple' as const },
-        { label: 'Total Expenses', value: fmtN(summary.totalExpenses), change: `${summary.expenseChangePct >= 0 ? '+' : ''}${summary.expenseChangePct}%`, isPositive: summary.expenseChangePct <= 0, subText: 'vs last month', highlight: 'default' as const },
-        { label: 'Delivery Expenses', value: fmtN(summary.deliveryExpenses), change: `${summary.deliveryChangePct >= 0 ? '+' : ''}${summary.deliveryChangePct}%`, isPositive: summary.deliveryChangePct <= 0, subText: 'vs last month', highlight: 'default' as const },
+        { label: 'Total Revenue', value: fmtN(liveSummary.totalRevenue), change: `${liveSummary.revenueChangePct >= 0 ? '+' : ''}${liveSummary.revenueChangePct}%`, isPositive: liveSummary.revenueChangePct >= 0, subText: 'vs last month', highlight: 'default' as const },
+        { label: 'Net Profit', value: fmtN(liveSummary.netProfit), change: `${liveSummary.profitChangePct >= 0 ? '+' : ''}${liveSummary.profitChangePct}%`, isPositive: liveSummary.profitChangePct >= 0, subText: 'vs last month', highlight: 'purple' as const },
+        { label: 'Total Expenses', value: fmtN(liveSummary.totalExpenses), change: `${liveSummary.expenseChangePct >= 0 ? '+' : ''}${liveSummary.expenseChangePct}%`, isPositive: liveSummary.expenseChangePct <= 0, subText: 'vs last month', highlight: 'default' as const },
+        { label: 'Delivery Expenses', value: fmtN(liveSummary.deliveryExpenses), change: `${liveSummary.deliveryChangePct >= 0 ? '+' : ''}${liveSummary.deliveryChangePct}%`, isPositive: liveSummary.deliveryChangePct <= 0, subText: 'vs last month', highlight: 'default' as const },
         { label: 'Tax Payable', value: '24%', change: '', isPositive: true, subText: '', highlight: 'default' as const },
       ]
     : fallbackFinancialSummary;
@@ -273,9 +367,11 @@ export function DashboardClient({
   // Normalize so `fullName` is always a string — the prop type allows it to be
   // optional while the fallback always sets it, which otherwise produces a union
   // type the chart's `data` prop rejects. Falls back to `name` (same as the tooltip).
-  const salesByProduct = (salesByProductData && salesByProductData.length > 0 ? salesByProductData : fallbackSalesByProduct)
+  // Real period-scoped data can legitimately be empty (no sales that week/month);
+  // only fall back to mock data on the very first render before any real fetch.
+  const salesByProduct = (liveSalesByProduct ?? fallbackSalesByProduct)
     .map((d) => ({ ...d, fullName: (d as { fullName?: string }).fullName ?? d.name }));
-  const salesByState = (salesByStateData && salesByStateData.length > 0 ? salesByStateData : fallbackSalesByState)
+  const salesByState = (liveSalesByState ?? fallbackSalesByState)
     .map((d) => ({ ...d, fullName: (d as { fullName?: string }).fullName ?? d.name }));
 
   const buildInventorySnapshot1 = () => {
@@ -442,13 +538,13 @@ export function DashboardClient({
               </div>
 
               {item.subDetail ? (
-                <div className="flex items-end gap-2.5 mt-1">
-                  <p className="text-[20px] font-black text-gray-600 tracking-tight leading-none">{item.value}</p>
-                  <div className="flex flex-col pb-0.5">
-                    <span className="text-[9px] font-bold leading-tight" style={{ color: item.color }}>{item.subLabel}</span>
-                    <span className="text-[9px] font-bold leading-tight" style={{ color: item.color }}>{item.subDetail}</span>
-                  </div>
-                </div>
+                // Figure on top, supporting text stacked directly beneath it —
+                // keeps the card compact instead of stretching it out sideways.
+                <>
+                  <p className="text-[20px] font-black text-gray-600 tracking-tight leading-none mb-1">{item.value}</p>
+                  <span className="text-[9px] font-bold leading-tight block" style={{ color: item.color }}>{item.subLabel}</span>
+                  <span className="text-[9px] font-bold leading-tight block" style={{ color: item.color }}>{item.subDetail}</span>
+                </>
               ) : (
                 <>
                   <p className="text-[17px] font-black text-gray-600 tracking-tight mb-1">{item.value}</p>
@@ -514,9 +610,13 @@ export function DashboardClient({
           )}
         </div>
 
-        {/* Agent Settlement */}
+        {/* Agent Settlement — always all-time (a per-period breakdown of an
+            outstanding balance isn't meaningful, so it's not tied to the toggle). */}
         <div className="bg-white  p-6  flex flex-col">
-          <h2 className="text-[17px] font-bold text-gray-900 mb-5 tracking-tight">Agent Settlement</h2>
+          <div className="flex items-center justify-between mb-5">
+            <h2 className="text-[17px] font-bold text-gray-900 tracking-tight">Agent Settlement</h2>
+            <span className="text-[9px] font-bold text-[#AE00FF] bg-purple-50 px-2.5 py-1 rounded-md">All Time</span>
+          </div>
           <div className="grid grid-cols-2 gap-4 flex-1">
             {/* Box 1 */}
             <div className="rounded-xl border border-gray-100 p-4 shadow-sm hover:border-gray-200 transition-colors flex flex-col justify-between">
@@ -527,7 +627,7 @@ export function DashboardClient({
                   <span className="text-[18px] font-black text-gray-600 leading-none">{settlementSummary?.totalPendingCount ?? 4}</span>
                 </div>
               </div>
-              <p className="text-[10px] font-bold text-[#10B981] flex items-center gap-1">+12% <span className="font-medium text-gray-400">vs last month</span></p>
+              <p className="text-[10px] font-bold text-gray-400">{settlementSummary ? `${settlementSummary.totalPendingCount} agent${settlementSummary.totalPendingCount === 1 ? '' : 's'} owing` : 'across agents'}</p>
             </div>
 
             {/* Box 2 */}
@@ -536,7 +636,7 @@ export function DashboardClient({
                 <span className="text-[10px] font-bold text-gray-800 tracking-wide block mb-3">Total Overpayments</span>
                 <p className="text-[20px] font-black text-gray-600 tracking-tight leading-none mb-2">{settlementSummary ? fmtN(settlementSummary.totalOverpayments) : 'N80,000'}</p>
               </div>
-              <p className="text-[10px] font-bold text-[#10B981] flex items-center gap-1">+12% <span className="font-medium text-gray-400">vs last month</span></p>
+              <p className="text-[10px] font-bold text-gray-400">company owes agents</p>
             </div>
 
             {/* Box 3 */}
@@ -545,7 +645,7 @@ export function DashboardClient({
                 <span className="text-[10px] font-bold text-gray-800 tracking-wide block mb-3">Company Owing Agents</span>
                 <p className="text-[20px] font-black text-gray-600 tracking-tight leading-none mb-2">{settlementSummary ? fmtN(settlementSummary.companyOwingAgents) : 'N800,000'}</p>
               </div>
-              <p className="text-[10px] font-bold text-[#10B981] flex items-center gap-1">+12% <span className="font-medium text-gray-400">vs last month</span></p>
+              <p className="text-[10px] font-bold text-gray-400">outstanding to agents</p>
             </div>
 
             {/* Box 4 */}
@@ -569,10 +669,15 @@ export function DashboardClient({
               <span className="text-[9px] text-gray-400 font-medium">Activity</span>
               <h3 className="text-[13px] font-bold text-gray-900">Sales by Product</h3>
             </div>
-            <MonthDropdown value={selectedMonth} onChange={setSelectedMonth} />
+            <ActivityPeriodDropdown value={activityPeriod} onChange={setActivityPeriod} />
           </div>
           {mounted && (
-            <div style={{ width: '100%', height: 220 }}>
+            <div style={{ width: '100%', height: 220 }} className="relative">
+              {salesByProduct.length === 0 && (
+                <div className="absolute inset-0 flex items-center justify-center text-[11px] font-medium text-gray-400">
+                  No product sales in {activityPeriod.toLowerCase()}
+                </div>
+              )}
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={salesByProduct} margin={{ top: 10, right: 0, left: -25, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F3F4F6" />
@@ -598,14 +703,19 @@ export function DashboardClient({
               <h3 className="text-[13px] font-bold text-gray-900">Sales by State</h3>
             </div>
             <div className="flex items-center gap-2">
-              <MonthDropdown value={selectedMonth} onChange={setSelectedMonth} />
+              <ActivityPeriodDropdown value={activityPeriod} onChange={setActivityPeriod} />
               <button className="text-[9px] font-bold text-white bg-[#1C1C24] px-3 py-1.5 rounded-md hover:bg-black transition-colors">
                 See All
               </button>
             </div>
           </div>
           {mounted && (
-            <div style={{ width: '100%', height: 220 }}>
+            <div style={{ width: '100%', height: 220 }} className="relative">
+              {salesByState.length === 0 && (
+                <div className="absolute inset-0 flex items-center justify-center text-[11px] font-medium text-gray-400">
+                  No state sales in {activityPeriod.toLowerCase()}
+                </div>
+              )}
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={salesByState} margin={{ top: 10, right: 0, left: -25, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F3F4F6" />

@@ -43,6 +43,24 @@ type ColKey = (typeof COLUMNS)[number]['key'];
 
 type SalaryDraftRow = Record<ColKey, string> & { id: string };
 
+// A previous-month row used to pre-fill the grid for a new payroll.
+export type SalaryPrefillRow = Record<ColKey, string> & { company?: string };
+
+interface SalaryAddClientProps {
+  prefillRows?: SalaryPrefillRow[];
+  sourceMonth?: string | null;
+  suggestedMonth?: string;
+  existingMonths?: string[];
+}
+
+// "2026-07" → "July 2026"
+function formatMonth(key: string): string {
+  if (!key) return '';
+  const [y, m] = key.split('-').map(Number);
+  if (!y || !m) return key;
+  return new Date(y, m - 1, 1).toLocaleString('en-NG', { month: 'long', year: 'numeric' });
+}
+
 // ─── Static filter options ────────────────────────────────────────────────────
 
 const NUCLE_OPTIONS = ['Nucle', 'Nutriticare'];
@@ -142,21 +160,39 @@ function FilterDropdown({ id, label, value, options, isOpen, onToggle, onSelect,
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function SalaryAddClient() {
+export function SalaryAddClient({
+  prefillRows = [],
+  sourceMonth = null,
+  suggestedMonth = '',
+  existingMonths = [],
+}: SalaryAddClientProps = {}) {
   const router = useRouter();
 
-  // Editable rows state
-  const [rows, setRows] = useState<SalaryDraftRow[]>(() =>
-    Array.from({ length: INITIAL_ROW_COUNT }, (_, i) => emptyRow(String(i + 1)))
-  );
+  // Editable rows state — seeded from the previous month's payroll when
+  // available, otherwise a set of blank rows.
+  const [rows, setRows] = useState<SalaryDraftRow[]>(() => {
+    if (prefillRows.length > 0) {
+      return prefillRows.map((p, i) => {
+        const base = emptyRow(String(i + 1));
+        COLUMNS.forEach((c) => { base[c.key] = p[c.key] ?? ''; });
+        return base;
+      });
+    }
+    return Array.from({ length: INITIAL_ROW_COUNT }, (_, i) => emptyRow(String(i + 1)));
+  });
+
+  // Target payroll month ("YYYY-MM") this batch will be saved into.
+  const [payrollMonth, setPayrollMonth] = useState(suggestedMonth);
 
   // Filter bar state (display only on this page)
-  const [nucleFilter,      setNucleFilter]      = useState('All');
+  const [nucleFilter,      setNucleFilter]      = useState(prefillRows[0]?.company || 'All');
   const [departmentFilter, setDepartmentFilter] = useState('All');
   const [levelFilter,      setLevelFilter]      = useState('All');
   const [search,           setSearch]           = useState('');
   const [openDropdown,     setOpenDropdown]     = useState<string | null>(null);
   const [saving,           setSaving]           = useState(false);
+
+  const monthExists = payrollMonth !== '' && existingMonths.includes(payrollMonth);
 
   const toggleDropdown = (name: string) =>
     setOpenDropdown((prev) => (prev === name ? null : name));
@@ -177,9 +213,16 @@ export function SalaryAddClient() {
   // Save — collect non-empty rows (a row counts once it has a name), persist
   // them all in one batch, then navigate back to the list.
   const handleSave = async () => {
+    if (!/^\d{4}-\d{2}$/.test(payrollMonth)) {
+      alert('Please pick the payroll month before saving.');
+      return;
+    }
     const nonEmpty = rows.filter((r) => r.name.trim() !== '');
     if (nonEmpty.length === 0) {
       alert('Please fill in at least one row (Name is required) before saving.');
+      return;
+    }
+    if (monthExists && !confirm(`A payroll already exists for ${formatMonth(payrollMonth)}. Saving will replace it. Continue?`)) {
       return;
     }
     setSaving(true);
@@ -199,6 +242,7 @@ export function SalaryAddClient() {
 
     const res = await createSalaryRecordsAction({
       company: nucleFilter !== 'All' ? nucleFilter : undefined,
+      month: payrollMonth,
       rows: payloadRows as never,
     });
     setSaving(false);
@@ -207,7 +251,7 @@ export function SalaryAddClient() {
       alert(res.error);
       return;
     }
-    router.push('/accounting/salary');
+    router.push(`/accounting/salary?month=${encodeURIComponent(payrollMonth)}`);
   };
 
   return (
@@ -239,7 +283,35 @@ export function SalaryAddClient() {
       </div>
 
       {/* ── Page title ── */}
-      <h1 className="text-[32px] font-bold text-gray-800 mb-8 tracking-tight">Salary</h1>
+      <div className="mb-6">
+        <h1 className="text-[32px] font-bold text-gray-800 tracking-tight">
+          {sourceMonth ? 'New Monthly Payroll' : 'Salary'}
+        </h1>
+        {sourceMonth && (
+          <p className="text-[14px] font-medium text-gray-400 mt-1">
+            Pre-filled from {formatMonth(sourceMonth)}. Edit the figures below, set the payroll month, then save.
+          </p>
+        )}
+      </div>
+
+      {/* ── Payroll month selector ── */}
+      <div className="flex flex-wrap items-center gap-3 mb-4">
+        <label htmlFor="salary-payroll-month" className="text-[13px] font-bold text-gray-600">
+          Payroll Month
+        </label>
+        <input
+          id="salary-payroll-month"
+          type="month"
+          value={payrollMonth}
+          onChange={(e) => setPayrollMonth(e.target.value)}
+          className="h-9 px-3 bg-white border border-gray-200 rounded-md text-[12.5px] text-gray-700 focus:outline-none focus:ring-1 focus:ring-purple-200"
+        />
+        {monthExists && (
+          <span className="text-[12px] font-semibold text-amber-600">
+            A payroll already exists for {formatMonth(payrollMonth)} — saving replaces it.
+          </span>
+        )}
+      </div>
 
       {/* ── Filter / action bar (matches design image) ── */}
       <div className="flex flex-wrap items-center gap-2.5 mb-4">

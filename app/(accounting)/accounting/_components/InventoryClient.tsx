@@ -8,9 +8,14 @@ import {
   MessageCircle,
   Search,
   MapPin,
+  Pencil,
+  X,
 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { toast } from 'sonner';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import type { ProductBreakdownItem } from '@/modules/finance/services/inventory-accounting.service';
+import { updateProductCostPriceAction } from '@/modules/finance/actions/inventory-accounting.action';
 
 const fallbackMainTableData = [
   { name: 'Prosxact', cost: '₦3,500', selling: '₦5,200', total: '1,200', warehouse: '800', agents: '400', value: '₦1,250,000' },
@@ -47,7 +52,7 @@ const fallbackAgentData = [
   { name: 'Flymack | Lagos', avatar: '🟦', color: 'bg-blue-100', textColor: 'text-blue-700', values: [299, 229, 134, 234, 209, '093', 873, '028', 736] },
 ];
 
-interface ProductRow { name: string; cost: string; selling: string; total: string; warehouse: string; agents: string; value: string; }
+interface ProductRow { id?: string; name: string; cost: string; costValue?: number; selling: string; total: string; warehouse: string; agents: string; value: string; }
 interface InventoryClientProps {
   productList?: ProductRow[];
   productBreakdown?: ProductBreakdownItem[];
@@ -59,9 +64,41 @@ interface InventoryClientProps {
 }
 
 export function InventoryClient({ productList, productBreakdown, locationView }: InventoryClientProps = {}) {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<'product' | 'location'>('product');
   const mainTableData = (productList && productList.length > 0) ? productList : fallbackMainTableData;
   const cards = productBreakdown ?? [];
+
+  // Cost-price editing (accountants / admins). Editing is forward-looking only:
+  // past orders keep the cost snapshotted at sale time; this updates future
+  // orders and the current inventory valuation.
+  const [editRow, setEditRow] = useState<ProductRow | null>(null);
+  const [newCost, setNewCost] = useState('');
+  const [savingCost, setSavingCost] = useState(false);
+
+  const openCostEditor = (row: ProductRow) => {
+    setEditRow(row);
+    setNewCost(row.costValue != null ? String(row.costValue) : '');
+  };
+
+  const saveCostPrice = async () => {
+    if (!editRow?.id) return;
+    const value = parseFloat(newCost);
+    if (isNaN(value) || value < 0) {
+      toast.error('Enter a valid cost price');
+      return;
+    }
+    setSavingCost(true);
+    const res = await updateProductCostPriceAction({ productId: editRow.id, costPrice: value });
+    setSavingCost(false);
+    if ('error' in res) {
+      toast.error(res.error);
+      return;
+    }
+    toast.success(`Cost price for ${editRow.name} updated`);
+    setEditRow(null);
+    router.refresh();
+  };
 
   return (
     <div className="p-8 max-w-[1600px] mx-auto min-h-screen bg-[#FAFAFA] font-sans">
@@ -128,7 +165,20 @@ export function InventoryClient({ productList, productBreakdown, locationView }:
                 {mainTableData.map((row, idx) => (
                   <tr key={idx} className={`${idx % 2 === 1 ? 'bg-[#F9FAFB]' : 'bg-white'}`}>
                     <td className="px-8 py-[22px] text-[14px] text-gray-500">{row.name}</td>
-                    <td className="px-8 py-[22px] text-[14px] text-gray-500">{row.cost}</td>
+                    <td className="px-8 py-[22px] text-[14px] text-gray-500">
+                      <div className="flex items-center gap-2 group">
+                        <span>{row.cost}</span>
+                        {row.id && (
+                          <button
+                            onClick={() => openCostEditor(row)}
+                            title="Edit cost price"
+                            className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 hover:text-[#AE00FF]"
+                          >
+                            <Pencil size={14} />
+                          </button>
+                        )}
+                      </div>
+                    </td>
                     <td className="px-8 py-[22px] text-[14px] text-gray-500">{row.selling}</td>
                     <td className="px-8 py-[22px] text-[14px] text-gray-500">{row.total}</td>
                     <td className="px-8 py-[22px] text-[14px] text-gray-500">{row.warehouse}</td>
@@ -195,6 +245,61 @@ export function InventoryClient({ productList, productBreakdown, locationView }:
         </>
       ) : (
         <InventoryLocationView locationView={locationView} />
+      )}
+
+      {/* Cost Price Editor */}
+      {editRow && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white w-full max-w-[440px] rounded-3xl shadow-2xl p-8 relative animate-in zoom-in-95 duration-200">
+            <button
+              onClick={() => setEditRow(null)}
+              className="absolute top-5 right-5 w-9 h-9 rounded-xl bg-gray-50 flex items-center justify-center text-gray-400 hover:bg-gray-100 transition-all"
+            >
+              <X size={18} />
+            </button>
+
+            <h2 className="text-[20px] font-bold text-gray-800 tracking-tight">Edit Cost Price</h2>
+            <p className="text-[13px] text-gray-400 font-medium mt-1 mb-6">{editRow.name}</p>
+
+            <div className="flex items-center justify-between mb-5 px-4 py-3 bg-gray-50 rounded-xl">
+              <span className="text-[12px] font-bold text-gray-400 uppercase tracking-wide">Current</span>
+              <span className="text-[15px] font-bold text-gray-700">{editRow.cost}</span>
+            </div>
+
+            <label className="text-[13px] font-bold text-gray-700 block mb-2">New Cost Price (₦)</label>
+            <input
+              type="number"
+              min={0}
+              value={newCost}
+              onChange={(e) => setNewCost(e.target.value)}
+              autoFocus
+              onKeyDown={(e) => { if (e.key === 'Enter') saveCostPrice(); }}
+              placeholder="0.00"
+              className="w-full h-[52px] bg-white border border-gray-200 rounded-2xl px-5 text-[15px] text-gray-800 font-medium focus:outline-none focus:ring-1 focus:ring-purple-200 mb-4"
+            />
+
+            <p className="text-[11px] text-gray-400 font-medium leading-relaxed mb-6">
+              This affects future orders and the current inventory value only. Profit on past
+              orders keeps the cost recorded when each order was placed.
+            </p>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setEditRow(null)}
+                className="flex-1 h-[50px] rounded-2xl text-gray-500 font-bold text-[14px] hover:bg-gray-50 transition-colors border border-gray-200"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveCostPrice}
+                disabled={savingCost}
+                className="flex-1 h-[50px] bg-[#AE00FF] text-white rounded-2xl text-[14px] font-bold shadow-md shadow-purple-200 hover:bg-[#9500dd] transition-colors disabled:opacity-50"
+              >
+                {savingCost ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -2,14 +2,21 @@
 
 import {
   listDeliveredOrdersForAgent,
+  listAgentOrdersForAdjustment,
   listAgentLedger,
   getCurrentAgentBalance,
+  refTypeLabel,
 } from "@/modules/finance/services/agent-settlement.service";
 import { prisma } from "@/lib/db/prisma";
 
 export async function fetchDeliveredOrdersAction(agentId: string) {
   if (!agentId) return [];
   return listDeliveredOrdersForAgent(agentId);
+}
+
+export async function fetchAgentOrdersForAdjustmentAction(agentId: string) {
+  if (!agentId) return [];
+  return listAgentOrdersForAdjustment(agentId);
 }
 
 export async function fetchAgentRemittancesAction(agentId: string) {
@@ -40,7 +47,7 @@ export async function fetchAgentLedgerRefsAction(agentId: string) {
   return entries.map(e => ({
     id: e.id,
     referenceId: e.referenceId,
-    referenceType: e.referenceType as string,
+    referenceType: refTypeLabel(e.referenceType as string),
     date: e.date.toISOString().slice(0, 10),
     debit: Number(e.debit),
     credit: Number(e.credit),

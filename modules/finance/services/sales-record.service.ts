@@ -129,6 +129,7 @@ export interface OrderInvoiceDetail {
     landmark: string | null;
   };
   agent: string | null;
+  agentId: string | null;
   salesRep: string | null;
   totalQty: number;
   items: OrderInvoiceLine[];
@@ -250,6 +251,7 @@ export async function getSalesRecordById(id: string): Promise<OrderInvoiceDetail
       landmark: order.customer.landmark,
     },
     agent: order.agent?.companyName ?? null,
+    agentId: order.agentId ?? null,
     salesRep: order.salesRep?.name ?? null,
     totalQty,
     items: orderLines,

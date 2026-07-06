@@ -11,6 +11,7 @@ import {
   FileText,
   Save,
   CheckCircle2,
+  Wallet,
 } from 'lucide-react';
 import type { OrderInvoiceDetail } from '@/modules/finance/services/sales-record.service';
 import { formatCurrency, formatDate } from '@/lib/utils';
@@ -27,6 +28,19 @@ export default function OrderDetailsClient({ order }: OrderDetailsClientProps) {
   const inv = order.invoice;
 
   const qtyLabel = `${order.totalQty} pack${order.totalQty === 1 ? '' : 's'}`;
+
+  // A remittance can only be recorded for a delivered order tied to an agent that
+  // hasn't already been remitted. Deep-links straight into the agent settlement
+  // Remittance Entry tab with the agent + order preselected.
+  const canRemit = order.orderStatus === 'Delivered' && !!order.agentId && order.remStatus !== 'Paid';
+  const goToRemittance = () => {
+    const params = new URLSearchParams({
+      tab: 'remittance',
+      agentId: order.agentId ?? '',
+      orderId: order.id,
+    });
+    router.push(`/accounting/agent-settlement?${params.toString()}`);
+  };
 
   const detailRow = (label: string, value: React.ReactNode) => (
     <div className="flex items-center justify-between py-4">
@@ -144,6 +158,15 @@ export default function OrderDetailsClient({ order }: OrderDetailsClientProps) {
               {showInvoice ? 'Hide Invoice' : 'View Invoice'}
             </button>
           </div>
+
+          {canRemit && (
+            <button
+              onClick={goToRemittance}
+              className="mt-4 w-full h-[60px] rounded-[14px] text-[15px] font-bold bg-[#AE00FF] text-white shadow-lg shadow-purple-200 hover:bg-[#9500dd] transition-colors flex items-center justify-center gap-2"
+            >
+              <Wallet size={18} /> Record Remittance
+            </button>
+          )}
         </div>
 
         {/* Right Side: Invoice Preview Card */}

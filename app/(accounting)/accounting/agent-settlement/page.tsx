@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { AgentSettlementClient } from "../_components/AgentSettlementClient";
 import {
   listDeliveryAgentsWithStats,
@@ -12,10 +13,14 @@ export default async function AgentSettlementPage() {
     listAgentsForSelect(),
   ]);
   return (
-    <AgentSettlementClient
-      initialAgents={deliveryAgents}
-      initialLedger={ledger}
-      agentOptions={agents}
-    />
+    // AgentSettlementClient reads ?tab= / prefill params via useSearchParams,
+    // which must sit under a Suspense boundary.
+    <Suspense>
+      <AgentSettlementClient
+        initialAgents={deliveryAgents}
+        initialLedger={ledger}
+        agentOptions={agents}
+      />
+    </Suspense>
   );
 }

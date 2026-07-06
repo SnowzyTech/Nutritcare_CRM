@@ -4,6 +4,7 @@ import {
   getWarehouseStockMap,
   getAgentStockMap,
 } from "./stock-level.service";
+import { getInventorySnapshot } from "@/modules/finance/services/dashboard.service";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -131,7 +132,7 @@ function formatMovementTime(date: Date): string {
 // ── Dashboard ────────────────────────────────────────────────────────────────
 
 export async function getInventoryDashboardData() {
-  const [products, totalsMap, purchaseOrders, recentMovements] = await Promise.all([
+  const [products, totalsMap, purchaseOrders, recentMovements, inventorySnapshot] = await Promise.all([
     prisma.product.findMany({
       where: { isActive: true, deletedAt: null },
       include: { category: true },
@@ -147,7 +148,16 @@ export async function getInventoryDashboardData() {
       where: { date: { gte: sevenDaysAgo() } },
       include: { items: true },
     }),
+    // Reuses the same figures shown on the accounting Inventory Snapshot.
+    getInventorySnapshot(),
   ]);
+
+  // Stock totals for the summary card (identical basis to accounting snapshot).
+  const totalStockInWarehouse = inventorySnapshot.warehouseStock;
+  const totalStockWithAgents = inventorySnapshot.agentStock;
+  const totalStock = inventorySnapshot.totalProducts;
+  const agentCount = inventorySnapshot.agentCount;
+  const warehouseCount = inventorySnapshot.warehouseCount;
 
   const stockLevels: StockLevelRow[] = products.map((p) => {
     const qty = totalsMap[p.id] ?? 0;
@@ -213,6 +223,11 @@ export async function getInventoryDashboardData() {
     receivedTotal,
     dispatchedTotal,
     alerts,
+    totalStockInWarehouse,
+    totalStockWithAgents,
+    totalStock,
+    agentCount,
+    warehouseCount,
   };
 }
 

@@ -101,9 +101,6 @@ export function OutgoingClient({ initialRows }: { initialRows: OutgoingMovementR
               </select>
               <ChevronDown className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             </div>
-            <button className="px-5 py-1.5 rounded-md text-[13px] font-semibold text-white bg-[#9D00FF] hover:bg-[#8500d9] transition-colors">
-              Go
-            </button>
           </div>
 
           <div className="overflow-x-auto">

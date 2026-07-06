@@ -36,6 +36,8 @@ export default async function OrderAssignmentPage() {
     salesRep: o.salesRep?.name ?? "—",
     product: o.items[0]?.product.name ?? "—",
     qty: o.items.reduce((sum, i) => sum + i.quantity, 0),
+    isReorder: o.isReorder,
+    itemNames: o.items.map(i => i.product.name),
     date: o.createdAt.toISOString().split("T")[0],
     statusDate: o.updatedAt.toISOString().split("T")[0],
   }));

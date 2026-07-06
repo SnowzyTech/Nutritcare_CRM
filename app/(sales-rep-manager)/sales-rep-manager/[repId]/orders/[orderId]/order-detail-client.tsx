@@ -2,6 +2,8 @@
 
 import React from "react";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
+import { ArrowLeft } from "lucide-react";
 import { OrderDetail } from "@/lib/mock-data/sales-rep-manager";
 
 interface OrderDetailClientProps {
@@ -112,27 +114,37 @@ function FieldRow({ label, value }: { label: string; value: string }) {
 }
 
 export function OrderDetailClient({ repName, order }: OrderDetailClientProps) {
+  const router = useRouter();
   const steps = getSteps(order.status);
   const badge = getStatusBadge(order.status);
 
   return (
     <div className="max-w-6xl mx-auto flex flex-col gap-6">
+      {/* Back button */}
+      <button
+        onClick={() => router.back()}
+        className="inline-flex items-center gap-2 text-sm font-semibold text-gray-500 hover:text-gray-900 transition-colors w-fit"
+      >
+        <ArrowLeft size={18} />
+        Back
+      </button>
+
       {/* Header */}
       <div className="flex items-center gap-4">
         <div className="w-12 h-12 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center font-bold text-lg border border-purple-200">
           {repName.charAt(0)}
         </div>
-        <h1 className="text-2xl font-bold text-gray-900">{repName}&apos;s Dashboard</h1>
+        <h1 className="text-xl md:text-2xl font-bold text-gray-900">{repName}&apos;s Dashboard</h1>
       </div>
 
-      <div className="flex justify-between items-center bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-        <h2 className="text-xl font-bold text-gray-900">Order ID: {order.orderId}</h2>
+      <div className="flex flex-wrap gap-3 justify-between items-center bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+        <h2 className="text-lg md:text-xl font-bold text-gray-900 break-all">Order ID: {order.orderId}</h2>
         <span className={`${badge.bg} text-white px-5 py-2 rounded-full text-[10px] uppercase font-bold tracking-wider`}>
           {badge.label}
         </span>
       </div>
 
-      <div className="bg-white p-8 rounded-2xl flex items-start gap-4 shadow-sm border border-gray-100">
+      <div className="bg-white p-4 md:p-8 rounded-2xl flex items-start gap-2 md:gap-4 shadow-sm border border-gray-100">
         {steps.map((step, idx) => (
           <React.Fragment key={step.number}>
             <StepIndicator {...step} />
@@ -147,9 +159,9 @@ export function OrderDetailClient({ repName, order }: OrderDetailClientProps) {
         ))}
       </div>
 
-      <div className="grid grid-cols-5 gap-6">
-        <div className="col-span-3 bg-white rounded-2xl p-8 border border-gray-100 shadow-sm flex flex-col">
-          <div className="grid grid-cols-2 gap-x-8">
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+        <div className="lg:col-span-3 bg-white rounded-2xl p-5 md:p-8 border border-gray-100 shadow-sm flex flex-col">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8">
             <FieldRow label="Full Name" value={order.customer.fullName} />
             <FieldRow label="Phone Number" value={order.customer.phone} />
             <FieldRow label="WhatsApp number" value={order.customer.whatsapp} />
@@ -212,7 +224,7 @@ export function OrderDetailClient({ repName, order }: OrderDetailClientProps) {
           </div>
         </div>
 
-        <div className="col-span-2 flex flex-col gap-6">
+        <div className="lg:col-span-2 flex flex-col gap-6">
           <div className="bg-purple-100 rounded-2xl h-64 flex flex-col items-center justify-center text-purple-600 text-sm border border-purple-200 overflow-hidden relative">
             {order.productImage ? (
               <Image

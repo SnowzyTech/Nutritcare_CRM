@@ -13,6 +13,7 @@ import {
   Bar,
   Cell,
 } from "recharts";
+import { formatCurrency } from "@/lib/utils";
 
 export type ChartPoint = { name: string; value: number };
 
@@ -29,12 +30,6 @@ const FALLBACK_BAR: ChartPoint[] = [
   { name: "Su", value: 0 },
 ];
 
-function compactValue(v: number): string {
-  if (v >= 1_000_000) return `₦${(v / 1_000_000).toFixed(1)}M`;
-  if (v >= 1_000) return `₦${(v / 1_000).toFixed(1)}K`;
-  return v > 0 ? `₦${v.toFixed(0)}` : "₦0";
-}
-
 function CurrencyTooltip({ active, payload, label }: {
   active?: boolean;
   payload?: { value: number }[];
@@ -44,7 +39,7 @@ function CurrencyTooltip({ active, payload, label }: {
   return (
     <div className="bg-white border border-gray-200 rounded-lg px-3 py-2 text-xs shadow-md">
       <p className="font-semibold text-gray-700 mb-0.5">{label}</p>
-      <p className="text-gray-500">{compactValue(payload[0].value)}</p>
+      <p className="text-gray-500">{formatCurrency(payload[0].value)}</p>
     </div>
   );
 }

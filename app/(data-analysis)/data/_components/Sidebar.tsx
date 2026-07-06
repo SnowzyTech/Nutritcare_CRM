@@ -88,7 +88,7 @@ export function DataSidebar({ user }: SidebarProps) {
         <div className={`flex items-center gap-3 ${isCollapsed ? 'justify-center' : 'p-2'}`}>
           <div className="relative w-10 h-10 rounded-full overflow-hidden border border-gray-100 shadow-sm shrink-0">
             <Image
-              src={user?.image || "https://ui-avatars.com/api/?name=Favour+Isunuoya&background=f3f4f6&color=6b7280"} 
+              src={user?.image || `https://ui-avatars.com/api/?name=${encodeURIComponent(user?.name || "User")}&background=f3f4f6&color=6b7280`}
               alt="User" 
               fill 
               className="object-cover" 
@@ -98,7 +98,7 @@ export function DataSidebar({ user }: SidebarProps) {
           {!isCollapsed && (
             <div className="flex flex-col overflow-hidden">
               <span className="text-sm font-bold text-gray-900 truncate max-w-[140px]">
-                {user?.name || "Favour Isunuoya"}
+                {user?.name || "Data Analyst"}
               </span>
               <span className="text-[11px] text-gray-400 font-medium uppercase tracking-wider">
                 Data

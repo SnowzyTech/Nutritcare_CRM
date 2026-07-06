@@ -44,7 +44,7 @@ export function TeamRepsClient({ reps, teamName }: TeamRepsClientProps) {
       </div>
 
       {/* Filter Bar */}
-      <div className="flex items-center gap-4 bg-white p-3 rounded-2xl shadow-sm border border-gray-100">
+      <div className="flex flex-wrap items-center gap-3 sm:gap-4 bg-white p-3 rounded-2xl shadow-sm border border-gray-100">
         <button className="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg text-gray-500 hover:bg-gray-100 transition-colors">
           <SlidersHorizontal size={18} />
           <span className="text-sm font-medium">Filter</span>
@@ -61,26 +61,55 @@ export function TeamRepsClient({ reps, teamName }: TeamRepsClientProps) {
             className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
           />
         </div>
-        <div className="ml-auto relative">
+        <div className="w-full sm:w-auto sm:ml-auto relative">
           <input
             type="text"
             placeholder="Search by name or phone…"
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
-            className="pl-10 pr-4 py-2 bg-gray-50 border border-gray-100 rounded-lg text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-100 w-64 transition-all"
+            className="pl-10 pr-4 py-2 bg-gray-50 border border-gray-100 rounded-lg text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-100 w-full sm:w-64 transition-all"
           />
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
         </div>
       </div>
 
-      {/* Table */}
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-        {filteredReps.length === 0 ? (
-          <div className="py-20 text-center text-gray-400 text-sm">
-            {reps.length === 0 ? "No active sales reps in this team." : "No reps match your search."}
+      {/* List */}
+      {filteredReps.length === 0 ? (
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 py-20 text-center text-gray-400 text-sm">
+          {reps.length === 0 ? "No active sales reps in this team." : "No reps match your search."}
+        </div>
+      ) : (
+        <>
+          {/* ── Mobile Card List (visible on small screens) ── */}
+          <div className="flex flex-col gap-3 md:hidden">
+            {filteredReps.map(rep => (
+              <Link
+                key={rep.id}
+                href={`/sales-rep-manager/${rep.id}`}
+                className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm active:bg-gray-50 transition-colors flex items-center gap-3"
+              >
+                <div className="w-11 h-11 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center font-bold text-sm border border-purple-200 overflow-hidden shrink-0">
+                  {rep.avatarUrl ? (
+                    <img src={rep.avatarUrl} alt={rep.name} className="w-full h-full object-cover" />
+                  ) : (
+                    rep.name.charAt(0)
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-bold text-gray-900 truncate">{rep.name}</p>
+                  <p className="text-xs text-gray-500 truncate">{rep.phone ?? "—"}</p>
+                  <p className="text-[11px] text-gray-400 mt-0.5">{rep.pendingOrders} pending orders</p>
+                </div>
+                <span className="inline-flex items-center justify-center bg-green-50 text-green-700 px-2.5 py-1 rounded-full font-bold text-xs border border-green-100 shrink-0">
+                  {rep.performance}%
+                </span>
+              </Link>
+            ))}
           </div>
-        ) : (
-          <table className="w-full text-sm text-left">
+
+          {/* ── Desktop Table (hidden on small screens) ── */}
+          <div className="hidden md:block bg-white rounded-2xl shadow-sm border border-gray-100 overflow-x-auto">
+            <table className="w-full text-sm text-left">
             <thead>
               <tr className="bg-gray-50/50 border-b border-gray-100">
                 <th className="px-6 py-4 font-bold text-gray-500 uppercase tracking-wider text-[11px] w-16">
@@ -139,8 +168,9 @@ export function TeamRepsClient({ reps, teamName }: TeamRepsClientProps) {
               ))}
             </tbody>
           </table>
-        )}
-      </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
