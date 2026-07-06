@@ -16,25 +16,45 @@ export default function LoginPage() {
 
       {/* ── Left Panel ─────────────────────────────────────────────── */}
       <div
-        className="hidden lg:flex flex-col items-center justify-center flex-1 relative overflow-hidden"
-        style={{ minHeight: "100vh", background: "radial-gradient(ellipse at 55% 45%, #ede9fe 0%, #f5f3ff 40%, #faf5ff 100%)" }}
+        className="hidden lg:flex flex-col items-center flex-1 relative overflow-hidden"
+        style={{ minHeight: "100vh", background: "#000" }}
       >
+        {/* Product video — full-bleed background */}
+        <video
+          src="/banner-video.mp4"
+          autoPlay
+          loop
+          muted
+          playsInline
+          style={{
+            position: "absolute",
+            inset: 0,
+            width: "100%",
+            height: "100%",
+            objectFit: "cover",
+          }}
+        />
+
+        {/* Gradient scrim for logo legibility */}
+        <div
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            height: "35%",
+            background: "linear-gradient(180deg, rgba(0,0,0,0.45) 0%, rgba(0,0,0,0) 100%)",
+            zIndex: 1,
+          }}
+        />
+
         {/* Nucle logo */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src="/nucle-logo.png"
           alt="Nucle logo"
           width={150}
-          style={{ marginBottom: "2.5rem", objectFit: "contain" }}
-        />
-
-        {/* Product image */}
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src="/products.png"
-          alt="Nutricare health products"
-          width={420}
-          style={{ objectFit: "contain", maxWidth: "90%" }}
+          style={{ marginTop: "2.5rem", objectFit: "contain", position: "relative", zIndex: 2 }}
         />
       </div>
 
