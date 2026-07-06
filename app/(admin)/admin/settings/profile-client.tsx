@@ -41,6 +41,9 @@ export function ProfileClient({ profile }: { profile: Profile }) {
   );
   // Holds the Cloudinary secure_url returned after a successful upload.
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  // True once the user explicitly removes an existing avatar. Distinguishes
+  // "no change" (omit avatarUrl) from "clear it" (send avatarUrl: null).
+  const [avatarRemoved, setAvatarRemoved] = useState(false);
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -86,6 +89,7 @@ export function ProfileClient({ profile }: { profile: Profile }) {
       // Store only the Cloudinary URL — that is what gets saved to the DB.
       setAvatarUrl(data.url);
       setAvatarPreview(data.url);
+      setAvatarRemoved(false);
     } catch {
       toast.error("Upload failed. Please try again.");
       setAvatarPreview(profile.avatarUrl ?? null);
@@ -112,7 +116,7 @@ export function ProfileClient({ profile }: { profile: Profile }) {
       name: fullName,
       phone: phone.trim() || undefined,
       whatsappNumber: whatsapp.trim() || undefined,
-      ...(avatarUrl ? { avatarUrl } : {}),
+      ...(avatarUrl ? { avatarUrl } : avatarRemoved ? { avatarUrl: null } : {}),
     });
     setLoading(false);
     if ("error" in result) {
@@ -321,7 +325,7 @@ export function ProfileClient({ profile }: { profile: Profile }) {
                     {avatarPreview && !avatarUploading && (
                       <button
                         type="button"
-                        onClick={() => { setAvatarPreview(null); setAvatarUrl(null); }}
+                        onClick={() => { setAvatarPreview(null); setAvatarUrl(null); setAvatarRemoved(true); }}
                         className="text-xs font-bold text-red-500 hover:text-red-600 hover:underline px-2 py-1"
                       >
                         Remove
