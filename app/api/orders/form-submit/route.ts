@@ -72,6 +72,20 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // ── Reject orders from disabled (or deleted) forms ──────────────────────
+    if (formId) {
+      const formState = await prisma.form.findUnique({
+        where: { id: formId },
+        select: { disabledAt: true, deletedAt: true },
+      });
+      if (formState && (formState.disabledAt || formState.deletedAt)) {
+        return NextResponse.json(
+          { error: "This form is no longer accepting orders." },
+          { status: 403, headers: CORS_HEADERS }
+        );
+      }
+    }
+
     // ── 1. Create Customer ──────────────────────────────────────────────────
     // Every order is a novel entity: we ALWAYS create a fresh customer record
     // with this submission's own details. We never look up or update an existing
@@ -193,6 +207,7 @@ export async function POST(req: NextRequest) {
           totalAmount,
           netAmount: totalAmount,
           status: "PENDING",
+          ...(formId ? { formId } : {}),
           ...(packageName ? { notes: `Package: ${packageName}` } : {}),
           items: {
             create: orderItemsData,

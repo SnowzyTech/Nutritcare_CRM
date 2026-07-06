@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import type { SavedForm } from "@/lib/formsStore";
 import { Check, Copy, Sparkles, ShoppingBag, CreditCard, ArrowRight, ChevronDown } from "lucide-react";
@@ -444,6 +444,15 @@ export default function OrderFormPreview() {
     ro.observe(el);
     return () => ro.disconnect();
   });
+
+  // Count a landing-page view — but only when the form is actually embedded
+  // (loaded inside an iframe on an external page), never for top-level previews.
+  const viewTrackedRef = useRef(false);
+  useEffect(() => {
+    if (!form || !isIframe || viewTrackedRef.current) return;
+    viewTrackedRef.current = true;
+    fetch(`/api/forms/${formId}/view`, { method: "POST" }).catch(() => {});
+  }, [form, isIframe, formId]);
 
   if (notFound) {
     return (

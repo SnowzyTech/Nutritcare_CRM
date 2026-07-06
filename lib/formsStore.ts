@@ -5,4 +5,6 @@ export interface SavedForm {
   hits: number;
   orders: number;
   data: Record<string, unknown>;
+  creatorName?: string;
+  creatorRole?: string;
 }

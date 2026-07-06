@@ -18,12 +18,26 @@ import {
 } from "lucide-react";
 import type { SavedForm } from "@/lib/formsStore";
 import { deleteFormAction, duplicateFormAction } from "@/modules/admin/actions/forms.action";
+import { buildFormEmbedCodes } from "@/lib/forms/embed-codes";
 
 /* ─── tiny helpers ─────────────────────────────────────────── */
 function copyToClipboard(text: string, label: string) {
   navigator.clipboard.writeText(text).then(() => {
     alert(`${label} copied to clipboard!`);
   });
+}
+
+/* ─── Prettify a UserRole enum for display ─────────────────────── */
+function prettyRole(role?: string) {
+  if (!role) return "";
+  const map: Record<string, string> = { ADMIN: "Admin", MEDIA_BUYER: "Media Buyer" };
+  return (
+    map[role] ??
+    role
+      .split("_")
+      .map((w) => w[0] + w.slice(1).toLowerCase())
+      .join(" ")
+  );
 }
 
 /* ─── Action button variant ────────────────────────────────── */
@@ -82,15 +96,36 @@ function IconBtn({
 }
 
 /* ─── Main Component ───────────────────────────────────────── */
-export default function FormsListClient({ initialForms }: { initialForms: SavedForm[] }) {
+export default function FormsListClient({
+  initialForms,
+  basePath = "/admin/forms",
+  showAddOrder = true,
+}: {
+  initialForms: SavedForm[];
+  /** List route for this dashboard (used for Add/Edit links). */
+  basePath?: string;
+  /** Whether to show the per-row "Add Order…" shortcut (admin only). */
+  showAddOrder?: boolean;
+}) {
   const router = useRouter();
   const [search, setSearch] = useState("");
   const [selectedForms, setSelectedForms] = useState<Set<string>>(new Set());
   const [selectAction, setSelectAction] = useState("");
+  const [page, setPage] = useState(1);
 
   const filtered = initialForms.filter((f) =>
     f.formName.toLowerCase().includes(search.toLowerCase())
   );
+
+  const PAGE_SIZE = 10;
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const pageItems = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+
+  // Reset to the first page whenever the search filter changes.
+  useEffect(() => {
+    setPage(1);
+  }, [search]);
 
   const toggleSelect = (id: string) => {
     setSelectedForms((prev) => {
@@ -175,7 +210,7 @@ export default function FormsListClient({ initialForms }: { initialForms: SavedF
 
           {/* Add form */}
           <Link
-            href="/admin/forms/add"
+            href={`${basePath}/add`}
             className="flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-700 text-white text-sm font-semibold rounded-md px-4 py-2.5 transition-colors whitespace-nowrap"
           >
             <Plus size={14} />
@@ -257,17 +292,17 @@ export default function FormsListClient({ initialForms }: { initialForms: SavedF
               : "No forms match your search."}
           </div>
         ) : (
-          filtered.map((form) => {
+          pageItems.map((form) => {
             const origin = typeof window !== "undefined" ? window.location.origin : "";
             const data = (form.data || {}) as Record<string, any>;
             const hasOptin = data.createOptinForm === "Yes";
             const hasUpsell = data.addUpsell === "Yes" && Array.isArray(data.upsellItems) && data.upsellItems.length > 0;
 
-            const resizeScript = `<script>window.addEventListener('message',function(e){if(e.origin!=='${origin}')return;if(e.data&&e.data.type==='nc-resize'){var f=document.querySelector('iframe[data-nc-id="${form.id}-optin"]');if(f)f.style.height=e.data.height+'px';}if(e.data&&e.data.type==='nc-redirect'&&e.data.url){window.location.href=e.data.url;}});<\/script>`;
-            const resizeScriptOrder = `<script>window.addEventListener('message',function(e){if(e.origin!=='${origin}')return;if(e.data&&e.data.type==='nc-resize'){var f=document.querySelector('iframe[data-nc-id="${form.id}-order"]');if(f)f.style.height=e.data.height+'px';}if(e.data&&e.data.type==='nc-redirect'&&e.data.url){window.location.href=e.data.url;}});<\/script>`;
-            const optinIframeCode = `<iframe data-nc-id="${form.id}-optin" src="${origin}/order-form/${form.id}?tab=optin" width="100%" style="border:none; overflow:hidden; min-height:500px; display:block;" frameborder="0" scrolling="no"></iframe>\n${resizeScript}`;
-            const iframeCode = `<iframe data-nc-id="${form.id}-order" src="${origin}/order-form/${form.id}?tab=order" width="100%" style="border:none; overflow:hidden; min-height:500px; display:block;" frameborder="0" scrolling="no"></iframe>\n${resizeScriptOrder}`;
-            const formCode = `<div data-form-id="${form.id}"></div><script src="${origin}/embed.js"></script>`;
+            const {
+              optinIframe: optinIframeCode,
+              orderIframe: iframeCode,
+              formCode,
+            } = buildFormEmbedCodes(form.id, origin);
             const formId = form.id;
 
             return (
@@ -288,6 +323,16 @@ export default function FormsListClient({ initialForms }: { initialForms: SavedF
                 {/* Form name */}
                 <div className="space-y-1">
                   <p className="text-base font-extrabold text-slate-800 leading-tight">{form.formName}</p>
+                  {form.creatorName && (
+                    <p className="text-xs text-gray-500 font-medium flex flex-wrap items-center gap-1.5 pt-0.5">
+                      By <span className="font-bold text-slate-700">{form.creatorName}</span>
+                      {form.creatorRole && (
+                        <span className="text-[9px] font-bold uppercase tracking-wide bg-purple-100 text-purple-700 rounded px-1.5 py-0.5">
+                          {prettyRole(form.creatorRole)}
+                        </span>
+                      )}
+                    </p>
+                  )}
                   <p className="text-xs text-purple-600 font-bold cursor-pointer hover:underline leading-relaxed">
                     ({form.orders} Orders)
                   </p>
@@ -323,13 +368,15 @@ export default function FormsListClient({ initialForms }: { initialForms: SavedF
                       Preview Order Form
                     </ActionBtn>
                   )}
-                  <ActionBtn
-                    icon={<Plus size={12} />}
-                    variant="indigo"
-                    onClick={() => router.push(`/admin/orders`)}
-                  >
-                    Add Order…
-                  </ActionBtn>
+                  {showAddOrder && (
+                    <ActionBtn
+                      icon={<Plus size={12} />}
+                      variant="indigo"
+                      onClick={() => router.push(`/admin/orders`)}
+                    >
+                      Add Order…
+                    </ActionBtn>
+                  )}
                   {hasOptin && (
                     <ActionBtn
                       icon={<Copy size={12} />}
@@ -398,7 +445,7 @@ export default function FormsListClient({ initialForms }: { initialForms: SavedF
                   <IconBtn
                     icon={<Pencil size={14} />}
                     title="Edit form"
-                    onClick={() => router.push(`/admin/forms/${form.id}/edit`)}
+                    onClick={() => router.push(`${basePath}/${form.id}/edit`)}
                   />
                   <IconBtn
                     icon={<Files size={14} />}
@@ -419,6 +466,43 @@ export default function FormsListClient({ initialForms }: { initialForms: SavedF
               </div>
             );
           })
+        )}
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-center gap-1.5 pt-4">
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={currentPage === 1}
+              className="px-3 py-1.5 text-xs font-bold rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+            >
+              Prev
+            </button>
+            {Array.from({ length: totalPages }).map((_, i) => {
+              const n = i + 1;
+              const active = n === currentPage;
+              return (
+                <button
+                  key={n}
+                  onClick={() => setPage(n)}
+                  className={`w-8 h-8 text-xs font-bold rounded-lg border transition-colors cursor-pointer ${
+                    active
+                      ? "bg-purple-600 border-purple-600 text-white"
+                      : "bg-white border-gray-200 text-gray-600 hover:bg-gray-50"
+                  }`}
+                >
+                  {n}
+                </button>
+              );
+            })}
+            <button
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={currentPage === totalPages}
+              className="px-3 py-1.5 text-xs font-bold rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+            >
+              Next
+            </button>
+          </div>
         )}
       </div>
     </div>

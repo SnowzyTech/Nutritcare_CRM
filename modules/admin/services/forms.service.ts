@@ -5,7 +5,15 @@ export async function getAllForms() {
   return prisma.form.findMany({
     where: { deletedAt: null },
     orderBy: { createdAt: "desc" },
-    select: { id: true, name: true, hits: true, orders: true, data: true, createdAt: true },
+    select: {
+      id: true,
+      name: true,
+      hits: true,
+      orders: true,
+      data: true,
+      createdAt: true,
+      createdBy: { select: { name: true, role: true } },
+    },
   });
 }
 
@@ -25,6 +33,14 @@ export async function updateForm(id: string, name: string, data: Record<string, 
 
 export async function softDeleteForm(id: string) {
   return prisma.form.update({ where: { id }, data: { deletedAt: new Date() } });
+}
+
+/** Reversibly disable / re-enable a form (blocks new orders while disabled). */
+export async function setFormDisabled(id: string, disabled: boolean) {
+  return prisma.form.update({
+    where: { id },
+    data: { disabledAt: disabled ? new Date() : null },
+  });
 }
 
 export async function duplicateForm(id: string, createdById: string) {
