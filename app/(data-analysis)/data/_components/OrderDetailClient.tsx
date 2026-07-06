@@ -2,18 +2,29 @@
 
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { MessageCircle, Check, Trash2, AlertTriangle, X } from 'lucide-react';
+import { MessageCircle, Check, Trash2, AlertTriangle, X, ArrowLeft } from 'lucide-react';
 import Image from 'next/image';
 import { OrderDetailFull } from '@/modules/data-analysis/services/data-analysis.service';
 import { ProgressSteps } from './ProgressSteps';
 import { AgentInfoModal } from './AgentInfoModal';
 import { PrescriptionEditor } from './PrescriptionEditor';
-import { deleteOrderPermanently } from '@/modules/data-analysis/actions/data-analysis.action';
+import {
+  deleteOrderPermanently,
+  markOrderDeliveredByAnalyst,
+  markOrderFailedByAnalyst,
+} from '@/modules/data-analysis/actions/data-analysis.action';
 import { toast } from 'sonner';
 
 interface OrderDetailClientProps {
   order: OrderDetailFull;
 }
+
+const FAIL_REASONS = [
+  'Customer unavailable at delivery',
+  'Customer refused the order',
+  'Incorrect / incomplete address',
+  'Could not reach customer',
+];
 
 const BADGE_STYLES: Record<string, string> = {
   Pending: 'bg-[#FFF3CD] text-[#856404]',
@@ -29,6 +40,41 @@ export function OrderDetailClient({ order }: OrderDetailClientProps) {
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [isDelivering, setIsDelivering] = useState(false);
+  const [isFailOpen, setIsFailOpen] = useState(false);
+  const [failReason, setFailReason] = useState(''); // a preset reason, or ''
+  const [customFailReason, setCustomFailReason] = useState('');
+  const [isFailing, setIsFailing] = useState(false);
+
+  const handleMarkDelivered = async () => {
+    setIsDelivering(true);
+    const result = await markOrderDeliveredByAnalyst(order.id);
+
+    if (result.success) {
+      toast.success('Order marked as delivered');
+      router.refresh();
+    } else {
+      toast.error(result.error || 'Failed to mark order as delivered');
+    }
+    setIsDelivering(false);
+  };
+
+  const handleMarkFailed = async () => {
+    const effectiveReason = customFailReason.trim() || failReason;
+    if (!effectiveReason) return;
+
+    setIsFailing(true);
+    const result = await markOrderFailedByAnalyst(order.id, effectiveReason);
+
+    if (result.success) {
+      toast.success('Order marked as failed');
+      setIsFailOpen(false);
+      router.refresh();
+    } else {
+      toast.error(result.error || 'Failed to mark order as failed');
+    }
+    setIsFailing(false);
+  };
 
   const handleDeleteOrder = async () => {
     setIsDeleting(true);
@@ -48,6 +94,16 @@ export function OrderDetailClient({ order }: OrderDetailClientProps) {
 
   return (
     <div className="p-8 max-w-[1400px] mx-auto space-y-10 pb-20">
+      {/* Back button */}
+      <button
+        onClick={() => router.back()}
+        type="button"
+        className="inline-flex items-center gap-2 text-slate-400 hover:text-purple-600 transition-colors group"
+      >
+        <ArrowLeft size={20} className="group-hover:-translate-x-1 transition-transform" />
+        <span className="text-sm font-bold">Back</span>
+      </button>
+
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div className="flex items-center gap-4">
@@ -299,6 +355,39 @@ export function OrderDetailClient({ order }: OrderDetailClientProps) {
                 <PrescriptionEditor initialValue={order.prescription} readOnly />
               </div>
             )}
+
+            {/* Mark Delivered / Fail — analyst override for confirmed orders */}
+            {order.status === 'Confirmed' && (
+              <div className="grid grid-cols-2 gap-4 pt-6 border-t border-gray-100">
+                <button
+                  onClick={() => {
+                    setFailReason('');
+                    setCustomFailReason('');
+                    setIsFailOpen(true);
+                  }}
+                  disabled={isDelivering || isFailing}
+                  type="button"
+                  className="bg-red-50 border border-red-200 px-4 py-3 rounded-xl text-red-500 font-bold text-sm hover:bg-red-100 transition disabled:opacity-50"
+                >
+                  ✕ Fail
+                </button>
+                <button
+                  onClick={handleMarkDelivered}
+                  disabled={isDelivering || isFailing}
+                  type="button"
+                  className="bg-[#198754] text-white px-4 py-3 rounded-xl font-bold text-sm hover:bg-[#157347] transition disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {isDelivering ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      Marking...
+                    </>
+                  ) : (
+                    '✓ Delivered'
+                  )}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -309,6 +398,90 @@ export function OrderDetailClient({ order }: OrderDetailClientProps) {
           isOpen={isAgentModalOpen}
           onClose={() => setIsAgentModalOpen(false)}
         />
+      )}
+
+      {/* Mark as Failed Modal */}
+      {isFailOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            onClick={() => !isFailing && setIsFailOpen(false)}
+          />
+          <div className="relative bg-white rounded-[40px] shadow-2xl w-full max-w-[500px] p-10 animate-in fade-in zoom-in duration-300">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-black text-slate-800">Mark as Failed</h2>
+              <button
+                onClick={() => !isFailing && setIsFailOpen(false)}
+                className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-200 transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <p className="text-sm text-gray-500 mb-6">
+              Select a reason this delivery failed, or enter your own.
+            </p>
+
+            <div className="flex flex-col gap-3 mb-6">
+              {FAIL_REASONS.map((reason) => {
+                const selected = failReason === reason && !customFailReason.trim();
+                return (
+                  <button
+                    key={reason}
+                    type="button"
+                    onClick={() => {
+                      setFailReason(reason);
+                      setCustomFailReason('');
+                    }}
+                    className={`flex items-center gap-3 p-4 rounded-2xl border-2 text-left text-sm font-bold transition-all ${
+                      selected
+                        ? 'border-rose-500 bg-rose-50 text-rose-700'
+                        : 'border-slate-100 bg-slate-50 text-slate-700 hover:border-rose-200'
+                    }`}
+                  >
+                    <span
+                      className={`w-4 h-4 rounded-full border-2 shrink-0 ${
+                        selected ? 'border-rose-500 bg-rose-500' : 'border-slate-300'
+                      }`}
+                    />
+                    {reason}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="mb-8">
+              <label className="text-xs text-gray-400 font-bold mb-2 block">
+                Other reason (optional)
+              </label>
+              <textarea
+                value={customFailReason}
+                onChange={(e) => {
+                  setCustomFailReason(e.target.value);
+                  if (e.target.value.trim()) setFailReason('');
+                }}
+                placeholder="Enter a custom reason…"
+                className="w-full min-h-[80px] border-2 border-rose-200 focus:border-rose-500 rounded-xl px-4 py-3 text-sm font-semibold text-gray-600 resize-none outline-none transition"
+              />
+            </div>
+
+            <button
+              disabled={isFailing || !(customFailReason.trim() || failReason)}
+              onClick={handleMarkFailed}
+              type="button"
+              className="w-full bg-rose-600 text-white py-4 rounded-2xl text-[1rem] font-black hover:bg-rose-700 transition-all shadow-lg shadow-rose-100 flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              {isFailing ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  Marking...
+                </>
+              ) : (
+                'Confirm Failure'
+              )}
+            </button>
+          </div>
+        </div>
       )}
 
       {/* Delete Confirmation Modal */}

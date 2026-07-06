@@ -11,7 +11,6 @@ import {
   confirmOrderAction,
   cancelOrderAction,
   failOrderAction,
-  deliverOrderAction,
   addOrderItemsAction,
   removeOrderItemAction,
   updateOrderNotesAction,
@@ -325,7 +324,7 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
     ...(order.status !== "PENDING" && order.status !== "CANCELLED"
       ? [{ label: "Order Confirmed", ...fmtHistory(delivery?.createdAt ?? order.updatedAt) }]
       : []),
-    ...(order.status !== "PENDING" && delivery
+    ...(order.status !== "PENDING" && delivery && (order.notes?.trim() ?? "") !== ""
       ? [{ label: "Prescription Sent", ...fmtHistory(delivery.createdAt) }]
       : []),
     ...(order.status === "DELIVERED" && delivery?.deliveredTime
@@ -369,10 +368,19 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
     );
   }
 
-  function handleAction(action: () => Promise<void>, successMsg?: string) {
+  function handleAction(
+    action: () => Promise<void | { error?: string }>,
+    successMsg?: string,
+  ) {
     startTransition(async () => {
       try {
-        await action();
+        const res = await action();
+        // Actions that return { error } (production-safe pattern) surface it here;
+        // actions that throw are handled by the catch below.
+        if (res && typeof res === "object" && "error" in res && res.error) {
+          toast.error(res.error);
+          return;
+        }
         if (successMsg) toast.success(successMsg);
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Action failed");
@@ -388,7 +396,8 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
           productId: r.productId,
           quantity: parseInt(r.qty) || 1,
         }));
-      await addOrderItemsAction(order.id, items);
+      const res = await addOrderItemsAction(order.id, items);
+      if (res?.error) return res; // surface error, skip the UI updates below
       // Added items increase both gross and net by the same amount, so bump the
       // negotiated-price input to keep any existing discount intact.
       const added = productRows
@@ -538,7 +547,7 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
             ))}
           </div>
 
-          {order.status === "PENDING" && (
+          {(order.status === "PENDING" || order.status === "CONFIRMED") && (
             <button
               onClick={() => setIsAddProductOpen(true)}
               type="button"
@@ -934,9 +943,10 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
             </div>
           )}
 
-          {/* Confirm/Fail buttons for confirmed orders */}
+          {/* Fail button for confirmed orders (delivery is now marked by the
+              delivery agent or data analyst, not the sales rep) */}
           {order.status === "CONFIRMED" && (
-            <div className="grid grid-cols-2 gap-4 mt-4">
+            <div className="mt-4">
               <button
                 disabled={isPending}
                 onClick={() => {
@@ -945,17 +955,9 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
                   setIsFailOpen(true);
                 }}
                 type="button"
-                className="bg-red-50 border border-red-200 px-4 py-3 rounded-lg text-red-500 font-semibold text-sm hover:bg-red-100 transition disabled:opacity-50"
+                className="w-full bg-red-50 border border-red-200 px-4 py-3 rounded-lg text-red-500 font-semibold text-sm hover:bg-red-100 transition disabled:opacity-50"
               >
                 ✕ Fail
-              </button>
-              <button
-                disabled={isPending}
-                onClick={() => handleAction(() => deliverOrderAction(order.id), "Order marked as delivered")}
-                type="button"
-                className="bg-purple-600 text-white px-4 py-3 rounded-lg font-semibold text-sm hover:bg-purple-700 transition disabled:opacity-50"
-              >
-                ✓ Delivered
               </button>
             </div>
           )}
@@ -1221,10 +1223,15 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
             <button
               disabled={isPending || !selectedAgentId}
               onClick={() =>
-                handleAction(async () => {
-                  await reassignOrderAgentAction(order.id, selectedAgentId);
+                startTransition(async () => {
+                  const res = await reassignOrderAgentAction(order.id, selectedAgentId);
+                  if (res?.error) {
+                    toast.error(res.error);
+                    return;
+                  }
                   setIsReassignOpen(false);
-                }, "Agent reassigned successfully")
+                  toast.success("Agent reassigned successfully");
+                })
               }
               className="w-full bg-purple-600 text-white py-4 rounded-2xl text-[1rem] font-black hover:bg-purple-700 transition-all shadow-lg shadow-purple-100 flex items-center justify-center gap-2 disabled:opacity-50"
             >

@@ -1,5 +1,75 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { monthRanges, parseMonthParam, type MonthPeriod } from "@/lib/month-period";
+
+type Tx = Prisma.TransactionClient;
+
+/**
+ * Serialises concurrent stock decisions for a single agent using a per-agent
+ * Postgres advisory lock scoped to the current transaction. Two confirmations
+ * competing for the SAME agent run one-at-a-time (a few ms each); different
+ * agents never block each other. Auto-releases on commit/rollback.
+ */
+export async function lockAgent(tx: Tx, agentId: string): Promise<void> {
+  // $executeRaw (not $queryRaw): pg_advisory_xact_lock returns void, which
+  // $queryRaw can't deserialize. $executeRaw runs the statement and returns a
+  // row count, so the lock is taken without a deserialization error.
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${agentId})::bigint)`;
+}
+
+/**
+ * True if an agent has enough AVAILABLE stock for `items`, where
+ * available = on-hand − committed, and committed = quantities already promised
+ * to that agent's CONFIRMED (not yet delivered/failed/cancelled) orders.
+ * `excludeOrderId` drops one order from the committed tally (used when the order
+ * being checked is itself already committed to this agent).
+ *
+ * Call INSIDE a transaction that has taken `lockAgent(tx, agentId)` so the read
+ * is serialised against concurrent confirmations for the same agent.
+ */
+export async function agentHasAvailableStock(
+  tx: Tx,
+  agentId: string,
+  items: { productId: string; quantity: number }[],
+  opts?: { excludeOrderId?: string },
+): Promise<boolean> {
+  const productIds = [...new Set(items.map((i) => i.productId))];
+
+  const [stockRows, committedItems] = await Promise.all([
+    tx.stockLevel.findMany({
+      where: { locationKind: "AGENT", locationId: agentId, productId: { in: productIds } },
+      select: { productId: true, quantity: true },
+    }),
+    tx.orderItem.findMany({
+      where: {
+        productId: { in: productIds },
+        order: {
+          agentId,
+          status: "CONFIRMED",
+          deletedAt: null,
+          ...(opts?.excludeOrderId ? { id: { not: opts.excludeOrderId } } : {}),
+        },
+      },
+      select: { productId: true, quantity: true },
+    }),
+  ]);
+
+  const stock: Record<string, number> = {};
+  for (const r of stockRows) stock[r.productId] = Math.max(0, r.quantity);
+
+  const committed: Record<string, number> = {};
+  for (const it of committedItems) {
+    committed[it.productId] = (committed[it.productId] ?? 0) + it.quantity;
+  }
+
+  // Aggregate the request per product (handles duplicate product lines).
+  const requested: Record<string, number> = {};
+  for (const it of items) requested[it.productId] = (requested[it.productId] ?? 0) + it.quantity;
+
+  return Object.entries(requested).every(
+    ([pid, qty]) => (stock[pid] ?? 0) - (committed[pid] ?? 0) >= qty,
+  );
+}
 
 /**
  * Finds the best available delivery agent for an order using:
@@ -46,9 +116,30 @@ export async function findEligibleAgentForOrder(
     stockMap[row.locationId][row.productId] = Math.max(0, row.quantity);
   }
 
+  // Stock already promised to each agent's CONFIRMED (undelivered) orders, so we
+  // pick on AVAILABLE (on-hand − committed) and never overbook an agent.
+  const committedItems = await prisma.orderItem.findMany({
+    where: {
+      productId: { in: productIds },
+      order: { agentId: { in: agentIds }, status: "CONFIRMED", deletedAt: null },
+    },
+    select: { productId: true, quantity: true, order: { select: { agentId: true } } },
+  });
+  const committedMap: Record<string, Record<string, number>> = {};
+  for (const it of committedItems) {
+    const aId = it.order.agentId;
+    if (!aId) continue;
+    committedMap[aId] ??= {};
+    committedMap[aId][it.productId] = (committedMap[aId][it.productId] ?? 0) + it.quantity;
+  }
+
   const stockEligible = agentIds.filter((agentId) => {
     const agentStock = stockMap[agentId] ?? {};
-    return orderItems.every((item) => (agentStock[item.productId] ?? 0) >= item.quantity);
+    const agentCommitted = committedMap[agentId] ?? {};
+    return orderItems.every(
+      (item) =>
+        (agentStock[item.productId] ?? 0) - (agentCommitted[item.productId] ?? 0) >= item.quantity,
+    );
   });
 
   if (stockEligible.length === 0) return null;

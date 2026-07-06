@@ -823,6 +823,9 @@ model AgentSettlement {
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
   ordersJson         Json?
+  // Which company bank account the agent paid this remittance into. Nullable so
+  // remittances recorded before this field existed remain valid.
+  bank               RemittanceBank?
   ledgerEntries      AgentLedgerEntry[]
   agent              Agent              @relation(fields: [agentId], references: [id])
 
@@ -1444,6 +1447,12 @@ enum AgentLedgerRefType {
   REMITTANCE
   DELIVERY_FEE
   ADJUSTMENT
+}
+
+// The two company bank accounts an agent can remit into.
+enum RemittanceBank {
+  MONIEPOINT
+  ZENITH
 }
 
 enum AdjustmentType {

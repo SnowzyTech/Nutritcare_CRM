@@ -72,12 +72,6 @@ function TableToolbar({
       >
         {addLabel} <PlusCircle className="w-4 h-4 text-gray-400" />
       </button>
-      <button className="border border-gray-200 rounded-md px-4 py-2 bg-white text-sm text-gray-600 hover:bg-gray-50 transition-colors">
-        Excel
-      </button>
-      <button className="border border-gray-200 rounded-md px-4 py-2 bg-white text-sm text-gray-600 hover:bg-gray-50 transition-colors">
-        Edit
-      </button>
     </div>
   );
 }
@@ -136,12 +130,6 @@ function AgentsTab({ rows }: { rows: StockAgentRow[] }) {
     <>
       <div className="flex items-center gap-3 mb-5">
         <SearchBar value={query} onChange={setQuery} />
-        <button className="border border-gray-200 rounded-md px-4 py-2 bg-white text-sm text-gray-600 hover:bg-gray-50 transition-colors">
-          Excel
-        </button>
-        <button className="border border-gray-200 rounded-md px-4 py-2 bg-white text-sm text-gray-600 hover:bg-gray-50 transition-colors">
-          Edit
-        </button>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[900px]">

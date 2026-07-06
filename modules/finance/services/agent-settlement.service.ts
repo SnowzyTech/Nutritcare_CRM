@@ -3,6 +3,25 @@ import { prisma } from "@/lib/db/prisma";
 const fmt = (n: number) =>
   `₦${Number(n).toLocaleString("en-NG", { maximumFractionDigits: 0 })}`;
 
+// Display name for a RemittanceBank enum value.
+export const bankLabel = (bank: string | null): string | null => {
+  if (bank === "MONIEPOINT") return "Moniepoint";
+  if (bank === "ZENITH") return "Zenith";
+  return null;
+};
+
+// Human-friendly label for an AgentLedgerRefType. DELIVERY_FEE entries are the
+// funds the agent collects from the customer on delivery, so they read as
+// "Agent Funding" — the enum itself stays DELIVERY_FEE (other flows rely on it).
+export const refTypeLabel = (s: string) => {
+  if (s === "DELIVERY_FEE") return "Agent Funding";
+  return s
+    .toLowerCase()
+    .split("_")
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+};
+
 async function getRunningBalance(agentId: string): Promise<number> {
   const last = await prisma.agentLedgerEntry.findFirst({
     where: { agentId },
@@ -114,28 +133,28 @@ export async function listAgentLedger(filters: {
         ? { date: { ...(filters.from && { gte: filters.from }), ...(filters.to && { lte: filters.to }) } }
         : {}),
     },
-    include: { agent: { select: { id: true, companyName: true } } },
+    include: {
+      agent: { select: { id: true, companyName: true } },
+      // Remittance entries link to a settlement that records which bank the
+      // agent paid into; non-remittance entries have no settlement/bank.
+      settlement: { select: { bank: true } },
+    },
     orderBy: { date: "desc" },
     take: 200,
   });
-
-  const titleCase = (s: string) =>
-    s
-      .toLowerCase()
-      .split("_")
-      .map(w => w.charAt(0).toUpperCase() + w.slice(1))
-      .join(" ");
 
   return entries.map(e => ({
     id: e.id,
     date: e.date.toISOString().slice(0, 10),
     agent: e.agent.companyName,
     agentId: e.agentId,
-    referenceType: titleCase(e.referenceType),
+    referenceType: refTypeLabel(e.referenceType),
     referenceId: e.referenceId,
     debit: fmt(Number(e.debit)),
     credit: fmt(Number(e.credit)),
     runningBalance: fmt(Number(e.runningBalance)),
+    bank: e.settlement?.bank ?? null,
+    bankLabel: bankLabel(e.settlement?.bank ?? null),
   }));
 }
 
@@ -239,6 +258,28 @@ export async function listDeliveredOrdersForAgent(agentId: string) {
   // so fully-remitted orders are filtered out at the query level.
   const orders = await prisma.order.findMany({
     where: { agentId, status: "DELIVERED", remittanceStatus: "NOT_REMITTED", deletedAt: null },
+    include: { customer: { select: { name: true, state: true } } },
+    orderBy: { date: "desc" },
+    take: 200,
+  });
+
+  return orders.map(o => ({
+    id: o.id,
+    orderId: o.orderNumber,
+    customer: o.customer.name,
+    state: o.customer.state,
+    netAmount: fmt(Number(o.netAmount)),
+    netAmountNum: Number(o.netAmount),
+    date: o.date.toISOString().slice(0, 10),
+  }));
+}
+
+export async function listAgentOrdersForAdjustment(agentId: string) {
+  // Settlement adjustments (payments) can be tied to any confirmed or delivered
+  // order for the agent, regardless of remittance status — unlike remittance
+  // entry, which is limited to un-remitted delivered orders.
+  const orders = await prisma.order.findMany({
+    where: { agentId, status: { in: ["DELIVERED", "CONFIRMED"] }, deletedAt: null },
     include: { customer: { select: { name: true, state: true } } },
     orderBy: { date: "desc" },
     take: 200,
@@ -400,13 +441,10 @@ export async function getAgentPageData(agentId: string): Promise<AgentPageData |
   }));
 
   // ── Ledger ──────────────────────────────────────────────────────────────────
-  const titleCase = (s: string) =>
-    s.toLowerCase().split("_").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
-
   const ledger = ledgerEntries.map((e) => ({
     id: e.id,
     date: e.date.toISOString().slice(0, 10),
-    referenceType: titleCase(e.referenceType),
+    referenceType: refTypeLabel(e.referenceType),
     referenceId: e.referenceId,
     debit: Number(e.debit) > 0 ? fmt(Number(e.debit)) : "₦0",
     credit: Number(e.credit) > 0 ? fmt(Number(e.credit)) : "₦0",

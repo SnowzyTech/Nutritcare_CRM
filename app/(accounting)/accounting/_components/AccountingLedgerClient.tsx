@@ -1066,7 +1066,19 @@ export function AccountingLedgerClient({
                   </tr>
                 ) : (
                   filteredGL.map((row, idx) => (
-                    <tr key={idx} className={`${idx % 2 === 1 ? 'bg-[#F9FAFB]' : 'bg-white'} hover:bg-purple-50/30 transition-colors`}>
+                    <tr
+                      key={idx}
+                      onClick={() => {
+                        const hl = `${row.ref}|${row.date}|${row.debit}|${row.credit}`;
+                        const params = new URLSearchParams({
+                          account: row.account,
+                          name: row.name,
+                          hl,
+                        });
+                        router.push(`/accounting/accounting-ledger/account?${params.toString()}`);
+                      }}
+                      className={`${idx % 2 === 1 ? 'bg-[#F9FAFB]' : 'bg-white'} hover:bg-purple-50/30 transition-colors cursor-pointer`}
+                    >
                       <td className="px-8 py-6 text-[14px] text-gray-700 font-bold">{row.account}</td>
                       <td className="px-8 py-6 text-[14px] text-gray-500">{row.name}</td>
                       <td className="px-8 py-6 text-[13px] text-gray-400 font-mono">{row.ref}</td>

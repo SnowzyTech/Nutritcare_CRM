@@ -19,7 +19,7 @@ export function HistoryClient({ groups }: { groups: HistoryGroup[] }) {
 
   return (
     <div className="max-w-6xl mx-auto flex flex-col pb-20">
-      <h1 className="text-[28px] font-bold text-gray-600 mb-6">History</h1>
+      <h1 className="text-2xl md:text-[28px] font-bold text-gray-600 mb-6">History</h1>
 
       <div className="flex flex-col">
         {groups.map((group, groupIdx) => (
@@ -35,8 +35,8 @@ export function HistoryClient({ groups }: { groups: HistoryGroup[] }) {
             <div className="w-full flex flex-col">
               {/* Only the very first group has the column headers */}
               {groupIdx === 0 && (
-                <div className="flex items-center px-6 py-5 bg-[#F8F7FB] rounded-t-xl mb-1">
-                  <div className="w-24 shrink-0"></div>
+                <div className="flex items-center px-3 md:px-6 py-5 bg-[#F8F7FB] rounded-t-xl mb-1">
+                  <div className="w-8 md:w-24 shrink-0"></div>
                   <div className="flex-1 font-bold text-[11px] text-gray-600">Date & Time</div>
                   <div className="flex-1 font-bold text-[11px] text-gray-600">Activity Type</div>
                   <div className="flex-[1.5] font-bold text-[11px] text-gray-600">Description</div>
@@ -48,17 +48,17 @@ export function HistoryClient({ groups }: { groups: HistoryGroup[] }) {
                 {group.activities.map((activity, idx) => (
                   <div
                     key={activity.id}
-                    className={`flex items-center px-6 py-5 ${
+                    className={`flex items-center px-3 md:px-6 py-5 ${
                       idx % 2 === 0 ? "bg-white" : "bg-[#F8F7FB]"
                     }`}
                   >
-                    <div className="w-24 shrink-0 flex items-center justify-center">
+                    <div className="w-8 md:w-24 shrink-0 flex items-center justify-center">
                       <Circle size={16} className="text-gray-400" strokeWidth={2} />
                     </div>
-                    <div className="flex-1 text-xs font-medium text-gray-500 pr-4">
+                    <div className="flex-1 text-xs font-medium text-gray-500 pr-2 md:pr-4">
                       {activity.time}
                     </div>
-                    <div className="flex-1 text-xs font-medium text-gray-500 pr-4">
+                    <div className="flex-1 text-xs font-medium text-gray-500 pr-2 md:pr-4">
                       {activity.type}
                     </div>
                     <div className="flex-[1.5] text-xs font-medium text-gray-500">

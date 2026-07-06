@@ -234,6 +234,12 @@ export function SalesRepSidebarClient({ user }: SidebarProps) {
             isActive={pathname.startsWith('/sales-rep/orders')}
           />
           <BottomTabLink
+            href="/chat"
+            icon={MessageCircle}
+            label="Chat"
+            isActive={pathname.startsWith('/chat')}
+          />
+          <BottomTabLink
             href="/sales-rep/analytics"
             icon={BarChart3}
             label="Analytics"

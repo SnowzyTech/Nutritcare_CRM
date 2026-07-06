@@ -4,7 +4,7 @@ import { InventoryStepper } from "@/components/dashboard/inventory/inventory-ste
 import { StatsCard } from "@/components/dashboard/inventory/stats-card";
 import { StockLevelsTable } from "@/components/dashboard/inventory/stock-levels-table";
 import { StockMovementChart } from "@/components/dashboard/inventory/stock-movement-chart";
-import { ReorderTable } from "@/components/dashboard/inventory/reorder-table";
+import { StockSummaryCard } from "@/components/dashboard/inventory/stock-summary-card";
 import { AlertsList } from "@/components/dashboard/inventory/alerts-list";
 import { getInventoryDashboardData } from "@/modules/inventory/services/inventory.service";
 
@@ -62,17 +62,21 @@ export default async function InventoryDashboardPage() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         <div className="lg:col-span-7 space-y-8">
           <StockLevelsTable stocks={data.stockLevels} />
-          <ReorderTable orders={data.reorderRows} />
+          <StockSummaryCard
+            totalStockWithAgents={data.totalStockWithAgents}
+            totalStockInWarehouse={data.totalStockInWarehouse}
+            totalStock={data.totalStock}
+            agentCount={data.agentCount}
+            warehouseCount={data.warehouseCount}
+          />
         </div>
 
         <div className="lg:col-span-5 space-y-8">
-          <div className="h-[400px]">
-            <StockMovementChart
-              data={data.chartData}
-              receivedTotal={data.receivedTotal}
-              dispatchedTotal={data.dispatchedTotal}
-            />
-          </div>
+          <StockMovementChart
+            data={data.chartData}
+            receivedTotal={data.receivedTotal}
+            dispatchedTotal={data.dispatchedTotal}
+          />
           <AlertsList alerts={data.alerts} />
         </div>
       </div>

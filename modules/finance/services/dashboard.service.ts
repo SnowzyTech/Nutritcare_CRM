@@ -1,6 +1,5 @@
 import { prisma } from "@/lib/db/prisma";
 import {
-  getProductTotalsMap,
   getAgentStockMap,
   getWarehouseStockMap,
 } from "@/modules/inventory/services/stock-level.service";
@@ -39,11 +38,10 @@ function dayKey(date: Date) {
   return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
 }
 
-export async function getFinancialSummary() {
-  const now = new Date();
-  const monthStart = startOfMonth(now);
-  const monthEnd = endOfMonth(now);
-  const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+export async function getFinancialSummary(refDate: Date = new Date()) {
+  const monthStart = startOfMonth(refDate);
+  const monthEnd = endOfMonth(refDate);
+  const lastMonthStart = new Date(refDate.getFullYear(), refDate.getMonth() - 1, 1);
   const lastMonthEnd = monthStart;
 
   const [revenueAgg, lastRevenueAgg, expenseAgg, lastExpenseAgg, deliveryAgg] = await Promise.all([
@@ -147,8 +145,13 @@ export async function getSalesTrends(now: Date = new Date()): Promise<SalesTrend
     week.push({ name: `${ws.getDate()} ${MONTH_SHORT[ws.getMonth()]}`, value: 0 });
   }
 
-  // Month buckets — current calendar year
-  const month: TrendPoint[] = MONTH_LABELS.map((name) => ({ name, value: 0 }));
+  // Month buckets — current calendar year up to the current month (year-to-date),
+  // so future months aren't plotted as misleading zeros.
+  const currentMonthIdx = now.getMonth();
+  const month: TrendPoint[] = MONTH_LABELS.slice(0, currentMonthIdx + 1).map((name) => ({
+    name,
+    value: 0,
+  }));
 
   for (const o of orders) {
     const amt = Number(o.netAmount);
@@ -160,18 +163,49 @@ export async function getSalesTrends(now: Date = new Date()): Promise<SalesTrend
     const wi = weekStarts.indexOf(startOfWeekMon(d).getTime());
     if (wi !== -1) week[wi].value += amt;
 
-    if (d.getFullYear() === now.getFullYear()) month[d.getMonth()].value += amt;
+    if (d.getFullYear() === now.getFullYear() && d.getMonth() <= currentMonthIdx) {
+      month[d.getMonth()].value += amt;
+    }
   }
 
   return { day, week, month, year: now.getFullYear() };
 }
 
-export async function getSalesByProduct(limit = 8) {
+/** A [from, to) date window (to is exclusive). */
+export interface DateRange {
+  from: Date;
+  to: Date;
+}
+
+/** Period selector shared by the dashboard's activity charts. */
+export type DashboardPeriod =
+  | { type: "week" }
+  | { type: "month"; month: number; year: number };
+
+/** Resolve a dashboard period into a concrete [from, to) window. */
+export function resolvePeriodRange(period: DashboardPeriod, now: Date = new Date()): DateRange {
+  if (period.type === "week") {
+    const from = startOfWeekMon(now);
+    return { from, to: addDays(from, 7) };
+  }
+  const from = new Date(period.year, period.month - 1, 1);
+  const to = new Date(period.year, period.month, 1);
+  return { from, to };
+}
+
+export async function getSalesByProduct(range?: DateRange, limit = 8) {
   // Sales = revenue from DELIVERED orders only (matches the revenue definition
-  // used everywhere else on this dashboard).
+  // used everywhere else on this dashboard). An optional date range scopes it to
+  // the period selected on the dashboard (week / month).
   const items = await prisma.orderItem.groupBy({
     by: ["productId"],
-    where: { order: { status: "DELIVERED", deletedAt: null } },
+    where: {
+      order: {
+        status: "DELIVERED",
+        deletedAt: null,
+        ...(range ? { date: { gte: range.from, lt: range.to } } : {}),
+      },
+    },
     _sum: { quantity: true, lineTotal: true },
     orderBy: { _sum: { lineTotal: "desc" } },
     take: limit,
@@ -196,9 +230,13 @@ export async function getSalesByProduct(limit = 8) {
   });
 }
 
-export async function getSalesByState(limit = 12) {
+export async function getSalesByState(range?: DateRange, limit = 12) {
   const orders = await prisma.order.findMany({
-    where: { status: "DELIVERED", deletedAt: null },
+    where: {
+      status: "DELIVERED",
+      deletedAt: null,
+      ...(range ? { date: { gte: range.from, lt: range.to } } : {}),
+    },
     select: { netAmount: true, customer: { select: { state: true } } },
   });
   const map = new Map<string, number>();
@@ -224,21 +262,50 @@ export async function getInventorySnapshot() {
   // locationId), NOT StockMovement aggregation — agent stock arrives via
   // warehouse→agent transfers and leaves on delivery, neither of which writes
   // agentId-tagged StockMovement rows. Reading movements here reported 0.
-  const [products, totalsMap, agentStockMap, warehouseStockMap, agentCount, warehouseCount] =
+  const [products, agentStockMap, warehouseStockMap, unassignedRows] =
     await Promise.all([
       prisma.product.findMany({
         where: { deletedAt: null, isActive: true },
         select: { id: true, name: true, costPrice: true, lowStockAlertQtyTotal: true },
       }),
-      getProductTotalsMap(),
       getAgentStockMap(),
       getWarehouseStockMap(),
-      prisma.agent.count({ where: { deletedAt: null, status: "ACTIVE" } }),
-      prisma.warehouse.count(),
+      prisma.stockLevel.findMany({
+        where: { locationKind: "UNASSIGNED" },
+        select: { productId: true, quantity: true },
+      }),
     ]);
 
+  // Restrict every figure to the snapshot's product set (active, non-deleted).
+  const countedIds = new Set(products.map((p) => p.id));
+
+  // On-hand per product = sum of POSITIVE balances across every location kind
+  // (warehouse + agent + unassigned), floored per row. We do NOT use
+  // getProductTotalsMap here because it floors the per-product NET at 0, so a
+  // single negative balance (an oversold location) would make Total Products
+  // undercount and fall below Stock With Agents — the bug this fixes. Summing
+  // per-row-floored balances guarantees Total ≥ each location's stock.
+  const onHandByProduct: Record<string, number> = {};
+  const accumulateMap = (m: Record<string, Record<string, number>>) => {
+    for (const perProduct of Object.values(m)) {
+      for (const [productId, qty] of Object.entries(perProduct)) {
+        if (countedIds.has(productId)) {
+          onHandByProduct[productId] = (onHandByProduct[productId] ?? 0) + qty;
+        }
+      }
+    }
+  };
+  accumulateMap(agentStockMap);
+  accumulateMap(warehouseStockMap);
+  for (const r of unassignedRows) {
+    if (countedIds.has(r.productId)) {
+      onHandByProduct[r.productId] =
+        (onHandByProduct[r.productId] ?? 0) + Math.max(0, r.quantity);
+    }
+  }
+
   const breakdown = products.map((p) => {
-    const total = totalsMap[p.id] ?? 0;
+    const total = onHandByProduct[p.id] ?? 0;
     const value = total * Number(p.costPrice);
     const lowStock = p.lowStockAlertQtyTotal != null && total <= p.lowStockAlertQtyTotal;
     return { id: p.id, name: p.name, total, value, lowStock };
@@ -247,47 +314,106 @@ export async function getInventorySnapshot() {
   const totalValue = breakdown.reduce((s, p) => s + p.value, 0);
   const totalProducts = breakdown.reduce((s, p) => s + p.total, 0);
 
-  // Sum every product's balance across all locations of a given kind.
-  const sumLocationMap = (m: Record<string, Record<string, number>>) =>
-    Object.values(m).reduce(
-      (sum, perProduct) => sum + Object.values(perProduct).reduce((a, b) => a + b, 0),
-      0,
-    );
+  // Per-location-kind totals + how many locations actually HOLD stock (not the
+  // raw warehouse/agent record counts).
+  const summarize = (m: Record<string, Record<string, number>>) => {
+    let total = 0;
+    let locationsWithStock = 0;
+    for (const perProduct of Object.values(m)) {
+      let locTotal = 0;
+      for (const [productId, qty] of Object.entries(perProduct)) {
+        if (countedIds.has(productId)) locTotal += qty;
+      }
+      if (locTotal > 0) {
+        total += locTotal;
+        locationsWithStock += 1;
+      }
+    }
+    return { total, locationsWithStock };
+  };
 
-  const agentStock = sumLocationMap(agentStockMap);
-  const warehouseStock = sumLocationMap(warehouseStockMap);
+  const agents = summarize(agentStockMap);
+  const warehouses = summarize(warehouseStockMap);
 
   return {
     totalValue,
     totalProducts,
-    agentStock,
-    warehouseStock,
-    agentCount,
-    warehouseCount,
+    agentStock: agents.total,
+    warehouseStock: warehouses.total,
+    agentCount: agents.locationsWithStock,
+    warehouseCount: warehouses.locationsWithStock,
     products: breakdown,
   };
 }
 
-export async function getAgentSettlementSummary() {
-  const settlements = await prisma.agentSettlement.findMany({
-    select: { balance: true, overpayment: true, underpayment: true, totalRemitted: true, agent: { select: { companyName: true, state: true } } },
-    orderBy: { date: "desc" },
-  });
+export async function getAgentSettlementSummary(range?: DateRange) {
+  // Derived from the agent ledger — the exact source of truth the Agent List
+  // page uses. For each agent within the window we net debits (deliveries the
+  // agent owes for) against credits (remittances / adjustments):
+  //   • net > 0  → agent still owes the company  (pending remittance)
+  //   • net < 0  → the company owes the agent     (overpayment)
+  // With no range ("all time") the window covers every entry, and the per-agent
+  // net equals their current running balance.
+  const dateWhere = range ? { date: { gte: range.from, lt: range.to } } : {};
 
-  const totalPendingRemittance = settlements.reduce((s, x) => s + Math.max(0, Number(x.balance)), 0);
-  const totalPendingCount = settlements.filter(s => Number(s.balance) > 0).length;
-  const totalOverpayments = settlements.reduce((s, x) => s + Number(x.overpayment), 0);
-  const companyOwingAgents = settlements.reduce((s, x) => s + Math.max(0, -Number(x.balance)), 0);
+  const [balances, remittances] = await Promise.all([
+    // Net position change per agent across all ledger activity in the window.
+    prisma.agentLedgerEntry.groupBy({
+      by: ["agentId"],
+      where: dateWhere,
+      _sum: { debit: true, credit: true },
+    }),
+    // Money actually remitted by each agent in the window (credits tagged
+    // REMITTANCE) — drives the "Top Performing Agent" figure.
+    prisma.agentLedgerEntry.groupBy({
+      by: ["agentId"],
+      where: { ...dateWhere, referenceType: "REMITTANCE" },
+      _sum: { credit: true },
+    }),
+  ]);
 
-  const top = [...settlements].sort((a, b) => Number(b.totalRemitted) - Number(a.totalRemitted))[0];
+  const remittedByAgent = new Map(
+    remittances.map((r) => [r.agentId, Number(r._sum.credit ?? 0)]),
+  );
+
+  const agentIds = balances.map((b) => b.agentId);
+  const agents = agentIds.length
+    ? await prisma.agent.findMany({
+        where: { id: { in: agentIds } },
+        select: { id: true, companyName: true, state: true },
+      })
+    : [];
+  const agentMap = new Map(agents.map((a) => [a.id, a]));
+
+  let totalPendingRemittance = 0;
+  let totalPendingCount = 0;
+  let companyOwingAgents = 0;
+  let top: { name: string; state: string; remitted: number } | null = null;
+
+  for (const b of balances) {
+    const balance = Number(b._sum.debit ?? 0) - Number(b._sum.credit ?? 0);
+    if (balance > 0) {
+      totalPendingRemittance += balance;
+      totalPendingCount += 1;
+    } else if (balance < 0) {
+      companyOwingAgents += -balance;
+    }
+
+    const remitted = remittedByAgent.get(b.agentId) ?? 0;
+    if (!top || remitted > top.remitted) {
+      const a = agentMap.get(b.agentId);
+      top = { name: a?.companyName ?? "—", state: a?.state ?? "", remitted };
+    }
+  }
 
   return {
     totalPendingRemittance,
     totalPendingCount,
-    totalOverpayments,
+    // Money the company owes agents (overpayments) — same ledger-derived figure.
+    totalOverpayments: companyOwingAgents,
     companyOwingAgents,
-    topAgentName: top?.agent?.companyName ?? "—",
-    topAgentState: top?.agent?.state ?? "",
-    topAgentRemitted: Number(top?.totalRemitted ?? 0),
+    topAgentName: top?.name ?? "—",
+    topAgentState: top?.state ?? "",
+    topAgentRemitted: top?.remitted ?? 0,
   };
 }

@@ -7,7 +7,8 @@ import {
   ArrowUpDown,
   ChevronDown,
   MessageCircle,
-  X
+  X,
+  RotateCcw
 } from 'lucide-react';
 import { OrderRow, SalesRepProfile } from '@/modules/data-analysis/services/data-analysis.service';
 import Image from 'next/image';
@@ -581,7 +582,14 @@ export function OrderDashboardClient({ initialOrders = [], repProfile, deliveryA
                     </div>
                   </td>
                   <td className="px-8 py-5">
-                    <span className="text-sm font-medium text-gray-700">{order.name}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-gray-700">{order.name}</span>
+                      {order.isReorder && (
+                        <span className="inline-flex items-center gap-1 bg-purple-100 text-[#532194] text-[10px] font-bold px-2 py-0.5 rounded-full">
+                          <RotateCcw size={10} /> Reorder
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="px-8 py-5">
                     {order.agent ? (
@@ -594,7 +602,14 @@ export function OrderDashboardClient({ initialOrders = [], repProfile, deliveryA
                     )}
                   </td>
                   <td className="px-8 py-5">
-                    <span className="text-sm text-gray-600 font-medium">{order.product}</span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-sm text-gray-600 font-medium truncate max-w-[160px]">{order.product}</span>
+                      {order.itemCount > 1 && (
+                        <span className="shrink-0 inline-flex items-center bg-purple-100 text-[#532194] text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                          +{order.itemCount - 1}
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="px-8 py-5 text-center">
                     <span className="text-sm text-gray-600">{order.quantity}</span>

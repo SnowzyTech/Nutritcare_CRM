@@ -28,6 +28,8 @@ export type AdminDashboardData = {
   monthlyRevenue: ChartPoint[];
   weeklyOrders: ChartPoint[];
   remainingStock: number;
+  /** Total units sitting in negative (impossible) balances — a data-quality signal. */
+  negativeStockUnits: number;
 };
 
 function emptyStats(): PeriodStats {
@@ -53,9 +55,13 @@ function emptyStats(): PeriodStats {
 }
 
 async function computePeriodStats(from: Date, to: Date): Promise<PeriodStats> {
+  // For a month still in progress, only count days elapsed so far — otherwise
+  // dividing by the full calendar month understates the running daily average.
+  // Past/complete months clamp to their real end (`to`).
+  const effectiveEnd = Math.min(to.getTime(), Date.now());
   const daysInPeriod = Math.max(
     1,
-    Math.ceil((to.getTime() - from.getTime()) / (86400 * 1000))
+    Math.ceil((effectiveEnd - from.getTime()) / (86400 * 1000))
   );
 
   const [orders, expensesAgg, stockInAgg, stockOutAgg] = await Promise.all([
@@ -79,13 +85,21 @@ async function computePeriodStats(from: Date, to: Date): Promise<PeriodStats> {
     }),
     prisma.stockMovementItem.aggregate({
       where: {
-        stockMovement: { type: "INCOMING", date: { gte: from, lt: to } },
+        stockMovement: {
+          type: "INCOMING",
+          date: { gte: from, lt: to },
+          status: { not: "REVERSED" },
+        },
       },
       _sum: { quantity: true },
     }),
     prisma.stockMovementItem.aggregate({
       where: {
-        stockMovement: { type: "OUTGOING", date: { gte: from, lt: to } },
+        stockMovement: {
+          type: "OUTGOING",
+          date: { gte: from, lt: to },
+          status: { not: "REVERSED" },
+        },
       },
       _sum: { quantity: true },
     }),
@@ -109,10 +123,10 @@ async function computePeriodStats(from: Date, to: Date): Promise<PeriodStats> {
   const attemptedDelivery = confirmed + delivered + failed;
   const confirmationRate =
     total > 0 ? Math.round((attemptedDelivery / total) * 100) : 0;
+  // Delivery Rate mirrors the sales-rep analytics KPI: delivered / total orders
+  // handled (same base as Confirmation and Failed Order rates).
   const deliveryRate =
-    attemptedDelivery > 0
-      ? Math.round((delivered / attemptedDelivery) * 100)
-      : 0;
+    total > 0 ? Math.round((delivered / total) * 100) : 0;
   const failedOrderRate =
     total > 0 ? Math.round((failed / total) * 100) : 0;
   const avgOrdersPerDay = Math.round(total / daysInPeriod);
@@ -209,9 +223,31 @@ async function getWeeklyOrders(from: Date, to: Date): Promise<ChartPoint[]> {
   ];
 }
 
+/**
+ * Real physical stock on hand: sum of POSITIVE balances (per row) for active,
+ * non-deleted products, across every location kind. This is the same basis the
+ * accounting Inventory Snapshot uses, so the two dashboards agree. We floor at
+ * the row level (`quantity > 0`) rather than netting the grand total, so an
+ * impossible negative balance in one place can't erase real stock elsewhere.
+ */
 async function getRemainingStock(): Promise<number> {
-  const agg = await prisma.stockLevel.aggregate({ _sum: { quantity: true } });
-  return Math.max(0, agg._sum.quantity ?? 0);
+  const rows = await prisma.stockLevel.findMany({
+    where: {
+      quantity: { gt: 0 },
+      product: { deletedAt: null, isActive: true },
+    },
+    select: { quantity: true },
+  });
+  return rows.reduce((sum, r) => sum + r.quantity, 0);
+}
+
+/** Total units held in negative (impossible) balances — a data-quality signal. */
+async function getNegativeStockUnits(): Promise<number> {
+  const agg = await prisma.stockLevel.aggregate({
+    where: { quantity: { lt: 0 } },
+    _sum: { quantity: true },
+  });
+  return Math.abs(agg._sum.quantity ?? 0);
 }
 
 export async function getAdminDashboardData(
@@ -223,14 +259,15 @@ export async function getAdminDashboardData(
   const lastFrom = new Date(year, month - 2, 1);
   const lastTo = from;
 
-  const [current, last, monthlyRevenue, weeklyOrders, remainingStock] =
+  const [current, last, monthlyRevenue, weeklyOrders, remainingStock, negativeStockUnits] =
     await Promise.all([
       computePeriodStats(from, to),
       computePeriodStats(lastFrom, lastTo),
       getMonthlyRevenue(year),
       getWeeklyOrders(from, to),
       getRemainingStock(),
+      getNegativeStockUnits(),
     ]);
 
-  return { current, last, monthlyRevenue, weeklyOrders, remainingStock };
+  return { current, last, monthlyRevenue, weeklyOrders, remainingStock, negativeStockUnits };
 }

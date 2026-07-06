@@ -104,6 +104,16 @@
   body {
     @apply bg-background text-foreground;
   }
+  /* Tailwind v4 preflight no longer sets cursor:pointer on buttons. Restore the
+     expected pointer affordance for interactive controls app-wide. */
+  button:not(:disabled),
+  [role="button"]:not(:disabled),
+  label[for] {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
 }
 
 @theme inline {
