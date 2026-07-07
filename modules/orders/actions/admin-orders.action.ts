@@ -9,6 +9,10 @@ import { findEligibleAgentForOrder } from "@/modules/delivery/services/agents.se
 import { logActivity } from "@/modules/audit/services/audit-log.service";
 import { formatCurrency } from "@/lib/utils";
 
+// Returned (not thrown) so the message survives production builds, where Next.js
+// strips messages from thrown server-action errors.
+type ActionResult = { success: true } | { error: string };
+
 async function checkAdmin() {
   const session = await auth();
   if (!session?.user?.id || session.user.role !== "ADMIN") {
@@ -26,10 +30,10 @@ function revalidate(orderId: string) {
   revalidatePath(`/admin/orders/${orderId}`);
 }
 
-export async function adminConfirmOrderAction(orderId: string, deliveryDate?: string) {
+export async function adminConfirmOrderAction(orderId: string, deliveryDate?: string): Promise<ActionResult> {
   await checkAdmin();
 
-  if (!deliveryDate) throw new Error("Please select a delivery date before confirming.");
+  if (!deliveryDate) return { error: "Please select a delivery date before confirming." };
 
   const order = await prisma.order.findFirst({
     where: { id: orderId, deletedAt: null },
@@ -38,14 +42,15 @@ export async function adminConfirmOrderAction(orderId: string, deliveryDate?: st
       items: { select: { productId: true, quantity: true } },
     },
   });
-  if (!order || order.status !== "PENDING") throw new Error("Cannot confirm this order");
+  if (!order || order.status !== "PENDING") return { error: "Cannot confirm this order" };
 
   const agentId = await findEligibleAgentForOrder(order.customer.state, order.items);
 
   if (!agentId) {
-    throw new Error(
-      "No delivery agent is currently available in this area with the required stock. Please try again later.",
-    );
+    return {
+      error:
+        "No delivery agent is currently available in this area with the required stock. Please try again later.",
+    };
   }
 
   await prisma.$transaction([
@@ -72,13 +77,14 @@ export async function adminConfirmOrderAction(orderId: string, deliveryDate?: st
   });
 
   revalidate(orderId);
+  return { success: true };
 }
 
-export async function adminCancelOrderAction(orderId: string) {
+export async function adminCancelOrderAction(orderId: string): Promise<ActionResult> {
   await checkAdmin();
   const order = await getOrder(orderId);
   if (!order || (order.status !== "PENDING" && order.status !== "CONFIRMED")) {
-    throw new Error("Cannot cancel this order");
+    return { error: "Cannot cancel this order" };
   }
   await prisma.order.update({ where: { id: orderId }, data: { status: "CANCELLED" } });
   await logActivity({
@@ -89,12 +95,13 @@ export async function adminCancelOrderAction(orderId: string) {
     description: `Order #${order.orderNumber} cancelled`,
   });
   revalidate(orderId);
+  return { success: true };
 }
 
-export async function adminFailOrderAction(orderId: string) {
+export async function adminFailOrderAction(orderId: string): Promise<ActionResult> {
   await checkAdmin();
   const order = await getOrder(orderId);
-  if (!order || order.status !== "CONFIRMED") throw new Error("Cannot fail this order");
+  if (!order || order.status !== "CONFIRMED") return { error: "Cannot fail this order" };
   await prisma.order.update({ where: { id: orderId }, data: { status: "FAILED" } });
   await logActivity({
     userId: order.salesRepId,
@@ -104,13 +111,14 @@ export async function adminFailOrderAction(orderId: string) {
     description: `Order #${order.orderNumber} failed`,
   });
   revalidate(orderId);
+  return { success: true };
 }
 
-export async function adminReviveOrderAction(orderId: string) {
+export async function adminReviveOrderAction(orderId: string): Promise<ActionResult> {
   await checkAdmin();
   const order = await getOrder(orderId);
   if (!order || (order.status !== "CANCELLED" && order.status !== "FAILED")) {
-    throw new Error("Only cancelled or failed orders can be revived");
+    return { error: "Only cancelled or failed orders can be revived" };
   }
   if (order.status === "FAILED") {
     // Keep original agent + delivery; back to CONFIRMED so it can be delivered again.
@@ -139,12 +147,13 @@ export async function adminReviveOrderAction(orderId: string) {
     description: `Order #${order.orderNumber} revived`,
   });
   revalidate(orderId);
+  return { success: true };
 }
 
-export async function adminDeliverOrderAction(orderId: string) {
+export async function adminDeliverOrderAction(orderId: string): Promise<ActionResult> {
   await checkAdmin();
   const order = await getOrder(orderId);
-  if (!order || order.status !== "CONFIRMED") throw new Error("Cannot mark order as delivered");
+  if (!order || order.status !== "CONFIRMED") return { error: "Cannot mark order as delivered" };
   await prisma.order.update({ where: { id: orderId }, data: { status: "DELIVERED" } });
 
   await logActivity({
@@ -165,6 +174,7 @@ export async function adminDeliverOrderAction(orderId: string) {
   }
 
   revalidate(orderId);
+  return { success: true };
 }
 
 /**
@@ -250,36 +260,38 @@ export async function adminReassignOrdersAction(
   revalidatePath("/sales-rep/orders");
 }
 
-export async function adminReassignOrderAgentAction(orderId: string, agentId: string) {
+export async function adminReassignOrderAgentAction(orderId: string, agentId: string): Promise<ActionResult> {
   await checkAdmin();
   const order = await getOrder(orderId);
   if (!order || (order.status !== "CONFIRMED" && order.status !== "FAILED")) {
-    throw new Error("Cannot reassign agent for this order");
+    return { error: "Cannot reassign agent for this order" };
   }
   await prisma.order.update({
     where: { id: orderId },
     data: { agentId, ...(order.status === "FAILED" ? { status: "CONFIRMED" } : {}) },
   });
   revalidate(orderId);
+  return { success: true };
 }
 
-export async function adminUpdateOrderNotesAction(orderId: string, notes: string) {
+export async function adminUpdateOrderNotesAction(orderId: string, notes: string): Promise<ActionResult> {
   await checkAdmin();
   const order = await getOrder(orderId);
   if (!order || order.status === "DELIVERED" || order.status === "CANCELLED") {
-    throw new Error("Cannot update notes for this order");
+    return { error: "Cannot update notes for this order" };
   }
   await prisma.order.update({ where: { id: orderId }, data: { notes: notes.trim() || null } });
   revalidate(orderId);
+  return { success: true };
 }
 
 export async function adminAddOrderItemsAction(
   orderId: string,
   items: Array<{ productId: string; quantity: number }>
-) {
+): Promise<ActionResult> {
   const session = await checkAdmin();
   const order = await getOrder(orderId);
-  if (!order || order.status !== "PENDING") throw new Error("Cannot modify this order");
+  if (!order || order.status !== "PENDING") return { error: "Cannot modify this order" };
 
   const products = await prisma.product.findMany({
     where: { id: { in: items.map((i) => i.productId) } },
@@ -307,24 +319,25 @@ export async function adminAddOrderItemsAction(
   ]);
 
   revalidatePath(`/admin/orders/${orderId}`);
+  return { success: true };
 }
 
 /**
  * Admin counterpart to `removeOrderItemAction` — hard-deletes a product line
  * from a pending order and recomputes totals (preserving the discount amount).
  */
-export async function adminRemoveOrderItemAction(orderId: string, itemId: string) {
+export async function adminRemoveOrderItemAction(orderId: string, itemId: string): Promise<ActionResult> {
   await checkAdmin();
 
   const order = await prisma.order.findFirst({
     where: { id: orderId, deletedAt: null },
     include: { items: { select: { id: true, lineTotal: true } } },
   });
-  if (!order) throw new Error("Order not found");
-  if (order.status !== "PENDING") throw new Error("Products can only be removed from pending orders.");
+  if (!order) return { error: "Order not found" };
+  if (order.status !== "PENDING") return { error: "Products can only be removed from pending orders." };
 
-  if (!order.items.some((i) => i.id === itemId)) throw new Error("Product not found on this order.");
-  if (order.items.length <= 1) throw new Error("An order must have at least one product.");
+  if (!order.items.some((i) => i.id === itemId)) return { error: "Product not found on this order." };
+  if (order.items.length <= 1) return { error: "An order must have at least one product." };
 
   const remainingGross =
     Math.round(
@@ -344,4 +357,5 @@ export async function adminRemoveOrderItemAction(orderId: string, itemId: string
   ]);
 
   revalidate(orderId);
+  return { success: true };
 }

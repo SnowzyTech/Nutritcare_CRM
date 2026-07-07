@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db/prisma";
-import type { UserRole } from "@prisma/client";
+import { Prisma, type UserRole } from "@prisma/client";
 import { monthRanges, parseMonthParam, type MonthPeriod } from "@/lib/month-period";
 import { generalPerformanceScore, kpiScore } from "@/lib/performance";
 import type { MonthMetrics } from "@/modules/orders/services/analytics.service";
@@ -270,7 +270,25 @@ export async function deleteUser(id: string) {
   if (orderCount > 0) {
     throw new Error(`Cannot delete: this user has ${orderCount} order(s). Suspend the account instead.`);
   }
-  return prisma.user.delete({ where: { id } });
+
+  try {
+    return await prisma.$transaction(async (tx) => {
+      // Audit logs are an internal actor trail tied to this user (required FK,
+      // Restrict) and become meaningless once the user is gone — remove them so
+      // they don't block the delete. Notifications/chat relations cascade or
+      // null out via the schema.
+      await tx.auditLog.deleteMany({ where: { userId: id } });
+      return tx.user.delete({ where: { id } });
+    });
+  } catch (err) {
+    // Other required relations (invoices, stock movements, finance entries, etc.)
+    // use Restrict, so a user with real business records still can't be hard
+    // deleted — surface the same guidance instead of a raw Prisma error.
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2003") {
+      throw new Error("Cannot delete: this user has linked business records. Suspend the account instead.");
+    }
+    throw err;
+  }
 }
 
 export async function updateUserRole(id: string, role: UserRole) {

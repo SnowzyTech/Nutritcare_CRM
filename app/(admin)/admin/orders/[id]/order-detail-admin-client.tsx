@@ -225,10 +225,20 @@ export function AdminOrderDetailClient({
     );
   }
 
-  function handleAction(action: () => Promise<void>, successMsg?: string) {
+  function handleAction(
+    action: () => Promise<{ error?: string; success?: boolean } | void>,
+    successMsg?: string,
+  ) {
     startTransition(async () => {
       try {
-        await action();
+        const result = await action();
+        // Server actions return { error } for expected/user-facing failures —
+        // thrown errors get their message stripped in production builds, so we
+        // surface returned errors here instead.
+        if (result && "error" in result && result.error) {
+          toast.error(result.error);
+          return;
+        }
         if (successMsg) toast.success(successMsg);
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Action failed");
