@@ -135,6 +135,7 @@ export type IncomingGoodDetail = {
   reversalReason: string | null;
   dateReversed: string | null;
   notes: string;
+  supplierInvoiceUrls: string[];
   products: { id: number; product: string; productCode: string; quantity: number }[];
 };
 
@@ -175,6 +176,7 @@ export async function getIncomingGoodDetail(
     reversalReason: isReversed ? (m.remarks ?? null) : null,
     dateReversed: isReversed ? formatDate(m.updatedAt) : null,
     notes: m.notes ?? "",
+    supplierInvoiceUrls: m.supplierInvoiceUrls,
     products: m.items.map((item, i) => ({
       id: i + 1,
       product: item.product.name,
@@ -1028,11 +1030,20 @@ export async function getWarehouseDashboard(
     })),
   ].slice(0, 5);
 
-  // Build location bins
+  // Build location bins — status derived from thresholds, same as the
+  // location-management page, so dashboard and full map always agree.
   const locationBins: DashboardLocationBin[] = locationRows.map((l) => {
     const zone = l.zone ?? l.locationCode.charAt(0);
     const col = l.locationCode.slice(zone.length);
-    return { locationCode: l.locationCode, zone, col, occupancyStatus: l.occupancyStatus };
+    return {
+      locationCode: l.locationCode,
+      zone,
+      col,
+      occupancyStatus: deriveOccupancyStatus(l.occupancyStatus, l.currentStock, {
+        fullThreshold: l.fullThreshold,
+        partialThreshold: l.partialThreshold,
+      }),
+    };
   });
 
   return {

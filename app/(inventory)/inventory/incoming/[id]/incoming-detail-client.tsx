@@ -2,7 +2,15 @@
 
 import React, { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { RefreshCw, Search, Trash2, Printer } from "lucide-react";
+import { RefreshCw, Search, Trash2, Printer, FileText } from "lucide-react";
+
+function isImageUrl(url: string): boolean {
+  return /\.(jpg|jpeg|png|gif|webp)/i.test(url) || (url.includes("/image/upload/") && !url.endsWith(".pdf"));
+}
+
+function isPdfUrl(url: string): boolean {
+  return /\.pdf/i.test(url) || url.includes("/raw/upload/");
+}
 import { toast } from "sonner";
 import type { IncomingMovementDetail } from "@/modules/inventory/services/inventory.service";
 import {
@@ -147,6 +155,44 @@ export function IncomingDetailClient({ record }: { record: IncomingMovementDetai
           </tbody>
         </table>
       </div>
+
+      {/* Supplier Invoice Attachments */}
+      {record.supplierInvoiceUrls.length > 0 && (
+        <div className="mb-8">
+          <h3 className="text-sm font-bold text-gray-700 mb-3">Supplier Invoice</h3>
+          <div className="flex flex-wrap gap-4">
+            {record.supplierInvoiceUrls.map((url, idx) => {
+              const isImg = isImageUrl(url);
+              const isPdf = isPdfUrl(url);
+              const fileName = decodeURIComponent(url.split("/").pop()?.split("?")[0] ?? `file-${idx + 1}`);
+              return (
+                <a
+                  key={idx}
+                  href={url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-[110px] flex flex-col items-center gap-1.5 group"
+                >
+                  {isImg ? (
+                    <img
+                      src={url}
+                      alt={fileName}
+                      className="w-[110px] h-[110px] rounded-lg object-cover border border-gray-200 group-hover:border-[#9D00FF] transition-colors"
+                    />
+                  ) : (
+                    <div className="w-[110px] h-[110px] rounded-lg border border-gray-200 bg-gray-50 flex items-center justify-center group-hover:border-[#9D00FF] transition-colors">
+                      <FileText className="w-8 h-8 text-red-400" />
+                    </div>
+                  )}
+                  <span className="text-[11px] text-gray-500 truncate w-full text-center">
+                    {isPdf ? "PDF" : fileName}
+                  </span>
+                </a>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Footer */}
       <div className="flex items-start justify-between">

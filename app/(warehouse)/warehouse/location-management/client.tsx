@@ -125,7 +125,7 @@ export default function LocationManagementClient({ initialBins, summaryData, bin
     });
   };
 
-  const handleOccupancyChange = (locationCode: string, status: string) => {
+  const handleOccupancyChange = (locationCode: string, status: "RESERVED" | "DAMAGE" | "AUTO") => {
     startTransition(async () => {
       const result = await updateLocationOccupancyAction(locationCode, status);
       if (result.success) {
@@ -311,20 +311,33 @@ export default function LocationManagementClient({ initialBins, summaryData, bin
                     </span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-gray-600 font-bold text-[15px]">Update Status:</span>
-                    <select
-                      defaultValue={selectedBinData?.occupancyStatus ?? "EMPTY"}
-                      onChange={(e) => handleOccupancyChange(selectedBin, e.target.value)}
-                      disabled={isPending}
-                      className="text-sm border border-gray-300 rounded px-2 py-1 text-gray-700 disabled:opacity-60"
-                    >
-                      {["FULL", "PARTIAL", "RESERVED", "EMPTY", "DAMAGE"].map((s) => (
-                        <option key={s} value={s}>
-                          {statusToDisplay[s]}
-                        </option>
-                      ))}
-                    </select>
+                    <span className="text-gray-600 font-bold text-[15px]">Manual Override:</span>
+                    <div className="flex gap-1.5">
+                      {(["AUTO", "RESERVED", "DAMAGE"] as const).map((s) => {
+                        const currentStatus = selectedBinData?.occupancyStatus ?? "EMPTY";
+                        const isActive =
+                          s === "AUTO" ? !["RESERVED", "DAMAGE"].includes(currentStatus) : currentStatus === s;
+                        return (
+                          <button
+                            key={s}
+                            type="button"
+                            onClick={() => handleOccupancyChange(selectedBin, s)}
+                            disabled={isPending || isActive}
+                            className={`text-[11px] font-semibold px-2.5 py-1 rounded-md border transition-colors disabled:cursor-default ${
+                              isActive
+                                ? `${binColour[s === "AUTO" ? currentStatus : s] ?? "bg-gray-400 text-white"} border-transparent`
+                                : "bg-white text-gray-500 border-gray-300 hover:border-[#ad1df4] hover:text-[#ad1df4]"
+                            }`}
+                          >
+                            {s === "AUTO" ? "Auto" : statusToDisplay[s]}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
+                  <p className="text-[11px] text-gray-400 -mt-2">
+                    Full / Partial / Empty are set automatically from stock levels.
+                  </p>
                 </div>
               </div>
             </div>

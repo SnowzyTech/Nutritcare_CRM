@@ -2,7 +2,7 @@
 
 import React, { useState, useTransition, useRef, useEffect } from "react";
 import Link from "next/link";
-import { CalendarIcon, ArrowLeft, Building2, Search, CheckCircle2, Plus, Trash2 } from "lucide-react";
+import { CalendarIcon, ArrowLeft, Building2, Search, CheckCircle2, Plus, Trash2, FileText, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -28,6 +28,14 @@ type ShelfRow = {
 
 type ProductAllocations = Record<string, ShelfRow[]>; // productId → rows
 
+type InvoiceAttachment = { file: File; preview: string };
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)}KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+}
+
 interface Props {
   recordedVouchers: RecordedVoucher[];
   warehouseName: string;
@@ -52,6 +60,42 @@ export default function AddIncomingGoodsClient({ recordedVouchers, warehouseName
 
   // Per-product shelf allocations: productId → [{locationId, quantity}]
   const [allocations, setAllocations] = useState<ProductAllocations>({});
+
+  // Supplier invoice photo/scan attachments
+  const [invoiceFiles, setInvoiceFiles] = useState<InvoiceAttachment[]>([]);
+  const invoiceInputRef = useRef<HTMLInputElement>(null);
+
+  function handleInvoiceFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    if (e.target.files) {
+      const newItems: InvoiceAttachment[] = Array.from(e.target.files).map((file) => ({
+        file,
+        preview: file.type.startsWith("image/") ? URL.createObjectURL(file) : "",
+      }));
+      setInvoiceFiles((prev) => [...prev, ...newItems]);
+      e.target.value = "";
+    }
+  }
+
+  function removeInvoiceFile(idx: number) {
+    setInvoiceFiles((prev) => {
+      const item = prev[idx];
+      if (item.preview) URL.revokeObjectURL(item.preview);
+      return prev.filter((_, i) => i !== idx);
+    });
+  }
+
+  async function uploadInvoiceFiles(files: File[]): Promise<string[]> {
+    if (files.length === 0) return [];
+    const fd = new FormData();
+    files.forEach((f) => fd.append("files", f));
+    const res = await fetch("/api/upload/supplier-invoice", { method: "POST", body: fd });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error ?? "Invoice upload failed");
+    }
+    const { urls } = await res.json();
+    return urls as string[];
+  }
 
   const filteredVouchers = recordedVouchers.filter(
     (v) =>
@@ -83,6 +127,8 @@ export default function AddIncomingGoodsClient({ recordedVouchers, warehouseName
     setDate(undefined);
     setNotes("");
     setError(null);
+    invoiceFiles.forEach((a) => a.preview && URL.revokeObjectURL(a.preview));
+    setInvoiceFiles([]);
     siInputRef.current?.focus();
   }
 
@@ -165,6 +211,13 @@ export default function AddIncomingGoodsClient({ recordedVouchers, warehouseName
     fd.set("isDamaged", isDamaged ? "true" : "false");
 
     startTransition(async () => {
+      try {
+        const invoiceUrls = await uploadInvoiceFiles(invoiceFiles.map((a) => a.file));
+        if (invoiceUrls.length > 0) fd.set("supplierInvoiceUrls", JSON.stringify(invoiceUrls));
+      } catch (e) {
+        setError((e as Error).message);
+        return;
+      }
       const result = await confirmIncomingReceiptAction(null, fd);
       if (result?.error) setError(result.error);
     });
@@ -484,6 +537,58 @@ export default function AddIncomingGoodsClient({ recordedVouchers, warehouseName
             </div>
           </div>
         )}
+
+        {/* Supplier Invoice Upload */}
+        <div className="mt-8">
+          <label className="text-[12px] font-medium text-gray-600 block mb-2">
+            Supplier Invoice <span className="text-gray-400 font-normal">(photo or scanned copy)</span>
+          </label>
+          <div className="border border-dashed border-gray-300 rounded-lg bg-white p-3 space-y-2">
+            <input
+              type="file"
+              ref={invoiceInputRef}
+              onChange={handleInvoiceFileChange}
+              className="hidden"
+              multiple
+              accept="image/*,.pdf"
+            />
+            {invoiceFiles.length > 0 && (
+              <div className="space-y-1.5">
+                {invoiceFiles.map((item, idx) => (
+                  <div key={idx} className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg">
+                    {item.preview ? (
+                      <img src={item.preview} alt="" className="w-9 h-9 rounded object-cover flex-shrink-0" />
+                    ) : (
+                      <div className="w-9 h-9 bg-red-50 rounded flex items-center justify-center flex-shrink-0">
+                        <FileText className="w-4 h-4 text-red-400" />
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[11px] font-medium text-gray-700 truncate">{item.file.name}</p>
+                      <p className="text-[10px] text-gray-400">{formatFileSize(item.file.size)}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => removeInvoiceFile(idx)}
+                      className="text-gray-300 hover:text-red-400 transition-colors flex-shrink-0"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div
+              onClick={() => invoiceInputRef.current?.click()}
+              className="flex flex-col items-center justify-center gap-1 py-3 cursor-pointer hover:bg-gray-50 rounded-lg transition-all"
+            >
+              <p className="text-[11px] font-medium text-[#9747FF]">
+                {invoiceFiles.length > 0 ? "+ Add More Files" : "Upload Supplier Invoice"}
+              </p>
+              <p className="text-[10px] text-gray-400">Images or PDF · Max 20MB each</p>
+            </div>
+          </div>
+        </div>
 
         {/* Notes */}
         <div className="mt-8 mb-4">

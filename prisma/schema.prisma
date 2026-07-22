@@ -478,6 +478,7 @@ model StockMovement {
   shelfAssignments       Json?
   shelfLocationId        String?
   shelfQuantity          Int?
+  supplierInvoiceUrls    String[]            @default([])
   driverId               String?
   goodsReceivings        GoodsReceiving[]
   pickPacks              PickPack[]          @relation("PickPackStockMovement")

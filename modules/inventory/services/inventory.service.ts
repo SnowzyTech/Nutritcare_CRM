@@ -568,6 +568,7 @@ export type IncomingMovementDetail = {
   status: string;
   reversalReason: string | null;
   dateReversed: string | null;
+  supplierInvoiceUrls: string[];
   products: DetailProduct[];
 };
 
@@ -640,6 +641,7 @@ export async function getIncomingMovementById(id: string): Promise<IncomingMovem
     status: statusLabel[m.status] ?? m.status,
     reversalReason: m.status === "REVERSED" ? (m.remarks ?? null) : null,
     dateReversed: m.status === "REVERSED" ? formatMovementDate(m.updatedAt) : null,
+    supplierInvoiceUrls: m.supplierInvoiceUrls,
     products: m.items.map((item, i) => ({
       id: i + 1,
       product: item.product.name,

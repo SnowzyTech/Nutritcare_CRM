@@ -1152,7 +1152,9 @@ const AddProductSchema = z.object({
   lowStockAgents: z.string().optional(),
   lowStockTotal: z.string().optional(),
   alertEmails: z.string().optional(),
-  costPrice: z.string().min(1, "Cost price is required"),
+  // Cost price is set by Accountant/Admin (see updateProductCostPriceAction) —
+  // Inventory Manager's Add/Edit Product form never submits it.
+  costPrice: z.string().optional(),
   sellingPrice: z.string().min(1, "Selling price is required"),
   unit: z.string().optional(),
   imageUrl: z.string().optional(),
@@ -1187,7 +1189,7 @@ export async function addProductAction(
   _prev: { error?: string } | null,
   formData: FormData
 ): Promise<{ error?: string }> {
-  await requireAuth();
+  const user = await requireAuth();
 
   const raw = {
     productName: formData.get("productName") as string,
@@ -1201,7 +1203,7 @@ export async function addProductAction(
     lowStockAgents: (formData.get("lowStockAgents") as string) || undefined,
     lowStockTotal: (formData.get("lowStockTotal") as string) || undefined,
     alertEmails: (formData.get("alertEmails") as string) || undefined,
-    costPrice: formData.get("costPrice") as string,
+    costPrice: (formData.get("costPrice") as string) || undefined,
     sellingPrice: formData.get("sellingPrice") as string,
     unit: (formData.get("unit") as string) || undefined,
     imageUrl: (formData.get("imageUrl") as string) || undefined,
@@ -1237,7 +1239,9 @@ export async function addProductAction(
       lowStockAlertQtyAgent: parsed.data.lowStockAgents ? parseInt(parsed.data.lowStockAgents, 10) : null,
       lowStockAlertQtyTotal: parsed.data.lowStockTotal ? parseInt(parsed.data.lowStockTotal, 10) : null,
       alertEmails: parsed.data.alertEmails ?? null,
-      costPrice: parseFloat(parsed.data.costPrice),
+      // No cost price input on this form — Accountant/Admin set the real value
+      // afterward via updateProductCostPriceAction.
+      costPrice: parsed.data.costPrice ? parseFloat(parsed.data.costPrice) : 0,
       sellingPrice: parseFloat(parsed.data.sellingPrice),
       unit: parsed.data.unit ?? null,
       imageUrl: parsed.data.imageUrl || null,
@@ -1245,6 +1249,28 @@ export async function addProductAction(
       sku,
     },
   });
+
+  // No cost price was submitted — nudge Accountant/Admin to set the real value
+  // before this product's inventory valuation is trusted.
+  if (!parsed.data.costPrice) {
+    const financeUsers = await prisma.user.findMany({
+      where: { role: { in: ["ACCOUNTANT", "ADMIN"] } },
+      select: { id: true },
+    });
+    if (financeUsers.length > 0) {
+      await prisma.notification.createMany({
+        data: financeUsers.map((u) => ({
+          recipientId: u.id,
+          title: "Product Needs Cost Price",
+          message: `${user.name} added "${product.name}" without a cost price. Set it in Inventory Valuation before it affects reports.`,
+          type: "product_needs_cost_price",
+          link: "/accounting/inventory",
+          entityType: "Product",
+          entityId: product.id,
+        })),
+      });
+    }
+  }
 
   // Save packages as ProductPackage records
   const pkgNames = formData.getAll("pkgName") as string[];
@@ -1324,7 +1350,7 @@ export async function updateProductAction(
     lowStockAgents: (formData.get("lowStockAgents") as string) || undefined,
     lowStockTotal: (formData.get("lowStockTotal") as string) || undefined,
     alertEmails: (formData.get("alertEmails") as string) || undefined,
-    costPrice: formData.get("costPrice") as string,
+    costPrice: (formData.get("costPrice") as string) || undefined,
     sellingPrice: formData.get("sellingPrice") as string,
     unit: (formData.get("unit") as string) || undefined,
     imageUrl: (formData.get("imageUrl") as string) || undefined,
@@ -1360,7 +1386,9 @@ export async function updateProductAction(
           lowStockAlertQtyAgent: parsed.data.lowStockAgents ? parseInt(parsed.data.lowStockAgents, 10) : null,
           lowStockAlertQtyTotal: parsed.data.lowStockTotal ? parseInt(parsed.data.lowStockTotal, 10) : null,
           alertEmails: parsed.data.alertEmails ?? null,
-          costPrice: parseFloat(parsed.data.costPrice),
+          // Cost price is intentionally omitted — this form doesn't submit it,
+          // so the existing value is left untouched. Accountant/Admin edit it
+          // separately via updateProductCostPriceAction.
           sellingPrice: parseFloat(parsed.data.sellingPrice),
           unit: parsed.data.unit ?? null,
           imageUrl: parsed.data.imageUrl || null,

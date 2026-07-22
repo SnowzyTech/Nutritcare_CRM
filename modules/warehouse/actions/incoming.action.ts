@@ -38,6 +38,7 @@ const ConfirmReceiptSchema = z.object({
   notes: z.string().optional(),
   isReserved: z.boolean().default(false),
   isDamaged: z.boolean().default(false),
+  supplierInvoiceUrls: z.array(z.string()).optional(),
 });
 
 async function deriveOccupancyForLocation(
@@ -65,12 +66,23 @@ export async function confirmIncomingReceiptAction(
     return { error: (e as Error).message };
   }
 
+  let supplierInvoiceUrls: string[] | undefined;
+  const supplierInvoiceUrlsRaw = formData.get("supplierInvoiceUrls") as string | null;
+  if (supplierInvoiceUrlsRaw) {
+    try {
+      supplierInvoiceUrls = JSON.parse(supplierInvoiceUrlsRaw);
+    } catch {
+      return { error: "Invalid supplier invoice data" };
+    }
+  }
+
   const raw = {
     stockMovementId: formData.get("stockMovementId") as string,
     date: formData.get("date") as string,
     notes: (formData.get("notes") as string) || undefined,
     isReserved: formData.get("isReserved") === "true",
     isDamaged: formData.get("isDamaged") === "true",
+    supplierInvoiceUrls,
   };
 
   const parsed = ConfirmReceiptSchema.safeParse(raw);
@@ -133,6 +145,7 @@ export async function confirmIncomingReceiptAction(
         shelfAssignments: shelfEntries.length > 0 ? (shelfEntries as object[]) : undefined,
         isReserved: parsed.data.isReserved,
         isDamaged: parsed.data.isDamaged,
+        ...(parsed.data.supplierInvoiceUrls ? { supplierInvoiceUrls: parsed.data.supplierInvoiceUrls } : {}),
       },
     });
 
