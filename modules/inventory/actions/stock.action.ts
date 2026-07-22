@@ -25,6 +25,24 @@ function generateRefNumber(prefix: string): string {
   return `${prefix}-${ts}-${rand}`;
 }
 
+// RAPS units are excluded from creditWarehouse at receipt time, so any later
+// debit (delete/reverse) must undo the same net amount, not the full item qty.
+function creditedQuantities(
+  items: { productId: string; quantity: number }[],
+  rapsAssignments: unknown,
+): { productId: string; quantity: number }[] {
+  let rapsEntries: { productId: string; quantity: number }[] = [];
+  if (rapsAssignments) {
+    try {
+      rapsEntries = rapsAssignments as { productId: string; quantity: number }[];
+    } catch {
+      rapsEntries = [];
+    }
+  }
+  const rapsMap = new Map(rapsEntries.map((e) => [e.productId, e.quantity]));
+  return items.map((i) => ({ productId: i.productId, quantity: i.quantity - (rapsMap.get(i.productId) ?? 0) }));
+}
+
 function generateSku(name: string): string {
   const prefix = name
     .toUpperCase()
@@ -711,7 +729,7 @@ export async function reverseIncomingMovementAction(
       data: { status: "REVERSED", remarks: reason.trim() || null },
     });
     if (wasCredited && movement.warehouseId) {
-      await debitWarehouse(tx, movement.warehouseId, movement.items);
+      await debitWarehouse(tx, movement.warehouseId, creditedQuantities(movement.items, movement.rapsAssignments));
     }
   });
 
@@ -737,11 +755,94 @@ export async function deleteIncomingMovementAction(
 
   await prisma.$transaction(async (tx) => {
     if (wasCredited && movement.warehouseId) {
-      await debitWarehouse(tx, movement.warehouseId, movement.items);
+      await debitWarehouse(tx, movement.warehouseId, creditedQuantities(movement.items, movement.rapsAssignments));
     }
     await tx.stockMovement.delete({ where: { id } });
   });
 
+  revalidatePath("/inventory/incoming");
+  return {};
+}
+
+// ── RAPS Approval (Returned at Point of Supply) ───────────────────────────────
+// Pure audit sign-off: RAPS units were never credited to warehouse stock (see
+// confirmIncomingReceiptAction), so neither approving nor rejecting touches
+// StockLevel/shelf data.
+
+export async function approveRapsAction(id: string): Promise<{ error?: string }> {
+  let user: Awaited<ReturnType<typeof requireAuth>>;
+  try {
+    user = await requireAuth();
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Unauthorized" };
+  }
+  if (user.role !== "INVENTORY_MANAGER" && user.role !== "ADMIN") {
+    return { error: "Only inventory managers can approve RAPS" };
+  }
+
+  const movement = await prisma.stockMovement.findUnique({ where: { id } });
+  if (!movement || movement.type !== "INCOMING") return { error: "Movement not found" };
+  if (movement.rapsApprovalStatus !== "PENDING_APPROVAL") {
+    return { error: "This RAPS claim is not pending approval" };
+  }
+
+  await prisma.stockMovement.update({
+    where: { id },
+    data: { rapsApprovalStatus: "APPROVED" },
+  });
+
+  await prisma.notification.create({
+    data: {
+      recipientId: movement.createdById,
+      title: "RAPS Approved",
+      message: `Your Returned-at-Point-of-Supply claim on voucher ${movement.referenceNumber} has been approved.`,
+      type: "raps_approved",
+      link: `/warehouse/incoming-goods/${movement.id}`,
+      entityType: "StockMovement",
+      entityId: movement.id,
+    },
+  });
+
+  revalidatePath(`/inventory/incoming/${id}`);
+  revalidatePath("/inventory/incoming");
+  return {};
+}
+
+export async function rejectRapsAction(id: string, reason: string): Promise<{ error?: string }> {
+  let user: Awaited<ReturnType<typeof requireAuth>>;
+  try {
+    user = await requireAuth();
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Unauthorized" };
+  }
+  if (user.role !== "INVENTORY_MANAGER" && user.role !== "ADMIN") {
+    return { error: "Only inventory managers can reject RAPS" };
+  }
+
+  const movement = await prisma.stockMovement.findUnique({ where: { id } });
+  if (!movement || movement.type !== "INCOMING") return { error: "Movement not found" };
+  if (movement.rapsApprovalStatus !== "PENDING_APPROVAL") {
+    return { error: "This RAPS claim is not pending approval" };
+  }
+
+  await prisma.stockMovement.update({
+    where: { id },
+    data: { rapsApprovalStatus: "REJECTED", rapsRejectionReason: reason.trim() || null },
+  });
+
+  await prisma.notification.create({
+    data: {
+      recipientId: movement.createdById,
+      title: "RAPS Rejected",
+      message: `Your Returned-at-Point-of-Supply claim on voucher ${movement.referenceNumber} was rejected${reason.trim() ? `: ${reason.trim()}` : "."}`,
+      type: "raps_rejected",
+      link: `/warehouse/incoming-goods/${movement.id}`,
+      entityType: "StockMovement",
+      entityId: movement.id,
+    },
+  });
+
+  revalidatePath(`/inventory/incoming/${id}`);
   revalidatePath("/inventory/incoming");
   return {};
 }

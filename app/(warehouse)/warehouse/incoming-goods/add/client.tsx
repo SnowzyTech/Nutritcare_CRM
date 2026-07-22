@@ -61,6 +61,10 @@ export default function AddIncomingGoodsClient({ recordedVouchers, warehouseName
   // Per-product shelf allocations: productId → [{locationId, quantity}]
   const [allocations, setAllocations] = useState<ProductAllocations>({});
 
+  // Per-product RAPS (Returned at Point of Supply) quantity — units rejected
+  // back to the supplier right now, excluded from shelving/stock entirely.
+  const [rapsQty, setRapsQty] = useState<Record<string, string>>({});
+
   // Supplier invoice photo/scan attachments
   const [invoiceFiles, setInvoiceFiles] = useState<InvoiceAttachment[]>([]);
   const invoiceInputRef = useRef<HTMLInputElement>(null);
@@ -116,12 +120,14 @@ export default function AddIncomingGoodsClient({ recordedVouchers, warehouseName
     setSiSearch(v.referenceNumber);
     setShowSiDropdown(false);
     setAllocations(buildInitialAllocations(v));
+    setRapsQty({});
   }
 
   function handleClearVoucher() {
     setSelectedVoucher(null);
     setSiSearch("");
     setAllocations({});
+    setRapsQty({});
     setIsReserved(false);
     setIsDamaged(false);
     setDate(undefined);
@@ -176,9 +182,19 @@ export default function AddIncomingGoodsClient({ recordedVouchers, warehouseName
     return (allocations[productId] ?? []).reduce((s, r) => s + (parseInt(r.quantity) || 0), 0);
   }
 
+  function rapsQtyFor(productId: string): number {
+    return parseInt(rapsQty[productId]) || 0;
+  }
+
+  function updateRapsQty(productId: string, value: string) {
+    setRapsQty((prev) => ({ ...prev, [productId]: value }));
+  }
+
   function allProductsCovered(): boolean {
     if (!selectedVoucher) return false;
-    return selectedVoucher.items.every((item) => assignedQty(item.productId) === item.quantity);
+    return selectedVoucher.items.every(
+      (item) => assignedQty(item.productId) + rapsQtyFor(item.productId) === item.quantity,
+    );
   }
 
   // ── Submit ───────────────────────────────────────────────────────────────────
@@ -189,7 +205,7 @@ export default function AddIncomingGoodsClient({ recordedVouchers, warehouseName
 
     if (!selectedVoucher) return setError("Please select a voucher SI-ID first");
     if (!date) return setError("Date is required");
-    if (!allProductsCovered()) return setError("Shelf assignments must exactly match the voucher quantities for each product");
+    if (!allProductsCovered()) return setError("Shelf + RAPS quantities must exactly match the voucher quantities for each product");
 
     // Build flat list of assignments
     const shelfAssignments: { productId: string; locationId: string; quantity: number }[] = [];
@@ -202,11 +218,16 @@ export default function AddIncomingGoodsClient({ recordedVouchers, warehouseName
     }
     if (shelfAssignments.some((a) => !a.locationId)) return setError("All shelf rows must have a location selected");
 
+    const rapsAssignments = selectedVoucher.items
+      .map((item) => ({ productId: item.productId, quantity: rapsQtyFor(item.productId) }))
+      .filter((r) => r.quantity > 0);
+
     const fd = new FormData();
     fd.set("stockMovementId", selectedVoucher.id);
     fd.set("date", date.toISOString());
     fd.set("notes", notes);
     fd.set("shelfAssignments", JSON.stringify(shelfAssignments));
+    if (rapsAssignments.length > 0) fd.set("rapsAssignments", JSON.stringify(rapsAssignments));
     fd.set("isReserved", isReserved ? "true" : "false");
     fd.set("isDamaged", isDamaged ? "true" : "false");
 
@@ -411,7 +432,9 @@ export default function AddIncomingGoodsClient({ recordedVouchers, warehouseName
               <span className="text-[12px] text-gray-500 font-medium">
                 Shelf Assignments · {selectedVoucher.referenceNumber}
               </span>
-              <span className="text-[11px] text-gray-400">Assign each product to one or more shelves</span>
+              <span className="text-[11px] text-gray-400">
+                Assign each product to one or more shelves — or mark units RAPS (Returned at Point of Supply) to send back to the supplier
+              </span>
             </div>
 
             <table className="w-full">
@@ -421,15 +444,17 @@ export default function AddIncomingGoodsClient({ recordedVouchers, warehouseName
                   <th className="px-4 py-2.5 text-[11px] font-medium text-left">Product</th>
                   <th className="px-4 py-2.5 text-[11px] font-medium text-center w-28">Required Qty</th>
                   <th className="px-4 py-2.5 text-[11px] font-medium text-left">Shelf Assignments</th>
-                  <th className="px-4 py-2.5 text-[11px] font-medium text-center w-24">Assigned</th>
+                  <th className="px-4 py-2.5 text-[11px] font-medium text-center w-24">Shelved</th>
+                  <th className="px-4 py-2.5 text-[11px] font-medium text-center w-28">RAPS Qty</th>
                 </tr>
               </thead>
               <tbody>
                 {selectedVoucher.items.map((item, i) => {
                   const rows = allocations[item.productId] ?? [];
                   const assigned = assignedQty(item.productId);
-                  const covered = assigned === item.quantity;
-                  const over = assigned > item.quantity;
+                  const raps = rapsQtyFor(item.productId);
+                  const covered = assigned + raps === item.quantity;
+                  const over = assigned + raps > item.quantity;
 
                   return (
                     <tr key={item.productId} className="border-b border-gray-100 bg-white last:border-0 align-top">
@@ -514,10 +539,22 @@ export default function AddIncomingGoodsClient({ recordedVouchers, warehouseName
                           {assigned}
                         </span>
                         {covered && <div className="text-[10px] text-emerald-500">✓ done</div>}
-                        {over && <div className="text-[10px] text-red-400">over by {assigned - item.quantity}</div>}
-                        {!covered && !over && assigned > 0 && (
-                          <div className="text-[10px] text-gray-400">need {item.quantity - assigned} more</div>
+                        {over && <div className="text-[10px] text-red-400">over by {assigned + raps - item.quantity}</div>}
+                        {!covered && !over && (assigned > 0 || raps > 0) && (
+                          <div className="text-[10px] text-gray-400">need {item.quantity - assigned - raps} more</div>
                         )}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <input
+                          type="number"
+                          min="0"
+                          max={item.quantity}
+                          value={rapsQty[item.productId] ?? ""}
+                          onChange={(e) => updateRapsQty(item.productId, e.target.value)}
+                          placeholder="0"
+                          className="w-[70px] h-[30px] border border-gray-200 rounded-md px-2 text-[12px] text-gray-700 text-center focus:outline-none focus:ring-1 focus:ring-amber-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        />
+                        {raps > 0 && <div className="text-[10px] text-amber-600 mt-1">→ supplier</div>}
                       </td>
                     </tr>
                   );
@@ -528,7 +565,7 @@ export default function AddIncomingGoodsClient({ recordedVouchers, warehouseName
             {/* Coverage summary */}
             <div className="px-4 py-2 bg-gray-50 border-t border-gray-100 flex items-center justify-between">
               <span className="text-[11px] text-gray-500">
-                {selectedVoucher.items.filter((it) => assignedQty(it.productId) === it.quantity).length} of{" "}
+                {selectedVoucher.items.filter((it) => assignedQty(it.productId) + rapsQtyFor(it.productId) === it.quantity).length} of{" "}
                 {selectedVoucher.items.length} products fully assigned
               </span>
               {allProductsCovered() && (

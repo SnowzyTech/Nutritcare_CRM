@@ -92,6 +92,8 @@ export type IncomingGoodsRow = {
   status: string;
   createdTime: string;
   addedBy: string;
+  rapsApprovalStatus: "PENDING_APPROVAL" | "APPROVED" | "REJECTED" | null;
+  rapsQuantity: number;
 };
 
 export async function getIncomingGoodsForWarehouse(
@@ -119,6 +121,10 @@ export async function getIncomingGoodsForWarehouse(
       .toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit", hour12: true })
       .toLowerCase(),
     addedBy: m.createdBy.name,
+    rapsApprovalStatus: m.rapsApprovalStatus,
+    rapsQuantity: m.rapsAssignments
+      ? (m.rapsAssignments as { productId: string; quantity: number }[]).reduce((s, e) => s + e.quantity, 0)
+      : 0,
   }));
 }
 
@@ -136,6 +142,10 @@ export type IncomingGoodDetail = {
   dateReversed: string | null;
   notes: string;
   supplierInvoiceUrls: string[];
+  rapsApprovalStatus: "PENDING_APPROVAL" | "APPROVED" | "REJECTED" | null;
+  rapsApprovalStatusLabel: string | null;
+  rapsRejectionReason: string | null;
+  rapsItems: { product: string; productCode: string; quantity: number }[];
   products: { id: number; product: string; productCode: string; quantity: number }[];
 };
 
@@ -163,6 +173,22 @@ export async function getIncomingGoodDetail(
     REVERSED: "Reversed",
   };
 
+  const rapsStatusLabel: Record<string, string> = {
+    PENDING_APPROVAL: "Pending Approval",
+    APPROVED: "Approved",
+    REJECTED: "Rejected",
+  };
+
+  let rapsItems: { product: string; productCode: string; quantity: number }[] = [];
+  if (m.rapsAssignments) {
+    const entries = m.rapsAssignments as { productId: string; quantity: number }[];
+    const productMap = new Map(m.items.map((i) => [i.productId, i.product]));
+    rapsItems = entries.map((e) => {
+      const p = productMap.get(e.productId);
+      return { product: p?.name ?? e.productId, productCode: p?.sku ?? "", quantity: e.quantity };
+    });
+  }
+
   return {
     id: m.id,
     siId: m.referenceNumber,
@@ -177,6 +203,10 @@ export async function getIncomingGoodDetail(
     dateReversed: isReversed ? formatDate(m.updatedAt) : null,
     notes: m.notes ?? "",
     supplierInvoiceUrls: m.supplierInvoiceUrls,
+    rapsApprovalStatus: m.rapsApprovalStatus,
+    rapsApprovalStatusLabel: m.rapsApprovalStatus ? (rapsStatusLabel[m.rapsApprovalStatus] ?? m.rapsApprovalStatus) : null,
+    rapsRejectionReason: m.rapsRejectionReason,
+    rapsItems,
     products: m.items.map((item, i) => ({
       id: i + 1,
       product: item.product.name,

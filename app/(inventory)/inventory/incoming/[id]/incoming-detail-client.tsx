@@ -16,6 +16,8 @@ import type { IncomingMovementDetail } from "@/modules/inventory/services/invent
 import {
   reverseIncomingMovementAction,
   deleteIncomingMovementAction,
+  approveRapsAction,
+  rejectRapsAction,
 } from "@/modules/inventory/actions/stock.action";
 
 export function IncomingDetailClient({ record }: { record: IncomingMovementDetail }) {
@@ -23,11 +25,44 @@ export function IncomingDetailClient({ record }: { record: IncomingMovementDetai
   const [search, setSearch] = useState("");
   const [isReverseModalOpen, setIsReverseModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [isRapsRejectModalOpen, setIsRapsRejectModalOpen] = useState(false);
+  const [rapsRejectReason, setRapsRejectReason] = useState("");
   const [reversalReason, setReversalReason] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const [isRapsPending, startRapsTransition] = useTransition();
 
   const isReversed = record.status === "Reversed";
+
+  const handleApproveRaps = () => {
+    setActionError(null);
+    startRapsTransition(async () => {
+      const result = await approveRapsAction(record.id);
+      if (result.error) {
+        setActionError(result.error);
+        toast.error(result.error);
+        return;
+      }
+      toast.success("RAPS approved");
+      router.refresh();
+    });
+  };
+
+  const handleRejectRaps = () => {
+    setActionError(null);
+    startRapsTransition(async () => {
+      const result = await rejectRapsAction(record.id, rapsRejectReason);
+      if (result.error) {
+        setActionError(result.error);
+        toast.error(result.error);
+        return;
+      }
+      toast.success("RAPS rejected");
+      setIsRapsRejectModalOpen(false);
+      setRapsRejectReason("");
+      router.refresh();
+    });
+  };
 
   const handleConfirmReverse = () => {
     setActionError(null);
@@ -194,6 +229,65 @@ export function IncomingDetailClient({ record }: { record: IncomingMovementDetai
         </div>
       )}
 
+      {/* RAPS (Returned at Point of Supply) */}
+      {record.rapsItems.length > 0 && (
+        <div className="mb-8">
+          <div className="flex items-center gap-3 mb-3">
+            <h3 className="text-sm font-bold text-gray-700">Returned at Point of Supply</h3>
+            <span
+              className={`px-2.5 py-0.5 rounded text-[11px] font-semibold uppercase tracking-wide ${
+                record.rapsApprovalStatus === "APPROVED"
+                  ? "bg-emerald-100 text-emerald-700"
+                  : record.rapsApprovalStatus === "REJECTED"
+                  ? "bg-red-100 text-red-600"
+                  : "bg-amber-100 text-amber-700"
+              }`}
+            >
+              {record.rapsApprovalStatusLabel}
+            </span>
+          </div>
+          <div className="border border-gray-200 rounded-lg overflow-hidden mb-3">
+            <table className="w-full">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-200">
+                  <th className="text-left text-xs font-semibold text-gray-500 py-2.5 px-4">Product</th>
+                  <th className="text-right text-xs font-semibold text-gray-500 py-2.5 px-4 w-32">Qty Returned</th>
+                </tr>
+              </thead>
+              <tbody>
+                {record.rapsItems.map((item, idx) => (
+                  <tr key={idx} className="border-t border-gray-100">
+                    <td className="py-2.5 px-4 text-sm text-gray-600">{item.product}</td>
+                    <td className="py-2.5 px-4 text-sm text-gray-600 text-right">{item.quantity}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {record.rapsApprovalStatus === "REJECTED" && record.rapsRejectionReason && (
+            <p className="text-sm text-red-500 font-medium mb-3">Rejected: {record.rapsRejectionReason}</p>
+          )}
+          {record.rapsApprovalStatus === "PENDING_APPROVAL" && (
+            <div className="flex gap-3 print:hidden">
+              <button
+                onClick={handleApproveRaps}
+                disabled={isRapsPending}
+                className="px-5 py-2.5 rounded-md text-sm font-semibold text-white bg-emerald-500 hover:bg-emerald-600 transition-colors disabled:opacity-60"
+              >
+                {isRapsPending ? "Approving…" : "Approve RAPS"}
+              </button>
+              <button
+                onClick={() => { setActionError(null); setIsRapsRejectModalOpen(true); }}
+                disabled={isRapsPending}
+                className="px-5 py-2.5 rounded-md text-sm font-semibold text-white bg-red-500 hover:bg-red-600 transition-colors disabled:opacity-60"
+              >
+                Reject RAPS
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Footer */}
       <div className="flex items-start justify-between">
         <div>
@@ -296,6 +390,47 @@ export function IncomingDetailClient({ record }: { record: IncomingMovementDetai
                   className="px-6 py-2.5 rounded-md text-sm font-semibold text-white bg-[#9D00FF] hover:bg-[#8500d9] transition-colors disabled:opacity-60"
                 >
                   {isPending ? "Reversing…" : "Reverse"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* RAPS Reject Modal */}
+      {isRapsRejectModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm print:hidden">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-lg overflow-hidden">
+            <div className="p-8">
+              <h2 className="text-lg font-bold text-gray-900 mb-4">Reject RAPS Claim</h2>
+              <div className="mb-6">
+                <label className="block text-sm font-bold text-gray-800 mb-2">
+                  Rejection <span className="font-normal text-gray-500">Reason</span>
+                </label>
+                <textarea
+                  value={rapsRejectReason}
+                  onChange={(e) => setRapsRejectReason(e.target.value)}
+                  placeholder="Type in here"
+                  className="w-full border border-gray-200 rounded-md p-4 text-sm outline-none focus:border-[#9D00FF] resize-none h-36 text-gray-700 placeholder:text-gray-300 transition-colors bg-white"
+                />
+              </div>
+              {actionError && (
+                <p className="text-red-500 text-sm font-medium mb-4">{actionError}</p>
+              )}
+              <div className="flex gap-4">
+                <button
+                  onClick={() => { setIsRapsRejectModalOpen(false); setActionError(null); }}
+                  disabled={isRapsPending}
+                  className="px-6 py-2.5 rounded-md text-sm font-semibold text-white bg-gray-400 hover:bg-gray-500 transition-colors disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleRejectRaps}
+                  disabled={isRapsPending}
+                  className="px-6 py-2.5 rounded-md text-sm font-semibold text-white bg-red-500 hover:bg-red-600 transition-colors disabled:opacity-60"
+                >
+                  {isRapsPending ? "Rejecting…" : "Reject"}
                 </button>
               </div>
             </div>

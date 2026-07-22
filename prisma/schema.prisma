@@ -479,6 +479,9 @@ model StockMovement {
   shelfLocationId        String?
   shelfQuantity          Int?
   supplierInvoiceUrls    String[]            @default([])
+  rapsAssignments        Json?
+  rapsApprovalStatus     RapsApprovalStatus?
+  rapsRejectionReason    String?
   driverId               String?
   goodsReceivings        GoodsReceiving[]
   pickPacks              PickPack[]          @relation("PickPackStockMovement")
@@ -1363,6 +1366,16 @@ enum StockMovementStatus {
   QC_CHECK
   SHELVED
   REVERSED
+}
+
+// Returned-at-Point-of-Supply: units rejected back to the supplier while
+// confirming an incoming receipt. Purely an audit sign-off — the rejected
+// quantity is never credited to warehouse stock in the first place, so
+// neither APPROVED nor REJECTED trigger any stock movement.
+enum RapsApprovalStatus {
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
 }
 
 enum StockTransferNodeType {

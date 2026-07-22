@@ -23,7 +23,7 @@ async function requireWarehouseManager() {
   const session = await auth();
   if (!session?.user?.id) throw new Error("Unauthorized");
   if (!session.user.warehouseId) throw new Error("No warehouse assigned to your account");
-  return { userId: session.user.id, warehouseId: session.user.warehouseId };
+  return { userId: session.user.id, userName: session.user.name, warehouseId: session.user.warehouseId };
 }
 
 // ── Confirm Inventory Voucher Receipt ─────────────────────────────────────────
@@ -31,6 +31,28 @@ async function requireWarehouseManager() {
 // Per-product shelf assignment submitted from the UI.
 // [{productId, locationId, quantity}] stored as JSON in the form.
 type IncomingShelfEntry = { productId: string; locationId: string; quantity: number };
+
+// Per-product quantity rejected back to the supplier at receipt time.
+// [{productId, quantity}] stored as JSON in the form.
+type RapsEntry = { productId: string; quantity: number };
+
+// RAPS units are excluded from creditWarehouse at receipt time, so any later
+// debit (delete/reverse) must undo the same net amount, not the full item qty.
+function creditedQuantities(
+  items: { productId: string; quantity: number }[],
+  rapsAssignments: unknown,
+): { productId: string; quantity: number }[] {
+  let rapsEntries: RapsEntry[] = [];
+  if (rapsAssignments) {
+    try {
+      rapsEntries = rapsAssignments as RapsEntry[];
+    } catch {
+      rapsEntries = [];
+    }
+  }
+  const rapsMap = new Map(rapsEntries.map((e) => [e.productId, e.quantity]));
+  return items.map((i) => ({ productId: i.productId, quantity: i.quantity - (rapsMap.get(i.productId) ?? 0) }));
+}
 
 const ConfirmReceiptSchema = z.object({
   stockMovementId: z.string().min(1, "Voucher is required"),
@@ -60,8 +82,9 @@ export async function confirmIncomingReceiptAction(
   formData: FormData,
 ): Promise<{ error?: string }> {
   let warehouseId: string;
+  let userName: string | undefined | null;
   try {
-    ({ warehouseId } = await requireWarehouseManager());
+    ({ warehouseId, userName } = await requireWarehouseManager());
   } catch (e) {
     return { error: (e as Error).message };
   }
@@ -99,6 +122,19 @@ export async function confirmIncomingReceiptAction(
     }
   }
 
+  // Parse per-product RAPS (Returned at Point of Supply) quantities —
+  // units rejected back to the supplier right here, never credited to
+  // warehouse stock.
+  let rapsEntries: RapsEntry[] = [];
+  const rapsEntriesRaw = formData.get("rapsAssignments") as string | null;
+  if (rapsEntriesRaw) {
+    try {
+      rapsEntries = JSON.parse(rapsEntriesRaw);
+    } catch {
+      return { error: "Invalid RAPS data" };
+    }
+  }
+
   const movement = await prisma.stockMovement.findUnique({
     where: { id: parsed.data.stockMovementId },
     include: { items: { select: { productId: true, quantity: true } } },
@@ -107,8 +143,14 @@ export async function confirmIncomingReceiptAction(
   if (movement.warehouseId !== warehouseId) return { error: "This voucher belongs to a different warehouse" };
   if (movement.status !== "RECORDED") return { error: "This voucher has already been processed or is not in Recorded status" };
 
-  // Validate shelf assignments cover all required quantities
-  if (shelfEntries.length > 0) {
+  const rapsMap = new Map<string, number>();
+  for (const e of rapsEntries) {
+    if (e.quantity > 0) rapsMap.set(e.productId, (rapsMap.get(e.productId) ?? 0) + e.quantity);
+  }
+
+  // Validate shelf assignments + RAPS quantities together cover exactly the
+  // required quantities for every product.
+  if (shelfEntries.length > 0 || rapsMap.size > 0) {
     const requiredMap = new Map(movement.items.map((i) => [i.productId, i.quantity]));
     const assignedMap = new Map<string, number>();
     for (const e of shelfEntries) {
@@ -116,8 +158,12 @@ export async function confirmIncomingReceiptAction(
     }
     for (const [productId, required] of requiredMap) {
       const assigned = assignedMap.get(productId) ?? 0;
-      if (assigned !== required) {
-        return { error: `Shelf assignment quantities don't match voucher quantities for all products` };
+      const raps = rapsMap.get(productId) ?? 0;
+      if (raps > required) {
+        return { error: `RAPS quantity for a product exceeds the voucher quantity` };
+      }
+      if (assigned + raps !== required) {
+        return { error: `Shelf + RAPS quantities don't match voucher quantities for all products` };
       }
     }
     // Validate each locationId belongs to this warehouse
@@ -133,6 +179,7 @@ export async function confirmIncomingReceiptAction(
   }
 
   const primaryShelfId = shelfEntries[0]?.locationId ?? null;
+  const hasRaps = rapsMap.size > 0;
 
   await prisma.$transaction(async (tx) => {
     await tx.stockMovement.update({
@@ -146,6 +193,12 @@ export async function confirmIncomingReceiptAction(
         isReserved: parsed.data.isReserved,
         isDamaged: parsed.data.isDamaged,
         ...(parsed.data.supplierInvoiceUrls ? { supplierInvoiceUrls: parsed.data.supplierInvoiceUrls } : {}),
+        ...(hasRaps
+          ? {
+              rapsAssignments: rapsEntries.filter((e) => e.quantity > 0) as object[],
+              rapsApprovalStatus: "PENDING_APPROVAL",
+            }
+          : {}),
       },
     });
 
@@ -170,10 +223,37 @@ export async function confirmIncomingReceiptAction(
     }
 
     // Materialized stock balance — goods now belong to this warehouse.
-    await creditWarehouse(tx, warehouseId, movement.items);
+    // Units marked RAPS are excluded: they're going back to the supplier and
+    // were never shelved, so they never enter warehouse stock.
+    const creditedItems = movement.items.map((i) => ({
+      productId: i.productId,
+      quantity: i.quantity - (rapsMap.get(i.productId) ?? 0),
+    }));
+    await creditWarehouse(tx, warehouseId, creditedItems);
   });
 
+  if (hasRaps) {
+    const inventoryManagers = await prisma.user.findMany({
+      where: { role: "INVENTORY_MANAGER" },
+      select: { id: true },
+    });
+    if (inventoryManagers.length > 0) {
+      await prisma.notification.createMany({
+        data: inventoryManagers.map((u) => ({
+          recipientId: u.id,
+          title: "RAPS Awaiting Approval",
+          message: `${userName ?? "A warehouse manager"} marked units of voucher ${movement.referenceNumber} as Returned at Point of Supply — review and approve.`,
+          type: "raps_pending_approval",
+          link: `/inventory/incoming/${movement.id}`,
+          entityType: "StockMovement",
+          entityId: movement.id,
+        })),
+      });
+    }
+  }
+
   revalidatePath("/warehouse/incoming-goods");
+  revalidatePath("/inventory/incoming");
   redirect("/warehouse/incoming-goods");
 }
 
@@ -351,9 +431,10 @@ export async function deleteIncomingMovementAction(
         );
       }
     }
-    // Undo the stock credit if this receipt was already counted.
+    // Undo the stock credit if this receipt was already counted. RAPS units
+    // were excluded from the original credit, so exclude them here too.
     if (wasCredited && movement.warehouseId) {
-      await debitWarehouse(tx, movement.warehouseId, movement.items);
+      await debitWarehouse(tx, movement.warehouseId, creditedQuantities(movement.items, movement.rapsAssignments));
     }
     await tx.stockMovement.delete({ where: { id } });
   });
@@ -424,7 +505,7 @@ export async function reverseIncomingMovementWarehouseAction(
     }
 
     if (wasCredited && movement.warehouseId) {
-      await debitWarehouse(tx, movement.warehouseId, movement.items);
+      await debitWarehouse(tx, movement.warehouseId, creditedQuantities(movement.items, movement.rapsAssignments));
     }
   });
 
