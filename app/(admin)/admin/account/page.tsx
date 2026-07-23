@@ -1,8 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db/prisma";
+import { auth } from "@/lib/auth/auth";
+import { isSuperAdmin } from "@/lib/auth/role-routes";
 
-export const metadata: Metadata = { title: "Account — Admin" };
+export const metadata: Metadata = { title: "Admin Overview" };
 
 async function getAccountPageData() {
   const now = new Date();
@@ -160,12 +163,16 @@ function DeptSection({
 }
 
 export default async function AdminAccountPage() {
+  // Account oversight is SUPER_ADMIN-only (belt-and-braces with middleware).
+  const session = await auth();
+  if (!isSuperAdmin(session?.user?.role)) redirect("/admin");
+
   const data = await getAccountPageData();
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       <div>
-        <h1 className="text-2xl font-black text-slate-800">Account</h1>
+        <h1 className="text-2xl font-black text-slate-800">Admin Overview</h1>
         <p className="text-sm text-slate-500 mt-1">
           Overview of each department&apos;s key metrics.
         </p>

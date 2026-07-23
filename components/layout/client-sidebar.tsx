@@ -41,7 +41,7 @@ export function ClientSidebar({
             </div>
             <div className="flex flex-col min-w-0">
               <span className="text-white text-sm font-bold leading-tight truncate">{user?.name || "Admin"}</span>
-              <span className="text-gray-500 text-[0.7rem] truncate">{user?.role === "ADMIN" ? "Administrative" : user?.role || "Staff"}</span>
+              <span className="text-gray-500 text-[0.7rem] truncate">{user?.role === "SUPER_ADMIN" ? "Super Admin" : user?.role === "ADMIN" ? "Administrative" : user?.role || "Staff"}</span>
             </div>
           </div>
         )}

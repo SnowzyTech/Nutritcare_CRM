@@ -4,6 +4,7 @@ import { getOrderWithDetails } from "@/modules/orders/services/orders.service";
 import { getActiveProducts } from "@/modules/orders/services/products.service";
 import { getAgentsForReassignment } from "@/modules/delivery/services/agents.service";
 import { OrderDetailClient } from "./order-detail-client";
+import { isAdmin } from "@/lib/auth/role-routes";
 import type { Metadata } from "next";
 
 interface Props {
@@ -30,7 +31,7 @@ export default async function OrderDetailPage({ params }: Props) {
   if (!rawOrder) notFound();
 
   // Only the owning sales rep can view this order
-  if (rawOrder.salesRepId !== session.user.id && session.user.role !== "ADMIN") {
+  if (rawOrder.salesRepId !== session.user.id && !isAdmin(session.user.role)) {
     notFound();
   }
 

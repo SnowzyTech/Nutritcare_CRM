@@ -18,13 +18,14 @@ import {
   updateSelfProfile,
 } from "../services/users.service";
 import type { Department } from "@prisma/client";
+import { isAdmin } from "@/lib/auth/role-routes";
 
 type ActionResult = { success: true } | { error: string };
 type ResetPasswordResult = { success: true; tempPassword: string } | { error: string };
 
 async function requireAdmin() {
   const session = await auth();
-  if (!session?.user?.id || session.user.role !== "ADMIN") {
+  if (!session?.user?.id || !isAdmin(session.user.role)) {
     throw new Error("Unauthorized");
   }
 }

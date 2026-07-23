@@ -3,12 +3,13 @@
 import { auth } from "@/lib/auth/auth";
 import { revalidatePath } from "next/cache";
 import { updateAgentStatus, softDeleteAgent } from "../services/agents.service";
+import { isAdmin } from "@/lib/auth/role-routes";
 
 type ActionResult = { success: true } | { error: string };
 
 async function requireAdmin() {
   const session = await auth();
-  if (!session?.user?.id || session.user.role !== "ADMIN") {
+  if (!session?.user?.id || !isAdmin(session.user.role)) {
     throw new Error("Unauthorized");
   }
 }

@@ -94,8 +94,34 @@ export async function getSelfProfile(userId: string) {
       role: true,
       createdAt: true,
       avatarUrl: true,
+      revokedAdminPages: true,
       team: { select: { name: true } },
     },
+  });
+}
+
+/** List all limited-admin accounts (for the Super Admin access-management screen). */
+export async function listAdmins() {
+  return prisma.user.findMany({
+    where: { role: "ADMIN" },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      avatarUrl: true,
+      isActive: true,
+      revokedAdminPages: true,
+      createdAt: true,
+    },
+    orderBy: { createdAt: "asc" },
+  });
+}
+
+/** Replace a limited admin's revoked-pages list. Only affects ADMIN accounts. */
+export async function setAdminPageAccess(userId: string, revokedPages: string[]) {
+  return prisma.user.updateMany({
+    where: { id: userId, role: "ADMIN" },
+    data: { revokedAdminPages: revokedPages },
   });
 }
 

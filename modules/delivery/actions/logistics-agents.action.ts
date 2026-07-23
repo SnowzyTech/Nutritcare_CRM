@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { createDeliveryAgentWithUser } from "../services/create-delivery-agent.service";
 import { createDriver, softDeleteDriver } from "../services/create-driver.service";
 import { softDeleteAgent } from "../services/agents.service";
+import { isAdmin } from "@/lib/auth/role-routes";
 
 type AgentResult =
   | { success: true; data: { agentId: string; userId: string; name: string; email: string; tempPassword: string } }
@@ -17,7 +18,7 @@ async function requireLogisticsAuth() {
   const session = await auth();
   if (
     !session?.user?.id ||
-    (session.user.role !== "LOGISTICS_MANAGER" && session.user.role !== "ADMIN")
+    (session.user.role !== "LOGISTICS_MANAGER" && !isAdmin(session.user.role))
   ) {
     throw new Error("Unauthorized");
   }

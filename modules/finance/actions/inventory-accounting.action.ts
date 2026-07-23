@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth/auth";
 import { prisma } from "@/lib/db/prisma";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { isAdmin } from "@/lib/auth/role-routes";
 
 const costPriceSchema = z.object({
   productId: z.string().min(1),
@@ -22,7 +23,7 @@ const costPriceSchema = z.object({
 export async function updateProductCostPriceAction(input: z.infer<typeof costPriceSchema>) {
   const session = await auth();
   if (!session?.user?.id) return { error: "Unauthorized" };
-  if (session.user.role !== "ACCOUNTANT" && session.user.role !== "ADMIN") {
+  if (session.user.role !== "ACCOUNTANT" && !isAdmin(session.user.role)) {
     return { error: "You don't have permission to change cost prices" };
   }
 

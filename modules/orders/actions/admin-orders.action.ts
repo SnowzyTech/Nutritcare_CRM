@@ -8,6 +8,7 @@ import type { OrderStatus } from "@prisma/client";
 import { findEligibleAgentForOrder } from "@/modules/delivery/services/agents.service";
 import { logActivity } from "@/modules/audit/services/audit-log.service";
 import { formatCurrency } from "@/lib/utils";
+import { isAdmin } from "@/lib/auth/role-routes";
 
 // Returned (not thrown) so the message survives production builds, where Next.js
 // strips messages from thrown server-action errors.
@@ -15,7 +16,7 @@ type ActionResult = { success: true } | { error: string };
 
 async function checkAdmin() {
   const session = await auth();
-  if (!session?.user?.id || session.user.role !== "ADMIN") {
+  if (!session?.user?.id || !isAdmin(session.user.role)) {
     throw new Error("Unauthorized");
   }
   return session;

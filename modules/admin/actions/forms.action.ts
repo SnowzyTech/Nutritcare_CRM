@@ -11,24 +11,26 @@ import {
   setFormDisabled,
 } from "../services/forms.service";
 
+import { isAdmin } from "@/lib/auth/role-routes";
+
 type ActionResult = { success: true } | { error: string };
 type CreateResult = { success: true; id: string } | { error: string };
 
-type Actor = { userId: string; role: "ADMIN" | "MEDIA_BUYER" };
+type Actor = { userId: string; role: "SUPER_ADMIN" | "ADMIN" | "MEDIA_BUYER" };
 
-/** Both admins and media buyers may manage forms; everyone else is rejected. */
+/** Both admins (either tier) and media buyers may manage forms; everyone else is rejected. */
 async function requireFormActor(): Promise<Actor> {
   const session = await auth();
   const role = session?.user?.role;
-  if (!session?.user?.id || (role !== "ADMIN" && role !== "MEDIA_BUYER")) {
+  if (!session?.user?.id || (!isAdmin(role) && role !== "MEDIA_BUYER")) {
     throw new Error("Unauthorized");
   }
-  return { userId: session.user.id, role };
+  return { userId: session.user.id, role: role as Actor["role"] };
 }
 
-/** A media buyer may only mutate their own forms; an admin may mutate any. */
+/** A media buyer may only mutate their own forms; an admin (either tier) may mutate any. */
 async function assertCanMutate(id: string, actor: Actor) {
-  if (actor.role === "ADMIN") return;
+  if (isAdmin(actor.role)) return;
   const form = await getFormById(id);
   if (!form || form.createdById !== actor.userId) throw new Error("Unauthorized");
 }

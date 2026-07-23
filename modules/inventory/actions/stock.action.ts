@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db/prisma";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
+import { isAdmin } from "@/lib/auth/role-routes";
 import {
   debitWarehouse,
   transferAgentToAgent,
@@ -480,7 +481,7 @@ export async function createAdjustmentAction(
     if (savedStatus === "PENDING_APPROVAL") {
       // Notify all admins that a stock adjustment awaits their approval
       const admins = await prisma.user.findMany({
-        where: { role: "ADMIN" },
+        where: { role: { in: ["ADMIN", "SUPER_ADMIN"] } },
         select: { id: true },
       });
       if (admins.length > 0) {
@@ -517,7 +518,7 @@ export async function approveAdjustmentAction(
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Unauthorized" };
   }
-  if (user.role !== "ADMIN") return { error: "Only admins can approve adjustments" };
+  if (!isAdmin(user.role)) return { error: "Only admins can approve adjustments" };
 
   const adj = await prisma.stockAdjustment.findUnique({
     where: { id },
@@ -579,7 +580,7 @@ export async function rejectAdjustmentAction(
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Unauthorized" };
   }
-  if (user.role !== "ADMIN") return { error: "Only admins can reject adjustments" };
+  if (!isAdmin(user.role)) return { error: "Only admins can reject adjustments" };
 
   const adj = await prisma.stockAdjustment.findUnique({
     where: { id },

@@ -4,6 +4,8 @@ import { getInitials } from "@/lib/utils";
 import { allNavItems } from "./nav-config";
 import { ClientSidebar } from "./client-sidebar";
 import { getSelfProfile } from "@/modules/users/services/users.service";
+import { isAdmin, isSuperAdmin } from "@/lib/auth/role-routes";
+import { canAccessAdminPage, getAdminPageKeyForNavLabel } from "@/lib/auth/admin-pages";
 
 export async function Sidebar() {
   const session = await auth();
@@ -11,31 +13,51 @@ export async function Sidebar() {
   const role = user?.role ?? "";
 
   const profile = user?.id ? await getSelfProfile(user.id) : null;
+  const revoked = profile?.revokedAdminPages ?? [];
+  const superAdmin = isSuperAdmin(role);
 
-  // Filter items by role
+  // Filter items by role + per-admin page access
   const roleFiltered = allNavItems.filter((item) => {
-    // 1. Pages always open to everyone logged in
-    const openRoutes = ["/admin", "/admin/account", "/admin/forms", "/admin/history"];
-    if (item.href && openRoutes.includes(item.href)) return true;
+    // Dashboard is the always-available landing page.
+    if (item.href === "/admin") return true;
 
-    // 2. Specific role-based sections
-    if (item.label === "Inventory/Product") {
-      return ["ADMIN", "INVENTORY_MANAGER", "WAREHOUSE_MANAGER"].includes(role);
-    }
-    if (item.label === "Order") {
-      return ["ADMIN", "SALES_REP"].includes(role);
-    }
-    if (item.label === "Staff Management") {
-      return role === "ADMIN";
+    // Account oversight is SUPER_ADMIN only.
+    if (item.href === "/admin/account") return superAdmin;
+
+    // Revocable admin sections (Staff, Order, Inventory, Forms, History, Chat).
+    const pageKey = getAdminPageKeyForNavLabel(item.label);
+    if (pageKey) {
+      // Preserve base role gates for non-admin viewers.
+      if (item.label === "Staff Management" && !isAdmin(role)) return false;
+      if (item.label === "Order" && !(isAdmin(role) || role === "SALES_REP")) return false;
+      if (
+        item.label === "Inventory" &&
+        !(isAdmin(role) || ["INVENTORY_MANAGER", "WAREHOUSE_MANAGER"].includes(role))
+      )
+        return false;
+      // Per-admin revocation (limited ADMIN only; SUPER_ADMIN & non-admins pass).
+      return canAccessAdminPage(role, revoked, pageKey);
     }
 
-    // Default to true for any other items we might add later (Notifications, Settings etc are handled in footer)
+    // Default to true for any other items (Notifications, Settings etc handled in footer)
     return true;
   });
 
+  // The "Admins" management link (under Staff Management) is SUPER_ADMIN only.
+  const items = roleFiltered.map((item) =>
+    item.label === "Staff Management" && item.children
+      ? {
+          ...item,
+          children: item.children.filter(
+            (c) => c.href !== "/admin/staff/admins" || superAdmin
+          ),
+        }
+      : item
+  );
+
   return (
     <ClientSidebar
-      items={roleFiltered}
+      items={items}
       user={{
         name: user?.name,
         role: user?.role,

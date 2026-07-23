@@ -91,7 +91,10 @@
       "Bash(where magick *)",
       "Bash(node scripts/make-logo.mjs)",
       "Bash(echo \"EXIT=$?\")",
-      "Read(//c/Users/user/AppData/Local/Temp/**)"
+      "Read(//c/Users/user/AppData/Local/Temp/**)",
+      "Bash(node -e \"const c=require\\('crypto'\\);const g=\\(\\)=>{const s='ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';let p='';const b=c.randomBytes\\(16\\);for\\(let i=0;i<16;i++\\)p+=s[b[i]%s.length];return p+'!7';};console.log\\('SUPER='+g\\(\\)\\);console.log\\('ADMIN='+g\\(\\)\\);\")",
+      "Bash(node -e 'const {PrismaClient}=require\\('\\\\''@prisma/client'\\\\''\\);const p=new PrismaClient\\(\\);p.user.findMany\\({where:{role:{in:['\\\\''ADMIN'\\\\'','\\\\''SUPER_ADMIN'\\\\'']}},select:{name:true,email:true,role:true}}\\).then\\(u=>{console.log\\(JSON.stringify\\(u,null,2\\)\\);return p.$disconnect\\(\\);}\\)')",
+      "Bash(node -e \"const fs=require\\('fs'\\);const d='components/ui';try{console.log\\(fs.readdirSync\\(d\\).join\\('\\\\n'\\)\\)}catch\\(e\\){console.log\\('no ui dir'\\)}\")"
     ]
   }
 }

@@ -10,7 +10,7 @@ export type NavItem = {
 export const allNavItems: NavItem[] = [
   { label: "Dashboard", href: "/admin", icon: "dashboard" },
   { label: "Chat", href: "/chat", icon: "chat" },
-  { label: "Account", href: "/admin/account", icon: "account" },
+  { label: "Admin Overview", href: "/admin/account", icon: "account" },
   {
     label: "Order",
     icon: "order",
@@ -33,6 +33,7 @@ export const allNavItems: NavItem[] = [
       { label: "Logistics Manager", href: "/admin/staff/logistics-manager" },
       { label: "Manage Account", href: "/admin/staff/manage-account" },
       { label: "Teams", href: "/admin/staff/teams" },
+      { label: "Admins", href: "/admin/staff/admins" },
     ],
   },
   { label: "Inventory", href: "/admin/inventory", icon: "inventory" },
