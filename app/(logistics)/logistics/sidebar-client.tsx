@@ -16,6 +16,7 @@ import {
   LogOut,
   Menu,
   MessageCircle,
+  UserCog,
 } from "lucide-react";
 import { getInitials } from "@/lib/utils";
 
@@ -25,9 +26,10 @@ interface SidebarProps {
     email?: string | null;
     image?: string | null;
   };
+  isHead?: boolean;
 }
 
-export function LogisticsSidebarClient({ user }: SidebarProps) {
+export function LogisticsSidebarClient({ user, isHead }: SidebarProps) {
   const pathname = usePathname();
   const [isCollapsed, setIsCollapsed] = useState(false);
 
@@ -40,6 +42,7 @@ export function LogisticsSidebarClient({ user }: SidebarProps) {
     { name: "Returns", href: "/logistics/returns", icon: RotateCcw, badge: "5" },
     { name: "Agents/Drivers", href: "/logistics/agents", icon: Users },
     { name: "Orders", href: "/logistics/orders", icon: ShoppingBag, badge: "3" },
+    ...(isHead ? [{ name: "Team", href: "/logistics/team", icon: UserCog }] : []),
   ];
 
   return (

@@ -9,6 +9,7 @@ export type ActivityAction =
   | "Log In"
   | "Log Out"
   | "Order Confirmed"
+  | "Dispatched"
   | "Delivered"
   | "Cancel"
   | "Failed";

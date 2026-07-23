@@ -108,8 +108,13 @@ export async function toggleTeamLeadAction(userId: string, makeTeamLead: boolean
   try {
     await requireAdmin();
     await toggleTeamLead(userId, makeTeamLead);
+    // Generic across roles — a "team lead" flag currently powers both the
+    // Sales Rep Manager and Head Logistics Manager designations.
     revalidatePath(`/admin/staff/sales-rep/${userId}`);
     revalidatePath("/admin/staff/sales-rep");
+    revalidatePath(`/admin/staff/logistics-manager/${userId}`);
+    revalidatePath("/admin/staff/logistics-manager");
+    revalidatePath("/logistics/team");
     return { success: true };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Failed to update team lead status" };

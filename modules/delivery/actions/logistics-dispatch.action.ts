@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth/auth";
 import { prisma } from "@/lib/db/prisma";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { logActivity } from "@/modules/audit/services/audit-log.service";
 
 const dispatchSchema = z.object({
   itemId: z.string().min(1, "Item is required"),
@@ -30,7 +31,7 @@ export async function dispatchOrderAction(
   if (sourceType === "order") {
     const order = await prisma.order.findUnique({
       where: { id: itemId },
-      select: { id: true, status: true },
+      select: { id: true, status: true, orderNumber: true },
     });
 
     if (!order) return { success: false, error: "Order not found" };
@@ -61,6 +62,14 @@ export async function dispatchOrderAction(
         },
       });
     }
+
+    await logActivity({
+      userId: session.user.id,
+      action: "Dispatched",
+      entityType: "Order",
+      entityId: itemId,
+      description: `Dispatched order #${order.orderNumber}`,
+    });
   } else if (sourceType === "stockOut") {
     const movement = await prisma.stockMovement.findUnique({
       where: { id: itemId },
@@ -97,6 +106,14 @@ export async function dispatchOrderAction(
         scheduledTime: new Date(),
       },
     });
+
+    await logActivity({
+      userId: session.user.id,
+      action: "Dispatched",
+      entityType: "StockMovement",
+      entityId: itemId,
+      description: `Dispatched stock-out voucher ${movement.referenceNumber}`,
+    });
   } else {
     // stockTransfer
     const transfer = await prisma.stockTransfer.findUnique({
@@ -131,6 +148,14 @@ export async function dispatchOrderAction(
         driverId: driverAgentId || null,
         scheduledTime: new Date(),
       },
+    });
+
+    await logActivity({
+      userId: session.user.id,
+      action: "Dispatched",
+      entityType: "StockTransfer",
+      entityId: itemId,
+      description: `Dispatched stock transfer ${transfer.referenceNumber}`,
     });
   }
 

@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth/auth";
 import { prisma } from "@/lib/db/prisma";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { logActivity } from "@/modules/audit/services/audit-log.service";
 
 const schema = z.object({
   itemId: z.string().min(1),
@@ -26,7 +27,7 @@ export async function updateDeliveryStatusAction(
   if (sourceType === "stockOut") {
     const movement = await prisma.stockMovement.findUnique({
       where: { id: itemId },
-      select: { id: true, status: true, type: true },
+      select: { id: true, status: true, type: true, referenceNumber: true },
     });
     if (!movement) return { success: false, error: "Stock movement not found" };
     if (movement.status !== "QC_CHECK")
@@ -36,13 +37,21 @@ export async function updateDeliveryStatusAction(
       where: { id: itemId },
       data: { status: finalStatus === "DELIVERED" ? "RECEIVED" : "NOT_RECEIVED" },
     });
+
+    await logActivity({
+      userId: session.user.id,
+      action: finalStatus === "DELIVERED" ? "Delivered" : "Failed",
+      entityType: "StockMovement",
+      entityId: itemId,
+      description: `Marked stock-out voucher ${movement.referenceNumber} as ${finalStatus === "DELIVERED" ? "delivered" : "failed"}`,
+    });
   } else {
     if (finalStatus === "DELIVERED") {
       return { success: false, error: "Stock transfers are completed by the receiving warehouse when they shelve the goods" };
     }
     const transfer = await prisma.stockTransfer.findUnique({
       where: { id: itemId },
-      select: { id: true, status: true },
+      select: { id: true, status: true, referenceNumber: true },
     });
     if (!transfer) return { success: false, error: "Stock transfer not found" };
     if (transfer.status !== "IN_TRANSIT")
@@ -51,6 +60,14 @@ export async function updateDeliveryStatusAction(
     await prisma.stockTransfer.update({
       where: { id: itemId },
       data: { status: "FAILED" },
+    });
+
+    await logActivity({
+      userId: session.user.id,
+      action: "Failed",
+      entityType: "StockTransfer",
+      entityId: itemId,
+      description: `Marked stock transfer ${transfer.referenceNumber} as failed`,
     });
   }
 

@@ -60,11 +60,18 @@ export default async function StaffDetailPage({ id, roleLabel, basePath, extra }
             <div className="flex-1">
               <h3 className="text-[1.5rem] font-bold">{member.name}</h3>
               <p className="text-[1rem] text-slate-400 mt-1 mb-3">{roleDisplay}</p>
-              <div className={`inline-flex items-center gap-2 border rounded-full px-3 py-0.5 text-[0.75rem] font-bold ${
-                member.isActive ? "border-emerald-500 text-emerald-500" : "border-slate-300 text-slate-400"
-              }`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${member.isActive ? "bg-emerald-500 animate-pulse" : "bg-slate-300"}`} />
-                {member.isActive ? "Active" : "Inactive"}
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className={`inline-flex items-center gap-2 border rounded-full px-3 py-0.5 text-[0.75rem] font-bold ${
+                  member.isActive ? "border-emerald-500 text-emerald-500" : "border-slate-300 text-slate-400"
+                }`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${member.isActive ? "bg-emerald-500 animate-pulse" : "bg-slate-300"}`} />
+                  {member.isActive ? "Active" : "Inactive"}
+                </div>
+                {member.role === "LOGISTICS_MANAGER" && member.isTeamLead && (
+                  <div className="inline-flex items-center gap-1.5 border border-amber-400 text-amber-500 rounded-full px-3 py-0.5 text-[0.75rem] font-bold">
+                    Head Logistics Manager
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -142,6 +149,7 @@ export default async function StaffDetailPage({ id, roleLabel, basePath, extra }
         role={member.role}
         warehouses={member.role === "WAREHOUSE_MANAGER" ? warehouses : undefined}
         currentWarehouseId={member.warehouse?.id ?? null}
+        isTeamLead={member.isTeamLead}
       />
 
       {extra && <section className="mt-10">{extra}</section>}

@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { X, AlertTriangle, Copy, Check, Warehouse } from "lucide-react";
+import { X, AlertTriangle, Copy, Check, Warehouse, Crown } from "lucide-react";
 import { toast } from "sonner";
 import {
   deleteUserAction,
@@ -10,6 +10,7 @@ import {
   activateUserAction,
   resetUserPasswordAction,
   assignWarehouseAction,
+  toggleTeamLeadAction,
 } from "@/modules/users/actions/users.action";
 
 type WarehouseOption = { id: string; name: string };
@@ -22,9 +23,10 @@ type Props = {
   role?: string;
   warehouses?: WarehouseOption[];
   currentWarehouseId?: string | null;
+  isTeamLead?: boolean;
 };
 
-type ModalType = "delete" | "suspend" | "resetPassword" | "assignWarehouse" | null;
+type ModalType = "delete" | "suspend" | "resetPassword" | "assignWarehouse" | "toggleHead" | null;
 
 export default function StaffDetailAdvancedClient({
   staffName,
@@ -34,10 +36,12 @@ export default function StaffDetailAdvancedClient({
   role,
   warehouses,
   currentWarehouseId,
+  isTeamLead: initialIsTeamLead,
 }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [isActive, setIsActive] = useState(initialIsActive);
+  const [isTeamLead, setIsTeamLead] = useState(initialIsTeamLead ?? false);
   const [modal, setModal] = useState<ModalType>(null);
   const [error, setError] = useState<string | null>(null);
   const [tempPassword, setTempPassword] = useState<string | null>(null);
@@ -131,6 +135,22 @@ export default function StaffDetailAdvancedClient({
     });
   }
 
+  function handleToggleHead() {
+    setError(null);
+    startTransition(async () => {
+      const result = await toggleTeamLeadAction(staffId, !isTeamLead);
+      if ("error" in result) {
+        setError(result.error);
+        toast.error(result.error);
+      } else {
+        toast.success(isTeamLead ? "Head Logistics Manager removed" : "Assigned as Head Logistics Manager");
+        setIsTeamLead(!isTeamLead);
+        closeModal();
+        router.refresh();
+      }
+    });
+  }
+
   return (
     <>
       <section>
@@ -163,6 +183,14 @@ export default function StaffDetailAdvancedClient({
               <Warehouse size={18} /> Assign Warehouse
             </button>
           )}
+          {role === "LOGISTICS_MANAGER" && (
+            <button
+              onClick={() => openModal("toggleHead")}
+              className="bg-amber-500 hover:bg-amber-600 text-white px-8 py-4 rounded-xl text-[0.9rem] font-bold flex items-center justify-center gap-3 transition-all shadow-lg shadow-amber-200 min-w-[220px]"
+            >
+              <Crown size={18} /> {isTeamLead ? "Remove as Head" : "Assign as Head"}
+            </button>
+          )}
         </div>
       </section>
 
@@ -175,9 +203,10 @@ export default function StaffDetailAdvancedClient({
                 modal === "delete" ? "bg-rose-50 text-rose-500" :
                 modal === "suspend" ? "bg-amber-50 text-amber-500" :
                 modal === "assignWarehouse" ? "bg-emerald-50 text-emerald-500" :
+                modal === "toggleHead" ? "bg-amber-50 text-amber-500" :
                 "bg-purple-50 text-purple-500"
               }`}>
-                {modal === "assignWarehouse" ? <Warehouse size={24} /> : <AlertTriangle size={24} />}
+                {modal === "assignWarehouse" ? <Warehouse size={24} /> : modal === "toggleHead" ? <Crown size={24} /> : <AlertTriangle size={24} />}
               </div>
               <button
                 onClick={closeModal}
@@ -260,6 +289,31 @@ export default function StaffDetailAdvancedClient({
                 </div>
                 <p className="text-amber-600 text-[0.8rem] font-semibold mb-6">The user should change this password on first login.</p>
                 <button onClick={closeModal} className="w-full bg-purple-600 hover:bg-purple-700 text-white py-3.5 rounded-2xl font-bold transition-all">Done</button>
+              </>
+            )}
+
+            {modal === "toggleHead" && (
+              <>
+                <h3 className="text-xl font-black text-slate-800 mb-2">
+                  {isTeamLead ? "Remove as Head Logistics Manager" : "Assign as Head Logistics Manager"}
+                </h3>
+                <p className="text-slate-500 text-[0.95rem] leading-relaxed mb-8">
+                  {isTeamLead
+                    ? <><span className="font-bold text-slate-700">{staffName}</span> will lose Head oversight — no more team roster, per-manager movement history, or exclusive ability to add/remove drivers and agents.</>
+                    : <><span className="font-bold text-slate-700">{staffName}</span> will be able to see all Logistics Managers, drill into the movements each one has handled, and will become the only Logistics Manager who can add or remove drivers and delivery agents.</>
+                  }
+                </p>
+                {error && <p className="text-rose-500 text-sm mb-4">{error}</p>}
+                <div className="flex gap-4">
+                  <button onClick={closeModal} className="flex-1 bg-slate-50 hover:bg-slate-100 text-slate-600 py-3.5 rounded-2xl font-bold transition-all">Cancel</button>
+                  <button
+                    onClick={handleToggleHead}
+                    disabled={isPending}
+                    className="flex-1 bg-amber-500 hover:bg-amber-600 text-white py-3.5 rounded-2xl font-bold transition-all shadow-lg shadow-amber-100 disabled:opacity-60"
+                  >
+                    {isPending ? "Processing..." : isTeamLead ? "Remove as Head" : "Assign as Head"}
+                  </button>
+                </div>
               </>
             )}
 
