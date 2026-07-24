@@ -12,6 +12,7 @@ import {
   getCompanyAnalytics,
   hardDeleteOrder,
 } from "@/modules/data-analysis/services/data-analysis.service";
+import { isUserTeamLead } from "@/modules/users/services/users.service";
 import type {
   RepAnalyticsData,
   TeamAnalyticsEntry,
@@ -111,6 +112,9 @@ export async function markOrderDeliveredByAnalyst(
   const session = await auth();
   if (!session?.user?.id) return { success: false, error: "Unauthorized" };
   if (session.user.role !== "DATA_ANALYST") return { success: false, error: "Forbidden" };
+  if (!(await isUserTeamLead(session.user.id))) {
+    return { success: false, error: "Only the Data Analyst team lead can finalize orders" };
+  }
 
   const order = await prisma.order.findFirst({
     where: { id: orderId, deletedAt: null },
@@ -198,6 +202,9 @@ export async function markOrderFailedByAnalyst(
   const session = await auth();
   if (!session?.user?.id) return { success: false, error: "Unauthorized" };
   if (session.user.role !== "DATA_ANALYST") return { success: false, error: "Forbidden" };
+  if (!(await isUserTeamLead(session.user.id))) {
+    return { success: false, error: "Only the Data Analyst team lead can finalize orders" };
+  }
 
   const reason = failureReason.trim();
   if (!reason) return { success: false, error: "A failure reason is required" };

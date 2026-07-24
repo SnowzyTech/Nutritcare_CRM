@@ -5,17 +5,18 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { signOut } from 'next-auth/react';
-import { 
-  ShoppingBag, 
-  BarChart3, 
-  Clock, 
-  Settings, 
-  LogOut, 
+import {
+  ShoppingBag,
+  BarChart3,
+  Clock,
+  Settings,
+  LogOut,
   ChevronDown,
   Users,
   User,
   Menu,
-  MessageCircle
+  MessageCircle,
+  LayoutDashboard
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -24,9 +25,10 @@ interface SidebarProps {
     email?: string | null;
     image?: string | null;
   };
+  isTeamLead?: boolean;
 }
 
-export function DataSidebar({ user }: SidebarProps) {
+export function DataSidebar({ user, isTeamLead }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   
@@ -43,6 +45,7 @@ export function DataSidebar({ user }: SidebarProps) {
   }, [pathname, isSalesRepDetail]);
 
   const navLinks = [
+    ...(isTeamLead ? [{ href: '/data/dashboard', icon: LayoutDashboard, label: 'Dashboard' }] : []),
     { href: '/chat', icon: MessageCircle, label: 'Chat' },
     { href: '/data/order', icon: ShoppingBag, label: 'Order' },
     { href: '/data/analytics', icon: BarChart3, label: 'Analytics' },

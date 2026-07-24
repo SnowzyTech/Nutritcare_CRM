@@ -72,6 +72,11 @@ export default async function StaffDetailPage({ id, roleLabel, basePath, extra }
                     Head Logistics Manager
                   </div>
                 )}
+                {member.role === "DATA_ANALYST" && member.isTeamLead && (
+                  <div className="inline-flex items-center gap-1.5 border border-amber-400 text-amber-500 rounded-full px-3 py-0.5 text-[0.75rem] font-bold">
+                    Data Analyst Team Lead
+                  </div>
+                )}
               </div>
             </div>
           </div>

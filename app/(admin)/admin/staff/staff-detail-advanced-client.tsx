@@ -143,7 +143,8 @@ export default function StaffDetailAdvancedClient({
         setError(result.error);
         toast.error(result.error);
       } else {
-        toast.success(isTeamLead ? "Head Logistics Manager removed" : "Assigned as Head Logistics Manager");
+        const label = role === "DATA_ANALYST" ? "Team Lead" : "Head Logistics Manager";
+        toast.success(isTeamLead ? `${label} removed` : `Assigned as ${label}`);
         setIsTeamLead(!isTeamLead);
         closeModal();
         router.refresh();
@@ -189,6 +190,14 @@ export default function StaffDetailAdvancedClient({
               className="bg-amber-500 hover:bg-amber-600 text-white px-8 py-4 rounded-xl text-[0.9rem] font-bold flex items-center justify-center gap-3 transition-all shadow-lg shadow-amber-200 min-w-[220px]"
             >
               <Crown size={18} /> {isTeamLead ? "Remove as Head" : "Assign as Head"}
+            </button>
+          )}
+          {role === "DATA_ANALYST" && (
+            <button
+              onClick={() => openModal("toggleHead")}
+              className="bg-amber-500 hover:bg-amber-600 text-white px-8 py-4 rounded-xl text-[0.9rem] font-bold flex items-center justify-center gap-3 transition-all shadow-lg shadow-amber-200 min-w-[220px]"
+            >
+              <Crown size={18} /> {isTeamLead ? "Remove as Team Lead" : "Assign as Team Lead"}
             </button>
           )}
         </div>
@@ -295,13 +304,20 @@ export default function StaffDetailAdvancedClient({
             {modal === "toggleHead" && (
               <>
                 <h3 className="text-xl font-black text-slate-800 mb-2">
-                  {isTeamLead ? "Remove as Head Logistics Manager" : "Assign as Head Logistics Manager"}
+                  {role === "DATA_ANALYST"
+                    ? (isTeamLead ? "Remove as Team Lead" : "Assign as Team Lead")
+                    : (isTeamLead ? "Remove as Head Logistics Manager" : "Assign as Head Logistics Manager")}
                 </h3>
                 <p className="text-slate-500 text-[0.95rem] leading-relaxed mb-8">
-                  {isTeamLead
-                    ? <><span className="font-bold text-slate-700">{staffName}</span> will lose Head oversight — no more team roster, per-manager movement history, or exclusive ability to add/remove drivers and agents.</>
-                    : <><span className="font-bold text-slate-700">{staffName}</span> will be able to see all Logistics Managers, drill into the movements each one has handled, and will become the only Logistics Manager who can add or remove drivers and delivery agents.</>
-                  }
+                  {role === "DATA_ANALYST" ? (
+                    isTeamLead
+                      ? <><span className="font-bold text-slate-700">{staffName}</span> will lose Team Lead access — no more Dashboard access, and they'll no longer be able to mark orders as Delivered or Failed.</>
+                      : <><span className="font-bold text-slate-700">{staffName}</span> will get access to the Data Analyst Dashboard, and will become the only Data Analyst who can mark orders as Delivered or Failed.</>
+                  ) : (
+                    isTeamLead
+                      ? <><span className="font-bold text-slate-700">{staffName}</span> will lose Head oversight — no more team roster, per-manager movement history, or exclusive ability to add/remove drivers and agents.</>
+                      : <><span className="font-bold text-slate-700">{staffName}</span> will be able to see all Logistics Managers, drill into the movements each one has handled, and will become the only Logistics Manager who can add or remove drivers and delivery agents.</>
+                  )}
                 </p>
                 {error && <p className="text-rose-500 text-sm mb-4">{error}</p>}
                 <div className="flex gap-4">
@@ -311,7 +327,7 @@ export default function StaffDetailAdvancedClient({
                     disabled={isPending}
                     className="flex-1 bg-amber-500 hover:bg-amber-600 text-white py-3.5 rounded-2xl font-bold transition-all shadow-lg shadow-amber-100 disabled:opacity-60"
                   >
-                    {isPending ? "Processing..." : isTeamLead ? "Remove as Head" : "Assign as Head"}
+                    {isPending ? "Processing..." : isTeamLead ? "Remove" : "Assign"}
                   </button>
                 </div>
               </>
