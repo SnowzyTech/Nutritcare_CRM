@@ -40,6 +40,7 @@ export default async function OrderAssignmentPage() {
     itemNames: o.items.map(i => i.product.name),
     date: o.createdAt.toISOString().split("T")[0],
     statusDate: o.updatedAt.toISOString().split("T")[0],
+    deliveryFee: Number(o.deliveryFee),
   }));
 
   const salesReps = members.map(m => ({

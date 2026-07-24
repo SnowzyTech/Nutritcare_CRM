@@ -33,6 +33,7 @@ export default async function RepOrdersPage({
     isReorder: o.isReorder,
     itemNames: o.items.map(i => i.product.name),
     date: o.createdAt.toISOString().split("T")[0],
+    deliveryFee: Number(o.deliveryFee),
   }));
 
   const counts = {

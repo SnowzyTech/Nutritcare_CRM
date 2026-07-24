@@ -9,7 +9,7 @@ import {
   Search,
 } from "lucide-react";
 import type { OrderStatus } from "@prisma/client";
-import { formatDate } from "@/lib/utils";
+import { formatDate, formatCurrency } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
 type OrderRow = {
@@ -19,6 +19,7 @@ type OrderRow = {
   customer: { name: string; email: string | null };
   agent: { companyName: string; state: string | null } | null;
   items: { quantity: number; product: { name: string } }[];
+  deliveryFee: number;
 };
 
 type StatusCounts = Partial<Record<OrderStatus, number>>;
@@ -170,13 +171,14 @@ export function LogisticsOrdersClient({
                 <th className="px-6 py-5">Agent</th>
                 <th className="px-6 py-5">Product</th>
                 <th className="px-6 py-5 text-center">Qty</th>
+                <th className="px-6 py-5">Delivery Fee</th>
                 <th className="px-6 py-5">Date</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {pageRows.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-12 text-center text-gray-400">
+                  <td colSpan={8} className="px-6 py-12 text-center text-gray-400">
                     No orders found.
                   </td>
                 </tr>
@@ -217,6 +219,7 @@ export function LogisticsOrdersClient({
                         {productName}{extraItems}
                       </td>
                       <td className="px-6 py-4 text-gray-600 text-center">{totalQty}</td>
+                      <td className="px-6 py-4 text-gray-600">{formatCurrency(order.deliveryFee)}</td>
                       <td className="px-6 py-4 text-gray-600">{formatDate(order.date)}</td>
                     </tr>
                   );

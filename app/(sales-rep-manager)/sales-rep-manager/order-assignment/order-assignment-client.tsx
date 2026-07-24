@@ -4,7 +4,7 @@ import React, { useState, useMemo } from "react";
 import { Search, SlidersHorizontal, ArrowUpDown, ChevronLeft, ChevronDown, CalendarDays, ArrowLeftRight, X, RotateCcw } from "lucide-react";
 import type { TeamOrderListItem, OrderCounts } from "../orders/team-orders-client";
 import { reassignOrdersAction } from "@/modules/orders/actions/orders.action";
-import { formatDate } from "@/lib/utils";
+import { formatDate, formatCurrency } from "@/lib/utils";
 import { Calendar } from "@/components/ui/calendar";
 
 /** Local YYYY-MM-DD (avoids UTC shift from toISOString). */
@@ -317,6 +317,7 @@ export function OrderAssignmentClient({ orders, counts, salesReps, products = []
                     <div className="text-right"><span className="text-gray-400">Qty:</span> <span className="text-gray-700 font-medium">{order.qty}</span></div>
                     <div className="truncate"><span className="text-gray-400">Sales Rep:</span> {order.salesRep}</div>
                     <div className="text-right"><span className="text-gray-400">Date:</span> {formatDate(order.date)}</div>
+                    <div className="truncate"><span className="text-gray-400">Delivery Fee:</span> {formatCurrency(order.deliveryFee)}</div>
                     <div className="truncate col-span-2"><span className="text-gray-400">Agent:</span> {order.agent ? `${order.agent.name} (${order.agent.state})` : "—"}</div>
                   </div>
                 </div>
@@ -335,6 +336,7 @@ export function OrderAssignmentClient({ orders, counts, salesReps, products = []
                 <th className="px-6 py-4 font-bold text-gray-500 text-sm">Sales Rep</th>
                 <th className="px-6 py-4 font-bold text-gray-500 text-sm">Product</th>
                 <th className="px-6 py-4 font-bold text-gray-500 text-sm text-center">Quantity</th>
+                <th className="px-6 py-4 font-bold text-gray-500 text-sm text-right whitespace-nowrap">Delivery Fee</th>
                 <th className="px-6 py-4 font-bold text-gray-500 text-sm text-right">Date</th>
                 <th className="px-6 py-4 font-bold text-gray-500 text-sm w-16"></th>
               </tr>
@@ -400,6 +402,9 @@ export function OrderAssignmentClient({ orders, counts, salesReps, products = []
                       </div>
                     </td>
                     <td className="px-6 py-4 text-center text-gray-500 font-medium">{order.qty}</td>
+                    <td className="px-6 py-4 text-right text-gray-500 font-medium whitespace-nowrap">
+                      {formatCurrency(order.deliveryFee)}
+                    </td>
                     <td className="px-6 py-4 text-right text-gray-500 font-medium whitespace-nowrap">
                       {formatDate(order.date)}
                     </td>
