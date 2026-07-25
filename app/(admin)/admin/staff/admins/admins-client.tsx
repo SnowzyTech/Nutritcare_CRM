@@ -9,6 +9,7 @@ import {
   FileText,
   History,
   MessageCircle,
+  BarChart3,
   ShieldCheck,
   ShieldOff,
   KeyRound,
@@ -38,6 +39,7 @@ type PageDef = { key: string; label: string; description: string };
 
 const PAGE_ICONS: Record<string, LucideIcon> = {
   staff: Users,
+  overview: BarChart3,
   orders: ShoppingCart,
   inventory: Package,
   forms: FileText,

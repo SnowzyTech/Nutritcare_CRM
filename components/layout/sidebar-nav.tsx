@@ -15,6 +15,7 @@ import {
   LogOut,
   ChevronDown,
   MessageCircle,
+  BarChart3,
 } from "lucide-react";
 
 import { allNavItems, type NavItem, type NavChild } from "./nav-config";
@@ -26,6 +27,7 @@ const IconMap: Record<string, React.ElementType> = {
   inventory: Package,
   order: ShoppingCart,
   staff: Users,
+  overview: BarChart3,
   forms: FileText,
   history: Clock,
   settings: Settings,

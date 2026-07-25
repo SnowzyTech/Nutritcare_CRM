@@ -1,5 +1,6 @@
 
 import { prisma } from "@/lib/db/prisma";
+import { dateRanges, type DatePeriod } from "@/lib/date-period";
 
 /**
  * Media Buyer service — owner-scoped reads over the shared `Form` table.
@@ -98,7 +99,7 @@ function productIdsFromFormData(data: unknown): string[] {
  */
 export async function getMyFormRows(
   creatorId: string,
-  period?: string | null
+  period?: string | { gte: Date; lte: Date } | null
 ): Promise<MediaBuyerFormRow[]> {
   const forms = await prisma.form.findMany({
     where: { createdById: creatorId, deletedAt: null },
@@ -108,7 +109,8 @@ export async function getMyFormRows(
   if (forms.length === 0) return [];
 
   const formIds = forms.map((f) => f.id);
-  const range = periodRange(period);
+  // An explicit range is used directly; a string token maps through periodRange.
+  const range = period && typeof period === "object" ? period : periodRange(period ?? null);
 
   const [orderStats, viewStats] = await Promise.all([
     prisma.order.groupBy({
@@ -230,13 +232,185 @@ export async function getMyFormDetail(
   };
 }
 
+// ── Admin department overview ────────────────────────────────────────────────
+
+function mbTrendLabel(current: number, previous: number): string {
+  if (previous === 0) return current > 0 ? "+100%" : "—";
+  const pct = Math.round(((current - previous) / previous) * 100);
+  return pct >= 0 ? `+${pct}%` : `${pct}%`;
+}
+
+export type MediaBuyerOverviewRow = {
+  id: string;
+  name: string;
+  phone: string | null;
+  avatarUrl: string | null;
+  team: string | null;
+  totalForms: number; // all their active forms (not window-scoped)
+  newForms: number; // forms created within the window
+  views: number;
+  leads: number;
+  delivered: number;
+  conversion: number; // delivered ÷ leads, percent
+  bestProduct: string | null;
+  trends: {
+    newForms: string;
+    views: string;
+    leads: string;
+    delivered: string;
+    conversion: string;
+  };
+};
+
+/**
+ * Department-wide media-buyer overview for a day/date range. One batched pass
+ * over every active media buyer's forms + their linked orders/views in the
+ * current and previous windows, so the admin board can rank buyers and see a
+ * department aggregate without opening each profile.
+ */
+export async function getMediaBuyerOverview(
+  period: DatePeriod
+): Promise<MediaBuyerOverviewRow[]> {
+  const { currentStart, currentEnd, prevStart, prevEnd } = dateRanges(period);
+
+  const buyers = await prisma.user.findMany({
+    where: { role: "MEDIA_BUYER", isActive: true },
+    select: { id: true, name: true, phone: true, avatarUrl: true, team: { select: { name: true } } },
+    orderBy: { name: "asc" },
+  });
+  if (buyers.length === 0) return [];
+  const buyerIds = buyers.map((b) => b.id);
+
+  const forms = await prisma.form.findMany({
+    where: { createdById: { in: buyerIds }, deletedAt: null },
+    select: { id: true, createdById: true, createdAt: true, data: true },
+  });
+  const formOwner = new Map(forms.map((f) => [f.id, f.createdById]));
+  const formIds = forms.map((f) => f.id);
+
+  const [orders, views] = formIds.length
+    ? await Promise.all([
+        prisma.order.findMany({
+          where: {
+            formId: { in: formIds },
+            deletedAt: null,
+            createdAt: { gte: prevStart, lte: currentEnd },
+          },
+          select: { formId: true, status: true, createdAt: true },
+        }),
+        prisma.formView.findMany({
+          where: { formId: { in: formIds }, createdAt: { gte: prevStart, lte: currentEnd } },
+          select: { formId: true, createdAt: true },
+        }),
+      ])
+    : [[], []];
+
+  const inCurrent = (d: Date) => d >= currentStart && d <= currentEnd;
+  const inPrev = (d: Date) => d >= prevStart && d <= prevEnd;
+
+  // Per-buyer window accumulators.
+  type Acc = { views: number; leads: number; delivered: number; newForms: number };
+  const cur = new Map<string, Acc>();
+  const prev = new Map<string, Acc>();
+  const totalForms = new Map<string, number>();
+  // Per-form current-window delivered, to pick each buyer's best form/product.
+  const formDeliveredCur = new Map<string, number>();
+  for (const id of buyerIds) {
+    cur.set(id, { views: 0, leads: 0, delivered: 0, newForms: 0 });
+    prev.set(id, { views: 0, leads: 0, delivered: 0, newForms: 0 });
+    totalForms.set(id, 0);
+  }
+
+  for (const f of forms) {
+    totalForms.set(f.createdById, (totalForms.get(f.createdById) ?? 0) + 1);
+    if (inCurrent(f.createdAt)) cur.get(f.createdById)!.newForms += 1;
+    else if (inPrev(f.createdAt)) prev.get(f.createdById)!.newForms += 1;
+  }
+
+  for (const o of orders) {
+    if (!o.formId) continue;
+    const owner = formOwner.get(o.formId);
+    if (!owner) continue;
+    const bucket = inCurrent(o.createdAt) ? cur.get(owner) : inPrev(o.createdAt) ? prev.get(owner) : null;
+    if (!bucket) continue;
+    bucket.leads += 1;
+    if (o.status === "DELIVERED") {
+      bucket.delivered += 1;
+      if (inCurrent(o.createdAt)) formDeliveredCur.set(o.formId, (formDeliveredCur.get(o.formId) ?? 0) + 1);
+    }
+  }
+
+  for (const v of views) {
+    const owner = formOwner.get(v.formId);
+    if (!owner) continue;
+    const bucket = inCurrent(v.createdAt) ? cur.get(owner) : inPrev(v.createdAt) ? prev.get(owner) : null;
+    if (bucket) bucket.views += 1;
+  }
+
+  // Pick each buyer's best-performing form (most delivered this window) and
+  // resolve its product name in a single batched lookup.
+  const bestFormPerBuyer = new Map<string, string>(); // buyerId -> formId
+  const bestCount = new Map<string, number>();
+  for (const [formId, count] of formDeliveredCur) {
+    const owner = formOwner.get(formId);
+    if (!owner) continue;
+    if (count > (bestCount.get(owner) ?? 0)) {
+      bestCount.set(owner, count);
+      bestFormPerBuyer.set(owner, formId);
+    }
+  }
+  const bestProductIds = new Map<string, string>(); // buyerId -> productId
+  const allProductIds = new Set<string>();
+  for (const [buyerId, formId] of bestFormPerBuyer) {
+    const form = forms.find((f) => f.id === formId);
+    const pid = productIdsFromFormData(form?.data)[0];
+    if (pid) {
+      bestProductIds.set(buyerId, pid);
+      allProductIds.add(pid);
+    }
+  }
+  const products = allProductIds.size
+    ? await prisma.product.findMany({ where: { id: { in: [...allProductIds] } }, select: { id: true, name: true } })
+    : [];
+  const productName = new Map(products.map((p) => [p.id, p.name]));
+
+  return buyers.map((b) => {
+    const c = cur.get(b.id)!;
+    const p = prev.get(b.id)!;
+    const conversion = c.leads > 0 ? Math.round((c.delivered / c.leads) * 100) : 0;
+    const prevConversion = p.leads > 0 ? Math.round((p.delivered / p.leads) * 100) : 0;
+    const pid = bestProductIds.get(b.id);
+    return {
+      id: b.id,
+      name: b.name,
+      phone: b.phone,
+      avatarUrl: b.avatarUrl,
+      team: b.team?.name ?? null,
+      totalForms: totalForms.get(b.id) ?? 0,
+      newForms: c.newForms,
+      views: c.views,
+      leads: c.leads,
+      delivered: c.delivered,
+      conversion,
+      bestProduct: pid ? productName.get(pid) ?? null : null,
+      trends: {
+        newForms: mbTrendLabel(c.newForms, p.newForms),
+        views: mbTrendLabel(c.views, p.views),
+        leads: mbTrendLabel(c.leads, p.leads),
+        delivered: mbTrendLabel(c.delivered, p.delivered),
+        conversion: mbTrendLabel(conversion, prevConversion),
+      },
+    };
+  });
+}
+
 /**
  * Everything the media-buyer dashboard needs, scoped to one creator and period.
  * Returns an all-zero shape (empty state) when the buyer has no forms.
  */
 export async function getMediaBuyerDashboard(
   creatorId: string,
-  period?: string | null
+  period?: string | { gte: Date; lte: Date } | null
 ): Promise<MediaBuyerDashboard> {
   const rows = await getMyFormRows(creatorId, period);
 

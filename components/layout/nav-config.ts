@@ -36,6 +36,15 @@ export const allNavItems: NavItem[] = [
       { label: "Admins", href: "/admin/staff/admins" },
     ],
   },
+  {
+    label: "Staff Overview",
+    icon: "overview",
+    children: [
+      { label: "Sales Reps", href: "/admin/overview/sales-rep" },
+      { label: "Media Buyers", href: "/admin/overview/media-buyer" },
+      { label: "Delivery Agents", href: "/admin/overview/delivery-agent" },
+    ],
+  },
   { label: "Inventory", href: "/admin/inventory", icon: "inventory" },
   { label: "Forms", href: "/admin/forms", icon: "forms" },
   { label: "History", href: "/admin/history", icon: "history" },

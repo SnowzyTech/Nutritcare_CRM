@@ -3,13 +3,13 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { UserCircle, LayoutDashboard, ArrowRight } from "lucide-react";
 import { getSalesRepById, getSalesRepOrderSummary, getSalesRepAnalytics, getAllTeams } from "@/modules/users/services/users.service";
-import { parseMonthParam } from "@/lib/month-period";
-import { MonthFilter } from "@/components/admin/month-filter";
+import { parseStaffPeriod } from "@/lib/staff-period";
+import { StaffPeriodFilter } from "@/components/admin/staff-period-filter";
 import SalesRepDetailClient from "./sales-rep-detail-client";
 
 type Props = {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ month?: string }>;
+  searchParams: Promise<{ g?: string; month?: string; w?: string; d?: string }>;
 };
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
@@ -20,11 +20,11 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 export default async function SalesRepDetailPage({ params, searchParams }: Props) {
   const { id } = await params;
-  const period = parseMonthParam((await searchParams).month);
+  const period = parseStaffPeriod(await searchParams);
   const [rep, orderSummary, analytics, teams] = await Promise.all([
     getSalesRepById(id),
     getSalesRepOrderSummary(id),
-    getSalesRepAnalytics(id, period),
+    getSalesRepAnalytics(id, period.arg),
     getAllTeams(),
   ]);
 
@@ -32,6 +32,7 @@ export default async function SalesRepDetailPage({ params, searchParams }: Props
 
   const firstName = rep.name.split(" ")[0];
   const { current, trends } = analytics;
+  const cmp = period.comparisonLabel;
   const deliveryRate = current.deliveryRate;
   const generalPerformance = current.generalPerformance;
 
@@ -165,17 +166,21 @@ export default async function SalesRepDetailPage({ params, searchParams }: Props
 
       {/* Analytics Section */}
       <section className="mb-10">
-        <h2 className="text-lg font-bold mb-4 text-gray-600">Analytics</h2>
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <h2 className="text-lg font-bold text-gray-600">
+            Analytics <span className="text-sm font-medium text-gray-400">· {period.valueLabel}</span>
+          </h2>
+          <StaffPeriodFilter />
+        </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {/* General Performance */}
           <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
             <div className="flex justify-between items-center mb-6">
               <span className="text-sm font-bold text-gray-700">General Performance</span>
-              <MonthFilter />
             </div>
             <div className="flex justify-between items-end">
               <span className="text-4xl font-bold text-gray-600 leading-none">{generalPerformance}%</span>
-              <span className={`text-sm font-bold ${trends.generalPerformance.startsWith("-") ? "text-rose-500" : "text-green-500"}`}>{trends.generalPerformance} <span className="text-gray-400 font-medium">vs last month</span></span>
+              <span className={`text-sm font-bold ${trends.generalPerformance.startsWith("-") ? "text-rose-500" : "text-green-500"}`}>{trends.generalPerformance} <span className="text-gray-400 font-medium">{cmp}</span></span>
             </div>
           </div>
 
@@ -183,11 +188,10 @@ export default async function SalesRepDetailPage({ params, searchParams }: Props
           <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
             <div className="flex justify-between items-center mb-6">
               <span className="text-sm font-bold text-gray-700">Delivery Rate</span>
-              <MonthFilter />
             </div>
             <div className="flex justify-between items-end">
               <span className="text-4xl font-bold text-gray-600 leading-none">{deliveryRate}%</span>
-              <span className={`text-sm font-bold ${trends.deliveryRate.startsWith("-") ? "text-rose-500" : "text-green-500"}`}>{trends.deliveryRate} <span className="text-gray-400 font-medium">vs last month</span></span>
+              <span className={`text-sm font-bold ${trends.deliveryRate.startsWith("-") ? "text-rose-500" : "text-green-500"}`}>{trends.deliveryRate} <span className="text-gray-400 font-medium">{cmp}</span></span>
             </div>
           </div>
 

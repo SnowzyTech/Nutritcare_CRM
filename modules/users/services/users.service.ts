@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db/prisma";
 import { Prisma, type UserRole } from "@prisma/client";
 import { monthRanges, parseMonthParam, type MonthPeriod } from "@/lib/month-period";
+import { dateRanges, type DatePeriod } from "@/lib/date-period";
 import { generalPerformanceScore, kpiScore } from "@/lib/performance";
 import type { MonthMetrics } from "@/modules/orders/services/analytics.service";
 import { addUserToAllAgentGroups } from "@/modules/chat/services/conversations.service";
@@ -256,8 +257,12 @@ export async function getSalesRepOrderSummary(id: string) {
   };
 }
 
-export async function getSalesRepAnalytics(salesRepId: string, period?: MonthPeriod) {
-  const { currentStart, currentEnd, prevStart, prevEnd } = monthRanges(period ?? parseMonthParam());
+export async function getSalesRepAnalytics(salesRepId: string, period?: MonthPeriod | DatePeriod) {
+  const { currentStart, currentEnd, prevStart, prevEnd } = !period
+    ? monthRanges(parseMonthParam())
+    : "from" in period
+      ? dateRanges(period)
+      : monthRanges(period);
 
   const allOrders = await prisma.order.findMany({
     where: { salesRepId, deletedAt: null },
@@ -290,6 +295,92 @@ export async function getSalesRepAnalytics(salesRepId: string, period?: MonthPer
     },
   };
 }
+
+/**
+ * Department-wide sales-rep overview for a day/date range. One batched query
+ * for the whole team over the current + previous windows, so the admin board
+ * can rank everyone at a glance (and see a department aggregate) without
+ * opening each profile. Reuses the same metric math as the per-rep analytics.
+ */
+export async function getSalesRepOverview(period: DatePeriod) {
+  const { currentStart, currentEnd, prevStart, prevEnd } = dateRanges(period);
+
+  const reps = await prisma.user.findMany({
+    where: { role: "SALES_REP", isActive: true },
+    select: { id: true, name: true, phone: true, avatarUrl: true, team: { select: { name: true } } },
+    orderBy: { name: "asc" },
+  });
+  const repIds = reps.map((r) => r.id);
+
+  const orders = repIds.length
+    ? await prisma.order.findMany({
+        where: {
+          salesRepId: { in: repIds },
+          deletedAt: null,
+          createdAt: { gte: prevStart, lte: currentEnd },
+        },
+        select: {
+          salesRepId: true,
+          status: true,
+          customerId: true,
+          createdAt: true,
+          isReorder: true,
+          items: { select: { productId: true, quantity: true, product: { select: { name: true } } } },
+        },
+      })
+    : [];
+
+  // Bucket each rep's orders into current / previous windows.
+  const byRep: Record<string, { current: typeof orders; previous: typeof orders }> = {};
+  for (const id of repIds) byRep[id] = { current: [], previous: [] };
+  for (const o of orders) {
+    if (!o.salesRepId || !byRep[o.salesRepId]) continue;
+    if (o.createdAt >= currentStart && o.createdAt <= currentEnd) byRep[o.salesRepId].current.push(o);
+    else if (o.createdAt >= prevStart && o.createdAt <= prevEnd) byRep[o.salesRepId].previous.push(o);
+  }
+
+  const rows = reps.map((rep) => {
+    const { current, previous } = byRep[rep.id];
+    const cur = computeRepMetrics(current);
+    const prev = computeRepMetrics(previous);
+    return {
+      id: rep.id,
+      name: rep.name,
+      phone: rep.phone,
+      avatarUrl: rep.avatarUrl,
+      team: rep.team?.name ?? null,
+      total: cur.total,
+      delivered: cur.delivered,
+      pending: cur.pending,
+      confirmed: cur.confirmed,
+      failed: cur.failed,
+      cancelled: cur.cancelled,
+      kpi: cur.kpi,
+      generalPerformance: cur.generalPerformance,
+      deliveryRate: cur.deliveryRate,
+      confirmationRate: cur.confirmationRate,
+      upsellRate: cur.upsellRate,
+      cancellationRate: cur.cancellationRate,
+      reorderRate: cur.reorderRate,
+      totalProductsSold: cur.totalProductsSold,
+      bestProduct: cur.bestProduct?.name ?? null,
+      distinctCustomers: cur.distinctCustomers,
+      trends: {
+        total: trendLabel(cur.total, prev.total),
+        delivered: trendLabel(cur.delivered, prev.delivered),
+        kpi: trendLabel(cur.kpi, prev.kpi),
+        generalPerformance: trendLabel(cur.generalPerformance, prev.generalPerformance),
+        confirmed: trendLabel(cur.confirmed, prev.confirmed),
+        cancelled: trendLabel(cur.cancelled, prev.cancelled),
+        upsellRate: trendLabel(cur.upsellRate, prev.upsellRate),
+      },
+    };
+  });
+
+  return rows;
+}
+
+export type SalesRepOverviewRow = Awaited<ReturnType<typeof getSalesRepOverview>>[number];
 
 export async function deleteUser(id: string) {
   const orderCount = await prisma.order.count({ where: { salesRepId: id, deletedAt: null } });

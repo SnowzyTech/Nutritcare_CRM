@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { monthRanges, parseMonthParam, type MonthPeriod } from "@/lib/month-period";
+import { dateRanges, type DatePeriod } from "@/lib/date-period";
 
 type Tx = Prisma.TransactionClient;
 
@@ -223,6 +224,144 @@ export async function getDeliveryAgentsList() {
   });
 }
 
+export type DeliveryAgentOverviewRow = {
+  id: string;
+  name: string; // company name
+  state: string | null;
+  phone: string | null;
+  avatarUrl: string | null;
+  delivered: number; // orders DELIVERED within the window (by deliveredTime)
+  failed: number; // deliveries marked FAILED within the window
+  pending: number; // current outstanding backlog (as of now, not window-scoped)
+  totalProductsDelivered: number; // units in the orders delivered within the window
+  bestProduct: string | null;
+  trends: {
+    delivered: string;
+    failed: string;
+    totalProductsDelivered: string;
+  };
+};
+
+/**
+ * Department-wide delivery-agent overview for a day/date range.
+ *
+ * Delivery is tracked on the delivery record: when an agent marks an order
+ * delivered we stamp `Delivery.deliveredTime`. So "Orders Delivered" and
+ * "Products Delivered" are windowed by the ACTUAL delivered date — i.e. what
+ * the agent delivered *today*, not when the order was placed. "Failed" is
+ * windowed by `Delivery.updatedAt` (no dedicated failed-time). "Pending" is the
+ * current outstanding backlog (orders assigned but not yet delivered) as of now.
+ */
+export async function getDeliveryAgentOverview(
+  period: DatePeriod
+): Promise<DeliveryAgentOverviewRow[]> {
+  const { currentStart, currentEnd, prevStart, prevEnd } = dateRanges(period);
+
+  const agents = await prisma.agent.findMany({
+    where: { deletedAt: null, user: { isNot: null } },
+    select: {
+      id: true,
+      companyName: true,
+      state: true,
+      phone1: true,
+      user: { select: { avatarUrl: true } },
+    },
+    orderBy: { companyName: "asc" },
+  });
+  if (agents.length === 0) return [];
+  const agentIds = agents.map((a) => a.id);
+
+  // Deliveries that were completed or failed anywhere in the current-or-previous
+  // window. Delivered rows are matched on `deliveredTime`, failed on `updatedAt`.
+  const deliveries = await prisma.delivery.findMany({
+    where: {
+      agentId: { in: agentIds },
+      OR: [
+        { status: "DELIVERED", deliveredTime: { gte: prevStart, lte: currentEnd } },
+        { status: "FAILED", updatedAt: { gte: prevStart, lte: currentEnd } },
+      ],
+    },
+    select: {
+      agentId: true,
+      status: true,
+      deliveredTime: true,
+      updatedAt: true,
+      order: {
+        select: { items: { select: { productId: true, quantity: true, product: { select: { name: true } } } } },
+      },
+    },
+  });
+
+  // Current outstanding backlog (as of now) — orders assigned but not delivered.
+  const pendingStats = await prisma.order.groupBy({
+    by: ["agentId"],
+    where: { agentId: { in: agentIds }, status: { in: ["PENDING", "CONFIRMED"] }, deletedAt: null },
+    _count: { id: true },
+  });
+  const pendingMap = new Map<string, number>();
+  for (const s of pendingStats) if (s.agentId) pendingMap.set(s.agentId, s._count.id);
+
+  type Metrics = {
+    delivered: number;
+    failed: number;
+    products: number;
+    productMap: Record<string, { name: string; qty: number }>;
+  };
+  const blank = (): Metrics => ({ delivered: 0, failed: 0, products: 0, productMap: {} });
+  const cur = new Map<string, Metrics>();
+  const prev = new Map<string, Metrics>();
+  for (const id of agentIds) {
+    cur.set(id, blank());
+    prev.set(id, blank());
+  }
+
+  const inWindow = (d: Date | null, start: Date, end: Date) => !!d && d >= start && d <= end;
+
+  for (const d of deliveries) {
+    if (!d.agentId) continue;
+    let bucket: Metrics | null = null;
+    if (d.status === "DELIVERED") {
+      if (inWindow(d.deliveredTime, currentStart, currentEnd)) bucket = cur.get(d.agentId)!;
+      else if (inWindow(d.deliveredTime, prevStart, prevEnd)) bucket = prev.get(d.agentId)!;
+      if (bucket) {
+        bucket.delivered += 1;
+        d.order.items.forEach((item) => {
+          bucket!.productMap[item.productId] ??= { name: item.product.name, qty: 0 };
+          bucket!.productMap[item.productId].qty += item.quantity;
+          bucket!.products += item.quantity;
+        });
+      }
+    } else if (d.status === "FAILED") {
+      if (inWindow(d.updatedAt, currentStart, currentEnd)) bucket = cur.get(d.agentId)!;
+      else if (inWindow(d.updatedAt, prevStart, prevEnd)) bucket = prev.get(d.agentId)!;
+      if (bucket) bucket.failed += 1;
+    }
+  }
+
+  return agents.map((a) => {
+    const c = cur.get(a.id)!;
+    const p = prev.get(a.id)!;
+    const bestProduct = Object.values(c.productMap).sort((x, y) => y.qty - x.qty)[0] ?? null;
+    return {
+      id: a.id,
+      name: a.companyName,
+      state: a.state,
+      phone: a.phone1,
+      avatarUrl: a.user?.avatarUrl ?? null,
+      delivered: c.delivered,
+      failed: c.failed,
+      pending: pendingMap.get(a.id) ?? 0,
+      totalProductsDelivered: c.products,
+      bestProduct: bestProduct?.name ?? null,
+      trends: {
+        delivered: trendLabel(c.delivered, p.delivered),
+        failed: trendLabel(c.failed, p.failed),
+        totalProductsDelivered: trendLabel(c.products, p.products),
+      },
+    };
+  });
+}
+
 export async function getAgentsForReassignment() {
   return prisma.agent.findMany({
     where: { deletedAt: null, status: "ACTIVE" },
@@ -290,8 +429,12 @@ export async function softDeleteAgent(id: string) {
   return prisma.agent.update({ where: { id }, data: { deletedAt: new Date() } });
 }
 
-export async function getDeliveryAgentAnalytics(agentId: string, period?: MonthPeriod) {
-  const { currentStart, currentEnd, prevStart, prevEnd } = monthRanges(period ?? parseMonthParam());
+export async function getDeliveryAgentAnalytics(agentId: string, period?: MonthPeriod | DatePeriod) {
+  const { currentStart, currentEnd, prevStart, prevEnd } = !period
+    ? monthRanges(parseMonthParam())
+    : "from" in period
+      ? dateRanges(period)
+      : monthRanges(period);
 
   const allDeliveries = await prisma.delivery.findMany({
     where: { agentId },

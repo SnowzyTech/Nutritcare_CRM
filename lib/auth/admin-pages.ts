@@ -11,6 +11,7 @@ import { isAdmin, isSuperAdmin } from "./role-routes";
  */
 export type AdminPageKey =
   | "staff"
+  | "overview"
   | "orders"
   | "inventory"
   | "forms"
@@ -31,6 +32,7 @@ export interface AdminPageDef {
 
 export const ADMIN_PAGES: AdminPageDef[] = [
   { key: "staff", label: "Staff Management", navLabel: "Staff Management", description: "View and manage all staff accounts, teams and approvals.", prefixes: ["/admin/staff"] },
+  { key: "overview", label: "Staff Overview", navLabel: "Staff Overview", description: "Department overview boards with per-person and department-wide analytics by day.", prefixes: ["/admin/overview"] },
   { key: "orders", label: "Orders", navLabel: "Order", description: "View all orders and handle order assignment.", prefixes: ["/admin/orders"] },
   { key: "inventory", label: "Inventory", navLabel: "Inventory", description: "View inventory and approve stock adjustments.", prefixes: ["/admin/inventory"] },
   { key: "forms", label: "Forms", navLabel: "Forms", description: "Create and manage order forms.", prefixes: ["/admin/forms"] },
