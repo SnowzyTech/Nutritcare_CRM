@@ -1039,6 +1039,8 @@ model Notification {
 model AuditLog {
   id         String   @id @default(cuid())
   userId     String
+  actorName  String?
+  actorRole  String?
   action     String
   entityType String
   entityId   String
@@ -1051,6 +1053,8 @@ model AuditLog {
   @@index([userId])
   @@index([entityType])
   @@index([createdAt])
+  @@index([actorRole])
+  @@index([action])
   @@map("audit_logs")
 }
 

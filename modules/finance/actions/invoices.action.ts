@@ -4,6 +4,8 @@ import { auth } from "@/lib/auth/auth";
 import { prisma } from "@/lib/db/prisma";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { logActivity } from "@/modules/audit/services/audit-log.service";
+import { suppressCameraForRequest } from "@/lib/audit/context";
 
 const itemSchema = z.object({
   serviceDate: z.coerce.date().optional(),
@@ -46,6 +48,7 @@ async function nextInvoiceNumber() {
 export async function createInvoiceAction(input: z.infer<typeof createInvoiceSchema>) {
   const session = await auth();
   if (!session?.user?.id) return { error: "Unauthorized" };
+  suppressCameraForRequest();
   const parsed = createInvoiceSchema.safeParse(input);
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
 
@@ -90,6 +93,15 @@ export async function createInvoiceAction(input: z.infer<typeof createInvoiceSch
         })),
       },
     },
+  });
+
+  await logActivity({
+    userId: session.user.id,
+    action: "Created",
+    entityType: "Invoice",
+    entityId: invoice.id,
+    description: `${data.type.replace("_", " ").toLowerCase()} ${invoiceNumber} created`,
+    details: { amount: invoiceTotal },
   });
 
   revalidatePath("/accounting");

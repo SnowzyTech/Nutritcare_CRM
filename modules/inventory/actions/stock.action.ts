@@ -6,6 +6,8 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { isAdmin } from "@/lib/auth/role-routes";
+import { logActivity } from "@/modules/audit/services/audit-log.service";
+import { suppressCameraForRequest } from "@/lib/audit/context";
 import {
   debitWarehouse,
   transferAgentToAgent,
@@ -79,6 +81,7 @@ export async function createIncomingMovementAction(
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Unauthorized" };
   }
+  suppressCameraForRequest();
 
   const parsed = CreateIncomingSchema.safeParse(data);
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
@@ -107,6 +110,12 @@ export async function createIncomingMovementAction(
       },
     });
 
+    await logActivity({
+      userId: user.id, actorName: user.name, actorRole: user.role,
+      action: "Created", entityType: "StockMovement", entityId: movement.id,
+      description: `Incoming stock ${movement.referenceNumber} recorded (${items.length} item${items.length === 1 ? "" : "s"})`,
+    });
+
     revalidatePath("/inventory/incoming");
     return { id: movement.id };
   } catch (e) {
@@ -123,11 +132,13 @@ const UpdateIncomingSchema = CreateIncomingSchema.extend({
 export async function updateIncomingMovementAction(
   data: z.infer<typeof UpdateIncomingSchema>
 ): Promise<{ error?: string }> {
+  let actor: Awaited<ReturnType<typeof requireAuth>>;
   try {
-    await requireAuth();
+    actor = await requireAuth();
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Unauthorized" };
   }
+  suppressCameraForRequest();
 
   const parsed = UpdateIncomingSchema.safeParse(data);
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
@@ -160,6 +171,12 @@ export async function updateIncomingMovementAction(
     console.error("updateIncomingMovementAction error:", e);
     return { error: "Failed to update — please check your data and try again" };
   }
+
+  await logActivity({
+    userId: actor.id, actorName: actor.name, actorRole: actor.role,
+    action: "Updated", entityType: "StockMovement", entityId: id,
+    description: `Updated incoming movement (${items.length} item${items.length === 1 ? "" : "s"})`,
+  });
 
   revalidatePath("/inventory/incoming");
   revalidatePath(`/inventory/incoming/${id}`);
@@ -199,6 +216,7 @@ export async function createOutgoingMovementAction(
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Unauthorized" };
   }
+  suppressCameraForRequest();
 
   const parsed = CreateOutgoingSchema.safeParse(data);
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
@@ -214,6 +232,8 @@ export async function createOutgoingMovementAction(
   } else {
     if (!warehouseId) return { error: "Source warehouse is required for warehouse-to-agent movements" };
   }
+
+  const outgoingRef = generateRefNumber("SO");
 
   try {
     await prisma.$transaction(async (tx) => {
@@ -243,7 +263,7 @@ export async function createOutgoingMovementAction(
 
       await tx.stockMovement.create({
         data: {
-          referenceNumber: generateRefNumber("SO"),
+          referenceNumber: outgoingRef,
           type: "OUTGOING",
           status: "RECORDED",
           agentId: isAgentToAgentTransfer ? (fromAgentId || null) : null,
@@ -279,6 +299,12 @@ export async function createOutgoingMovementAction(
     return { error: msg };
   }
 
+  await logActivity({
+    userId: user.id, actorName: user.name, actorRole: user.role,
+    action: "Created", entityType: "StockMovement", entityId: outgoingRef,
+    description: `Outgoing stock movement ${outgoingRef} recorded (${items.length} item${items.length === 1 ? "" : "s"})`,
+  });
+
   revalidatePath("/inventory/outgoing");
   return {};
 }
@@ -312,6 +338,7 @@ export async function createStockTransferAction(
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Unauthorized" };
   }
+  suppressCameraForRequest();
 
   const parsed = CreateStockTransferSchema.safeParse(data);
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
@@ -335,11 +362,13 @@ export async function createStockTransferAction(
     }
   }
 
+  const transferRef = generateRefNumber("TR");
+
   try {
     await prisma.$transaction(async (tx) => {
       await tx.stockTransfer.create({
         data: {
-          referenceNumber: generateRefNumber("TR"),
+          referenceNumber: transferRef,
           sourceType,
           sourceId,
           targetType,
@@ -364,6 +393,12 @@ export async function createStockTransferAction(
     const msg = e instanceof Error ? e.message : "Failed to save — please check your data and try again";
     return { error: msg };
   }
+
+  await logActivity({
+    userId: user.id, actorName: user.name, actorRole: user.role,
+    action: "Created", entityType: "StockTransfer", entityId: transferRef,
+    description: `Stock transfer ${transferRef} created (${items.length} item${items.length === 1 ? "" : "s"})`,
+  });
 
   revalidatePath("/inventory/transfer");
   return {};
@@ -434,6 +469,7 @@ export async function createAdjustmentAction(
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Unauthorized" };
   }
+  suppressCameraForRequest();
 
   const parsed = CreateAdjustmentSchema.safeParse(data);
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
@@ -498,6 +534,14 @@ export async function createAdjustmentAction(
         });
       }
     }
+
+    await logActivity({
+      userId: user.id, actorName: user.name, actorRole: user.role,
+      action: savedStatus === "PENDING_APPROVAL" ? "Adjustment" : "Created",
+      entityType: "StockAdjustment",
+      entityId: adjustment.id,
+      description: `Stock adjustment ${adjustment.referenceNumber} ${savedStatus === "PENDING_APPROVAL" ? "submitted for approval" : "saved as draft"}`,
+    });
   } catch (e) {
     console.error("createAdjustmentAction error:", e);
     return { error: "Failed to save — please check your data and try again" };
@@ -518,6 +562,7 @@ export async function approveAdjustmentAction(
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Unauthorized" };
   }
+  suppressCameraForRequest();
   if (!isAdmin(user.role)) return { error: "Only admins can approve adjustments" };
 
   const adj = await prisma.stockAdjustment.findUnique({
@@ -556,6 +601,11 @@ export async function approveAdjustmentAction(
         entityId: adj.id,
       },
     });
+    await logActivity({
+      userId: user.id, actorName: user.name, actorRole: user.role,
+      action: "Approved", entityType: "StockAdjustment", entityId: adj.id,
+      description: `Approved stock adjustment ${adj.referenceNumber}`,
+    });
   } catch (e) {
     console.error("approveAdjustmentAction error:", e);
     return { error: "Failed to approve adjustment" };
@@ -580,6 +630,7 @@ export async function rejectAdjustmentAction(
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Unauthorized" };
   }
+  suppressCameraForRequest();
   if (!isAdmin(user.role)) return { error: "Only admins can reject adjustments" };
 
   const adj = await prisma.stockAdjustment.findUnique({
@@ -607,6 +658,12 @@ export async function rejectAdjustmentAction(
     },
   });
 
+  await logActivity({
+    userId: user.id, actorName: user.name, actorRole: user.role,
+    action: "Rejected", entityType: "StockAdjustment", entityId: adj.id,
+    description: `Rejected stock adjustment ${adj.referenceNumber}${reason.trim() ? `: ${reason.trim()}` : ""}`,
+  });
+
   revalidatePath(`/admin/inventory/adjustment/${id}`);
   revalidatePath("/admin/inventory");
   revalidatePath(`/inventory/adjustment/${id}`);
@@ -620,11 +677,13 @@ export async function reverseAdjustmentAction(
   id: string,
   reason: string
 ): Promise<{ error?: string }> {
+  let actor: Awaited<ReturnType<typeof requireAuth>>;
   try {
-    await requireAuth();
+    actor = await requireAuth();
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Unauthorized" };
   }
+  suppressCameraForRequest();
 
   const adj = await prisma.stockAdjustment.findUnique({
     where: { id },
@@ -654,6 +713,12 @@ export async function reverseAdjustmentAction(
     }
   });
 
+  await logActivity({
+    userId: actor.id, actorName: actor.name, actorRole: actor.role,
+    action: "Updated", entityType: "StockAdjustment", entityId: id,
+    description: `Reversed stock adjustment ${adj.referenceNumber}${reason.trim() ? `: ${reason.trim()}` : ""}`,
+  });
+
   revalidatePath(`/inventory/adjustment/${id}`);
   revalidatePath("/inventory/adjustment");
   return {};
@@ -664,11 +729,13 @@ export async function reverseAdjustmentAction(
 export async function deleteAdjustmentAction(
   id: string
 ): Promise<{ error?: string }> {
+  let actor: Awaited<ReturnType<typeof requireAuth>>;
   try {
-    await requireAuth();
+    actor = await requireAuth();
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Unauthorized" };
   }
+  suppressCameraForRequest();
 
   const adj = await prisma.stockAdjustment.findUnique({
     where: { id },
@@ -685,6 +752,12 @@ export async function deleteAdjustmentAction(
     await tx.stockAdjustment.delete({ where: { id } });
   });
 
+  await logActivity({
+    userId: actor.id, actorName: actor.name, actorRole: actor.role,
+    action: "Deleted", entityType: "StockAdjustment", entityId: id,
+    description: `Deleted stock adjustment ${adj.referenceNumber}`,
+  });
+
   revalidatePath("/inventory/adjustment");
   return {};
 }
@@ -695,7 +768,8 @@ export async function reverseIncomingMovementAction(
   id: string,
   reason: string
 ): Promise<{ error?: string }> {
-  await requireAuth();
+  const actor = await requireAuth();
+  suppressCameraForRequest();
 
   const movement = await prisma.stockMovement.findUnique({
     where: { id },
@@ -716,6 +790,12 @@ export async function reverseIncomingMovementAction(
     }
   });
 
+  await logActivity({
+    userId: actor.id, actorName: actor.name, actorRole: actor.role,
+    action: "Updated", entityType: "StockMovement", entityId: id,
+    description: `Reversed incoming movement ${movement.referenceNumber}${reason.trim() ? `: ${reason.trim()}` : ""}`,
+  });
+
   revalidatePath(`/inventory/incoming/${id}`);
   revalidatePath("/inventory/incoming");
   return {};
@@ -726,7 +806,8 @@ export async function reverseIncomingMovementAction(
 export async function deleteIncomingMovementAction(
   id: string
 ): Promise<{ error?: string }> {
-  await requireAuth();
+  const actor = await requireAuth();
+  suppressCameraForRequest();
 
   const movement = await prisma.stockMovement.findUnique({
     where: { id },
@@ -743,6 +824,12 @@ export async function deleteIncomingMovementAction(
     await tx.stockMovement.delete({ where: { id } });
   });
 
+  await logActivity({
+    userId: actor.id, actorName: actor.name, actorRole: actor.role,
+    action: "Deleted", entityType: "StockMovement", entityId: id,
+    description: `Deleted incoming movement ${movement.referenceNumber}`,
+  });
+
   revalidatePath("/inventory/incoming");
   return {};
 }
@@ -753,7 +840,8 @@ export async function reverseOutgoingMovementAction(
   id: string,
   reason: string
 ): Promise<{ error?: string }> {
-  await requireAuth();
+  const actor = await requireAuth();
+  suppressCameraForRequest();
 
   const movement = await prisma.stockMovement.findUnique({
     where: { id },
@@ -778,6 +866,12 @@ export async function reverseOutgoingMovementAction(
     }
   });
 
+  await logActivity({
+    userId: actor.id, actorName: actor.name, actorRole: actor.role,
+    action: "Updated", entityType: "StockMovement", entityId: id,
+    description: `Reversed outgoing movement ${movement.referenceNumber}${reason.trim() ? `: ${reason.trim()}` : ""}`,
+  });
+
   revalidatePath(`/inventory/outgoing/${id}`);
   revalidatePath("/inventory/outgoing");
   return {};
@@ -788,7 +882,8 @@ export async function reverseOutgoingMovementAction(
 export async function deleteOutgoingMovementAction(
   id: string
 ): Promise<{ error?: string }> {
-  await requireAuth();
+  const actor = await requireAuth();
+  suppressCameraForRequest();
 
   const movement = await prisma.stockMovement.findUnique({
     where: { id },
@@ -814,6 +909,12 @@ export async function deleteOutgoingMovementAction(
     await tx.stockMovement.delete({ where: { id } });
   });
 
+  await logActivity({
+    userId: actor.id, actorName: actor.name, actorRole: actor.role,
+    action: "Deleted", entityType: "StockMovement", entityId: id,
+    description: `Deleted outgoing movement ${movement.referenceNumber}`,
+  });
+
   revalidatePath("/inventory/outgoing");
   return {};
 }
@@ -824,7 +925,8 @@ export async function reverseStockTransferAction(
   id: string,
   reason: string
 ): Promise<{ error?: string }> {
-  await requireAuth();
+  const actor = await requireAuth();
+  suppressCameraForRequest();
 
   const transfer = await prisma.stockTransfer.findUnique({
     where: { id },
@@ -850,6 +952,12 @@ export async function reverseStockTransferAction(
     }
   });
 
+  await logActivity({
+    userId: actor.id, actorName: actor.name, actorRole: actor.role,
+    action: "Updated", entityType: "StockTransfer", entityId: id,
+    description: `Reversed stock transfer ${transfer.referenceNumber}${reason.trim() ? `: ${reason.trim()}` : ""}`,
+  });
+
   revalidatePath(`/inventory/transfer/${id}`);
   revalidatePath("/inventory/transfer");
   return {};
@@ -860,7 +968,8 @@ export async function reverseStockTransferAction(
 export async function deleteStockTransferAction(
   id: string
 ): Promise<{ error?: string }> {
-  await requireAuth();
+  const actor = await requireAuth();
+  suppressCameraForRequest();
 
   const transfer = await prisma.stockTransfer.findUnique({
     where: { id },
@@ -879,6 +988,12 @@ export async function deleteStockTransferAction(
     await tx.stockTransfer.delete({ where: { id } });
   });
 
+  await logActivity({
+    userId: actor.id, actorName: actor.name, actorRole: actor.role,
+    action: "Deleted", entityType: "StockTransfer", entityId: id,
+    description: `Deleted stock transfer ${transfer.referenceNumber}`,
+  });
+
   revalidatePath("/inventory/transfer");
   return {};
 }
@@ -890,7 +1005,8 @@ export async function updateReturnedMovementAction(
   damaged: boolean,
   remarks: string
 ): Promise<{ error?: string }> {
-  await requireAuth();
+  const actor = await requireAuth();
+  suppressCameraForRequest();
 
   const movement = await prisma.stockMovement.findUnique({ where: { id } });
   if (!movement || movement.type !== "RETURN") return { error: "Movement not found" };
@@ -898,6 +1014,12 @@ export async function updateReturnedMovementAction(
   await prisma.stockMovement.update({
     where: { id },
     data: { damaged, remarks: remarks.trim() || null },
+  });
+
+  await logActivity({
+    userId: actor.id, actorName: actor.name, actorRole: actor.role,
+    action: "Updated", entityType: "StockMovement", entityId: id,
+    description: `Updated return movement ${movement.referenceNumber}${damaged ? " (marked damaged)" : ""}`,
   });
 
   revalidatePath(`/inventory/returned/${id}`);
@@ -910,7 +1032,8 @@ export async function updateReturnedMovementAction(
 export async function deleteReturnedMovementAction(
   id: string
 ): Promise<{ error?: string }> {
-  await requireAuth();
+  const actor = await requireAuth();
+  suppressCameraForRequest();
 
   const movement = await prisma.stockMovement.findUnique({
     where: { id },
@@ -923,6 +1046,12 @@ export async function deleteReturnedMovementAction(
       await reverseReturn(tx, movement.agentId, movement.items, movement.warehouseId);
     }
     await tx.stockMovement.delete({ where: { id } });
+  });
+
+  await logActivity({
+    userId: actor.id, actorName: actor.name, actorRole: actor.role,
+    action: "Deleted", entityType: "StockMovement", entityId: id,
+    description: `Deleted return movement ${movement.referenceNumber}`,
   });
 
   revalidatePath("/inventory/returned");
@@ -944,7 +1073,8 @@ export async function addSupplierAction(
   _prev: { error?: string } | null,
   formData: FormData
 ): Promise<{ error?: string }> {
-  await requireAuth();
+  const actor = await requireAuth();
+  suppressCameraForRequest();
 
   const raw = {
     supplierName: formData.get("supplierName") as string,
@@ -961,7 +1091,7 @@ export async function addSupplierAction(
   const existing = await prisma.supplier.findUnique({ where: { phone1: parsed.data.phone1 } });
   if (existing) return { error: "A supplier with this phone number already exists" };
 
-  await prisma.supplier.create({
+  const createdSupplier = await prisma.supplier.create({
     data: {
       name: parsed.data.supplierName,
       phone1: parsed.data.phone1,
@@ -970,6 +1100,12 @@ export async function addSupplierAction(
       address: parsed.data.address ?? null,
       country: parsed.data.country ?? null,
     },
+  });
+
+  await logActivity({
+    userId: actor.id, actorName: actor.name, actorRole: actor.role,
+    action: "Created", entityType: "Supplier", entityId: createdSupplier.id,
+    description: `Created supplier ${parsed.data.supplierName}`,
   });
 
   revalidatePath("/inventory/stock");
@@ -996,6 +1132,7 @@ export async function addAgentAction(
   formData: FormData
 ): Promise<{ error?: string }> {
   const user = await requireAuth();
+  suppressCameraForRequest();
 
   const raw = {
     companyAgentName: formData.get("companyAgentName") as string,
@@ -1020,7 +1157,7 @@ export async function addAgentAction(
     ? parsed.data.statesCovered.split(",").map((s) => s.trim()).filter(Boolean)
     : [];
 
-  await prisma.agent.create({
+  const createdAgent = await prisma.agent.create({
     data: {
       companyName: parsed.data.companyAgentName,
       phone1: parsed.data.phone1,
@@ -1034,6 +1171,12 @@ export async function addAgentAction(
       deliveryFee: parsed.data.deliveryFee ? parseFloat(parsed.data.deliveryFee) : null,
       addedById: user.id,
     },
+  });
+
+  await logActivity({
+    userId: user.id, actorName: user.name, actorRole: user.role,
+    action: "Created", entityType: "Agent", entityId: createdAgent.id,
+    description: `Created agent ${parsed.data.companyAgentName}`,
   });
 
   revalidatePath("/inventory/stock");
@@ -1055,7 +1198,8 @@ export async function addWarehouseAction(
   _prev: { error?: string } | null,
   formData: FormData
 ): Promise<{ error?: string }> {
-  await requireAuth();
+  const actor = await requireAuth();
+  suppressCameraForRequest();
 
   const raw = {
     warehouseName: formData.get("warehouseName") as string,
@@ -1080,7 +1224,7 @@ export async function addWarehouseAction(
     referenceCode = generateRefNumber("WH");
   }
 
-  await prisma.warehouse.create({
+  const createdWarehouse = await prisma.warehouse.create({
     data: {
       name: parsed.data.warehouseName,
       address: parsed.data.warehouseAddress ?? null,
@@ -1089,6 +1233,12 @@ export async function addWarehouseAction(
       referenceCode,
       country: parsed.data.country ?? null,
     },
+  });
+
+  await logActivity({
+    userId: actor.id, actorName: actor.name, actorRole: actor.role,
+    action: "Created", entityType: "Warehouse", entityId: createdWarehouse.id,
+    description: `Created warehouse ${parsed.data.warehouseName}`,
   });
 
   revalidatePath("/inventory/stock");
@@ -1110,7 +1260,8 @@ export async function addProductCategoryAction(
   _prev: { error?: string } | null,
   formData: FormData
 ): Promise<{ error?: string }> {
-  await requireAuth();
+  const actor = await requireAuth();
+  suppressCameraForRequest();
 
   const raw = {
     categoryName: formData.get("categoryName") as string,
@@ -1124,7 +1275,7 @@ export async function addProductCategoryAction(
   const parsed = AddProductCategorySchema.safeParse(raw);
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
 
-  await prisma.productCategory.create({
+  const createdCategory = await prisma.productCategory.create({
     data: {
       categoryName: parsed.data.categoryName,
       brandName: parsed.data.brandName,
@@ -1133,6 +1284,12 @@ export async function addProductCategoryAction(
       brandEmail: parsed.data.brandEmail || null,
       smsSenderId: parsed.data.smsSenderId ?? null,
     },
+  });
+
+  await logActivity({
+    userId: actor.id, actorName: actor.name, actorRole: actor.role,
+    action: "Created", entityType: "ProductCategory", entityId: createdCategory.id,
+    description: `Created product category ${parsed.data.categoryName}`,
   });
 
   revalidatePath("/inventory/stock");
@@ -1188,7 +1345,8 @@ export async function addProductAction(
   _prev: { error?: string } | null,
   formData: FormData
 ): Promise<{ error?: string }> {
-  await requireAuth();
+  const actor = await requireAuth();
+  suppressCameraForRequest();
 
   const raw = {
     productName: formData.get("productName") as string,
@@ -1300,6 +1458,12 @@ export async function addProductAction(
     }
   }
 
+  await logActivity({
+    userId: actor.id, actorName: actor.name, actorRole: actor.role,
+    action: "Created", entityType: "Product", entityId: product.id,
+    description: `Created product ${parsed.data.productName}`,
+  });
+
   revalidatePath("/inventory/stock");
   redirect("/inventory/stock?tab=Product");
 }
@@ -1308,7 +1472,8 @@ export async function updateProductAction(
   _prev: { error?: string } | null,
   formData: FormData
 ): Promise<{ error?: string }> {
-  await requireAuth();
+  const actor = await requireAuth();
+  suppressCameraForRequest();
 
   const id = formData.get("id") as string;
   if (!id) return { error: "Product ID is required" };
@@ -1412,6 +1577,12 @@ export async function updateProductAction(
       }
     });
 
+    await logActivity({
+      userId: actor.id, actorName: actor.name, actorRole: actor.role,
+      action: "Updated", entityType: "Product", entityId: id,
+      description: `Updated product ${parsed.data.productName}`,
+    });
+
     revalidatePath("/inventory/stock");
     revalidatePath(`/inventory/stock/product/${id}`);
     redirect(`/inventory/stock/product/${id}`);
@@ -1437,7 +1608,8 @@ export async function updateWarehouseAction(
   _prev: { error?: string } | null,
   formData: FormData
 ): Promise<{ error?: string }> {
-  await requireAuth();
+  const actor = await requireAuth();
+  suppressCameraForRequest();
 
   const id = formData.get("id") as string;
   if (!id) return { error: "Warehouse ID is required" };
@@ -1484,6 +1656,12 @@ export async function updateWarehouseAction(
     return { error: "Failed to update warehouse" };
   }
 
+  await logActivity({
+    userId: actor.id, actorName: actor.name, actorRole: actor.role,
+    action: "Updated", entityType: "Warehouse", entityId: id,
+    description: `Updated warehouse ${parsed.data.warehouseName}`,
+  });
+
   revalidatePath("/inventory/stock");
   revalidatePath(`/inventory/stock/warehouse/${id}`);
   redirect(`/inventory/stock/warehouse/${id}`);
@@ -1504,7 +1682,8 @@ export async function updateSupplierAction(
   _prev: { error?: string } | null,
   formData: FormData
 ): Promise<{ error?: string }> {
-  await requireAuth();
+  const actor = await requireAuth();
+  suppressCameraForRequest();
 
   const id = formData.get("id") as string;
   if (!id) return { error: "Supplier ID is required" };
@@ -1544,6 +1723,12 @@ export async function updateSupplierAction(
     return { error: "Failed to update supplier" };
   }
 
+  await logActivity({
+    userId: actor.id, actorName: actor.name, actorRole: actor.role,
+    action: "Updated", entityType: "Supplier", entityId: id,
+    description: `Updated supplier ${parsed.data.supplierName}`,
+  });
+
   revalidatePath("/inventory/stock");
   revalidatePath(`/inventory/stock/supplier/${id}`);
   redirect(`/inventory/stock/supplier/${id}`);
@@ -1564,7 +1749,8 @@ export async function updateProductCategoryAction(
   _prev: { error?: string } | null,
   formData: FormData
 ): Promise<{ error?: string }> {
-  await requireAuth();
+  const actor = await requireAuth();
+  suppressCameraForRequest();
 
   const id = formData.get("id") as string;
   if (!id) return { error: "Category ID is required" };
@@ -1598,6 +1784,12 @@ export async function updateProductCategoryAction(
     return { error: "Failed to update category" };
   }
 
+  await logActivity({
+    userId: actor.id, actorName: actor.name, actorRole: actor.role,
+    action: "Updated", entityType: "ProductCategory", entityId: id,
+    description: `Updated category ${parsed.data.categoryName}`,
+  });
+
   revalidatePath("/inventory/stock");
   revalidatePath(`/inventory/stock/category/${id}`);
   redirect(`/inventory/stock/category/${id}`);
@@ -1606,7 +1798,9 @@ export async function updateProductCategoryAction(
 // ── Soft Deletes ──────────────────────────────────────────────────────────────
 
 export async function deleteWarehouseAction(id: string): Promise<{ error?: string }> {
-  await requireAuth();
+  const actor = await requireAuth();
+  suppressCameraForRequest();
+  const wh = await prisma.warehouse.findUnique({ where: { id }, select: { name: true } });
   try {
     // Block deletion while the warehouse still holds real (positive) stock, and
     // clean up any leftover zero/negative rows on delete so nothing gets
@@ -1630,12 +1824,19 @@ export async function deleteWarehouseAction(id: string): Promise<{ error?: strin
   } catch (e) {
     return { error: "Failed to delete warehouse" };
   }
+  await logActivity({
+    userId: actor.id, actorName: actor.name, actorRole: actor.role,
+    action: "Deleted", entityType: "Warehouse", entityId: id,
+    description: `Deleted warehouse ${wh?.name ?? ""}`.trim(),
+  });
   revalidatePath("/inventory/stock");
   return {};
 }
 
 export async function deleteProductCategoryAction(id: string): Promise<{ error?: string }> {
-  await requireAuth();
+  const actor = await requireAuth();
+  suppressCameraForRequest();
+  const cat = await prisma.productCategory.findUnique({ where: { id }, select: { categoryName: true } });
   try {
     await prisma.productCategory.update({
       where: { id },
@@ -1644,12 +1845,19 @@ export async function deleteProductCategoryAction(id: string): Promise<{ error?:
   } catch (e) {
     return { error: "Failed to delete category" };
   }
+  await logActivity({
+    userId: actor.id, actorName: actor.name, actorRole: actor.role,
+    action: "Deleted", entityType: "ProductCategory", entityId: id,
+    description: `Deleted category ${cat?.categoryName ?? ""}`.trim(),
+  });
   revalidatePath("/inventory/stock");
   return {};
 }
 
 export async function deleteProductAction(id: string): Promise<{ error?: string }> {
-  await requireAuth();
+  const user = await requireAuth();
+  suppressCameraForRequest();
+  const deleted = await prisma.product.findUnique({ where: { id }, select: { name: true } });
   try {
     // Hard-block deletion while the product still has stock in ANY location —
     // warehouses, agents, or unassigned. A product must reach zero stock
@@ -1685,12 +1893,19 @@ export async function deleteProductAction(id: string): Promise<{ error?: string 
   } catch (e) {
     return { error: "Failed to delete product" };
   }
+  await logActivity({
+    userId: user.id, actorName: user.name, actorRole: user.role,
+    action: "Deleted", entityType: "Product", entityId: id,
+    description: `Deleted product ${deleted?.name ?? ""}`.trim(),
+  });
   revalidatePath("/inventory/stock");
   return {};
 }
 
 export async function deleteSupplierAction(id: string): Promise<{ error?: string }> {
-  await requireAuth();
+  const actor = await requireAuth();
+  suppressCameraForRequest();
+  const sup = await prisma.supplier.findUnique({ where: { id }, select: { name: true } });
   try {
     await prisma.supplier.update({
       where: { id },
@@ -1699,12 +1914,19 @@ export async function deleteSupplierAction(id: string): Promise<{ error?: string
   } catch (e) {
     return { error: "Failed to delete supplier" };
   }
+  await logActivity({
+    userId: actor.id, actorName: actor.name, actorRole: actor.role,
+    action: "Deleted", entityType: "Supplier", entityId: id,
+    description: `Deleted supplier ${sup?.name ?? ""}`.trim(),
+  });
   revalidatePath("/inventory/stock");
   return {};
 }
 
 export async function deleteAgentAction(id: string): Promise<{ error?: string }> {
-  await requireAuth();
+  const actor = await requireAuth();
+  suppressCameraForRequest();
+  const ag = await prisma.agent.findUnique({ where: { id }, select: { companyName: true } });
   try {
     await prisma.agent.update({
       where: { id },
@@ -1713,6 +1935,11 @@ export async function deleteAgentAction(id: string): Promise<{ error?: string }>
   } catch (e) {
     return { error: "Failed to delete agent" };
   }
+  await logActivity({
+    userId: actor.id, actorName: actor.name, actorRole: actor.role,
+    action: "Deleted", entityType: "Agent", entityId: id,
+    description: `Deleted agent ${ag?.companyName ?? ""}`.trim(),
+  });
   revalidatePath("/inventory/stock");
   return {};
 }

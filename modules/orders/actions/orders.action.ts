@@ -16,6 +16,7 @@ import {
 } from "@/lib/whatsapp/whatsapp";
 import { formatCurrency, formatDate, generateOrderNumber } from "@/lib/utils";
 import { logActivity } from "@/modules/audit/services/audit-log.service";
+import { suppressCameraForRequest } from "@/lib/audit/context";
 
 /** Generates a cryptographically random 6-digit numeric delivery code. */
 function generateDeliveryCode(): string {
@@ -26,6 +27,7 @@ function generateDeliveryCode(): string {
 
 export async function getWeeklyAnalyticsAction(): Promise<MonthMetrics | { error: string }> {
   const session = await auth();
+  suppressCameraForRequest();
   if (!session?.user?.id) return { error: "Unauthorized" };
   try {
     return await getSalesRepWeeklyAnalytics(session.user.id);
@@ -39,6 +41,7 @@ export async function reassignOrdersAction(
   repIds: string[]
 ): Promise<{ error?: string }> {
   const session = await auth();
+  suppressCameraForRequest();
   if (!session?.user?.id) return { error: "Unauthorized" };
   if (orderIds.length === 0 || repIds.length === 0) return { error: "No orders or reps selected" };
 
@@ -77,6 +80,7 @@ export async function confirmOrderAction(
   // Returns { error } rather than throwing so messages reach the UI clearly in
   // production (Next.js redacts thrown Server Action errors).
   const session = await auth();
+  suppressCameraForRequest();
   if (!session?.user?.id) {
     return { error: "You are not signed in. Please refresh and try again." };
   }
@@ -200,6 +204,7 @@ export async function confirmOrderAction(
 
 export async function updateOrderNotesAction(orderId: string, notes: string) {
   const session = await auth();
+  suppressCameraForRequest();
   if (!session?.user?.id) throw new Error("Unauthorized");
 
   const order = await getOwnedOrder(orderId, session.user.id);
@@ -211,6 +216,7 @@ export async function updateOrderNotesAction(orderId: string, notes: string) {
 
 export async function cancelOrderAction(orderId: string, reason?: string) {
   const session = await auth();
+  suppressCameraForRequest();
   if (!session?.user?.id) throw new Error("Unauthorized");
 
   const order = await getOwnedOrder(orderId, session.user.id);
@@ -234,6 +240,7 @@ export async function cancelOrderAction(orderId: string, reason?: string) {
 
 export async function failOrderAction(orderId: string, reason?: string) {
   const session = await auth();
+  suppressCameraForRequest();
   if (!session?.user?.id) throw new Error("Unauthorized");
 
   const order = await getOwnedOrder(orderId, session.user.id);
@@ -266,6 +273,7 @@ export async function failOrderAction(orderId: string, reason?: string) {
  */
 export async function reviveOrderAction(orderId: string): Promise<{ error?: string }> {
   const session = await auth();
+  suppressCameraForRequest();
   if (!session?.user?.id) {
     return { error: "You are not signed in. Please refresh and try again." };
   }
@@ -335,6 +343,7 @@ export async function setOrderContactMethodAction(
   method: "PHONE" | "WHATSAPP",
 ) {
   const session = await auth();
+  suppressCameraForRequest();
   if (!session?.user?.id) throw new Error("Unauthorized");
 
   const order = await getOwnedOrder(orderId, session.user.id);
@@ -368,6 +377,7 @@ export async function applyOrderDiscountAction(
   reason?: string,
 ): Promise<{ discountAmount: number; discountPercent: number; netAmount: number; totalAmount: number }> {
   const session = await auth();
+  suppressCameraForRequest();
   if (!session?.user?.id) throw new Error("Unauthorized");
 
   const order = await prisma.order.findFirst({
@@ -413,6 +423,12 @@ export async function applyOrderDiscountAction(
       entityType: "Order",
       entityId: orderId,
       description: `Discount of ${formatCurrency(discountAmount)} (${discountPercent}%) applied to Order #${order.orderNumber}`,
+      details: {
+        before: formatCurrency(gross),
+        after: formatCurrency(negotiatedPrice),
+        field: "price",
+        amount: discountAmount,
+      },
     });
   }
 
@@ -427,6 +443,7 @@ export async function reassignOrderAgentAction(
   // Returns { error } rather than throwing so the message always reaches the UI
   // clearly — Next.js redacts thrown Server Action errors in production.
   const session = await auth();
+  suppressCameraForRequest();
   if (!session?.user?.id) {
     return { error: "You are not signed in. Please refresh and try again." };
   }
@@ -459,6 +476,14 @@ export async function reassignOrderAgentAction(
     };
   }
 
+  await logActivity({
+    userId: session.user.id,
+    action: "Reassigned",
+    entityType: "Order",
+    entityId: orderId,
+    description: `Order #${order.orderNumber} reassigned to a different delivery agent`,
+  });
+
   revalidateOrderPaths(orderId);
   return {};
 }
@@ -475,6 +500,7 @@ export async function createOrderAction(input: {
   products: Array<{ productId: string; quantity: number }>;
 }): Promise<{ orderId: string; orderNumber: string } | { error: string }> {
   const session = await auth();
+  suppressCameraForRequest();
   if (!session?.user?.id) return { error: "Unauthorized" };
 
   const { customerName, phone, whatsappNumber, email, deliveryAddress, state, landmark, isReorder, products } = input;
@@ -556,6 +582,15 @@ export async function createOrderAction(input: {
       });
     });
 
+    await logActivity({
+      userId: session.user.id,
+      action: "Created",
+      entityType: "Order",
+      entityId: order.id,
+      description: `Order #${order.orderNumber} created for ${customerName.trim()}`,
+      details: { amount: totalAmount },
+    });
+
     revalidatePath("/sales-rep/orders");
     return { orderId: order.id, orderNumber: order.orderNumber };
   } catch (err) {
@@ -569,6 +604,7 @@ export async function addOrderItemsAction(
   items: Array<{ productId: string; quantity: number }>
 ): Promise<{ error?: string }> {
   const session = await auth();
+  suppressCameraForRequest();
   if (!session?.user?.id) {
     return { error: "You are not signed in. Please refresh and try again." };
   }
@@ -645,6 +681,14 @@ export async function addOrderItemsAction(
     };
   }
 
+  await logActivity({
+    userId: session.user.id,
+    action: "Updated",
+    entityType: "Order",
+    entityId: orderId,
+    description: `Added ${items.length} product line${items.length === 1 ? "" : "s"} to Order #${order.orderNumber}`,
+  });
+
   revalidateOrderPaths(orderId);
   return {};
 }
@@ -657,6 +701,7 @@ export async function addOrderItemsAction(
  */
 export async function removeOrderItemAction(orderId: string, itemId: string) {
   const session = await auth();
+  suppressCameraForRequest();
   if (!session?.user?.id) throw new Error("Unauthorized");
 
   const order = await prisma.order.findFirst({
@@ -685,6 +730,14 @@ export async function removeOrderItemAction(orderId: string, itemId: string) {
       data: { totalAmount: remainingGross, netAmount, discountAmount, discountPercent },
     }),
   ]);
+
+  await logActivity({
+    userId: session.user.id,
+    action: "Updated",
+    entityType: "Order",
+    entityId: orderId,
+    description: `Removed a product line from Order #${order.orderNumber}`,
+  });
 
   revalidateOrderPaths(orderId);
 }

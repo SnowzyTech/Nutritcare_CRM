@@ -9,6 +9,7 @@ import { findEligibleAgentForOrder } from "@/modules/delivery/services/agents.se
 import { logActivity } from "@/modules/audit/services/audit-log.service";
 import { formatCurrency } from "@/lib/utils";
 import { isAdmin } from "@/lib/auth/role-routes";
+import { suppressCameraForRequest } from "@/lib/audit/context";
 
 // Returned (not thrown) so the message survives production builds, where Next.js
 // strips messages from thrown server-action errors.
@@ -33,6 +34,7 @@ function revalidate(orderId: string) {
 
 export async function adminConfirmOrderAction(orderId: string, deliveryDate?: string): Promise<ActionResult> {
   await checkAdmin();
+  suppressCameraForRequest();
 
   if (!deliveryDate) return { error: "Please select a delivery date before confirming." };
 
@@ -83,6 +85,7 @@ export async function adminConfirmOrderAction(orderId: string, deliveryDate?: st
 
 export async function adminCancelOrderAction(orderId: string): Promise<ActionResult> {
   await checkAdmin();
+  suppressCameraForRequest();
   const order = await getOrder(orderId);
   if (!order || (order.status !== "PENDING" && order.status !== "CONFIRMED")) {
     return { error: "Cannot cancel this order" };
@@ -101,6 +104,7 @@ export async function adminCancelOrderAction(orderId: string): Promise<ActionRes
 
 export async function adminFailOrderAction(orderId: string): Promise<ActionResult> {
   await checkAdmin();
+  suppressCameraForRequest();
   const order = await getOrder(orderId);
   if (!order || order.status !== "CONFIRMED") return { error: "Cannot fail this order" };
   await prisma.order.update({ where: { id: orderId }, data: { status: "FAILED" } });
@@ -117,6 +121,7 @@ export async function adminFailOrderAction(orderId: string): Promise<ActionResul
 
 export async function adminReviveOrderAction(orderId: string): Promise<ActionResult> {
   await checkAdmin();
+  suppressCameraForRequest();
   const order = await getOrder(orderId);
   if (!order || (order.status !== "CANCELLED" && order.status !== "FAILED")) {
     return { error: "Only cancelled or failed orders can be revived" };
@@ -153,6 +158,7 @@ export async function adminReviveOrderAction(orderId: string): Promise<ActionRes
 
 export async function adminDeliverOrderAction(orderId: string): Promise<ActionResult> {
   await checkAdmin();
+  suppressCameraForRequest();
   const order = await getOrder(orderId);
   if (!order || order.status !== "CONFIRMED") return { error: "Cannot mark order as delivered" };
   await prisma.order.update({ where: { id: orderId }, data: { status: "DELIVERED" } });
@@ -244,7 +250,7 @@ export async function adminReassignOrdersAction(
   orderIds: string[],
   salesRepIds: string[]
 ) {
-  await checkAdmin();
+  const session = await checkAdmin();
   if (!orderIds.length) throw new Error("No orders selected");
   if (!salesRepIds.length) throw new Error("No sales reps selected");
 
@@ -256,13 +262,20 @@ export async function adminReassignOrdersAction(
   );
 
   await prisma.$transaction(updates);
+  await logActivity({
+    userId: session.user.id,
+    action: "Reassigned",
+    entityType: "Order",
+    entityId: orderIds[0] ?? "bulk",
+    description: `Reassigned ${orderIds.length} order${orderIds.length === 1 ? "" : "s"} to ${salesRepIds.length} sales rep${salesRepIds.length === 1 ? "" : "s"}`,
+  });
   revalidatePath("/admin/orders");
   revalidatePath("/admin/orders/order-assignment");
   revalidatePath("/sales-rep/orders");
 }
 
 export async function adminReassignOrderAgentAction(orderId: string, agentId: string): Promise<ActionResult> {
-  await checkAdmin();
+  const session = await checkAdmin();
   const order = await getOrder(orderId);
   if (!order || (order.status !== "CONFIRMED" && order.status !== "FAILED")) {
     return { error: "Cannot reassign agent for this order" };
@@ -271,17 +284,25 @@ export async function adminReassignOrderAgentAction(orderId: string, agentId: st
     where: { id: orderId },
     data: { agentId, ...(order.status === "FAILED" ? { status: "CONFIRMED" } : {}) },
   });
+  await logActivity({
+    userId: session.user.id, action: "Reassigned", entityType: "Order", entityId: orderId,
+    description: `Order #${order.orderNumber} reassigned to a different delivery agent`,
+  });
   revalidate(orderId);
   return { success: true };
 }
 
 export async function adminUpdateOrderNotesAction(orderId: string, notes: string): Promise<ActionResult> {
-  await checkAdmin();
+  const session = await checkAdmin();
   const order = await getOrder(orderId);
   if (!order || order.status === "DELIVERED" || order.status === "CANCELLED") {
     return { error: "Cannot update notes for this order" };
   }
   await prisma.order.update({ where: { id: orderId }, data: { notes: notes.trim() || null } });
+  await logActivity({
+    userId: session.user.id, action: "Updated", entityType: "Order", entityId: orderId,
+    description: `Updated notes on Order #${order.orderNumber}`,
+  });
   revalidate(orderId);
   return { success: true };
 }
@@ -319,6 +340,11 @@ export async function adminAddOrderItemsAction(
     }),
   ]);
 
+  await logActivity({
+    userId: session.user.id, action: "Updated", entityType: "Order", entityId: orderId,
+    description: `Added ${items.length} product line${items.length === 1 ? "" : "s"} to Order #${order.orderNumber}`,
+  });
+
   revalidatePath(`/admin/orders/${orderId}`);
   return { success: true };
 }
@@ -328,7 +354,7 @@ export async function adminAddOrderItemsAction(
  * from a pending order and recomputes totals (preserving the discount amount).
  */
 export async function adminRemoveOrderItemAction(orderId: string, itemId: string): Promise<ActionResult> {
-  await checkAdmin();
+  const session = await checkAdmin();
 
   const order = await prisma.order.findFirst({
     where: { id: orderId, deletedAt: null },
@@ -356,6 +382,11 @@ export async function adminRemoveOrderItemAction(orderId: string, itemId: string
       data: { totalAmount: remainingGross, netAmount, discountAmount, discountPercent },
     }),
   ]);
+
+  await logActivity({
+    userId: session.user.id, action: "Updated", entityType: "Order", entityId: orderId,
+    description: `Removed a product line from Order #${order.orderNumber}`,
+  });
 
   revalidate(orderId);
   return { success: true };

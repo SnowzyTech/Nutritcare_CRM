@@ -12,6 +12,8 @@ import {
 } from "../services/forms.service";
 
 import { isAdmin } from "@/lib/auth/role-routes";
+import { logActivity } from "@/modules/audit/services/audit-log.service";
+import { suppressCameraForRequest } from "@/lib/audit/context";
 
 type ActionResult = { success: true } | { error: string };
 type CreateResult = { success: true; id: string } | { error: string };
@@ -46,8 +48,14 @@ export async function createFormAction(
 ): Promise<CreateResult> {
   try {
     const actor = await requireFormActor();
+    suppressCameraForRequest();
     if (!name.trim()) return { error: "Form name is required" };
     const form = await createForm(actor.userId, name.trim(), data);
+    await logActivity({
+      userId: actor.userId, actorRole: actor.role,
+      action: "Created", entityType: "Form", entityId: form.id,
+      description: `Form ${name.trim()} created`,
+    });
     revalidateForms();
     return { success: true, id: form.id };
   } catch (e) {
@@ -62,9 +70,15 @@ export async function updateFormAction(
 ): Promise<ActionResult> {
   try {
     const actor = await requireFormActor();
+    suppressCameraForRequest();
     if (!name.trim()) return { error: "Form name is required" };
     await assertCanMutate(id, actor);
     await updateForm(id, name.trim(), data);
+    await logActivity({
+      userId: actor.userId, actorRole: actor.role,
+      action: "Updated", entityType: "Form", entityId: id,
+      description: `Form ${name.trim()} updated`,
+    });
     revalidateForms();
     return { success: true };
   } catch (e) {
@@ -75,8 +89,15 @@ export async function updateFormAction(
 export async function deleteFormAction(id: string): Promise<ActionResult> {
   try {
     const actor = await requireFormActor();
+    suppressCameraForRequest();
     await assertCanMutate(id, actor);
+    const form = await getFormById(id);
     await softDeleteForm(id);
+    await logActivity({
+      userId: actor.userId, actorRole: actor.role,
+      action: "Deleted", entityType: "Form", entityId: id,
+      description: `Form ${form?.name ?? ""} deleted`,
+    });
     revalidateForms();
     return { success: true };
   } catch (e) {
@@ -90,8 +111,14 @@ export async function setFormDisabledAction(
 ): Promise<ActionResult> {
   try {
     const actor = await requireFormActor();
+    suppressCameraForRequest();
     await assertCanMutate(id, actor);
     await setFormDisabled(id, disabled);
+    await logActivity({
+      userId: actor.userId, actorRole: actor.role,
+      action: "Updated", entityType: "Form", entityId: id,
+      description: `Form ${disabled ? "disabled" : "enabled"}`,
+    });
     revalidateForms();
     return { success: true };
   } catch (e) {
@@ -102,8 +129,14 @@ export async function setFormDisabledAction(
 export async function duplicateFormAction(id: string): Promise<ActionResult> {
   try {
     const actor = await requireFormActor();
+    suppressCameraForRequest();
     await assertCanMutate(id, actor);
     await duplicateForm(id, actor.userId);
+    await logActivity({
+      userId: actor.userId, actorRole: actor.role,
+      action: "Created", entityType: "Form", entityId: id,
+      description: `Form duplicated`,
+    });
     revalidateForms();
     return { success: true };
   } catch (e) {

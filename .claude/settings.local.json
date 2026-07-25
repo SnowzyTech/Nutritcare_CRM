@@ -94,7 +94,11 @@
       "Read(//c/Users/user/AppData/Local/Temp/**)",
       "Bash(node -e \"const c=require\\('crypto'\\);const g=\\(\\)=>{const s='ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';let p='';const b=c.randomBytes\\(16\\);for\\(let i=0;i<16;i++\\)p+=s[b[i]%s.length];return p+'!7';};console.log\\('SUPER='+g\\(\\)\\);console.log\\('ADMIN='+g\\(\\)\\);\")",
       "Bash(node -e 'const {PrismaClient}=require\\('\\\\''@prisma/client'\\\\''\\);const p=new PrismaClient\\(\\);p.user.findMany\\({where:{role:{in:['\\\\''ADMIN'\\\\'','\\\\''SUPER_ADMIN'\\\\'']}},select:{name:true,email:true,role:true}}\\).then\\(u=>{console.log\\(JSON.stringify\\(u,null,2\\)\\);return p.$disconnect\\(\\);}\\)')",
-      "Bash(node -e \"const fs=require\\('fs'\\);const d='components/ui';try{console.log\\(fs.readdirSync\\(d\\).join\\('\\\\n'\\)\\)}catch\\(e\\){console.log\\('no ui dir'\\)}\")"
+      "Bash(node -e \"const fs=require\\('fs'\\);const d='components/ui';try{console.log\\(fs.readdirSync\\(d\\).join\\('\\\\n'\\)\\)}catch\\(e\\){console.log\\('no ui dir'\\)}\")",
+      "Bash(grep -vE \"logActivity|actorName|actorRole|action:|entityType:|entityId:|description:|details:|import|amount:|^\\\\+\\\\+\\\\+|^\\\\+ *$|^\\\\+ *\\\\}\\\\\\);|findUnique.*select.*name\")",
+      "Bash(git checkout *)",
+      "PowerShell($c = Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue; if \\($c\\) { $c.OwningProcess | Select-Object -Unique | ForEach-Object { try { Stop-Process -Id $_ -Force; \"stopped $_\" } catch {} } } else { \"no listener on 3000\" })",
+      "PowerShell($c = Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue; if \\($c\\) { $c.OwningProcess | Select-Object -Unique | ForEach-Object { try { Stop-Process -Id $_ -Force; \"stopped $_\" } catch {} } } else { \"no listener\" })"
     ]
   }
 }

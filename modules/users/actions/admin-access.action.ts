@@ -7,6 +7,7 @@ import { isSuperAdmin } from "@/lib/auth/role-routes";
 import { ADMIN_PAGE_KEYS } from "@/lib/auth/admin-pages";
 import { setAdminPageAccess } from "../services/users.service";
 import { logActivity } from "@/modules/audit/services/audit-log.service";
+import { suppressCameraForRequest } from "@/lib/audit/context";
 
 type ActionResult = { success: true } | { error: string };
 
@@ -28,6 +29,8 @@ export async function updateAdminPageAccessAction(input: {
     if (!session?.user?.id || !isSuperAdmin(session.user.role)) {
       return { error: "Unauthorized" };
     }
+
+    suppressCameraForRequest();
 
     const parsed = schema.safeParse(input);
     if (!parsed.success) return { error: "Invalid input." };

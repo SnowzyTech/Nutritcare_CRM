@@ -5,6 +5,9 @@ import { prisma } from "@/lib/db/prisma";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { isAdmin } from "@/lib/auth/role-routes";
+import { logActivity } from "@/modules/audit/services/audit-log.service";
+import { suppressCameraForRequest } from "@/lib/audit/context";
+import { formatCurrency } from "@/lib/utils";
 
 const costPriceSchema = z.object({
   productId: z.string().min(1),
@@ -23,6 +26,7 @@ const costPriceSchema = z.object({
 export async function updateProductCostPriceAction(input: z.infer<typeof costPriceSchema>) {
   const session = await auth();
   if (!session?.user?.id) return { error: "Unauthorized" };
+  suppressCameraForRequest();
   if (session.user.role !== "ACCOUNTANT" && !isAdmin(session.user.role)) {
     return { error: "You don't have permission to change cost prices" };
   }
@@ -40,21 +44,24 @@ export async function updateProductCostPriceAction(input: z.infer<typeof costPri
   const next = parsed.data.costPrice;
   if (previous === next) return { ok: true, costPrice: next };
 
-  await prisma.$transaction(async (tx) => {
-    await tx.product.update({
-      where: { id: product.id },
-      data: { costPrice: next },
-    });
-    // Financially sensitive change — keep an audit trail of who changed what.
-    await tx.auditLog.create({
-      data: {
-        userId: session.user.id,
-        action: "UPDATE_COST_PRICE",
-        entityType: "Product",
-        entityId: product.id,
-        details: { name: product.name, previousCostPrice: previous, newCostPrice: next },
-      },
-    });
+  await prisma.product.update({
+    where: { id: product.id },
+    data: { costPrice: next },
+  });
+
+  // Financially sensitive change — keep an audit trail of who changed what.
+  await logActivity({
+    userId: session.user.id,
+    action: "Updated",
+    entityType: "Product",
+    entityId: product.id,
+    description: `Cost price of ${product.name} changed from ${formatCurrency(previous)} to ${formatCurrency(next)}`,
+    details: {
+      before: formatCurrency(previous),
+      after: formatCurrency(next),
+      field: "costPrice",
+      amount: Math.abs(next - previous),
+    },
   });
 
   revalidatePath("/accounting/inventory");
