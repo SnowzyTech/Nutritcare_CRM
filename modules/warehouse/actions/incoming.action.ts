@@ -13,6 +13,8 @@ import {
   applyWarehouseLocationDeltas,
   type ShelfAllocationItem,
 } from "@/modules/inventory/services/stock-level.service";
+import { logActivity } from "@/modules/audit/services/audit-log.service";
+import { suppressCameraForRequest } from "@/lib/audit/context";
 
 function generateReferenceNumber(): string {
   const suffix = Date.now().toString(36).toUpperCase().slice(-6);
@@ -59,11 +61,13 @@ export async function confirmIncomingReceiptAction(
   formData: FormData,
 ): Promise<{ error?: string }> {
   let warehouseId: string;
+  let userId: string;
   try {
-    ({ warehouseId } = await requireWarehouseManager());
+    ({ userId, warehouseId } = await requireWarehouseManager());
   } catch (e) {
     return { error: (e as Error).message };
   }
+  suppressCameraForRequest();
 
   const raw = {
     stockMovementId: formData.get("stockMovementId") as string,
@@ -160,6 +164,14 @@ export async function confirmIncomingReceiptAction(
     await creditWarehouse(tx, warehouseId, movement.items);
   });
 
+  await logActivity({
+    userId,
+    action: "Updated",
+    entityType: "StockMovement",
+    entityId: movement.id,
+    description: `Confirmed goods receipt ${movement.referenceNumber} (shelved)`,
+  });
+
   revalidatePath("/warehouse/incoming-goods");
   redirect("/warehouse/incoming-goods");
 }
@@ -195,6 +207,7 @@ export async function createIncomingMovementAction(
   } catch (e) {
     return { error: (e as Error).message };
   }
+  suppressCameraForRequest();
 
   let items: Array<{ productId: string; quantity: number }> = [];
   try {
@@ -218,9 +231,14 @@ export async function createIncomingMovementAction(
   const parsed = CreateIncomingSchema.safeParse(raw);
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
 
+  let supplierName: string | null = null;
   if (parsed.data.supplierId) {
-    const supplier = await prisma.supplier.findUnique({ where: { id: parsed.data.supplierId } });
+    const supplier = await prisma.supplier.findUnique({
+      where: { id: parsed.data.supplierId },
+      select: { name: true },
+    });
     if (!supplier) return { error: "Selected supplier not found" };
+    supplierName = supplier.name;
   }
 
   if (parsed.data.shelfLocationId) {
@@ -238,11 +256,12 @@ export async function createIncomingMovementAction(
   const skuMap = new Map(products.map((p) => [p.id, p.sku]));
 
   const totalQty = parsed.data.items.reduce((sum, i) => sum + i.quantity, 0);
+  const incomingRef = generateReferenceNumber();
 
   await prisma.$transaction(async (tx) => {
     await tx.stockMovement.create({
       data: {
-        referenceNumber: generateReferenceNumber(),
+        referenceNumber: incomingRef,
         type: "INCOMING",
         status: "RECORDED",
         warehouseId,
@@ -280,6 +299,14 @@ export async function createIncomingMovementAction(
     }
   });
 
+  await logActivity({
+    userId,
+    action: "Created",
+    entityType: "StockMovement",
+    entityId: incomingRef,
+    description: `Incoming goods ${incomingRef} recorded — ${totalQty} unit${totalQty === 1 ? "" : "s"}${supplierName ? ` from ${supplierName}` : ""}`,
+  });
+
   revalidatePath("/warehouse/incoming-goods");
   redirect("/warehouse/incoming-goods");
 }
@@ -290,11 +317,13 @@ export async function deleteIncomingMovementAction(
   id: string
 ): Promise<{ error?: string }> {
   let warehouseId: string;
+  let userId: string;
   try {
-    ({ warehouseId } = await requireWarehouseManager());
+    ({ userId, warehouseId } = await requireWarehouseManager());
   } catch (e) {
     return { error: (e as Error).message };
   }
+  suppressCameraForRequest();
 
   const movement = await prisma.stockMovement.findUnique({
     where: { id },
@@ -345,6 +374,14 @@ export async function deleteIncomingMovementAction(
     await tx.stockMovement.delete({ where: { id } });
   });
 
+  await logActivity({
+    userId,
+    action: "Deleted",
+    entityType: "StockMovement",
+    entityId: id,
+    description: `Deleted incoming movement ${movement.referenceNumber}`,
+  });
+
   revalidatePath("/warehouse/incoming-goods");
   redirect("/warehouse/incoming-goods");
 }
@@ -356,11 +393,13 @@ export async function reverseIncomingMovementWarehouseAction(
   reason: string,
 ): Promise<{ error?: string }> {
   let warehouseId: string;
+  let userId: string;
   try {
-    ({ warehouseId } = await requireWarehouseManager());
+    ({ userId, warehouseId } = await requireWarehouseManager());
   } catch (e) {
     return { error: (e as Error).message };
   }
+  suppressCameraForRequest();
 
   const movement = await prisma.stockMovement.findUnique({
     where: { id },
@@ -413,6 +452,14 @@ export async function reverseIncomingMovementWarehouseAction(
     if (wasCredited && movement.warehouseId) {
       await debitWarehouse(tx, movement.warehouseId, movement.items);
     }
+  });
+
+  await logActivity({
+    userId,
+    action: "Updated",
+    entityType: "StockMovement",
+    entityId: id,
+    description: `Reversed incoming movement ${movement.referenceNumber}${reason.trim() ? `: ${reason.trim()}` : ""}`,
   });
 
   revalidatePath(`/warehouse/incoming-goods/${id}`);

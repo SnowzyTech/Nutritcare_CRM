@@ -16,6 +16,8 @@ import {
   getAgentProductStocks,
   type AgentProductStock,
 } from "@/modules/warehouse/services/warehouse.service";
+import { logActivity } from "@/modules/audit/services/audit-log.service";
+import { suppressCameraForRequest } from "@/lib/audit/context";
 
 function generateReferenceNumber(): string {
   const suffix = Date.now().toString(36).toUpperCase().slice(-6);
@@ -82,6 +84,7 @@ export async function createReturnMovementAction(
   } catch (e) {
     return { error: (e as Error).message };
   }
+  suppressCameraForRequest();
 
   let items: Array<{ productId: string; quantity: number }> = [];
   let shelfAssignments: Array<{ productId: string; locationId: string; quantity: number }> = [];
@@ -146,6 +149,7 @@ export async function createReturnMovementAction(
 
   const skuMap = new Map(products.map((p) => [p.id, p.sku]));
   const totalQty = parsed.data.items.reduce((sum, i) => sum + i.quantity, 0);
+  const returnRef = generateReferenceNumber();
 
   try {
     await prisma.$transaction(async (tx) => {
@@ -172,7 +176,7 @@ export async function createReturnMovementAction(
 
       await tx.stockMovement.create({
         data: {
-          referenceNumber: generateReferenceNumber(),
+          referenceNumber: returnRef,
           type: "RETURN",
           status: "RECORDED",
           agentId: parsed.data.agentId,
@@ -223,6 +227,14 @@ export async function createReturnMovementAction(
     return { error: (e as Error).message };
   }
 
+  await logActivity({
+    userId,
+    action: "Return",
+    entityType: "StockMovement",
+    entityId: returnRef,
+    description: `Agent ${agent.companyName} returned ${totalQty} unit${totalQty === 1 ? "" : "s"} to warehouse (${returnRef}${parsed.data.damaged ? ", damaged" : ""})`,
+  });
+
   revalidatePath("/warehouse/returns");
   redirect("/warehouse/returns");
 }
@@ -234,6 +246,7 @@ type StoredShelfAssignment = { productId: string; locationId: string; quantity: 
 export async function deleteReturnMovementAction(id: string): Promise<{ error?: string }> {
   const session = await auth();
   if (!session?.user?.id) throw new Error("Unauthorized");
+  suppressCameraForRequest();
 
   const movement = await prisma.stockMovement.findUnique({
     where: { id },
@@ -272,6 +285,14 @@ export async function deleteReturnMovementAction(id: string): Promise<{ error?: 
     await tx.stockMovement.delete({ where: { id } });
   });
 
+  await logActivity({
+    userId: session.user.id,
+    action: "Deleted",
+    entityType: "StockMovement",
+    entityId: id,
+    description: `Deleted stock return ${movement.referenceNumber}`,
+  });
+
   revalidatePath("/warehouse/returns");
   redirect("/warehouse/returns");
 }
@@ -284,6 +305,7 @@ export async function reverseReturnMovementAction(
 ): Promise<{ error?: string }> {
   const session = await auth();
   if (!session?.user?.id) throw new Error("Unauthorized");
+  suppressCameraForRequest();
 
   const movement = await prisma.stockMovement.findUnique({
     where: { id },
@@ -324,6 +346,14 @@ export async function reverseReturnMovementAction(
     if (movement.agentId) {
       await reverseReturn(tx, movement.agentId, movement.items, movement.warehouseId);
     }
+  });
+
+  await logActivity({
+    userId: session.user.id,
+    action: "Updated",
+    entityType: "StockMovement",
+    entityId: id,
+    description: `Reversed stock return ${movement.referenceNumber}${reason.trim() ? `: ${reason.trim()}` : ""}`,
   });
 
   revalidatePath(`/warehouse/returns/${id}`);

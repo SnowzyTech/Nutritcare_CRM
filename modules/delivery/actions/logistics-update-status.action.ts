@@ -4,6 +4,8 @@ import { auth } from "@/lib/auth/auth";
 import { prisma } from "@/lib/db/prisma";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { logActivity } from "@/modules/audit/services/audit-log.service";
+import { suppressCameraForRequest } from "@/lib/audit/context";
 
 const schema = z.object({
   itemId: z.string().min(1),
@@ -18,15 +20,18 @@ export async function updateDeliveryStatusAction(
 ): Promise<{ success: true } | { success: false; error: string }> {
   const session = await auth();
   if (!session?.user?.id) return { success: false, error: "Unauthorized" };
+  suppressCameraForRequest();
 
   const parsed = schema.safeParse({ itemId, sourceType, finalStatus });
   if (!parsed.success)
     return { success: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
 
+  let label = "";
+
   if (sourceType === "stockOut") {
     const movement = await prisma.stockMovement.findUnique({
       where: { id: itemId },
-      select: { id: true, status: true, type: true },
+      select: { id: true, status: true, type: true, referenceNumber: true },
     });
     if (!movement) return { success: false, error: "Stock movement not found" };
     if (movement.status !== "QC_CHECK")
@@ -36,13 +41,14 @@ export async function updateDeliveryStatusAction(
       where: { id: itemId },
       data: { status: finalStatus === "DELIVERED" ? "RECEIVED" : "NOT_RECEIVED" },
     });
+    label = `stock-out ${movement.referenceNumber}`;
   } else {
     if (finalStatus === "DELIVERED") {
       return { success: false, error: "Stock transfers are completed by the receiving warehouse when they shelve the goods" };
     }
     const transfer = await prisma.stockTransfer.findUnique({
       where: { id: itemId },
-      select: { id: true, status: true },
+      select: { id: true, status: true, referenceNumber: true },
     });
     if (!transfer) return { success: false, error: "Stock transfer not found" };
     if (transfer.status !== "IN_TRANSIT")
@@ -52,7 +58,16 @@ export async function updateDeliveryStatusAction(
       where: { id: itemId },
       data: { status: "FAILED" },
     });
+    label = `stock transfer ${transfer.referenceNumber}`;
   }
+
+  await logActivity({
+    userId: session.user.id,
+    action: finalStatus === "DELIVERED" ? "Delivered" : "Failed",
+    entityType: sourceType === "stockOut" ? "StockMovement" : "StockTransfer",
+    entityId: itemId,
+    description: `${label} marked ${finalStatus.toLowerCase()}`,
+  });
 
   revalidatePath("/logistics/deliveries");
   return { success: true };

@@ -1,27 +1,24 @@
 "use server";
 
 import { auth } from "@/lib/auth/auth";
-import { isAdmin } from "@/lib/auth/role-routes";
-import { getActivityForExport, type ActivityFilters } from "../services/audit-query.service";
-
-function csvCell(value: string | null | undefined): string {
-  const v = value ?? "";
-  // Escape quotes and wrap in quotes if it contains a delimiter/newline.
-  if (/[",\n]/.test(v)) return `"${v.replace(/"/g, '""')}"`;
-  return v;
-}
+import { isAdmin, isSuperAdmin } from "@/lib/auth/role-routes";
+import {
+  getActivityForExport,
+  type ActivityFilters,
+  type AuditEntry,
+} from "../services/audit-query.service";
 
 /**
- * Returns a CSV string of the audit activity matching the given filters.
- * Personal export passes `userId`; general export omits it (admin-only).
+ * Returns all audit rows matching the filters, for the downloadable PDF report.
+ * Personal report passes `userId` (self); general report is admin-only.
  */
-export async function exportActivityCsvAction(
+export async function getActivityReportRowsAction(
   filters: ActivityFilters
-): Promise<{ csv: string } | { error: string }> {
+): Promise<{ rows: AuditEntry[] } | { error: string }> {
   const session = await auth();
   if (!session?.user?.id) return { error: "Unauthorized" };
 
-  // General (system-wide) export is admin-only; personal export is scoped to self.
+  // General (system-wide) report is admin-only; personal report is scoped to self.
   if (!filters.userId && !isAdmin(session.user.role)) {
     return { error: "Unauthorized" };
   }
@@ -29,21 +26,11 @@ export async function exportActivityCsvAction(
     return { error: "Unauthorized" };
   }
 
-  const rows = await getActivityForExport(filters);
-  const header = ["Date & Time", "Name", "Department", "Action", "Description", "Before", "After"];
-  const lines = [header.join(",")];
-  for (const r of rows) {
-    lines.push(
-      [
-        csvCell(r.dateTime),
-        csvCell(r.actorName),
-        csvCell(r.department),
-        csvCell(r.action),
-        csvCell(r.description),
-        csvCell(r.before),
-        csvCell(r.after),
-      ].join(",")
-    );
-  }
-  return { csv: lines.join("\n") };
+  // Server-authoritative: a limited admin's report can never include super-admin
+  // rows, regardless of what the client passed in `filters`.
+  const rows = await getActivityForExport({
+    ...filters,
+    excludeSuperAdmin: !isSuperAdmin(session.user.role),
+  });
+  return { rows };
 }

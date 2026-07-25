@@ -1,10 +1,13 @@
 import type { Metadata } from "next";
 import { auth } from "@/lib/auth/auth";
+import { isSuperAdmin } from "@/lib/auth/role-routes";
 import {
   getGeneralActivity,
   getPersonalActivity,
-  getDailySummary,
+  getActivitySummary,
+  getStaffByDepartment,
   DEPARTMENT_FILTERS,
+  type ActivityFilters,
 } from "@/modules/audit/services/audit-query.service";
 import { HistoryClient } from "./history-client";
 
@@ -14,7 +17,9 @@ type PageProps = {
   searchParams: Promise<{
     tab?: string;
     department?: string;
-    date?: string;
+    person?: string;
+    from?: string;
+    to?: string;
     q?: string;
   }>;
 };
@@ -32,18 +37,31 @@ export default async function HistoryPage({ searchParams }: PageProps) {
 
   const tab = params.tab === "personal" ? "personal" : "general";
   const department = params.department ?? "ALL";
-  const date = parseDate(params.date);
+  const person = params.person || undefined;
+  const dateFrom = parseDate(params.from);
+  const dateTo = parseDate(params.to);
   const q = params.q?.trim() || undefined;
 
-  const filters = { department, date, search: q };
+  // Limited admins (any non-super viewer) must not see super-admin activity.
+  const excludeSuperAdmin = !isSuperAdmin(session?.user?.role);
 
-  const [{ groups }, summary] =
+  const filters: ActivityFilters =
+    tab === "general"
+      ? { department, userId: person, dateFrom, dateTo, search: q, excludeSuperAdmin }
+      : { dateFrom, dateTo, search: q, excludeSuperAdmin };
+
+  const [{ groups }, summary, staff] =
     tab === "general"
       ? await Promise.all([
           getGeneralActivity(filters, { take: 200 }),
-          getDailySummary(date),
+          getActivitySummary(filters),
+          getStaffByDepartment(department, excludeSuperAdmin),
         ])
-      : [{ groups: await getPersonalActivity(userId, { date, search: q }) }, null];
+      : [
+          { groups: await getPersonalActivity(userId, filters) },
+          null,
+          [] as { id: string; name: string }[],
+        ];
 
   const todayLabel = new Date().toLocaleDateString("en-NG", {
     month: "long",
@@ -59,7 +77,10 @@ export default async function HistoryPage({ searchParams }: PageProps) {
       summary={summary}
       departments={DEPARTMENT_FILTERS}
       selectedDepartment={department}
-      selectedDate={params.date ?? ""}
+      staff={staff}
+      selectedPerson={person ?? ""}
+      selectedFrom={params.from ?? ""}
+      selectedTo={params.to ?? ""}
       search={params.q ?? ""}
       todayLabel={todayLabel}
     />

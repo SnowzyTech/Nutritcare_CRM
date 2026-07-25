@@ -227,3 +227,21 @@
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
 }
+
+/* Printing (e.g. the History → Activity Report): drop the app chrome and let the
+   scrollable admin shell expand across pages instead of clipping to one screen. */
+@media print {
+  .admin-shell,
+  .admin-col,
+  .admin-main {
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+  .admin-shell {
+    display: block !important;
+  }
+  .admin-main {
+    padding: 0 !important;
+  }
+}

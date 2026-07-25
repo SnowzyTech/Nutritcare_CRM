@@ -1,19 +1,22 @@
 "use client";
 
-import { useState, useTransition, useCallback } from "react";
+import { useState, useEffect, useRef, useTransition, useCallback } from "react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import {
   Filter,
   Search,
-  Download,
-  Printer,
+  FileText,
   ChevronDown,
   ChevronRight,
   ArrowRight,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import type { AuditGroup, DailySummary } from "@/modules/audit/services/audit-query.service";
-import { exportActivityCsvAction } from "@/modules/audit/actions/audit-export.action";
+import { getActivityReportRowsAction } from "@/modules/audit/actions/audit-export.action";
+import { downloadHistoryReportPdf } from "@/lib/history-report-pdf";
+
+type Staff = { id: string; name: string };
 
 type Props = {
   tab: "general" | "personal";
@@ -22,7 +25,10 @@ type Props = {
   summary: DailySummary | null;
   departments: { value: string; label: string }[];
   selectedDepartment: string;
-  selectedDate: string;
+  staff: Staff[];
+  selectedPerson: string;
+  selectedFrom: string;
+  selectedTo: string;
   search: string;
   todayLabel: string;
 };
@@ -38,7 +44,10 @@ export function HistoryClient({
   summary,
   departments,
   selectedDepartment,
-  selectedDate,
+  staff,
+  selectedPerson,
+  selectedFrom,
+  selectedTo,
   search,
   todayLabel,
 }: Props) {
@@ -47,7 +56,7 @@ export function HistoryClient({
   const searchParams = useSearchParams();
   const [pending, startTransition] = useTransition();
   const [searchValue, setSearchValue] = useState(search);
-  const [exporting, setExporting] = useState(false);
+  const [generating, setGenerating] = useState(false);
 
   const setParam = useCallback(
     (updates: Record<string, string | undefined>) => {
@@ -61,48 +70,67 @@ export function HistoryClient({
     [router, pathname, searchParams]
   );
 
-  // Debounced search.
   function onSearchChange(value: string) {
     setSearchValue(value);
     const handle = setTimeout(() => setParam({ q: value || undefined }), 350);
     return () => clearTimeout(handle);
   }
 
-  async function onExportCsv() {
-    setExporting(true);
+  function rangeLabel(): string {
+    const fmt = (s: string) =>
+      new Date(`${s}T00:00:00`).toLocaleDateString("en-NG", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+      });
+    if (selectedFrom && selectedTo)
+      return selectedFrom === selectedTo ? fmt(selectedFrom) : `${fmt(selectedFrom)} - ${fmt(selectedTo)}`;
+    if (selectedFrom) return `From ${fmt(selectedFrom)}`;
+    if (selectedTo) return `Up to ${fmt(selectedTo)}`;
+    return "All dates";
+  }
+
+  async function onGenerateReport() {
+    setGenerating(true);
     try {
-      const res = await exportActivityCsvAction({
-        userId: tab === "personal" ? userId : undefined,
+      const res = await getActivityReportRowsAction({
+        userId: tab === "personal" ? userId : selectedPerson || undefined,
         department: tab === "general" ? selectedDepartment : undefined,
-        date: selectedDate ? new Date(`${selectedDate}T00:00:00`) : undefined,
+        dateFrom: selectedFrom ? new Date(`${selectedFrom}T00:00:00`) : undefined,
+        dateTo: selectedTo ? new Date(`${selectedTo}T00:00:00`) : undefined,
         search: searchValue || undefined,
       });
       if ("error" in res) {
         toast.error(res.error);
         return;
       }
-      const blob = new Blob([res.csv], { type: "text/csv;charset=utf-8;" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `history-${tab}-${selectedDate || "all"}.csv`;
-      a.click();
-      URL.revokeObjectURL(url);
-      toast.success("CSV downloaded");
+      await downloadHistoryReportPdf(res.rows, {
+        scope: tab === "general" ? "General history" : "Personal history",
+        rangeLabel: rangeLabel(),
+        departmentLabel:
+          tab === "general" && selectedDepartment !== "ALL"
+            ? departments.find((d) => d.value === selectedDepartment)?.label
+            : undefined,
+        personLabel: selectedPerson ? staff.find((s) => s.id === selectedPerson)?.name : undefined,
+        searchLabel: searchValue || undefined,
+      });
+      toast.success("Report downloaded");
+    } catch {
+      toast.error("Failed to generate report");
     } finally {
-      setExporting(false);
+      setGenerating(false);
     }
   }
 
   return (
     <div className="max-w-[1120px] mx-auto font-inter text-slate-900 pb-24">
       {/* ── Header + tabs ── */}
-      <div className="flex flex-wrap items-center justify-between gap-4 mb-8 print:mb-4">
+      <div className="flex flex-wrap items-center justify-between gap-4 mb-8">
         <h1 className="text-[2.15rem] font-black text-slate-800 leading-tight">History</h1>
-        <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-full p-1 shadow-sm print:hidden">
+        <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-full p-1 shadow-sm">
           <button
             type="button"
-            onClick={() => setParam({ tab: "personal" })}
+            onClick={() => setParam({ tab: "personal", department: undefined, person: undefined })}
             className={`px-4 py-1.5 rounded-full text-sm font-bold transition-colors ${
               tab === "personal" ? "bg-slate-100 text-slate-800" : "text-slate-500 hover:text-slate-700"
             }`}
@@ -123,7 +151,7 @@ export function HistoryClient({
 
       {/* ── Daily summary scoreboard (general only) ── */}
       {tab === "general" && summary && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-6 print:hidden">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
           <SummaryCard label="Total actions" value={summary.totalActions.toString()} />
           <SummaryCard label="Deletions" value={summary.deletions.toString()} accent="rose" />
           <SummaryCard label="Discounts given" value={formatNaira(summary.totalDiscountValue)} accent="amber" />
@@ -135,7 +163,7 @@ export function HistoryClient({
       )}
 
       {/* ── Filter bar ── */}
-      <div className="flex flex-wrap items-center gap-3 mb-6 print:hidden">
+      <div className="flex flex-wrap items-center gap-3 mb-6">
         <span className="inline-flex items-center gap-1.5 text-sm font-bold text-slate-500">
           <Filter size={16} /> Filter
         </span>
@@ -144,7 +172,12 @@ export function HistoryClient({
           <div className="relative">
             <select
               value={selectedDepartment}
-              onChange={(e) => setParam({ department: e.target.value === "ALL" ? undefined : e.target.value })}
+              onChange={(e) =>
+                setParam({
+                  department: e.target.value === "ALL" ? undefined : e.target.value,
+                  person: undefined,
+                })
+              }
               className="appearance-none bg-slate-800 text-white text-sm font-bold rounded-lg pl-3 pr-8 py-2 cursor-pointer"
             >
               {departments.map((d) => (
@@ -155,41 +188,58 @@ export function HistoryClient({
           </div>
         )}
 
-        <input
-          type="date"
-          value={selectedDate}
-          onChange={(e) => setParam({ date: e.target.value || undefined })}
-          className="bg-slate-800 text-white text-sm font-bold rounded-lg px-3 py-2 cursor-pointer [color-scheme:dark]"
-        />
+        {tab === "general" && selectedDepartment !== "ALL" && (
+          <PersonPicker
+            key={`${selectedDepartment}-${selectedPerson}`}
+            staff={staff}
+            selectedPerson={selectedPerson}
+            onSelect={(id) => setParam({ person: id || undefined })}
+          />
+        )}
 
-        <div className="relative flex-1 min-w-[180px] max-w-sm">
+        {/* From / To date range */}
+        <label className="flex items-center gap-1.5 text-xs font-bold text-slate-500">
+          From
+          <input
+            type="date"
+            value={selectedFrom}
+            max={selectedTo || undefined}
+            onChange={(e) => setParam({ from: e.target.value || undefined })}
+            className="bg-slate-800 text-white text-sm font-bold rounded-lg px-3 py-2 cursor-pointer [color-scheme:dark]"
+          />
+        </label>
+        <label className="flex items-center gap-1.5 text-xs font-bold text-slate-500">
+          To
+          <input
+            type="date"
+            value={selectedTo}
+            min={selectedFrom || undefined}
+            onChange={(e) => setParam({ to: e.target.value || undefined })}
+            className="bg-slate-800 text-white text-sm font-bold rounded-lg px-3 py-2 cursor-pointer [color-scheme:dark]"
+          />
+        </label>
+
+        <div className="relative flex-1 min-w-[200px] max-w-sm">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
             type="text"
-            placeholder="search"
+            placeholder="Search name, action or description"
             value={searchValue}
             onChange={(e) => onSearchChange(e.target.value)}
             className="w-full bg-white border border-slate-200 rounded-lg pl-9 pr-3 py-2 text-sm outline-none focus:border-purple-400"
           />
         </div>
 
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-3">
           <button
             type="button"
-            onClick={onExportCsv}
-            disabled={exporting}
-            className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-50 px-3 py-2 rounded-lg"
+            onClick={onGenerateReport}
+            disabled={generating}
+            className="inline-flex items-center gap-1.5 text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 disabled:opacity-50 px-3.5 py-2 rounded-lg"
           >
-            <Download size={14} /> CSV
+            <FileText size={14} /> {generating ? "Generating…" : "Generate History Report"}
           </button>
-          <button
-            type="button"
-            onClick={() => window.print()}
-            className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 px-3 py-2 rounded-lg"
-          >
-            <Printer size={14} /> PDF
-          </button>
-          <div className="text-right ml-1">
+          <div className="text-right">
             <p className="text-[0.7rem] uppercase font-black text-slate-400 tracking-widest">Today</p>
             <p className="text-sm font-semibold text-slate-500">{todayLabel}</p>
           </div>
@@ -227,6 +277,110 @@ export function HistoryClient({
             </div>
           </div>
         ))
+      )}
+    </div>
+  );
+}
+
+// ── Person typeahead (department-scoped) ──────────────────────────────────────
+function PersonPicker({
+  staff,
+  selectedPerson,
+  onSelect,
+}: {
+  staff: Staff[];
+  selectedPerson: string;
+  onSelect: (id: string) => void;
+}) {
+  const selectedName = staff.find((s) => s.id === selectedPerson)?.name ?? "";
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState(selectedName);
+  const boxRef = useRef<HTMLDivElement>(null);
+
+  // The component is remounted (via `key`) when the selection changes, so the
+  // initial `query` state always reflects the current selection — no sync effect.
+
+  // Close when clicking away.
+  useEffect(() => {
+    function onDocClick(e: MouseEvent) {
+      if (boxRef.current && !boxRef.current.contains(e.target as Node)) {
+        setOpen(false);
+        setQuery(selectedName);
+      }
+    }
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [selectedName]);
+
+  const filtered = query.trim()
+    ? staff.filter((s) => s.name.toLowerCase().includes(query.toLowerCase()))
+    : staff;
+
+  return (
+    <div ref={boxRef} className="relative">
+      <div className="flex items-center bg-slate-800 rounded-lg">
+        <input
+          type="text"
+          value={query}
+          placeholder="All staff — type a name"
+          onFocus={() => setOpen(true)}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setOpen(true);
+          }}
+          className="w-[190px] bg-transparent text-white text-sm font-bold placeholder:font-normal placeholder:text-slate-400 rounded-lg px-3 py-2 outline-none"
+        />
+        {selectedPerson ? (
+          <button
+            type="button"
+            aria-label="Clear staff filter"
+            onClick={() => {
+              onSelect("");
+              setQuery("");
+              setOpen(false);
+            }}
+            className="px-2 text-slate-300 hover:text-white"
+          >
+            <X size={14} />
+          </button>
+        ) : (
+          <ChevronDown size={14} className="mr-2.5 text-white pointer-events-none" />
+        )}
+      </div>
+
+      {open && (
+        <div className="absolute z-20 mt-1 w-[230px] max-h-64 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-lg py-1">
+          <button
+            type="button"
+            onClick={() => {
+              onSelect("");
+              setOpen(false);
+            }}
+            className="w-full text-left px-3 py-1.5 text-sm text-slate-500 hover:bg-slate-50"
+          >
+            All staff
+          </button>
+          {filtered.length === 0 ? (
+            <p className="px-3 py-2 text-xs text-slate-400">No matching staff.</p>
+          ) : (
+            filtered.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => {
+                  onSelect(s.id);
+                  setQuery(s.name);
+                  setOpen(false);
+                }}
+                className={`w-full text-left px-3 py-1.5 text-sm hover:bg-purple-50 ${
+                  s.id === selectedPerson ? "bg-purple-50 font-bold text-purple-700" : "text-slate-700"
+                }`}
+              >
+                {s.name}
+              </button>
+            ))
+          )}
+        </div>
       )}
     </div>
   );

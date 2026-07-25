@@ -9,6 +9,8 @@ import {
   reverseWarehouseToAgent,
   transferAgentToAgent,
 } from "@/modules/inventory/services/stock-level.service";
+import { logActivity } from "@/modules/audit/services/audit-log.service";
+import { suppressCameraForRequest } from "@/lib/audit/context";
 
 // ── Delete Outgoing Movement ──────────────────────────────────────────────────
 
@@ -17,6 +19,7 @@ export async function deleteOutgoingMovementAction(
 ): Promise<{ error?: string }> {
   const session = await auth();
   if (!session?.user?.id) throw new Error("Unauthorized");
+  suppressCameraForRequest();
 
   const movement = await prisma.stockMovement.findUnique({
     where: { id },
@@ -42,6 +45,14 @@ export async function deleteOutgoingMovementAction(
     await tx.stockMovement.delete({ where: { id } });
   });
 
+  await logActivity({
+    userId: session.user.id,
+    action: "Deleted",
+    entityType: "StockMovement",
+    entityId: id,
+    description: `Deleted outgoing movement ${movement.referenceNumber}`,
+  });
+
   revalidatePath("/warehouse/outgoing");
   redirect("/warehouse/outgoing");
 }
@@ -54,6 +65,7 @@ export async function reverseOutgoingMovementWarehouseAction(
 ): Promise<{ error?: string }> {
   const session = await auth();
   if (!session?.user?.id) throw new Error("Unauthorized");
+  suppressCameraForRequest();
 
   const movement = await prisma.stockMovement.findUnique({
     where: { id },
@@ -72,6 +84,14 @@ export async function reverseOutgoingMovementWarehouseAction(
     } else if (movement.status === "SHELVED" && movement.warehouseId && movement.toAgentId) {
       await reverseWarehouseToAgent(tx, movement.warehouseId, movement.toAgentId, movement.items);
     }
+  });
+
+  await logActivity({
+    userId: session.user.id,
+    action: "Updated",
+    entityType: "StockMovement",
+    entityId: id,
+    description: `Reversed outgoing movement ${movement.referenceNumber}${reason.trim() ? `: ${reason.trim()}` : ""}`,
   });
 
   revalidatePath(`/warehouse/outgoing/${id}`);
@@ -111,6 +131,7 @@ export async function createOutgoingMovementAction(
   formData: FormData
 ): Promise<{ error?: string }> {
   const user = await requireAuth();
+  suppressCameraForRequest();
 
   let items: Array<{ productId: string; quantity: number }> = [];
   try {
@@ -145,10 +166,11 @@ export async function createOutgoingMovementAction(
 
   const skuMap = new Map(products.map((p) => [p.id, p.sku]));
   const totalQty = parsed.data.items.reduce((sum, i) => sum + i.quantity, 0);
+  const outgoingRef = generateReferenceNumber();
 
   await prisma.stockMovement.create({
     data: {
-      referenceNumber: generateReferenceNumber(),
+      referenceNumber: outgoingRef,
       type: "OUTGOING",
       status: "RECORDED",
       agentId: parsed.data.agentId,
@@ -168,6 +190,14 @@ export async function createOutgoingMovementAction(
         })),
       },
     },
+  });
+
+  await logActivity({
+    userId: user.id,
+    action: "Created",
+    entityType: "StockMovement",
+    entityId: outgoingRef,
+    description: `Dispatched ${outgoingRef} to agent ${agent.companyName} — ${totalQty} unit${totalQty === 1 ? "" : "s"}`,
   });
 
   revalidatePath("/warehouse/outgoing");

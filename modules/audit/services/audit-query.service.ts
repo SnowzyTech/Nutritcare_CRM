@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db/prisma";
-import type { Prisma } from "@prisma/client";
+import type { Prisma, UserRole } from "@prisma/client";
 import {
   ROLE_TO_UI_DEPT,
   UI_DEPT_LABELS,
@@ -119,28 +119,39 @@ function groupByDay(logs: LogRow[]): AuditGroup[] {
 
 // ── Where builder ─────────────────────────────────────────────────────────────
 export type ActivityFilters = {
-  userId?: string;
+  userId?: string; // exact actor (person filter) or Personal-tab self
   department?: string; // one of DEPARTMENT_FILTERS values
-  date?: Date;
+  dateFrom?: Date; // inclusive start day
+  dateTo?: Date; // inclusive end day
   search?: string;
+  excludeSuperAdmin?: boolean; // hide SUPER_ADMIN activity (for limited-admin viewers)
 };
+
+function startOfDay(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
 
 function buildWhere(filters: ActivityFilters): Prisma.AuditLogWhereInput {
   const where: Prisma.AuditLogWhereInput = {};
   if (filters.userId) where.userId = filters.userId;
 
   if (filters.department && filters.department !== "ALL") {
-    where.actorRole = { in: rolesForDepartment(filters.department) };
+    let roles = rolesForDepartment(filters.department);
+    if (filters.excludeSuperAdmin) roles = roles.filter((r) => r !== "SUPER_ADMIN");
+    where.actorRole = { in: roles };
+  } else if (filters.excludeSuperAdmin) {
+    // No department constraint → exclude super-admin rows across the board.
+    where.NOT = { actorRole: "SUPER_ADMIN" };
   }
 
-  if (filters.date) {
-    const start = new Date(
-      filters.date.getFullYear(),
-      filters.date.getMonth(),
-      filters.date.getDate()
-    );
-    const end = new Date(start.getTime() + 86400000);
-    where.createdAt = { gte: start, lt: end };
+  if (filters.dateFrom || filters.dateTo) {
+    const createdAt: Prisma.DateTimeFilter = {};
+    if (filters.dateFrom) createdAt.gte = startOfDay(filters.dateFrom);
+    if (filters.dateTo) {
+      // Inclusive of the whole `to` day → strictly before the next day.
+      createdAt.lt = new Date(startOfDay(filters.dateTo).getTime() + 86400000);
+    }
+    where.createdAt = createdAt;
   }
 
   if (filters.search) {
@@ -153,6 +164,22 @@ function buildWhere(filters: ActivityFilters): Prisma.AuditLogWhereInput {
   }
 
   return where;
+}
+
+/** Active staff belonging to a department filter value (for the person picker). */
+export async function getStaffByDepartment(
+  dept: string,
+  excludeSuperAdmin = false
+): Promise<{ id: string; name: string }[]> {
+  if (!dept || dept === "ALL") return [];
+  let roles = rolesForDepartment(dept);
+  if (excludeSuperAdmin) roles = roles.filter((r) => r !== "SUPER_ADMIN");
+  if (roles.length === 0) return [];
+  return prisma.user.findMany({
+    where: { role: { in: roles as UserRole[] }, isActive: true },
+    select: { id: true, name: true },
+    orderBy: { name: "asc" },
+  });
 }
 
 const SELECT = {
@@ -223,13 +250,20 @@ export type DailySummary = {
   remittanceTotal: number;
 };
 
-export async function getDailySummary(date?: Date): Promise<DailySummary> {
-  const base = date ?? new Date();
-  const start = new Date(base.getFullYear(), base.getMonth(), base.getDate());
-  const end = new Date(start.getTime() + 86400000);
+export async function getActivitySummary(
+  filters: ActivityFilters = {}
+): Promise<DailySummary> {
+  // Reflect the current view. With no date range chosen, default the scoreboard
+  // to today so it stays a meaningful "recent" snapshot rather than all-time.
+  const f: ActivityFilters = { ...filters };
+  if (!f.dateFrom && !f.dateTo) {
+    const now = new Date();
+    f.dateFrom = now;
+    f.dateTo = now;
+  }
 
   const logs = await prisma.auditLog.findMany({
-    where: { createdAt: { gte: start, lt: end } },
+    where: buildWhere(f),
     select: { action: true, actorRole: true, details: true },
   });
 

@@ -9,6 +9,8 @@ import {
   applyWarehouseLocationDeltas,
   type ShelfAllocationItem,
 } from "@/modules/inventory/services/stock-level.service";
+import { logActivity } from "@/modules/audit/services/audit-log.service";
+import { suppressCameraForRequest } from "@/lib/audit/context";
 
 type ShelfEntry = { productId: string; locationId: string; quantity: number };
 
@@ -25,11 +27,13 @@ export async function receiveStockTransferAction(
   notes?: string,
 ): Promise<{ success: boolean; error?: string }> {
   let warehouseId: string;
+  let userId: string;
   try {
-    ({ warehouseId } = await requireWarehouseManager());
+    ({ userId, warehouseId } = await requireWarehouseManager());
   } catch (e) {
     return { success: false, error: (e as Error).message };
   }
+  suppressCameraForRequest();
 
   const transfer = await prisma.stockTransfer.findUnique({
     where: { id: transferId },
@@ -81,6 +85,14 @@ export async function receiveStockTransferAction(
     await applyWarehouseLocationDeltas(tx, creditDeltas);
     await creditShelfProducts(tx, shelfEntries as ShelfAllocationItem[]);
     await creditWarehouse(tx, warehouseId, transfer.items);
+  });
+
+  await logActivity({
+    userId,
+    action: "Updated",
+    entityType: "StockTransfer",
+    entityId: transferId,
+    description: `Received and shelved stock transfer ${transfer.referenceNumber}`,
   });
 
   revalidatePath("/warehouse/incoming-goods");
