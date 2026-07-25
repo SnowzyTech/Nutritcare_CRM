@@ -443,6 +443,13 @@ export async function getAllTeams() {
   });
 }
 
+export async function getTeamById(id: string) {
+  return prisma.team.findUnique({
+    where: { id },
+    select: { id: true, name: true, department: true },
+  });
+}
+
 export async function getTeamsWithMemberCount() {
   return prisma.team.findMany({
     select: {
@@ -547,6 +554,32 @@ export async function getManagerWithTeam(managerId: string) {
   });
 }
 
+/**
+ * All-time per-rep metrics keyed by rep id. One query for the whole set, then
+ * the shared {@link computeRepMetrics} (same weighted "General Performance" the
+ * analytics pages use) so the reps list, the overview average, and the
+ * analytics screens all agree on one number.
+ */
+async function repMetricsByRep(memberIds: string[]) {
+  const orders = await prisma.order.findMany({
+    where: { salesRepId: { in: memberIds }, deletedAt: null },
+    select: {
+      salesRepId: true, status: true, customerId: true, isReorder: true,
+      items: { select: { productId: true, quantity: true, product: { select: { name: true } } } },
+    },
+  });
+
+  const byRep: Record<string, typeof orders> = {};
+  for (const id of memberIds) byRep[id] = [];
+  for (const o of orders) {
+    if (o.salesRepId && byRep[o.salesRepId]) byRep[o.salesRepId].push(o);
+  }
+
+  const map: Record<string, ReturnType<typeof computeRepMetrics>> = {};
+  for (const id of memberIds) map[id] = computeRepMetrics(byRep[id]);
+  return map;
+}
+
 export async function getTeamMembersWithStats(teamId: string) {
   const members = await prisma.user.findMany({
     where: { teamId, role: "SALES_REP", isActive: true },
@@ -556,34 +589,48 @@ export async function getTeamMembersWithStats(teamId: string) {
 
   if (members.length === 0) return [];
 
-  const memberIds = members.map(m => m.id);
-  const stats = await prisma.order.groupBy({
-    by: ["salesRepId", "status"],
-    where: { salesRepId: { in: memberIds }, deletedAt: null },
-    _count: { id: true },
-  });
-
-  const statsMap: Record<string, Record<string, number>> = {};
-  for (const s of stats) {
-    if (!s.salesRepId) continue;
-    statsMap[s.salesRepId] ??= {};
-    statsMap[s.salesRepId][s.status] = s._count.id;
-  }
+  const metrics = await repMetricsByRep(members.map(m => m.id));
 
   return members.map(member => {
-    const s = statsMap[member.id] ?? {};
-    const delivered = s.DELIVERED ?? 0;
-    const failed = s.FAILED ?? 0;
-    const confirmed = s.CONFIRMED ?? 0;
-    const pending = s.PENDING ?? 0;
-    const cancelled = s.CANCELLED ?? 0;
-    const pendingOrders = pending + confirmed;
-    const total = delivered + failed + confirmed + pending + cancelled;
-    const dispatched = delivered + failed;
-    const deliveryRate = dispatched > 0 ? delivered / dispatched : 0;
-    const confirmationRate = total > 0 ? (confirmed + delivered) / total : 0;
-    const performance = Math.min(100, Math.round((deliveryRate * 0.6 + confirmationRate * 0.4) * 100));
-    return { ...member, pendingOrders, performance };
+    const m = metrics[member.id];
+    // "Performance" = weighted General Performance (delivery/recovery/upsell/
+    // reorder/low-cancellation), matching the analytics pages.
+    return { ...member, pendingOrders: m.pending + m.confirmed, performance: m.generalPerformance };
+  });
+}
+
+/**
+ * Company-wide version of getTeamMembersWithStats — every active sales rep
+ * across all teams, with the same per-rep stats plus team info for grouping.
+ * Used by the company-wide Sales Rep Manager (role SALES_REP_MANAGER).
+ */
+export async function getAllActiveSalesReps() {
+  const members = await prisma.user.findMany({
+    where: { role: "SALES_REP", isActive: true },
+    select: {
+      id: true, name: true, phone: true, avatarUrl: true,
+      teamId: true, team: { select: { id: true, name: true } },
+    },
+    orderBy: { name: "asc" },
+  });
+
+  if (members.length === 0) return [];
+
+  const metrics = await repMetricsByRep(members.map(m => m.id));
+
+  return members.map(member => {
+    const m = metrics[member.id];
+    return {
+      id: member.id,
+      name: member.name,
+      phone: member.phone,
+      avatarUrl: member.avatarUrl,
+      teamId: member.teamId,
+      teamName: member.team?.name ?? null,
+      pendingOrders: m.pending + m.confirmed,
+      // "Performance" = weighted General Performance, matching the analytics pages.
+      performance: m.generalPerformance,
+    };
   });
 }
 
@@ -616,9 +663,9 @@ function toReportMetrics(orders: ReportOrder[]): MonthMetrics {
   };
 }
 
-export async function getTeamAnalytics(teamId: string, period?: MonthPeriod) {
+export async function getTeamAnalytics(teamId: string, period?: MonthPeriod | DatePeriod) {
   const members = await prisma.user.findMany({
-    where: { teamId, role: "SALES_REP" },
+    where: { teamId, role: "SALES_REP", isActive: true },
     select: { id: true },
   });
 
@@ -647,7 +694,89 @@ export async function getTeamAnalytics(teamId: string, period?: MonthPeriod) {
   }
 
   const memberIds = members.map(m => m.id);
-  const { currentStart, currentEnd, prevStart, prevEnd } = monthRanges(period ?? parseMonthParam());
+  const { currentStart, currentEnd, prevStart, prevEnd } = !period
+    ? monthRanges(parseMonthParam())
+    : "from" in period
+      ? dateRanges(period)
+      : monthRanges(period);
+
+  const allOrders = await prisma.order.findMany({
+    where: { salesRepId: { in: memberIds }, deletedAt: null },
+    select: {
+      status: true, customerId: true, createdAt: true, isReorder: true,
+      items: { select: { productId: true, quantity: true, product: { select: { name: true } } } },
+    },
+  });
+
+  const thisMonthOrders = allOrders.filter(o => o.createdAt >= currentStart && o.createdAt <= currentEnd);
+  const lastMonthOrders = allOrders.filter(o => o.createdAt >= prevStart && o.createdAt <= prevEnd);
+
+  const current = computeRepMetrics(thisMonthOrders);
+  const previous = computeRepMetrics(lastMonthOrders);
+  const tables = computeProductTables(thisMonthOrders);
+
+  return {
+    current,
+    trends: {
+      distinctCustomers: trendLabel(current.distinctCustomers, previous.distinctCustomers),
+      total: trendLabel(current.total, previous.total),
+      delivered: trendLabel(current.delivered, previous.delivered),
+      generalPerformance: trendLabel(current.generalPerformance, previous.generalPerformance),
+      upsellRate: trendLabel(current.upsellRate, previous.upsellRate),
+      confirmationRate: trendLabel(current.confirmationRate, previous.confirmationRate),
+      deliveryRate: trendLabel(current.deliveryRate, previous.deliveryRate),
+      cancellationRate: trendLabel(current.cancellationRate, previous.cancellationRate),
+      recoveryRate: trendLabel(current.recoveryRate, previous.recoveryRate),
+      reorderRate: trendLabel(current.reorderRate, previous.reorderRate),
+      kpi: trendLabel(current.kpi, previous.kpi),
+    },
+    tables,
+    reportMetrics: toReportMetrics(thisMonthOrders),
+    memberCount: members.length,
+  };
+}
+
+/**
+ * Company-wide analytics across every sales rep (all teams). Mirrors
+ * getTeamAnalytics but drops the teamId filter. Used by the company-wide
+ * Sales Rep Manager dashboard.
+ */
+export async function getCompanyAnalytics(period?: MonthPeriod | DatePeriod) {
+  const members = await prisma.user.findMany({
+    where: { role: "SALES_REP", isActive: true },
+    select: { id: true },
+  });
+
+  if (members.length === 0) {
+    const empty = computeRepMetrics([]);
+    const emptyTrend = "—";
+    return {
+      current: empty,
+      trends: {
+        distinctCustomers: emptyTrend,
+        total: emptyTrend,
+        delivered: emptyTrend,
+        generalPerformance: emptyTrend,
+        upsellRate: emptyTrend,
+        confirmationRate: emptyTrend,
+        deliveryRate: emptyTrend,
+        cancellationRate: emptyTrend,
+        recoveryRate: emptyTrend,
+        reorderRate: emptyTrend,
+        kpi: emptyTrend,
+      },
+      tables: { bestSellingTable: [], upsellingTable: [] },
+      reportMetrics: toReportMetrics([]),
+      memberCount: 0,
+    };
+  }
+
+  const memberIds = members.map(m => m.id);
+  const { currentStart, currentEnd, prevStart, prevEnd } = !period
+    ? monthRanges(parseMonthParam())
+    : "from" in period
+      ? dateRanges(period)
+      : monthRanges(period);
 
   const allOrders = await prisma.order.findMany({
     where: { salesRepId: { in: memberIds }, deletedAt: null },

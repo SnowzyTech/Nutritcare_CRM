@@ -1,19 +1,13 @@
-import { auth } from "@/lib/auth/auth";
-import { getManagerWithTeam, getTeamMembersWithStats } from "@/modules/users/services/users.service";
 import { getTeamOrders } from "@/modules/orders/services/orders.service";
 import { getActiveProducts } from "@/modules/orders/services/products.service";
 import { TeamOrdersClient, type TeamOrderListItem } from "./team-orders-client";
+import { resolveManagerScope } from "../_lib/manager-scope";
 
 export const dynamic = "force-dynamic";
 
 export default async function TeamOrdersPage() {
-  const session = await auth();
-  const managerId = session?.user?.id;
-
-  const manager = managerId ? await getManagerWithTeam(managerId) : null;
-  const teamId = manager?.teamId;
-  const members = teamId ? await getTeamMembersWithStats(teamId) : [];
-  const memberIds = members.map(m => m.id);
+  const { reps } = await resolveManagerScope();
+  const memberIds = reps.map(m => m.id);
 
   const [dbOrders, allProducts] = await Promise.all([
     getTeamOrders(memberIds),

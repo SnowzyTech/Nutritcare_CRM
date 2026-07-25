@@ -35,6 +35,8 @@ export interface AnalyticsData {
   };
   bestSellingTable: Array<{ product: string; amountSold: number }>;
   upsellingTable: Array<{ product: string; noOfUpsell: number }>;
+  /** Trend comparison caption, e.g. "vs last month" / "vs last week". */
+  vsLabel?: string;
 }
 
 export interface AnalyticsHeaderProps {
@@ -58,7 +60,7 @@ function trendTone(trend: string): "up" | "down" | "flat" {
   return "up";
 }
 
-function StatCard({ label, value, trend }: { label: string; value: string; trend?: string }) {
+function StatCard({ label, value, trend, vsLabel = "vs last month" }: { label: string; value: string; trend?: string; vsLabel?: string }) {
   const tone = trend ? trendTone(trend) : "flat";
   return (
     <div className="bg-white rounded-[24px] p-6 border border-gray-100 shadow-sm flex flex-col justify-between h-[150px]">
@@ -71,7 +73,7 @@ function StatCard({ label, value, trend }: { label: string; value: string; trend
               tone === "up" ? "text-green-500" : tone === "down" ? "text-red-500" : "text-gray-400"
             }`}
           >
-            {trend} <span className="text-gray-400 font-medium">vs last month</span>
+            {trend} <span className="text-gray-400 font-medium">{vsLabel}</span>
           </p>
         )}
       </div>
@@ -98,6 +100,7 @@ function KpiCard({
   delivered,
   handled,
   monthLabel,
+  vsLabel = "vs last month",
 }: {
   value: string;
   trend: string;
@@ -105,6 +108,7 @@ function KpiCard({
   delivered: number;
   handled: number;
   monthLabel: string;
+  vsLabel?: string;
 }) {
   const tone = trendTone(trend);
   const kpiNum = parseInt(value, 10) || 0;
@@ -119,7 +123,7 @@ function KpiCard({
       <div className="flex justify-between items-start">
         <p className="text-sm font-bold">KPI</p>
         <div className="text-right">
-          <p className={`text-[11px] ${met ? "text-purple-200" : "text-red-100"}`}>Target for the month:</p>
+          <p className={`text-[11px] ${met ? "text-purple-200" : "text-red-100"}`}>Target:</p>
           <p className="text-lg font-bold">{target}</p>
         </div>
       </div>
@@ -128,7 +132,7 @@ function KpiCard({
           <p className="text-[52px] font-bold leading-none">{value}</p>
           <p className="text-[11px] font-bold mb-2">
             <span className={tone === "down" ? "text-red-300" : "text-white"}>{trend}</span>{" "}
-            <span className={`font-medium ${met ? "text-purple-200" : "text-red-100"}`}>vs last month</span>
+            <span className={`font-medium ${met ? "text-purple-200" : "text-red-100"}`}>{vsLabel}</span>
           </p>
         </div>
         <p className={`text-[11px] font-medium mt-2 ${met ? "text-purple-200" : "text-red-100"}`}>
@@ -197,6 +201,7 @@ function BonusCard({
 }
 
 export function AnalyticsDashboardClient({ header, data, monthSelector, reportButtons }: AnalyticsDashboardClientProps) {
+  const vsLabel = data.vsLabel ?? "vs last month";
   return (
     <div className="max-w-6xl mx-auto flex flex-col gap-10 pb-20 md:pt-14">
 
@@ -239,22 +244,22 @@ export function AnalyticsDashboardClient({ header, data, monthSelector, reportBu
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* Row 1 */}
-        <StatCard label="Total Products Sold (Delivered)" value={data.totalProductsSold.value} trend={data.totalProductsSold.trend} />
-        <StatCard label="Total Orders" value={data.totalOrderCustomer.value} trend={data.totalOrderCustomer.trend} />
+        <StatCard label="Total Products Sold (Delivered)" value={data.totalProductsSold.value} trend={data.totalProductsSold.trend} vsLabel={vsLabel} />
+        <StatCard label="Total Orders" value={data.totalOrderCustomer.value} trend={data.totalOrderCustomer.trend} vsLabel={vsLabel} />
         <BestSellingCard label="Best Selling Product" value={data.bestSellingProduct.name} subtitle={data.bestSellingProduct.subtitle} />
 
         {/* Row 2 */}
-        <StatCard label="General Performance" value={data.generalPerformance.value} trend={data.generalPerformance.trend} />
-        <StatCard label="Upselling Rate" value={data.upsellingRate.value} trend={data.upsellingRate.trend} />
-        <StatCard label="Confirmation Rate" value={data.confirmationRate.value} trend={data.confirmationRate.trend} />
+        <StatCard label="General Performance" value={data.generalPerformance.value} trend={data.generalPerformance.trend} vsLabel={vsLabel} />
+        <StatCard label="Upselling Rate" value={data.upsellingRate.value} trend={data.upsellingRate.trend} vsLabel={vsLabel} />
+        <StatCard label="Confirmation Rate" value={data.confirmationRate.value} trend={data.confirmationRate.trend} vsLabel={vsLabel} />
 
         {/* Row 3 */}
-        <StatCard label="Delivery Rate" value={data.deliveryRate.value} trend={data.deliveryRate.trend} />
-        <StatCard label="Cancellation Rate" value={data.cancellationRate.value} trend={data.cancellationRate.trend} />
-        <StatCard label="Recovery Rate" value={data.recoveryRate.value} trend={data.recoveryRate.trend} />
+        <StatCard label="Delivery Rate" value={data.deliveryRate.value} trend={data.deliveryRate.trend} vsLabel={vsLabel} />
+        <StatCard label="Cancellation Rate" value={data.cancellationRate.value} trend={data.cancellationRate.trend} vsLabel={vsLabel} />
+        <StatCard label="Recovery Rate" value={data.recoveryRate.value} trend={data.recoveryRate.trend} vsLabel={vsLabel} />
 
         {/* Row 4 */}
-        <StatCard label="Reorder Rate" value={data.reorderRate.value} trend={data.reorderRate.trend} />
+        <StatCard label="Reorder Rate" value={data.reorderRate.value} trend={data.reorderRate.trend} vsLabel={vsLabel} />
         <KpiCard
           value={data.kpi.value}
           trend={data.kpi.trend}
@@ -262,6 +267,7 @@ export function AnalyticsDashboardClient({ header, data, monthSelector, reportBu
           delivered={data.kpi.delivered}
           handled={data.kpi.handled}
           monthLabel={data.monthLabel}
+          vsLabel={vsLabel}
         />
         <BonusCard
           amount={data.bonus.amount}

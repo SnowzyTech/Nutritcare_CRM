@@ -1,9 +1,9 @@
 import { notFound } from "next/navigation";
 import { getSalesRepById, getSalesRepAnalytics } from "@/modules/users/services/users.service";
 import { getTeamOrders } from "@/modules/orders/services/orders.service";
-import { monthRanges, parseMonthParam, monthLabel } from "@/lib/month-period";
 import { calculateBonus } from "@/lib/bonus";
-import { MonthSelect } from "@/app/(sales-rep)/sales-rep/analytics/month-select";
+import { AnalyticsPeriodToggle } from "../../analytics/period-toggle";
+import { parseRange, resolveAnalyticsPeriod } from "../../analytics/analytics-period";
 import { AnalyticsDashboardClient, AnalyticsData } from "../../analytics/analytics-dashboard-client";
 
 export const dynamic = "force-dynamic";
@@ -46,35 +46,33 @@ export default async function RepAnalyticsPage({
   searchParams,
 }: {
   params: Promise<{ repId: string }>;
-  searchParams: Promise<{ month?: string }>;
+  searchParams: Promise<{ month?: string; range?: string }>;
 }) {
   const { repId } = await params;
-  const { month } = await searchParams;
-  const period = parseMonthParam(month);
+  const { month, range: rangeParam } = await searchParams;
+  const range = parseRange(rangeParam);
+  const { periodArg, currentStart, currentEnd, periodText, vsLabel, bonusPeriod, bonusPeriodLabel } =
+    resolveAnalyticsPeriod(range, month);
   const rep = await getSalesRepById(repId);
 
   if (!rep) notFound();
 
   const [analytics, dbOrders] = await Promise.all([
-    getSalesRepAnalytics(repId, period),
+    getSalesRepAnalytics(repId, periodArg),
     getTeamOrders([repId]),
   ]);
 
   const { current, trends } = analytics;
 
-  // Scope the product tables to the selected month so they match the stat cards
-  // (which are month-scoped) and the sales-rep portal.
-  const { currentStart, currentEnd } = monthRanges(period);
-  const monthOrders = dbOrders.filter(
+  // Scope the product tables to the selected window so they match the stat cards.
+  const periodOrders = dbOrders.filter(
     o => o.createdAt >= currentStart && o.createdAt <= currentEnd
   );
-  const tables = computeProductTables(monthOrders);
-
-  const ml = monthLabel(period);
-  const periodText = ml === "This Month" ? "this month" : `in ${ml}`;
+  const tables = computeProductTables(periodOrders);
 
   const data: AnalyticsData = {
     monthLabel: periodText,
+    vsLabel,
     totalProductsSold: {
       value: String(current.delivered),
       trend: trends.delivered,
@@ -117,9 +115,11 @@ export default async function RepAnalyticsPage({
       handled: current.total,
     },
     bonus: {
-      ...calculateBonus(current.kpi, current.total, "month"),
+      ...(bonusPeriod
+        ? calculateBonus(current.kpi, current.total, bonusPeriod)
+        : { amount: 0, eligible: false, reason: "Bonuses apply to weekly/monthly periods" }),
       kpi: current.kpi,
-      periodLabel: "Monthly",
+      periodLabel: bonusPeriodLabel,
     },
     bestSellingTable: tables.bestSellingTable,
     upsellingTable: tables.upsellingTable,
@@ -133,7 +133,7 @@ export default async function RepAnalyticsPage({
         repTeam: rep.team?.name ?? "No Team",
       }}
       data={data}
-      monthSelector={<MonthSelect />}
+      monthSelector={<AnalyticsPeriodToggle />}
     />
   );
 }
