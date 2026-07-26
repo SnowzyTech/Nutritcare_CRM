@@ -39,6 +39,7 @@ type PageDef = { key: string; label: string; description: string };
 
 const PAGE_ICONS: Record<string, LucideIcon> = {
   staff: Users,
+  "access-control": ShieldCheck,
   overview: BarChart3,
   orders: ShoppingCart,
   inventory: Package,

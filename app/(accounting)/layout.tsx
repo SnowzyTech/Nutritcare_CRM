@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { auth } from "@/lib/auth/auth";
 import { getUserById } from "@/modules/auth/services/auth.service";
 import { getInitials } from "@/lib/utils";
+import { getAccountingAccess } from "@/lib/auth/accounting-access";
 import { AccountingSidebar } from "./accounting/_components/AccountingSidebar";
 
 export const metadata: Metadata = {
@@ -18,14 +19,23 @@ export default async function AccountingLayout({
 }) {
   const session = await auth();
   const userId = session?.user?.id;
-  const dbUser = userId ? await getUserById(userId) : null;
+  const [dbUser, access] = await Promise.all([
+    userId ? getUserById(userId) : null,
+    getAccountingAccess(),
+  ]);
+
+  const role = dbUser?.role ?? "ACCOUNTANT";
+  // "Head of accounting" = an accountant granted every gated feature.
+  const isAccountingHead = role === "ACCOUNTANT" && Object.values(access).every(Boolean);
 
   const user = {
     name: dbUser?.name ?? session?.user?.name ?? "Accountant",
     email: dbUser?.email ?? session?.user?.email ?? "",
     avatarUrl: dbUser?.avatarUrl ?? null,
-    role: dbUser?.role ?? "ACCOUNTANT",
+    role,
     initials: getInitials(dbUser?.name ?? session?.user?.name ?? ""),
+    access,
+    isAccountingHead,
   };
 
   return (

@@ -43,13 +43,17 @@ export async function Sidebar() {
     return true;
   });
 
-  // The "Admins" management link (under Staff Management) is SUPER_ADMIN only.
+  // The "Access Control" link (under Staff Management) is available to any admin
+  // by default — but a super-admin can revoke a limited admin's authority via the
+  // "access-control" page key, which hides the link (super-admins always pass).
   const items = roleFiltered.map((item) =>
     item.label === "Staff Management" && item.children
       ? {
           ...item,
           children: item.children.filter(
-            (c) => c.href !== "/admin/staff/admins" || superAdmin
+            (c) =>
+              c.href !== "/admin/staff/admins" ||
+              canAccessAdminPage(role, revoked, "access-control")
           ),
         }
       : item

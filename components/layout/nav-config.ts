@@ -33,7 +33,7 @@ export const allNavItems: NavItem[] = [
       { label: "Logistics Manager", href: "/admin/staff/logistics-manager" },
       { label: "Manage Account", href: "/admin/staff/manage-account" },
       { label: "Teams", href: "/admin/staff/teams" },
-      { label: "Admins", href: "/admin/staff/admins" },
+      { label: "Access Control", href: "/admin/staff/admins" },
     ],
   },
   {

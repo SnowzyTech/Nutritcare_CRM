@@ -16,9 +16,12 @@ import {
   createTeam,
   deleteTeam,
   updateSelfProfile,
+  setAccountingPermissions,
 } from "../services/users.service";
 import type { Department } from "@prisma/client";
 import { isAdmin } from "@/lib/auth/role-routes";
+import { ACCOUNTING_PERMISSION_KEYS } from "@/lib/auth/accounting-permissions";
+import { canAccessAdminPage } from "@/lib/auth/admin-pages";
 import { logActivity } from "@/modules/audit/services/audit-log.service";
 import { suppressCameraForRequest } from "@/lib/audit/context";
 import { prisma } from "@/lib/db/prisma";
@@ -160,6 +163,56 @@ export async function toggleTeamLeadAction(userId: string, makeTeamLead: boolean
     return { success: true };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Failed to update team lead status" };
+  }
+}
+
+/**
+ * Admin sets which gated accounting features an accountant may see.
+ * `permissions` is the full replacement list of granted feature keys.
+ */
+export async function updateAccountingPermissionsAction(input: {
+  userId: string;
+  permissions: string[];
+}): Promise<ActionResult> {
+  try {
+    const actor = await requireAdmin();
+    suppressCameraForRequest();
+
+    // A super-admin can revoke a limited admin's authority to manage accounting
+    // access (the "access-control" page key). Super-admins always pass.
+    if (actor.role !== "SUPER_ADMIN") {
+      const me = await prisma.user.findUnique({
+        where: { id: actor.id },
+        select: { revokedAdminPages: true },
+      });
+      if (!canAccessAdminPage(actor.role, me?.revokedAdminPages ?? [], "access-control")) {
+        return { error: "You don't have permission to manage accounting access." };
+      }
+    }
+
+    // Keep only valid keys (drops anything unknown; also de-dupes).
+    const valid = Array.from(
+      new Set(input.permissions.filter((p) => (ACCOUNTING_PERMISSION_KEYS as string[]).includes(p)))
+    );
+
+    const result = await setAccountingPermissions(input.userId, valid);
+    if (result.count === 0) return { error: "Accountant not found." };
+
+    const name = await staffName(input.userId);
+    await logActivity({
+      userId: actor.id, actorName: actor.name, actorRole: actor.role,
+      action: "Updated", entityType: "User", entityId: input.userId,
+      description: valid.length > 0
+        ? `Set accounting access for ${name}: ${valid.join(", ")}`
+        : `Removed all accounting access for ${name}`,
+    });
+
+    revalidatePath(`/admin/staff/accountant/${input.userId}`);
+    revalidatePath("/admin/staff/admins");
+    revalidatePath("/accounting", "layout");
+    return { success: true };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Failed to update accounting access" };
   }
 }
 

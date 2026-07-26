@@ -118,6 +118,23 @@ export async function listAdmins() {
   });
 }
 
+/** Accountants + their granted accounting features, for the access-control page. */
+export async function listAccountantsForAccess() {
+  return prisma.user.findMany({
+    where: { role: "ACCOUNTANT" },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      avatarUrl: true,
+      isActive: true,
+      accountingPermissions: true,
+      createdAt: true,
+    },
+    orderBy: { createdAt: "asc" },
+  });
+}
+
 /** Replace a limited admin's revoked-pages list. Only affects ADMIN accounts. */
 export async function setAdminPageAccess(userId: string, revokedPages: string[]) {
   return prisma.user.updateMany({
@@ -856,9 +873,18 @@ export async function getStaffMemberById(id: string) {
     select: {
       id: true, name: true, email: true, phone: true, whatsappNumber: true,
       avatarUrl: true, isActive: true, isTeamLead: true, createdAt: true, role: true,
+      accountingPermissions: true,
       team: { select: { id: true, name: true } },
       warehouse: { select: { id: true, name: true } },
     },
+  });
+}
+
+/** Replace an accountant's granted accounting features (positive-grant model). */
+export async function setAccountingPermissions(userId: string, permissions: string[]) {
+  return prisma.user.updateMany({
+    where: { id: userId, role: "ACCOUNTANT" },
+    data: { accountingPermissions: permissions },
   });
 }
 

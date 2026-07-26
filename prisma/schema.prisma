@@ -25,6 +25,7 @@ model User {
   agentId                 String?                 @unique
   warehouseId             String?
   revokedAdminPages       String[]                @default([])
+  accountingPermissions   String[]                @default([])
   createdAt               DateTime                @default(now())
   updatedAt               DateTime                @updatedAt
   agentsAdded             Agent[]                 @relation("AgentAddedBy")

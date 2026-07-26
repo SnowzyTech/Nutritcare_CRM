@@ -20,6 +20,7 @@ import {
   ChevronRight,
   DollarSign,
   MessageCircle,
+  ShieldCheck,
 } from 'lucide-react';
 
 const reportSubItems = [
@@ -59,6 +60,10 @@ interface SidebarUser {
   avatarUrl: string | null;
   role: string;
   initials: string;
+  /** Per-feature accounting access flags (from getAccountingAccess). */
+  access?: Record<string, boolean>;
+  /** True when this accountant holds every gated feature. */
+  isAccountingHead?: boolean;
 }
 
 export function AccountingSidebar({ user }: { user?: SidebarUser }) {
@@ -66,6 +71,14 @@ export function AccountingSidebar({ user }: { user?: SidebarUser }) {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const onReportsPage = pathname.startsWith('/accounting/reports');
   const [reportsOpen, setReportsOpen] = useState(onReportsPage);
+
+  // Hide the gated Salary/Reports nav items unless the viewer has been granted them.
+  const access = user?.access;
+  const visibleNavItems = navItems.filter(item => {
+    if (item.href === '/accounting/salary') return access?.SALARY ?? false;
+    if (item.href === '/accounting/reports') return access?.REPORTS ?? false;
+    return true;
+  });
 
   const displayName = user?.name ?? 'Accountant';
   const displayRole = user?.role ? formatRole(user.role) : 'Accountant';
@@ -126,9 +139,15 @@ export function AccountingSidebar({ user }: { user?: SidebarUser }) {
               <span className="text-[14px] font-extrabold text-gray-900 truncate leading-tight tracking-tight hover:text-[#AE00FF] transition-colors">
                 {displayName}
               </span>
-              <span className="text-[11px] text-[#AE00FF] font-bold mt-0.5 tracking-wide uppercase">
-                {displayRole}
-              </span>
+              {user?.isAccountingHead ? (
+                <span className="mt-1 inline-flex items-center gap-1 self-start bg-[#F3E8FF] text-[#7c3aed] text-[9px] font-black tracking-wide uppercase px-2 py-0.5 rounded-full border border-[#E9D5FF]">
+                  <ShieldCheck size={10} /> Head of Accounting
+                </span>
+              ) : (
+                <span className="text-[11px] text-[#AE00FF] font-bold mt-0.5 tracking-wide uppercase">
+                  {displayRole}
+                </span>
+              )}
             </div>
           )}
         </div>
@@ -136,7 +155,7 @@ export function AccountingSidebar({ user }: { user?: SidebarUser }) {
 
       {/* Nav Items */}
       <nav className={`flex-1 mt-2 space-y-1.5 overflow-y-auto no-scrollbar ${isCollapsed ? 'px-3' : 'px-4'}`}>
-        {navItems.map((item) => {
+        {visibleNavItems.map((item) => {
           const isReports = item.href === '/accounting/reports';
           const isActive = isReports
             ? onReportsPage

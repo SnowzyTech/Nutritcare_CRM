@@ -11,6 +11,7 @@ import { isAdmin, isSuperAdmin } from "./role-routes";
  */
 export type AdminPageKey =
   | "staff"
+  | "access-control"
   | "overview"
   | "orders"
   | "inventory"
@@ -31,6 +32,9 @@ export interface AdminPageDef {
 }
 
 export const ADMIN_PAGES: AdminPageDef[] = [
+  // `access-control` must precede `staff` — its path is a sub-path of /admin/staff,
+  // so the more specific prefix has to match first in getAdminPageKeyForPath.
+  { key: "access-control", label: "Access Control", navLabel: "Access Control", description: "Grant/revoke accounting features for accountants.", prefixes: ["/admin/staff/admins"] },
   { key: "staff", label: "Staff Management", navLabel: "Staff Management", description: "View and manage all staff accounts, teams and approvals.", prefixes: ["/admin/staff"] },
   { key: "overview", label: "Staff Overview", navLabel: "Staff Overview", description: "Department overview boards with per-person and department-wide analytics by day.", prefixes: ["/admin/overview"] },
   { key: "orders", label: "Orders", navLabel: "Order", description: "View all orders and handle order assignment.", prefixes: ["/admin/orders"] },
