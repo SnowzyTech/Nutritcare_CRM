@@ -2,7 +2,7 @@
 
 import React, { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { X, Trash2, RotateCcw } from "lucide-react";
+import { X, Trash2, RotateCcw, Phone } from "lucide-react";
 import Image from "next/image";
 import { toast } from "sonner";
 import type { OrderStatus } from "@prisma/client";
@@ -200,11 +200,14 @@ function getStatusBadge(status: OrderStatus) {
   }
 }
 
-function FieldRow({ label, value, copyable }: { label: string; value: string; copyable?: boolean }) {
+function FieldRow({ label, value, copyable, callable }: { label: string; value: string; copyable?: boolean; callable?: boolean }) {
   const handleCopy = () => {
     navigator.clipboard.writeText(value);
     toast.success(`${label} copied!`);
   };
+
+  // A real number to dial (strip spaces/dashes so the dialer parses it).
+  const dialNumber = value && value !== "—" ? value.replace(/[^\d+]/g, "") : "";
 
   return (
     <div className="relative group mb-1">
@@ -223,6 +226,15 @@ function FieldRow({ label, value, copyable }: { label: string; value: string; co
               <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
             </svg>
           </button>
+        )}
+        {callable && dialNumber && (
+          <a
+            href={`tel:${dialNumber}`}
+            className="p-1 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors"
+            title={`Call ${label}`}
+          >
+            <Phone className="w-3.5 h-3.5" />
+          </a>
         )}
       </div>
       <div
@@ -483,11 +495,12 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6">
             <FieldRow label="Full Name" value={order.customer.name} />
-            <FieldRow label="Phone Number" value={order.customer.phone} copyable={true} />
+            <FieldRow label="Phone Number" value={order.customer.phone} copyable={true} callable={true} />
             <FieldRow
               label="WhatsApp number"
               value={order.customer.whatsappNumber ?? order.customer.phone}
               copyable={true}
+              callable={true}
             />
             <FieldRow label="Email" value={order.customer.email ?? "—"} />
             <div className="sm:col-span-2">

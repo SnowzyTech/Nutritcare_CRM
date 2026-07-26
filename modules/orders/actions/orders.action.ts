@@ -14,7 +14,8 @@ import {
   sendOrderConfirmationTemplate,
   sendDeliveryCodeTemplate,
 } from "@/lib/whatsapp/whatsapp";
-import { formatCurrency, formatDate, generateOrderNumber } from "@/lib/utils";
+import { formatCurrency, formatDate } from "@/lib/utils";
+import { nextOrderNumber } from "@/modules/orders/services/order-number.service";
 import { logActivity } from "@/modules/audit/services/audit-log.service";
 import { suppressCameraForRequest } from "@/lib/audit/context";
 
@@ -537,13 +538,13 @@ export async function createOrderAction(input: {
     });
   }
 
-  const orderNumber = generateOrderNumber();
-
   const dbProducts = await prisma.product.findMany({
     where: { id: { in: products.map((p) => p.productId) }, deletedAt: null },
-    select: { id: true, sellingPrice: true, costPrice: true },
+    select: { id: true, name: true, sellingPrice: true, costPrice: true },
   });
   const productMap = new Map(dbProducts.map((p) => [p.id, p]));
+  // Order code prefix comes from the main (first-selected) product.
+  const mainProductName = productMap.get(products[0]?.productId)?.name;
 
   for (const item of products) {
     if (!productMap.has(item.productId)) {
@@ -568,6 +569,7 @@ export async function createOrderAction(input: {
 
   try {
     const order = await prisma.$transaction(async (tx) => {
+      const orderNumber = await nextOrderNumber(tx, mainProductName);
       return tx.order.create({
         data: {
           orderNumber,

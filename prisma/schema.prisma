@@ -76,6 +76,17 @@ model Team {
   @@map("teams")
 }
 
+// Per-prefix running counter for meaningful order codes (e.g. NEURO-001). One
+// row per 5-letter product abbreviation; incremented atomically at order
+// creation. Products sharing a prefix share the sequence.
+model OrderCounter {
+  prefix    String   @id
+  value     Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  @@map("order_counters")
+}
+
 model Customer {
   id              String    @id @default(cuid())
   name            String
