@@ -258,10 +258,18 @@ export async function rescheduleOrderAction(orderId: string, scheduledDate: stri
   });
   if (!order) return { error: "Order not found" };
 
-  await prisma.delivery.updateMany({
-    where: { orderId, agentId },
-    data: { scheduledTime: new Date(scheduledDate) },
-  });
+  // Update the delivery's scheduled date and flag the order as rescheduled so
+  // both portals can show the "Rescheduled" tag.
+  await prisma.$transaction([
+    prisma.delivery.updateMany({
+      where: { orderId, agentId },
+      data: { scheduledTime: new Date(scheduledDate) },
+    }),
+    prisma.order.update({
+      where: { id: orderId },
+      data: { isRescheduled: true },
+    }),
+  ]);
 
   await logActivity({
     userId: session.user.id,

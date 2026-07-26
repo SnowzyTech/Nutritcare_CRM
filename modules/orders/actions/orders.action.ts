@@ -16,6 +16,7 @@ import {
 } from "@/lib/whatsapp/whatsapp";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { nextOrderNumber } from "@/modules/orders/services/order-number.service";
+import { describeReassignment } from "@/modules/orders/services/reassign-description.service";
 import { logActivity } from "@/modules/audit/services/audit-log.service";
 import { suppressCameraForRequest } from "@/lib/audit/context";
 
@@ -55,6 +56,14 @@ export async function reassignOrdersAction(
       });
     })
   );
+
+  await logActivity({
+    userId: session.user.id,
+    action: "Reassigned",
+    entityType: "Order",
+    entityId: orderIds[0] ?? "bulk",
+    description: await describeReassignment(orderIds, repIds),
+  });
 
   revalidatePath("/sales-rep-manager");
   revalidatePath("/sales-rep-manager/orders");

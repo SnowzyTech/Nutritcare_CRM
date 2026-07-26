@@ -10,6 +10,7 @@ import { logActivity } from "@/modules/audit/services/audit-log.service";
 import { formatCurrency } from "@/lib/utils";
 import { isAdmin } from "@/lib/auth/role-routes";
 import { suppressCameraForRequest } from "@/lib/audit/context";
+import { describeReassignment } from "@/modules/orders/services/reassign-description.service";
 
 // Returned (not thrown) so the message survives production builds, where Next.js
 // strips messages from thrown server-action errors.
@@ -195,6 +196,7 @@ export async function adminApplyOrderDiscountAction(
   reason?: string,
 ): Promise<{ discountAmount: number; discountPercent: number; netAmount: number; totalAmount: number }> {
   const session = await checkAdmin();
+  suppressCameraForRequest();
 
   const order = await prisma.order.findFirst({
     where: { id: orderId, deletedAt: null },
@@ -251,6 +253,7 @@ export async function adminReassignOrdersAction(
   salesRepIds: string[]
 ) {
   const session = await checkAdmin();
+  suppressCameraForRequest();
   if (!orderIds.length) throw new Error("No orders selected");
   if (!salesRepIds.length) throw new Error("No sales reps selected");
 
@@ -267,7 +270,7 @@ export async function adminReassignOrdersAction(
     action: "Reassigned",
     entityType: "Order",
     entityId: orderIds[0] ?? "bulk",
-    description: `Reassigned ${orderIds.length} order${orderIds.length === 1 ? "" : "s"} to ${salesRepIds.length} sales rep${salesRepIds.length === 1 ? "" : "s"}`,
+    description: await describeReassignment(orderIds, salesRepIds),
   });
   revalidatePath("/admin/orders");
   revalidatePath("/admin/orders/order-assignment");
@@ -276,6 +279,7 @@ export async function adminReassignOrdersAction(
 
 export async function adminReassignOrderAgentAction(orderId: string, agentId: string): Promise<ActionResult> {
   const session = await checkAdmin();
+  suppressCameraForRequest();
   const order = await getOrder(orderId);
   if (!order || (order.status !== "CONFIRMED" && order.status !== "FAILED")) {
     return { error: "Cannot reassign agent for this order" };
@@ -294,6 +298,7 @@ export async function adminReassignOrderAgentAction(orderId: string, agentId: st
 
 export async function adminUpdateOrderNotesAction(orderId: string, notes: string): Promise<ActionResult> {
   const session = await checkAdmin();
+  suppressCameraForRequest();
   const order = await getOrder(orderId);
   if (!order || order.status === "DELIVERED" || order.status === "CANCELLED") {
     return { error: "Cannot update notes for this order" };
@@ -312,6 +317,7 @@ export async function adminAddOrderItemsAction(
   items: Array<{ productId: string; quantity: number }>
 ): Promise<ActionResult> {
   const session = await checkAdmin();
+  suppressCameraForRequest();
   const order = await getOrder(orderId);
   if (!order || order.status !== "PENDING") return { error: "Cannot modify this order" };
 
@@ -355,6 +361,7 @@ export async function adminAddOrderItemsAction(
  */
 export async function adminRemoveOrderItemAction(orderId: string, itemId: string): Promise<ActionResult> {
   const session = await checkAdmin();
+  suppressCameraForRequest();
 
   const order = await prisma.order.findFirst({
     where: { id: orderId, deletedAt: null },

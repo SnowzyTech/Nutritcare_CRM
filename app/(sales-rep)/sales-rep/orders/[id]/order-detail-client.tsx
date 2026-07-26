@@ -2,7 +2,7 @@
 
 import React, { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { X, Trash2, RotateCcw, Phone } from "lucide-react";
+import { X, Trash2, RotateCcw, Phone, CalendarClock } from "lucide-react";
 import Image from "next/image";
 import { toast } from "sonner";
 import type { OrderStatus } from "@prisma/client";
@@ -26,6 +26,7 @@ export type SerializedOrder = {
   orderNumber: string;
   status: OrderStatus;
   isReorder: boolean;
+  isRescheduled: boolean;
   totalAmount: string;
   netAmount: string;
   deliveryFee: string;
@@ -464,6 +465,11 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
           >
             {badge.label}
           </span>
+          {order.isRescheduled && (order.status === "PENDING" || order.status === "CONFIRMED") && (
+            <span className="inline-flex items-center gap-1 bg-emerald-100 text-emerald-700 px-3 py-1 sm:py-1.5 rounded-full text-[10px] sm:text-xs font-bold whitespace-nowrap">
+              <CalendarClock size={12} /> Rescheduled
+            </span>
+          )}
           {order.isReorder && (
             <span className="bg-purple-100 text-purple-700 px-2 sm:px-3 py-1 rounded-full text-[10px] sm:text-xs font-semibold whitespace-nowrap">
               Reorder

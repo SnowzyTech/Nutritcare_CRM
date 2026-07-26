@@ -411,6 +411,7 @@ model Order {
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
   isReorder       Boolean     @default(false)
+  isRescheduled   Boolean     @default(false)
   discountedById  String?
   discountReason  String?
   discountedAt    DateTime?

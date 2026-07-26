@@ -41,6 +41,7 @@ export default async function OrderDetailPage({ params }: Props) {
     orderNumber: rawOrder.orderNumber,
     status: rawOrder.status,
     isReorder: rawOrder.isReorder,
+    isRescheduled: rawOrder.isRescheduled,
     totalAmount: rawOrder.totalAmount.toString(),
     netAmount: rawOrder.netAmount.toString(),
     deliveryFee: rawOrder.deliveryFee.toString(),

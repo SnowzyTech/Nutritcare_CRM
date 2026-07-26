@@ -17,6 +17,7 @@ export async function getAgentOrders(agentId: string) {
       id: true,
       orderNumber: true,
       status: true,
+      isRescheduled: true,
       createdAt: true,
       customer: { select: { name: true, email: true, phone: true } },
       items: {
@@ -65,6 +66,7 @@ export async function getAgentOrderById(orderId: string, agentId: string) {
       id: true,
       orderNumber: true,
       status: true,
+      isRescheduled: true,
       createdAt: true,
       deliveryFee: true,
       netAmount: true,

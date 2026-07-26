@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
-import { Search, Settings, Bell } from "lucide-react";
+import { Search, Settings, Bell, CalendarClock } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 
 type UIStatus = "All" | "Pending" | "Delivered" | "Failed";
@@ -16,6 +16,7 @@ interface Order {
   id: string;
   orderNumber: string;
   status: string;
+  isRescheduled: boolean;
   createdAt: Date;
   deliveryDate: Date | null;
   customer: { name: string; email: string | null; phone: string };
@@ -146,6 +147,11 @@ export function OrdersClient({ orders, statusCounts, user }: Props) {
                       <p className="text-[10px] text-[#ad1df4] font-semibold">
                         {mapToUIStatus(order.status) === "Delivered" ? "Delivered" : "Delivery"}: {formatDate(order.deliveryDate)}
                       </p>
+                    )}
+                    {order.isRescheduled && (order.status === "PENDING" || order.status === "CONFIRMED") && (
+                      <span className="inline-flex items-center gap-1 bg-amber-100 text-amber-700 text-[9px] font-bold px-1.5 py-0.5 rounded-full">
+                        <CalendarClock size={9} /> Rescheduled
+                      </span>
                     )}
                   </div>
                   <div className="pt-1">{getStatusIcon(mapToUIStatus(order.status))}</div>

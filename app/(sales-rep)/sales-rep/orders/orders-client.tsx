@@ -20,14 +20,30 @@ import {
   ChevronDown,
   Trash2,
   Calendar as CalendarIcon,
+  CalendarClock,
 } from 'lucide-react';
 import type { OrderStatus } from '@prisma/client';
+
+/** Green "Rescheduled" pill — shown for active orders whose delivery was pushed. */
+function RescheduledPill() {
+  return (
+    <span className="inline-flex items-center gap-1 bg-emerald-100 text-emerald-700 text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0">
+      <CalendarClock size={10} /> Rescheduled
+    </span>
+  );
+}
+
+/** True when an order should surface the Rescheduled tag (still awaiting delivery). */
+function showRescheduled(o: { isRescheduled: boolean; status: OrderStatus }) {
+  return o.isRescheduled && (o.status === 'PENDING' || o.status === 'CONFIRMED');
+}
 
 export type OrderListItem = {
   id: string;
   orderNumber: string;
   status: OrderStatus;
   isReorder: boolean;
+  isRescheduled: boolean;
   createdAt: string; // ISO string (serialized from server)
   updatedAt: string; // ISO string - used for status date
   customer: { name: string; email: string | null };
@@ -210,6 +226,7 @@ export function OrdersClient({ orders, counts, userName, products }: OrdersClien
       orderNumber: result.orderNumber,
       status: 'PENDING',
       isReorder,
+      isRescheduled: false,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       customer: { name: customerName.trim(), email: email.trim() || null },
@@ -406,9 +423,12 @@ export function OrdersClient({ orders, counts, userName, products }: OrdersClien
                           </span>
                         )}
                       </div>
-                      <span className={`${style.bg} ${style.text} text-[10px] font-bold px-2.5 py-1 rounded-full shrink-0`}>
-                        {style.label}
-                      </span>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {showRescheduled(order) && <RescheduledPill />}
+                        <span className={`${style.bg} ${style.text} text-[10px] font-bold px-2.5 py-1 rounded-full shrink-0`}>
+                          {style.label}
+                        </span>
+                      </div>
                     </div>
                     <div className="grid grid-cols-2 gap-y-1.5 text-xs text-gray-500 mt-1">
                       <div className="truncate"><span className="text-gray-400">Email:</span> {order.customer.email ?? '—'}</div>
@@ -511,6 +531,7 @@ export function OrdersClient({ orders, counts, userName, products }: OrdersClien
                             <span className="text-xs sm:text-sm text-gray-500">---</span>
                           ) : (
                             <div className="flex flex-col gap-1 items-start">
+                              {showRescheduled(order) && <RescheduledPill />}
                               <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold tracking-wider uppercase ${style.bg} ${style.text}`}>
                                 {style.label}
                               </span>

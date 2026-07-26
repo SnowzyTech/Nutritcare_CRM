@@ -13,6 +13,7 @@ import {
   ArrowLeft,
   X,
   AlertCircle,
+  CalendarClock,
 } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import {
@@ -35,6 +36,7 @@ interface Order {
   id: string;
   orderNumber: string;
   status: OrderStatus;
+  isRescheduled: boolean;
   createdAt: Date;
   deliveryDate: Date | null;
   deliveryFee: number;
@@ -336,8 +338,15 @@ export function OrderDetailClient({ order, user }: Props) {
           <h1 className="text-lg font-bold text-[#1e1e2d]">Order #{order.orderNumber}</h1>
           <p className="text-xs text-gray-400 font-medium">{formatDate(order.createdAt)}</p>
         </div>
-        <div className={`${currentStyle.color} text-white px-4 py-1.5 rounded-lg text-[10px] font-bold`}>
-          {currentStyle.badge}
+        <div className="flex items-center gap-2">
+          {order.isRescheduled && (order.status === "PENDING" || order.status === "CONFIRMED") && (
+            <div className="flex items-center gap-1 bg-amber-100 text-amber-700 px-3 py-1.5 rounded-lg text-[10px] font-bold">
+              <CalendarClock size={12} /> Rescheduled
+            </div>
+          )}
+          <div className={`${currentStyle.color} text-white px-4 py-1.5 rounded-lg text-[10px] font-bold`}>
+            {currentStyle.badge}
+          </div>
         </div>
       </div>
 
