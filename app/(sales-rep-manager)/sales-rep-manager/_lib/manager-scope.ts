@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth/auth";
+import { isCompanySalesManager } from "@/lib/auth/role-routes";
 import {
   getManagerWithTeam,
   getTeamMembersWithStats,
@@ -30,7 +31,8 @@ export async function resolveManagerScope(): Promise<{
 }> {
   const session = await auth();
   const user = session?.user;
-  const isCompanyManager = user?.role === "SALES_REP_MANAGER";
+  // SUPER_ADMIN gets the same company-wide scope for read-only oversight.
+  const isCompanyManager = isCompanySalesManager(user?.role);
 
   if (isCompanyManager) {
     const reps = await getAllActiveSalesReps();

@@ -529,6 +529,29 @@ export async function getTeamLeads() {
   });
 }
 
+/**
+ * Sales team leads only — a SALES_REP flagged `isTeamLead`. Unlike
+ * `getTeamLeads()` (which counts the flag across every role/department), this
+ * scopes to the sales org so the sales-manager Teams page count is meaningful.
+ */
+export async function getSalesTeamLeads() {
+  return prisma.user.findMany({
+    where: {
+      isTeamLead: true,
+      role: "SALES_REP",
+      accountActivationStatus: "APPROVED",
+      isActive: true,
+    },
+    select: {
+      id: true,
+      name: true,
+      avatarUrl: true,
+      team: { select: { id: true, name: true } },
+    },
+    orderBy: { name: "asc" },
+  });
+}
+
 // ── Sales Rep Manager service functions ──────────────────────────────────────
 
 function computeProductTables(orders: Array<{
@@ -649,6 +672,28 @@ export async function getAllActiveSalesReps() {
       performance: m.generalPerformance,
     };
   });
+}
+
+/**
+ * Live company-wide order pipeline — a snapshot of every sales order grouped by
+ * status (NOT period-scoped; open orders are inherently "now"). Used by the
+ * company sales-manager overview.
+ */
+export async function getCompanyOrderStatusCounts() {
+  const grouped = await prisma.order.groupBy({
+    by: ["status"],
+    where: { deletedAt: null, salesRep: { role: "SALES_REP" } },
+    _count: { id: true },
+  });
+  const map = Object.fromEntries(grouped.map((g) => [g.status, g._count.id]));
+  return {
+    pending: map["PENDING"] ?? 0,
+    confirmed: map["CONFIRMED"] ?? 0,
+    delivered: map["DELIVERED"] ?? 0,
+    cancelled: map["CANCELLED"] ?? 0,
+    failed: map["FAILED"] ?? 0,
+    total: grouped.reduce((s, g) => s + g._count.id, 0),
+  };
 }
 
 type ReportOrder = {

@@ -22,6 +22,8 @@ export default async function TeamOrdersPage() {
     name: o.customer.name,
     agent: o.agent ? { name: o.agent.companyName, state: o.agent.state ?? "" } : null,
     salesRep: o.salesRep?.name ?? "—",
+    teamId: o.salesRep?.team?.id ?? null,
+    teamName: o.salesRep?.team?.name ?? null,
     product: o.items[0]?.product.name ?? "—",
     qty: o.items.reduce((sum, i) => sum + i.quantity, 0),
     isReorder: o.isReorder,
@@ -29,6 +31,15 @@ export default async function TeamOrdersPage() {
     date: o.createdAt.toISOString().split("T")[0],
     statusDate: o.updatedAt.toISOString().split("T")[0],
   }));
+
+  // Distinct teams present in these orders — drives the (company-manager) team filter.
+  const teams = Array.from(
+    new Map(
+      orders
+        .filter(o => o.teamId && o.teamName)
+        .map(o => [o.teamId as string, { id: o.teamId as string, name: o.teamName as string }])
+    ).values()
+  ).sort((a, b) => a.name.localeCompare(b.name));
 
   const counts = {
     all: orders.length,
@@ -39,5 +50,5 @@ export default async function TeamOrdersPage() {
     failed: orders.filter(o => o.status === "FAILED").length,
   };
 
-  return <TeamOrdersClient orders={orders} counts={counts} products={products} />;
+  return <TeamOrdersClient orders={orders} counts={counts} products={products} teams={teams} />;
 }

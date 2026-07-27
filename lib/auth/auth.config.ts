@@ -23,11 +23,13 @@ const ADMIN_ROUTE_ROLES: { prefix: string; roles: string[] }[] = [
 // Role-specific dashboard routes (non-admin). The cross-department oversight
 // fallback belongs to SUPER_ADMIN (limited admins use /admin/*, not these).
 const ROLE_ROUTES: { prefix: string; roles: string[] }[] = [
+  // The company-wide manager (SALES_REP_MANAGER) has a dedicated /sales-manager
+  // dashboard; SUPER_ADMIN may view it too.
+  { prefix: "/sales-manager", roles: ["SUPER_ADMIN", "SALES_REP_MANAGER"] },
   // `/sales-rep-manager` must precede `/sales-rep` — the latter is a string
-  // prefix of the former, and the first match wins. Team-leads (SALES_REP +
-  // isTeamLead) and the company-wide manager (SALES_REP_MANAGER) share this
-  // dashboard; the layout enforces the finer-grained team-lead/manager gate.
-  { prefix: "/sales-rep-manager", roles: ["SUPER_ADMIN", "SALES_REP", "SALES_REP_MANAGER"] },
+  // prefix of the former, and the first match wins. This dashboard is for
+  // team-leads (SALES_REP + isTeamLead); the layout enforces the isTeamLead gate.
+  { prefix: "/sales-rep-manager", roles: ["SUPER_ADMIN", "SALES_REP"] },
   { prefix: "/sales-rep", roles: ["SUPER_ADMIN", "SALES_REP"] },
   { prefix: "/delivery-agents", roles: ["SUPER_ADMIN", "DELIVERY_AGENT"] },
   { prefix: "/data", roles: ["SUPER_ADMIN", "DATA_ANALYST"] },

@@ -68,6 +68,9 @@ export async function reassignOrdersAction(
   revalidatePath("/sales-rep-manager");
   revalidatePath("/sales-rep-manager/orders");
   revalidatePath("/sales-rep-manager/order-assignment");
+  revalidatePath("/sales-manager");
+  revalidatePath("/sales-manager/orders");
+  revalidatePath("/sales-manager/order-assignment");
   return {};
 }
 

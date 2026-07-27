@@ -1,7 +1,8 @@
 import { notFound, redirect } from "next/navigation";
-import Link from "next/link";
 import { ChevronLeft } from "lucide-react";
+import { BaseLink } from "../../_lib/base-path";
 import { auth } from "@/lib/auth/auth";
+import { isCompanySalesManager } from "@/lib/auth/role-routes";
 import { getTeamById, getTeamMembersWithStats } from "@/modules/users/services/users.service";
 import { TeamRepsClient } from "../../team-reps-client";
 
@@ -17,7 +18,7 @@ export default async function TeamDrilldownPage({
   params: Promise<{ teamId: string }>;
 }) {
   const session = await auth();
-  if (session?.user?.role !== "SALES_REP_MANAGER") {
+  if (!isCompanySalesManager(session?.user?.role)) {
     redirect("/sales-rep-manager");
   }
 
@@ -31,12 +32,12 @@ export default async function TeamDrilldownPage({
 
   return (
     <div className="flex flex-col gap-4">
-      <Link
-        href="/sales-rep-manager"
+      <BaseLink
+        href=""
         className="inline-flex items-center gap-1 text-sm font-semibold text-[#A020F0] hover:underline w-fit"
       >
         <ChevronLeft size={16} /> Back to overview
-      </Link>
+      </BaseLink>
       <TeamRepsClient reps={reps} teamName={team.name} />
     </div>
   );

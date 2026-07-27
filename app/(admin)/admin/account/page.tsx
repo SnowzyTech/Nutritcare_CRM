@@ -23,6 +23,8 @@ async function getAccountPageData() {
     locationStats,
     deliveryStats,
     orderStats,
+    activeSalesReps,
+    salesTeams,
   ] = await Promise.all([
     // Finance: count of paid invoices this month
     prisma.invoice.count({ where: { status: "PAID", createdAt: { gte: monthStart } } }),
@@ -64,6 +66,10 @@ async function getAccountPageData() {
       where: { deletedAt: null },
       _count: { id: true },
     }),
+    // Sales: active sales reps
+    prisma.user.count({ where: { role: "SALES_REP", isActive: true } }),
+    // Sales: sales teams
+    prisma.team.count({ where: { department: "SALES" } }),
   ]);
 
   const deliveryMap = Object.fromEntries(
@@ -104,6 +110,11 @@ async function getAccountPageData() {
       deliveredOrders,
       deliveryRate,
       pendingOrders: (orderMap["PENDING"] ?? 0) + (orderMap["CONFIRMED"] ?? 0),
+    },
+    sales: {
+      activeSalesReps,
+      salesTeams,
+      openOrders: (orderMap["PENDING"] ?? 0) + (orderMap["CONFIRMED"] ?? 0),
     },
   };
 }
@@ -218,6 +229,17 @@ export default async function AdminAccountPage() {
           label="Total Stock on Shelves"
           value={data.warehouse.totalStock.toLocaleString()}
           sub="units across all locations"
+        />
+      </DeptSection>
+
+      {/* Sales */}
+      <DeptSection title="Sales" role="Sales Manager" href="/sales-manager">
+        <SummaryCard label="Active Sales Reps" value={data.sales.activeSalesReps} />
+        <SummaryCard label="Sales Teams" value={data.sales.salesTeams} />
+        <SummaryCard
+          label="Open Orders"
+          value={data.sales.openOrders}
+          sub="pending + confirmed"
         />
       </DeptSection>
 

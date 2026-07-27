@@ -4,6 +4,7 @@ import React, { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { Search, SlidersHorizontal, ArrowUpDown, ChevronLeft, RotateCcw } from "lucide-react";
 import { formatDate } from "@/lib/utils";
+import { useBasePath } from "../../_lib/base-path";
 
 type OrderStatus = "PENDING" | "CONFIRMED" | "DELIVERED" | "CANCELLED" | "FAILED";
 
@@ -64,6 +65,7 @@ const NIGERIAN_STATES = [
 
 export function OrdersClient({ repId, repName, orders, counts, products = [] }: OrdersClientProps) {
   const router = useRouter();
+  const base = useBasePath();
   const [activeTab, setActiveTab] = useState<OrderStatus | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [dateFilter, setDateFilter] = useState("");
@@ -226,7 +228,7 @@ export function OrdersClient({ repId, repName, orders, counts, products = [] }: 
               return (
                 <div
                   key={order.id}
-                  onClick={() => router.push(`/sales-rep-manager/${repId}/orders/${order.id}`)}
+                  onClick={() => router.push(`${base}/${repId}/orders/${order.id}`)}
                   className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm active:bg-gray-50 transition-colors cursor-pointer"
                 >
                   <div className="flex items-center justify-between gap-2 mb-2">
@@ -288,7 +290,7 @@ export function OrdersClient({ repId, repName, orders, counts, products = [] }: 
                     className={`group hover:bg-purple-50/50 transition-colors cursor-pointer border-b border-gray-50 last:border-0 ${
                       idx % 2 === 0 ? "bg-white" : "bg-gray-50/30"
                     }`}
-                    onClick={() => router.push(`/sales-rep-manager/${repId}/orders/${order.id}`)}
+                    onClick={() => router.push(`${base}/${repId}/orders/${order.id}`)}
                   >
                     <td className="pl-6 pr-6 py-4 relative">
                       <div className="flex items-center gap-3">
