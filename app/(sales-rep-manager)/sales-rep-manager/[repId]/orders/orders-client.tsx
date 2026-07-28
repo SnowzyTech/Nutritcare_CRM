@@ -4,6 +4,7 @@ import React, { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { Search, SlidersHorizontal, ArrowUpDown, ChevronLeft, RotateCcw } from "lucide-react";
 import { formatDate } from "@/lib/utils";
+import { useBasePath } from "../../_lib/base-path";
 
 type OrderStatus = "PENDING" | "CONFIRMED" | "DELIVERED" | "CANCELLED" | "FAILED";
 
@@ -16,7 +17,8 @@ export type OrderListItem = {
   product: string;
   qty: number;
   isReorder: boolean;
-  itemNames: string[]; // all product names on the order (for the +N badge)
+  itemNames: string[]; // all product names on the order (tooltip for the +N badge)
+  extraCount: number; // extra products + merged upsells (drives the +N badge)
   date: string; // ISO date: YYYY-MM-DD
 };
 
@@ -64,6 +66,7 @@ const NIGERIAN_STATES = [
 
 export function OrdersClient({ repId, repName, orders, counts, products = [] }: OrdersClientProps) {
   const router = useRouter();
+  const base = useBasePath();
   const [activeTab, setActiveTab] = useState<OrderStatus | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [dateFilter, setDateFilter] = useState("");
@@ -226,7 +229,7 @@ export function OrdersClient({ repId, repName, orders, counts, products = [] }: 
               return (
                 <div
                   key={order.id}
-                  onClick={() => router.push(`/sales-rep-manager/${repId}/orders/${order.id}`)}
+                  onClick={() => router.push(`${base}/${repId}/orders/${order.id}`)}
                   className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm active:bg-gray-50 transition-colors cursor-pointer"
                 >
                   <div className="flex items-center justify-between gap-2 mb-2">
@@ -250,9 +253,9 @@ export function OrdersClient({ repId, repName, orders, counts, products = [] }: 
                     <div className="truncate flex items-center gap-1">
                       <span className="text-gray-400">Product:</span>{" "}
                       <span className="text-gray-700 font-medium truncate">{order.product}</span>
-                      {order.itemNames.length > 1 && (
+                      {order.extraCount > 0 && (
                         <span className="shrink-0 inline-flex items-center bg-purple-100 text-[#532194] text-[9px] font-bold px-1 py-0.5 rounded-full">
-                          +{order.itemNames.length - 1}
+                          +{order.extraCount}
                         </span>
                       )}
                     </div>
@@ -288,7 +291,7 @@ export function OrdersClient({ repId, repName, orders, counts, products = [] }: 
                     className={`group hover:bg-purple-50/50 transition-colors cursor-pointer border-b border-gray-50 last:border-0 ${
                       idx % 2 === 0 ? "bg-white" : "bg-gray-50/30"
                     }`}
-                    onClick={() => router.push(`/sales-rep-manager/${repId}/orders/${order.id}`)}
+                    onClick={() => router.push(`${base}/${repId}/orders/${order.id}`)}
                   >
                     <td className="pl-6 pr-6 py-4 relative">
                       <div className="flex items-center gap-3">
@@ -323,12 +326,12 @@ export function OrdersClient({ repId, repName, orders, counts, products = [] }: 
                     <td className="px-6 py-4 font-bold text-gray-700">
                       <div className="flex items-center gap-1.5">
                         <span className="truncate max-w-[160px]">{order.product}</span>
-                        {order.itemNames.length > 1 && (
+                        {order.extraCount > 0 && (
                           <span
                             title={order.itemNames.join(", ")}
                             className="shrink-0 inline-flex items-center bg-purple-100 text-[#532194] text-[10px] font-bold px-1.5 py-0.5 rounded-full"
                           >
-                            +{order.itemNames.length - 1}
+                            +{order.extraCount}
                           </span>
                         )}
                       </div>

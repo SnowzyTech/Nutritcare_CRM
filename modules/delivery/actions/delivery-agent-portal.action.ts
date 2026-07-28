@@ -7,6 +7,7 @@ import bcryptjs from "bcryptjs";
 import { getAgentIdByUserId } from "@/modules/delivery/services/delivery-agent-portal.service";
 import { recordDeliveryFeeEntry } from "@/modules/finance/services/agent-settlement.service";
 import { logActivity } from "@/modules/audit/services/audit-log.service";
+import { suppressCameraForRequest } from "@/lib/audit/context";
 import { sendOrderDeliveredTemplate } from "@/lib/whatsapp/whatsapp";
 
 export async function updateAgentProfileAction(data: {
@@ -16,6 +17,7 @@ export async function updateAgentProfileAction(data: {
 }) {
   const session = await auth();
   if (!session?.user?.id) return { error: "Unauthorized" };
+  suppressCameraForRequest();
 
   const name = data.name.trim();
   if (!name || name.length < 2) return { error: "Name must be at least 2 characters" };
@@ -39,6 +41,7 @@ export async function changePasswordAction(data: {
 }) {
   const session = await auth();
   if (!session?.user?.id) return { error: "Unauthorized" };
+  suppressCameraForRequest();
 
   if (!data.newPassword || data.newPassword.length < 8)
     return { error: "New password must be at least 8 characters" };
@@ -58,6 +61,14 @@ export async function changePasswordAction(data: {
     data: { password: hashed },
   });
 
+  await logActivity({
+    userId: session.user.id,
+    action: "Password Reset",
+    entityType: "User",
+    entityId: session.user.id,
+    description: `Changed own password`,
+  });
+
   return { success: true };
 }
 
@@ -74,6 +85,7 @@ export async function changePasswordAction(data: {
 export async function markOrderDeliveredAction(orderId: string, deliveryCode: string) {
   const session = await auth();
   if (!session?.user?.id) return { error: "Unauthorized" };
+  suppressCameraForRequest();
 
   const agentId = await getAgentIdByUserId(session.user.id);
   if (!agentId) return { error: "Agent not found" };
@@ -132,9 +144,12 @@ export async function markOrderDeliveredAction(orderId: string, deliveryCode: st
     date: order.date,
   });
 
-  // Log against the order's sales rep so it surfaces in their History page
+  // Log against the order's sales rep so it surfaces in their History page, but
+  // show the delivery agent as the actor in the system-wide (General) history.
   await logActivity({
     userId: order.salesRepId,
+    actorName: session.user.name,
+    actorRole: session.user.role,
     action: "Delivered",
     entityType: "Order",
     entityId: orderId,
@@ -161,6 +176,7 @@ export async function markOrderDeliveredAction(orderId: string, deliveryCode: st
 export async function markOrderFailedAction(orderId: string, failureReason: string) {
   const session = await auth();
   if (!session?.user?.id) return { error: "Unauthorized" };
+  suppressCameraForRequest();
 
   const agentId = await getAgentIdByUserId(session.user.id);
   if (!agentId) return { error: "Agent not found" };
@@ -178,9 +194,12 @@ export async function markOrderFailedAction(orderId: string, failureReason: stri
     }),
   ]);
 
-  // Log against the order's sales rep so it surfaces in their History page
+  // Log against the order's sales rep so it surfaces in their History page, but
+  // show the delivery agent as the actor in the system-wide (General) history.
   await logActivity({
     userId: order.salesRepId,
+    actorName: session.user.name,
+    actorRole: session.user.role,
     action: "Failed",
     entityType: "Order",
     entityId: orderId,
@@ -195,6 +214,7 @@ export async function markOrderFailedAction(orderId: string, failureReason: stri
 export async function updateDeliveryFeeAction(orderId: string, fee: number) {
   const session = await auth();
   if (!session?.user?.id) return { error: "Unauthorized" };
+  suppressCameraForRequest();
 
   const agentId = await getAgentIdByUserId(session.user.id);
   if (!agentId) return { error: "Agent not found" };
@@ -204,10 +224,22 @@ export async function updateDeliveryFeeAction(orderId: string, fee: number) {
   });
   if (!order) return { error: "Order not found" };
 
+  const prevFee = Number(order.deliveryFee);
   await prisma.order.update({
     where: { id: orderId },
     data: { deliveryFee: fee },
   });
+
+  if (prevFee !== fee) {
+    await logActivity({
+      userId: session.user.id,
+      action: "Updated",
+      entityType: "Order",
+      entityId: orderId,
+      description: `Delivery fee for order #${order.orderNumber} updated`,
+      details: { before: `₦${prevFee.toLocaleString("en-NG")}`, after: `₦${fee.toLocaleString("en-NG")}`, field: "deliveryFee", amount: Math.abs(fee - prevFee) },
+    });
+  }
 
   revalidatePath(`/delivery-agents/${orderId}`);
   return { success: true };
@@ -216,6 +248,7 @@ export async function updateDeliveryFeeAction(orderId: string, fee: number) {
 export async function rescheduleOrderAction(orderId: string, scheduledDate: string) {
   const session = await auth();
   if (!session?.user?.id) return { error: "Unauthorized" };
+  suppressCameraForRequest();
 
   const agentId = await getAgentIdByUserId(session.user.id);
   if (!agentId) return { error: "Agent not found" };
@@ -225,9 +258,25 @@ export async function rescheduleOrderAction(orderId: string, scheduledDate: stri
   });
   if (!order) return { error: "Order not found" };
 
-  await prisma.delivery.updateMany({
-    where: { orderId, agentId },
-    data: { scheduledTime: new Date(scheduledDate) },
+  // Update the delivery's scheduled date and flag the order as rescheduled so
+  // both portals can show the "Rescheduled" tag.
+  await prisma.$transaction([
+    prisma.delivery.updateMany({
+      where: { orderId, agentId },
+      data: { scheduledTime: new Date(scheduledDate) },
+    }),
+    prisma.order.update({
+      where: { id: orderId },
+      data: { isRescheduled: true },
+    }),
+  ]);
+
+  await logActivity({
+    userId: session.user.id,
+    action: "Rescheduled",
+    entityType: "Order",
+    entityId: orderId,
+    description: `Order #${order.orderNumber} rescheduled to ${new Date(scheduledDate).toLocaleDateString("en-NG")}`,
   });
 
   revalidatePath("/delivery-agents");

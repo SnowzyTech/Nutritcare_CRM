@@ -3,16 +3,13 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, MessageSquare } from "lucide-react";
 import Link from "next/link";
 import { getDeliveryAgentById, getDeliveryAgentAnalytics, getDeliveryAgentOrderSummary } from "@/modules/delivery/services/agents.service";
-import { parseMonthParam } from "@/lib/month-period";
-import { MonthFilter } from "@/components/admin/month-filter";
+import { parseStaffPeriod } from "@/lib/staff-period";
+import { StaffPeriodFilter } from "@/components/admin/staff-period-filter";
 
 type Props = {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ month?: string }>;
+  searchParams: Promise<{ g?: string; month?: string; w?: string; d?: string }>;
 };
-
-const PILL_CLASS =
-  "flex items-center gap-1.5 bg-slate-50 px-3 py-1.5 rounded-lg text-[0.75rem] font-bold text-slate-500 border border-slate-100 h-auto w-auto shadow-none";
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { id } = await params;
@@ -24,18 +21,19 @@ function StatCard({
   title,
   value,
   trend,
+  comparison,
   isProduct = false,
 }: {
   title: string;
   value: string | number;
   trend?: string;
+  comparison?: string;
   isProduct?: boolean;
 }) {
   return (
     <div className="bg-white rounded-[24px] p-8 shadow-sm border border-slate-50">
       <div className="flex justify-between items-center mb-10">
         <span className="text-[1rem] font-bold text-slate-700">{title}</span>
-        <MonthFilter className={PILL_CLASS} />
       </div>
       <div className="flex justify-between items-end">
         <span className={`${isProduct ? "text-[2rem]" : "text-[3.5rem]"} font-black leading-none`}>
@@ -46,7 +44,7 @@ function StatCard({
             <span className={`text-[1rem] font-bold ${trend.startsWith("+") ? "text-emerald-500" : trend === "—" ? "text-slate-400" : "text-rose-500"}`}>
               {trend}
             </span>
-            <p className="text-[0.75rem] text-slate-400 font-medium whitespace-nowrap">vs last month</p>
+            <p className="text-[0.75rem] text-slate-400 font-medium whitespace-nowrap">{comparison}</p>
           </div>
         )}
       </div>
@@ -56,10 +54,10 @@ function StatCard({
 
 export default async function DeliveryAgentAnalyticsPage({ params, searchParams }: Props) {
   const { id } = await params;
-  const period = parseMonthParam((await searchParams).month);
+  const period = parseStaffPeriod(await searchParams);
   const [agent, analytics, summary] = await Promise.all([
     getDeliveryAgentById(id),
-    getDeliveryAgentAnalytics(id, period),
+    getDeliveryAgentAnalytics(id, period.arg),
     getDeliveryAgentOrderSummary(id),
   ]);
 
@@ -67,6 +65,7 @@ export default async function DeliveryAgentAnalyticsPage({ params, searchParams 
 
   const { current, trends } = analytics;
   const bestProduct = current.bestProduct?.name ?? "—";
+  const cmp = period.comparisonLabel;
 
   return (
     <div className="max-w-[1200px] mx-auto font-inter text-slate-900 pb-20">
@@ -78,10 +77,15 @@ export default async function DeliveryAgentAnalyticsPage({ params, searchParams 
         <span className="text-sm font-bold">Back to Profile</span>
       </Link>
 
-      <div className="flex justify-between items-center mb-12">
-        <h1 className="text-2xl font-bold">{agent.companyName}&apos;s Analytics</h1>
-        <div className="flex items-center gap-6">
-          <span className="text-[0.95rem] text-slate-400 font-medium">Delivery Agent</span>
+      <div className="flex flex-wrap justify-between items-center gap-4 mb-12">
+        <div>
+          <h1 className="text-2xl font-bold">{agent.companyName}&apos;s Analytics</h1>
+          <p className="text-[0.9rem] text-slate-400 mt-0.5">
+            Delivery Agent · <span className="font-semibold text-slate-600">{period.valueLabel}</span>
+          </p>
+        </div>
+        <div className="flex items-center gap-4">
+          <StaffPeriodFilter />
           <button className="w-12 h-12 rounded-full bg-purple-600 flex items-center justify-center text-white shadow-lg shadow-purple-200 hover:scale-110 transition-transform">
             <MessageSquare size={20} fill="currentColor" />
           </button>
@@ -94,6 +98,7 @@ export default async function DeliveryAgentAnalyticsPage({ params, searchParams 
           title="Total Products Delivered"
           value={current.totalProductsDelivered}
           trend={trends.totalProductsDelivered}
+          comparison={cmp}
         />
         <StatCard
           title="Best Delivered Product"
@@ -107,11 +112,13 @@ export default async function DeliveryAgentAnalyticsPage({ params, searchParams 
           title="General Performance"
           value={`${current.generalPerformance}%`}
           trend={trends.generalPerformance}
+          comparison={cmp}
         />
         <StatCard
           title="Delivery Rate"
           value={`${current.deliveryRate}%`}
           trend={trends.deliveryRate}
+          comparison={cmp}
         />
       </div>
 
@@ -125,12 +132,12 @@ export default async function DeliveryAgentAnalyticsPage({ params, searchParams 
               <p className="text-[0.8rem] font-bold opacity-60 mt-1">Delivery Rate</p>
             </div>
             <div className="text-right">
-              <p className="text-[0.75rem] font-bold opacity-60">This month:</p>
+              <p className="text-[0.75rem] font-bold opacity-60">{period.valueLabel}:</p>
               <p className="text-[1.1rem] font-black">{current.delivered} delivered</p>
               <p className="text-[0.9rem] font-bold opacity-60">{current.failed} failed</p>
               <p className="text-[0.85rem] font-bold mt-2 text-emerald-400">
                 {trends.deliveryRate}{" "}
-                <span className="text-white opacity-60 font-medium">vs last month</span>
+                <span className="text-white opacity-60 font-medium">{cmp}</span>
               </p>
             </div>
           </div>

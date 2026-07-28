@@ -1,19 +1,14 @@
-import { auth } from "@/lib/auth/auth";
-import { getManagerWithTeam, getTeamMembersWithStats } from "@/modules/users/services/users.service";
 import { getTeamOrders } from "@/modules/orders/services/orders.service";
+import { upsellExtraCount } from "@/lib/orders/upsell";
 import { getActiveProducts } from "@/modules/orders/services/products.service";
 import { OrderAssignmentClient } from "./order-assignment-client";
 import type { TeamOrderListItem } from "../orders/team-orders-client";
+import { resolveManagerScope } from "../_lib/manager-scope";
 
 export const dynamic = "force-dynamic";
 
 export default async function OrderAssignmentPage() {
-  const session = await auth();
-  const managerId = session?.user?.id;
-
-  const manager = managerId ? await getManagerWithTeam(managerId) : null;
-  const teamId = manager?.teamId;
-  const members = teamId ? await getTeamMembersWithStats(teamId) : [];
+  const { reps: members } = await resolveManagerScope();
   const memberIds = members.map(m => m.id);
 
   const [dbOrders, allProducts] = await Promise.all([
@@ -38,6 +33,7 @@ export default async function OrderAssignmentPage() {
     qty: o.items.reduce((sum, i) => sum + i.quantity, 0),
     isReorder: o.isReorder,
     itemNames: o.items.map(i => i.product.name),
+    extraCount: upsellExtraCount(o.items),
     date: o.createdAt.toISOString().split("T")[0],
     statusDate: o.updatedAt.toISOString().split("T")[0],
   }));

@@ -1,7 +1,8 @@
 import { notFound } from "next/navigation";
-import Link from "next/link";
-import { getSalesRepById, getSalesRepOrderSummary, getSalesRepAnalytics } from "@/modules/users/services/users.service";
+import { BaseLink } from "../_lib/base-path";
+import { getSalesRepById, getSalesRepOrderSummary, getSalesRepAnalytics, getAllTeams } from "@/modules/users/services/users.service";
 import { AnalyticsSection } from "./analytics-client";
+import { MoveRepControl } from "./move-rep-control";
 
 export const dynamic = "force-dynamic";
 
@@ -12,10 +13,11 @@ export default async function RepDashboardPage({
 }) {
   const { repId } = await params;
 
-  const [rep, orderSummary, analytics] = await Promise.all([
+  const [rep, orderSummary, analytics, teams] = await Promise.all([
     getSalesRepById(repId),
     getSalesRepOrderSummary(repId),
     getSalesRepAnalytics(repId),
+    getAllTeams(),
   ]);
 
   if (!rep) notFound();
@@ -54,12 +56,12 @@ export default async function RepDashboardPage({
           <div className="text-gray-600 font-bold text-sm shrink-0">Failed({orderSummary.failed})</div>
         </div>
 
-        <Link
-          href={`/sales-rep-manager/${repId}/orders`}
+        <BaseLink
+          href={`/${repId}/orders`}
           className="inline-flex items-center justify-center bg-[#FAF5FF] text-[#A020F0] px-8 py-3 rounded-xl text-sm font-bold hover:bg-[#F3E8FF] transition"
         >
           See All Orders
-        </Link>
+        </BaseLink>
       </div>
 
       <div>
@@ -131,18 +133,24 @@ export default async function RepDashboardPage({
               </div>
             </div>
 
-            <Link
-              href={`/sales-rep-manager/${repId}/profile`}
+            <BaseLink
+              href={`/${repId}/profile`}
               className="shrink-0 flex items-center justify-center gap-2 border-[1.5px] border-[#A020F0] text-[#A020F0] px-8 py-3 rounded-xl text-sm font-bold hover:bg-[#FAF5FF] transition"
             >
               <span className="w-4 h-4 rounded-full border border-current flex items-center justify-center text-[10px]">
                 👤
               </span>
               See Full Profile →
-            </Link>
+            </BaseLink>
           </div>
         </div>
       </div>
+
+      <MoveRepControl
+        repId={repId}
+        currentTeamId={rep.team?.id ?? null}
+        teams={teams}
+      />
 
       <AnalyticsSection
         repId={repId}

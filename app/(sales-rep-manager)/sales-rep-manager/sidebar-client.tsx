@@ -15,8 +15,10 @@ import {
   Menu,
   MessageCircle,
   ArrowLeftRight,
+  Building2,
 } from "lucide-react";
 import { logoutAction } from "@/modules/auth/actions/logout.action";
+import { useBasePath } from "./_lib/base-path";
 
 function SidebarNavLink({
   href,
@@ -130,19 +132,25 @@ interface SidebarProps {
 
 export function SalesRepManagerSidebarClient({ userName, userRole, userAvatar }: SidebarProps) {
   const pathname = usePathname();
+  const base = useBasePath();
   const [isCollapsed, setIsCollapsed] = useState(false);
 
-  const isOrderAssignmentActive = pathname.startsWith("/sales-rep-manager/order-assignment");
+  const isOrderAssignmentActive = pathname.startsWith(`${base}/order-assignment`);
   const isOrdersActive =
-    pathname.startsWith("/sales-rep-manager/orders") || isOrderAssignmentActive;
-  const isAnalyticsActive = pathname === "/sales-rep-manager/analytics";
-  const isHistoryActive = pathname === "/sales-rep-manager/history";
+    pathname.startsWith(`${base}/orders`) || isOrderAssignmentActive;
+  const isAnalyticsActive = pathname === `${base}/analytics`;
+  const isHistoryActive = pathname === `${base}/history`;
+  const isTeamsActive = pathname.startsWith(`${base}/teams`);
+  // The dedicated Teams section is a company-manager-only power, so it only
+  // shows on the /sales-manager dashboard (not the team-lead's).
+  const isCompanyManager = base === "/sales-manager";
   const isRepsActive =
-    pathname === "/sales-rep-manager" ||
-    (pathname.startsWith("/sales-rep-manager/") &&
+    pathname === base ||
+    (pathname.startsWith(`${base}/`) &&
       !isOrdersActive &&
       !isAnalyticsActive &&
       !isHistoryActive &&
+      !isTeamsActive &&
       !isOrderAssignmentActive);
 
   const [repsExpanded, setRepsExpanded] = useState(isRepsActive);
@@ -202,7 +210,7 @@ export function SalesRepManagerSidebarClient({ userName, userRole, userAvatar }:
       {/* Navigation */}
       <nav className={`flex-1 flex flex-col gap-1 ${isCollapsed ? "px-2" : "px-4"}`}>
         <SidebarNavLink
-          href="/sales-rep-manager"
+          href={base}
           icon={Users}
           label="Sales Reps"
           isActive={isRepsActive && !isAnalyticsActive}
@@ -214,7 +222,7 @@ export function SalesRepManagerSidebarClient({ userName, userRole, userAvatar }:
         {!isCollapsed && repsExpanded && (
           <div className="mb-2 flex flex-col gap-1">
             <SubItem
-              href="/sales-rep-manager/analytics"
+              href={`${base}/analytics`}
               label="Analytics"
               isActive={isAnalyticsActive}
             />
@@ -233,12 +241,12 @@ export function SalesRepManagerSidebarClient({ userName, userRole, userAvatar }:
         {!isCollapsed && ordersExpanded && (
           <div className="mb-2 flex flex-col gap-1">
             <SubItem
-              href="/sales-rep-manager/orders"
+              href={`${base}/orders`}
               label="Order"
-              isActive={pathname.startsWith("/sales-rep-manager/orders")}
+              isActive={pathname.startsWith(`${base}/orders`)}
             />
             <SubItem
-              href="/sales-rep-manager/order-assignment"
+              href={`${base}/order-assignment`}
               label="Order Assignment"
               isActive={isOrderAssignmentActive}
             />
@@ -254,15 +262,25 @@ export function SalesRepManagerSidebarClient({ userName, userRole, userAvatar }:
         />
 
         <SidebarNavLink
-          href="/sales-rep-manager/analytics"
+          href={`${base}/analytics`}
           icon={BarChart3}
           label="Analytics"
           isActive={isAnalyticsActive}
           collapsed={isCollapsed}
         />
 
+        {isCompanyManager && (
+          <SidebarNavLink
+            href={`${base}/teams`}
+            icon={Building2}
+            label="Teams"
+            isActive={isTeamsActive}
+            collapsed={isCollapsed}
+          />
+        )}
+
         <SidebarNavLink
-          href="/sales-rep-manager/history"
+          href={`${base}/history`}
           icon={Clock}
           label="History"
           isActive={isHistoryActive}
@@ -291,31 +309,31 @@ export function SalesRepManagerSidebarClient({ userName, userRole, userAvatar }:
     <nav className="fixed bottom-0 left-0 right-0 z-50 md:hidden bg-[#3B0069] border-t border-[#4A0080] shadow-[0_-4px_20px_rgba(0,0,0,0.15)]">
       <div className="flex items-stretch justify-around h-16 px-1">
         <BottomTabLink
-          href="/sales-rep-manager"
+          href={base}
           icon={Users}
           label="Reps"
           isActive={isRepsActive && !isAnalyticsActive}
         />
         <BottomTabLink
-          href="/sales-rep-manager/orders"
+          href={`${base}/orders`}
           icon={ClipboardList}
           label="Orders"
           isActive={isOrdersActive && !isOrderAssignmentActive}
         />
         <BottomTabLink
-          href="/sales-rep-manager/order-assignment"
+          href={`${base}/order-assignment`}
           icon={ArrowLeftRight}
           label="Assign"
           isActive={isOrderAssignmentActive}
         />
         <BottomTabLink
-          href="/sales-rep-manager/analytics"
+          href={`${base}/analytics`}
           icon={BarChart3}
           label="Analytics"
           isActive={isAnalyticsActive}
         />
         <BottomTabLink
-          href="/sales-rep-manager/history"
+          href={`${base}/history`}
           icon={Clock}
           label="History"
           isActive={isHistoryActive}

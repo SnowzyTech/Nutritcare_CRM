@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db/prisma";
+import type { OrderStatus } from "@prisma/client";
 
 export interface SalesRecordRow {
   id: string;
@@ -37,7 +38,7 @@ export async function getSalesRecords(filters: {
   const orders = await prisma.order.findMany({
     where: {
       deletedAt: null,
-      ...(status && status !== "All" ? { status: status.toUpperCase() as any } : {}),
+      ...(status && status !== "All" ? { status: status.toUpperCase() as OrderStatus } : {}),
       ...(agentId && agentId !== "All" ? { agentId } : {}),
       ...(state && state !== "All" ? { customer: { state } } : {}),
       ...(from || to ? { date: { ...(from && { gte: from }), ...(to && { lte: to }) } } : {}),
@@ -97,6 +98,10 @@ export interface OrderInvoiceLine {
   unit: string | null;
   unitPrice: number;
   amount: number;
+  // Sales-rep-upsold portion of this line (0 for formal invoice items, which
+  // carry no upsell data). Finance-only display; see docs/upsell-display-rollout.md.
+  upsellQuantity: number;
+  upsellAmount: number;
 }
 
 export interface OrderInvoiceDetail {
@@ -173,6 +178,8 @@ export async function getSalesRecordById(id: string): Promise<OrderInvoiceDetail
     unit: it.product.unit,
     unitPrice: Number(it.unitPrice),
     amount: Number(it.lineTotal),
+    upsellQuantity: it.upsellQuantity,
+    upsellAmount: Number(it.upsellAmount),
   }));
 
   const totalAmount = Number(order.totalAmount);
@@ -205,6 +212,8 @@ export async function getSalesRecordById(id: string): Promise<OrderInvoiceDetail
           unit: null,
           unitPrice: Number(it.rate),
           amount: Number(it.amount),
+          upsellQuantity: 0,
+          upsellAmount: 0,
         })),
       }
     : {

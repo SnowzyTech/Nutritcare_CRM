@@ -3,6 +3,7 @@
 import { useState, useMemo } from "react";
 import Link from "next/link";
 import { Search, SlidersHorizontal, ArrowUpDown } from "lucide-react";
+import { useBasePath } from "./_lib/base-path";
 
 export type TeamRepItem = {
   id: string;
@@ -20,6 +21,7 @@ interface TeamRepsClientProps {
 
 export function TeamRepsClient({ reps, teamName }: TeamRepsClientProps) {
   const [searchQuery, setSearchQuery] = useState("");
+  const base = useBasePath();
 
   const filteredReps = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -85,7 +87,7 @@ export function TeamRepsClient({ reps, teamName }: TeamRepsClientProps) {
             {filteredReps.map(rep => (
               <Link
                 key={rep.id}
-                href={`/sales-rep-manager/${rep.id}`}
+                href={`${base}/${rep.id}`}
                 className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm active:bg-gray-50 transition-colors flex items-center gap-3"
               >
                 <div className="w-11 h-11 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center font-bold text-sm border border-purple-200 overflow-hidden shrink-0">
@@ -151,7 +153,7 @@ export function TeamRepsClient({ reps, teamName }: TeamRepsClientProps) {
                     </div>
                   </td>
                   <td className="px-6 py-4 font-bold text-gray-900">
-                    <Link href={`/sales-rep-manager/${rep.id}`} className="hover:underline">
+                    <Link href={`${base}/${rep.id}`} className="hover:underline">
                       {rep.name}
                     </Link>
                   </td>

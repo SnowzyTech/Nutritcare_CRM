@@ -12,6 +12,8 @@ import {
   applyWarehouseLocationDeltas,
   type ShelfAllocationItem,
 } from "@/modules/inventory/services/stock-level.service";
+import { logActivity } from "@/modules/audit/services/audit-log.service";
+import { suppressCameraForRequest } from "@/lib/audit/context";
 
 type Tx = Prisma.TransactionClient;
 
@@ -147,6 +149,7 @@ export async function assignPickerAction(
   try {
     const session = await auth();
     if (!session?.user?.id) return { success: false, error: "Unauthorized" };
+    suppressCameraForRequest();
     if (!pickPackIds.length) return { success: false, error: "No items selected" };
     if (!pickerId) return { success: false, error: "No picker selected" };
 
@@ -322,6 +325,14 @@ export async function assignPickerAction(
       });
     });
 
+    await logActivity({
+      userId: session.user.id,
+      action: "Updated",
+      entityType: "PickPack",
+      entityId: pickPackIds[0] ?? pickerId,
+      description: `Packed ${pickPackIds.length} item${pickPackIds.length === 1 ? "" : "s"} and assigned to picker`,
+    });
+
     revalidatePath("/warehouse/pick-and-pack");
     revalidatePath("/warehouse/location");
     revalidatePath("/logistics/deliveries");
@@ -340,6 +351,7 @@ export async function createPickPackerAction(
   try {
     const session = await auth();
     if (!session?.user?.id) return { success: false, error: "Unauthorized" };
+    suppressCameraForRequest();
     const trimmed = name.trim();
     if (!trimmed) return { success: false, error: "Name is required" };
 
@@ -349,6 +361,14 @@ export async function createPickPackerAction(
         warehouseId: warehouseId || null,
       },
       select: { id: true, name: true },
+    });
+
+    await logActivity({
+      userId: session.user.id,
+      action: "Created",
+      entityType: "PickPacker",
+      entityId: packer.id,
+      description: `Created picker/packer ${packer.name}`,
     });
 
     revalidatePath("/warehouse/pick-and-pack");

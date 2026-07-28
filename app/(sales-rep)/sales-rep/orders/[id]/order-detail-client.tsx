@@ -1,8 +1,9 @@
 "use client";
 
 import React, { useRef, useState, useTransition } from "react";
+import { useUpsellPreview } from "@/lib/orders/use-upsell-preview";
 import { useRouter } from "next/navigation";
-import { X, Trash2, RotateCcw } from "lucide-react";
+import { X, Trash2, RotateCcw, Phone, CalendarClock } from "lucide-react";
 import Image from "next/image";
 import { toast } from "sonner";
 import type { OrderStatus } from "@prisma/client";
@@ -12,7 +13,9 @@ import {
   cancelOrderAction,
   failOrderAction,
   addOrderItemsAction,
+  resolveUpsellPriceAction,
   removeOrderItemAction,
+  removeUpsellFromItemAction,
   updateOrderNotesAction,
   applyOrderDiscountAction,
   reassignOrderAgentAction,
@@ -26,6 +29,7 @@ export type SerializedOrder = {
   orderNumber: string;
   status: OrderStatus;
   isReorder: boolean;
+  isRescheduled: boolean;
   totalAmount: string;
   netAmount: string;
   deliveryFee: string;
@@ -64,6 +68,8 @@ export type SerializedOrder = {
     unitPrice: string;
     lineTotal: string;
     isUpsell: boolean;
+    upsellQuantity: number;
+    upsellAmount: string;
     product: { id: string; name: string; imageUrl: string | null };
   }>;
   salesRep: { id: string; name: string };
@@ -200,11 +206,14 @@ function getStatusBadge(status: OrderStatus) {
   }
 }
 
-function FieldRow({ label, value, copyable }: { label: string; value: string; copyable?: boolean }) {
+function FieldRow({ label, value, copyable, callable }: { label: string; value: string; copyable?: boolean; callable?: boolean }) {
   const handleCopy = () => {
     navigator.clipboard.writeText(value);
     toast.success(`${label} copied!`);
   };
+
+  // A real number to dial (strip spaces/dashes so the dialer parses it).
+  const dialNumber = value && value !== "—" ? value.replace(/[^\d+]/g, "") : "";
 
   return (
     <div className="relative group mb-1">
@@ -223,6 +232,15 @@ function FieldRow({ label, value, copyable }: { label: string; value: string; co
               <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
             </svg>
           </button>
+        )}
+        {callable && dialNumber && (
+          <a
+            href={`tel:${dialNumber}`}
+            className="p-1 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors"
+            title={`Call ${label}`}
+          >
+            <Phone className="w-3.5 h-3.5" />
+          </a>
         )}
       </div>
       <div
@@ -277,8 +295,15 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
   // Monotonic id source for product rows — avoids calling Date.now() during render.
   const rowIdRef = useRef(1);
   const [productRows, setProductRows] = useState(() => [
-    { id: 0, productId: products[0]?.id ?? "", qty: "1" },
+    { id: 0, productId: products[0]?.id ?? "", qty: "1", unitPrice: "" },
   ]);
+  // Live, merge-aware price preview per row (shared hook; rep resolver action).
+  const { previews } = useUpsellPreview(
+    order.id,
+    isAddProductOpen,
+    productRows,
+    resolveUpsellPriceAction,
+  );
 
   const steps = getSteps(order.status);
   const badge = getStatusBadge(order.status);
@@ -341,7 +366,7 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
   function addRow() {
     setProductRows([
       ...productRows,
-      { id: rowIdRef.current++, productId: products[0]?.id ?? "", qty: "1" },
+      { id: rowIdRef.current++, productId: products[0]?.id ?? "", qty: "1", unitPrice: "" },
     ]);
   }
 
@@ -350,7 +375,11 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
       setProductRows(productRows.filter((r) => r.id !== id));
   }
 
-  function updateRow(id: number, field: "productId" | "qty", value: string) {
+  function updateRow(
+    id: number,
+    field: "productId" | "qty" | "unitPrice",
+    value: string,
+  ) {
     setProductRows(
       productRows.map((r) => (r.id === id ? { ...r, [field]: value } : r)),
     );
@@ -389,23 +418,43 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
   }
 
   function handleAddProducts() {
+    const activeRows = productRows.filter((r) => r.productId);
+
+    // Guardrail: a unit price (> ₦0) is required for any row whose merged
+    // quantity has no exact package (the resolver flagged requiresUnitPrice).
+    const missingUnitPrice = activeRows.some((r) => {
+      const pv = previews[r.id];
+      return pv?.requiresUnitPrice && !(parseFloat(r.unitPrice) > 0);
+    });
+    if (missingUnitPrice) {
+      toast.error(
+        "Enter a unit price greater than ₦0 for products with no matching package.",
+      );
+      return;
+    }
+
     handleAction(async () => {
-      const items = productRows
-        .filter((r) => r.productId)
-        .map((r) => ({
+      const items = activeRows.map((r) => {
+        const typed = parseFloat(r.unitPrice);
+        return {
           productId: r.productId,
           quantity: parseInt(r.qty) || 1,
-        }));
+          ...(typed > 0 ? { unitPrice: typed } : {}),
+        };
+      });
       const res = await addOrderItemsAction(order.id, items);
       if (res?.error) return res; // surface error, skip the UI updates below
-      // Added items increase both gross and net by the same amount, so bump the
-      // negotiated-price input to keep any existing discount intact.
-      const added = productRows
-        .filter((r) => r.productId)
-        .reduce((sum, r) => {
-          const price = Number(products.find((p) => p.id === r.productId)?.sellingPrice ?? 0);
-          return sum + price * (parseInt(r.qty) || 1);
-        }, 0);
+      // Bump the negotiated-price input by the true gross increase (new merged
+      // line total − the product's existing line total) so any discount stays
+      // intact. Uses the live preview totals the rep already saw.
+      const added = activeRows.reduce((sum, r) => {
+        const pv = previews[r.id];
+        if (!pv) return sum;
+        const oldProductTotal = order.items
+          .filter((i) => i.product.id === r.productId)
+          .reduce((s, i) => s + Number(i.lineTotal), 0);
+        return sum + Math.max(0, pv.lineTotal - oldProductTotal);
+      }, 0);
       setPriceInput(String(Number(priceInput) + added));
       setIsAddProductOpen(false);
     }, "Products added to order");
@@ -452,6 +501,11 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
           >
             {badge.label}
           </span>
+          {order.isRescheduled && (order.status === "PENDING" || order.status === "CONFIRMED") && (
+            <span className="inline-flex items-center gap-1 bg-emerald-100 text-emerald-700 px-3 py-1 sm:py-1.5 rounded-full text-[10px] sm:text-xs font-bold whitespace-nowrap">
+              <CalendarClock size={12} /> Rescheduled
+            </span>
+          )}
           {order.isReorder && (
             <span className="bg-purple-100 text-purple-700 px-2 sm:px-3 py-1 rounded-full text-[10px] sm:text-xs font-semibold whitespace-nowrap">
               Reorder
@@ -483,11 +537,12 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6">
             <FieldRow label="Full Name" value={order.customer.name} />
-            <FieldRow label="Phone Number" value={order.customer.phone} copyable={true} />
+            <FieldRow label="Phone Number" value={order.customer.phone} copyable={true} callable={true} />
             <FieldRow
               label="WhatsApp number"
               value={order.customer.whatsappNumber ?? order.customer.phone}
               copyable={true}
+              callable={true}
             />
             <FieldRow label="Email" value={order.customer.email ?? "—"} />
             <div className="sm:col-span-2">
@@ -509,41 +564,103 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
           {/* Products card */}
           <div className="mt-4 flex flex-col gap-4">
             {order.items.map((item) => (
-              <div
-                key={item.id}
-                className="p-4 sm:p-5 rounded-2xl flex justify-between items-center bg-[#F3F4F6] border border-gray-100"
-              >
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 w-full items-start sm:items-center">
-                  <div>
-                    <p className="text-xs text-gray-400 font-semibold mb-1">Product(s)</p>
-                    <p className="text-base sm:text-[1.1rem] font-bold text-gray-800 break-all">{item.product.name}</p>
-                  </div>
-                  <div className="text-left sm:text-center">
-                    <p className="text-xs text-gray-400 font-semibold mb-1">Quantity</p>
-                    <p className="text-base sm:text-[1.1rem] font-bold text-gray-800">{item.quantity}</p>
-                  </div>
-                  <div className="text-left sm:text-right flex items-center gap-2 sm:justify-end">
-                    {order.status === "PENDING" && order.items.length > 1 && (
-                      <button
-                        type="button"
-                        disabled={isPending}
-                        title="Remove product"
-                        onClick={() => {
-                          if (confirm(`Remove ${item.product.name} from this order?`)) {
-                            handleAction(
-                              () => removeOrderItemAction(order.id, item.id),
-                              "Product removed",
-                            );
-                          }
-                        }}
-                        className="shrink-0 p-2 rounded-lg border border-red-100 text-red-500 hover:bg-red-50 disabled:opacity-50 transition"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    )}
+              <React.Fragment key={item.id}>
+                <div
+                  className={`p-4 sm:p-5 rounded-2xl flex justify-between items-center border ${
+                    item.isUpsell
+                      ? "bg-purple-50 border-purple-200"
+                      : "bg-[#F3F4F6] border-gray-100"
+                  }`}
+                >
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 w-full items-start sm:items-center">
+                    <div>
+                      <p className="text-xs text-gray-400 font-semibold mb-1 flex items-center gap-2">
+                        <span>{item.isUpsell ? "Upsold Product" : "Product(s)"}</span>
+                        {item.isUpsell && (
+                          <span className="bg-purple-600 text-white px-2 py-0.5 rounded-full text-[0.6rem] tracking-wide">
+                            UPSELL
+                          </span>
+                        )}
+                      </p>
+                      <p className="text-base sm:text-[1.1rem] font-bold text-gray-800 break-all">{item.product.name}</p>
+                    </div>
+                    <div className="text-left sm:text-center">
+                      <p className="text-xs text-gray-400 font-semibold mb-1">Quantity</p>
+                      <p className="text-base sm:text-[1.1rem] font-bold text-gray-800">
+                        {!item.isUpsell && item.upsellQuantity > 0
+                          ? item.quantity - item.upsellQuantity
+                          : item.quantity}
+                      </p>
+                    </div>
+                    <div className="text-left sm:text-right flex items-center gap-2 sm:justify-end">
+                      {order.status === "PENDING" && order.items.length > 1 && (
+                        <button
+                          type="button"
+                          disabled={isPending}
+                          title="Remove product"
+                          onClick={() => {
+                            if (confirm(`Remove ${item.product.name} from this order?`)) {
+                              handleAction(
+                                () => removeOrderItemAction(order.id, item.id),
+                                "Product removed",
+                              );
+                            }
+                          }}
+                          className="shrink-0 p-2 rounded-lg border border-red-100 text-red-500 hover:bg-red-50 disabled:opacity-50 transition"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
+
+                {/* Separate "Upsold" card for a merged line — shows the portion the
+                    sales-rep upsold (units + amount) distinct from the original order. */}
+                {!item.isUpsell && item.upsellQuantity > 0 && (
+                  <div className="p-4 sm:p-5 rounded-2xl flex justify-between items-center bg-purple-50 border border-purple-200">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 w-full items-start sm:items-center">
+                      <div>
+                        <p className="text-xs text-purple-500 font-semibold mb-1 flex items-center gap-2">
+                          <span>Upsold</span>
+                          <span className="bg-purple-600 text-white px-2 py-0.5 rounded-full text-[0.6rem] tracking-wide">
+                            UPSELL
+                          </span>
+                        </p>
+                        <p className="text-base sm:text-[1.1rem] font-bold text-gray-800 break-all">{item.product.name}</p>
+                      </div>
+                      <div className="text-left sm:text-center">
+                        <p className="text-xs text-purple-500 font-semibold mb-1">Quantity</p>
+                        <p className="text-base sm:text-[1.1rem] font-bold text-gray-800">{item.upsellQuantity}</p>
+                      </div>
+                      <div className="text-left sm:text-right flex items-center gap-2 sm:justify-end">
+                        <div>
+                          <p className="text-xs text-purple-500 font-semibold mb-1">Amount</p>
+                          <p className="text-base sm:text-[1.1rem] font-bold text-gray-800">{fmtNaira(Number(item.upsellAmount))}</p>
+                        </div>
+                        {order.status === "PENDING" && (
+                          <button
+                            type="button"
+                            disabled={isPending}
+                            title="Remove upsold products"
+                            onClick={() => {
+                              if (confirm(`Remove the upsold ${item.product.name} from this order?`)) {
+                                handleAction(
+                                  () => removeUpsellFromItemAction(order.id, item.id),
+                                  "Upsold product removed",
+                                );
+                              }
+                            }}
+                            className="shrink-0 p-2 rounded-lg border border-red-100 text-red-500 hover:bg-red-50 disabled:opacity-50 transition"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </React.Fragment>
             ))}
           </div>
 
@@ -1264,6 +1381,7 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
             <div className="space-y-4 mb-8 max-h-[350px] overflow-y-auto pr-2">
               {productRows.map((row) => {
                 const selectedProduct = products.find((p) => p.id === row.productId);
+                const preview = previews[row.id];
                 return (
                   <div key={row.id} className="flex gap-3 items-center group">
                     <div className="flex-1 bg-slate-50 rounded-2xl p-4 flex flex-col gap-3 border border-slate-100">
@@ -1276,7 +1394,7 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
                         <option value="" disabled>Select Product</option>
                         {products.map((p) => (
                           <option key={p.id} value={p.id}>
-                            {p.name} — ₦{Number(p.sellingPrice).toLocaleString("en-NG")}
+                            {p.name}
                           </option>
                         ))}
                       </select>
@@ -1286,9 +1404,6 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
                         <div className="flex flex-col min-w-0">
                           <span className="text-sm font-bold text-slate-800 truncate">
                             {selectedProduct?.name ?? "—"}
-                          </span>
-                          <span className="text-xs text-purple-600 font-semibold">
-                            ₦{selectedProduct ? Number(selectedProduct.sellingPrice).toLocaleString("en-NG") : "0"}
                           </span>
                         </div>
                         <div className="flex items-center justify-between bg-white rounded-xl h-[44px] px-2 shadow-sm border border-slate-100 shrink-0 w-[130px]">
@@ -1308,6 +1423,48 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
                             +
                           </button>
                         </div>
+                      </div>
+
+                      {/* Manual unit price — shown only when the merged quantity
+                          has no exact package (resolver flagged requiresUnitPrice). */}
+                      {preview?.requiresUnitPrice && (
+                        <div className="flex flex-col gap-1">
+                          <input
+                            type="number"
+                            min="1"
+                            inputMode="decimal"
+                            value={row.unitPrice}
+                            onChange={(e) => updateRow(row.id, "unitPrice", e.target.value)}
+                            placeholder="Enter price of 1 unit (₦)"
+                            className="w-full h-[44px] bg-white border border-amber-300 rounded-xl px-4 text-sm font-semibold text-slate-800 outline-none focus:border-amber-400"
+                          />
+                          <span className="text-[11px] text-amber-600 font-medium">
+                            Qty {preview.mergedQty} has no set package — enter the current price of 1 unit.
+                          </span>
+                        </div>
+                      )}
+
+                      {/* Live, merge-aware price preview */}
+                      <div className="flex items-center justify-between text-sm border-t border-slate-100 pt-2">
+                        <span className="text-slate-500 font-medium">
+                          {(() => {
+                            const picked = parseInt(row.qty) || 1;
+                            if (preview && preview.mergedQty !== picked) {
+                              const existing = preview.mergedQty - picked;
+                              return `Total for ${preview.mergedQty} (${existing} already on order + ${picked} new)`;
+                            }
+                            return "Total";
+                          })()}
+                        </span>
+                        <span className="font-black text-slate-800">
+                          {!row.productId
+                            ? "—"
+                            : preview?.loading
+                              ? "…"
+                              : preview
+                                ? fmtNaira(preview.lineTotal)
+                                : "—"}
+                        </span>
                       </div>
                     </div>
                     {productRows.length > 1 && (

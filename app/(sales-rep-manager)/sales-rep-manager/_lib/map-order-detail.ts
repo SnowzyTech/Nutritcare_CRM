@@ -51,6 +51,7 @@ export function mapOrderToDetail(dbOrder: DbOrder, repName: string): OrderDetail
 
   return {
     orderId: dbOrder.id,
+    orderNumber: dbOrder.orderNumber,
     status: dbOrder.status as OrderDetail["status"],
     customer: {
       fullName: dbOrder.customer.name,
@@ -68,6 +69,19 @@ export function mapOrderToDetail(dbOrder: DbOrder, repName: string): OrderDetail
     upsell: upsellItem
       ? { product: upsellItem.product.name, quantity: upsellItem.quantity, image: upsellItem.product.imageUrl ?? null }
       : null,
+    // Per-line breakdown: original quantity + rep-upsold portion (units + amount).
+    // Handles merged same-product upsells and multiple upsold products.
+    items: dbOrder.items.map((it) => ({
+      product: it.product.name,
+      image: it.product.imageUrl ?? null,
+      quantity:
+        !it.isUpsell && it.upsellQuantity > 0
+          ? it.quantity - it.upsellQuantity
+          : it.quantity,
+      upsellQuantity: it.upsellQuantity,
+      upsellAmount: formatCurrency(Number(it.upsellAmount)),
+      isUpsell: it.isUpsell,
+    })),
     totalPrice: formatCurrency(net),
     pricing: {
       original: formatCurrency(gross),

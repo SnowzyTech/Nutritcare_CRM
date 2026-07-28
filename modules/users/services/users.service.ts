@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db/prisma";
 import { Prisma, type UserRole } from "@prisma/client";
 import { monthRanges, parseMonthParam, type MonthPeriod } from "@/lib/month-period";
+import { dateRanges, type DatePeriod } from "@/lib/date-period";
 import { generalPerformanceScore, kpiScore } from "@/lib/performance";
 import type { MonthMetrics } from "@/modules/orders/services/analytics.service";
 import { addUserToAllAgentGroups } from "@/modules/chat/services/conversations.service";
@@ -94,8 +95,51 @@ export async function getSelfProfile(userId: string) {
       role: true,
       createdAt: true,
       avatarUrl: true,
+      revokedAdminPages: true,
       team: { select: { name: true } },
     },
+  });
+}
+
+/** List all limited-admin accounts (for the Super Admin access-management screen). */
+export async function listAdmins() {
+  return prisma.user.findMany({
+    where: { role: "ADMIN" },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      avatarUrl: true,
+      isActive: true,
+      revokedAdminPages: true,
+      createdAt: true,
+    },
+    orderBy: { createdAt: "asc" },
+  });
+}
+
+/** Accountants + their granted accounting features, for the access-control page. */
+export async function listAccountantsForAccess() {
+  return prisma.user.findMany({
+    where: { role: "ACCOUNTANT" },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      avatarUrl: true,
+      isActive: true,
+      accountingPermissions: true,
+      createdAt: true,
+    },
+    orderBy: { createdAt: "asc" },
+  });
+}
+
+/** Replace a limited admin's revoked-pages list. Only affects ADMIN accounts. */
+export async function setAdminPageAccess(userId: string, revokedPages: string[]) {
+  return prisma.user.updateMany({
+    where: { id: userId, role: "ADMIN" },
+    data: { revokedAdminPages: revokedPages },
   });
 }
 
@@ -230,8 +274,12 @@ export async function getSalesRepOrderSummary(id: string) {
   };
 }
 
-export async function getSalesRepAnalytics(salesRepId: string, period?: MonthPeriod) {
-  const { currentStart, currentEnd, prevStart, prevEnd } = monthRanges(period ?? parseMonthParam());
+export async function getSalesRepAnalytics(salesRepId: string, period?: MonthPeriod | DatePeriod) {
+  const { currentStart, currentEnd, prevStart, prevEnd } = !period
+    ? monthRanges(parseMonthParam())
+    : "from" in period
+      ? dateRanges(period)
+      : monthRanges(period);
 
   const allOrders = await prisma.order.findMany({
     where: { salesRepId, deletedAt: null },
@@ -264,6 +312,92 @@ export async function getSalesRepAnalytics(salesRepId: string, period?: MonthPer
     },
   };
 }
+
+/**
+ * Department-wide sales-rep overview for a day/date range. One batched query
+ * for the whole team over the current + previous windows, so the admin board
+ * can rank everyone at a glance (and see a department aggregate) without
+ * opening each profile. Reuses the same metric math as the per-rep analytics.
+ */
+export async function getSalesRepOverview(period: DatePeriod) {
+  const { currentStart, currentEnd, prevStart, prevEnd } = dateRanges(period);
+
+  const reps = await prisma.user.findMany({
+    where: { role: "SALES_REP", isActive: true },
+    select: { id: true, name: true, phone: true, avatarUrl: true, team: { select: { name: true } } },
+    orderBy: { name: "asc" },
+  });
+  const repIds = reps.map((r) => r.id);
+
+  const orders = repIds.length
+    ? await prisma.order.findMany({
+        where: {
+          salesRepId: { in: repIds },
+          deletedAt: null,
+          createdAt: { gte: prevStart, lte: currentEnd },
+        },
+        select: {
+          salesRepId: true,
+          status: true,
+          customerId: true,
+          createdAt: true,
+          isReorder: true,
+          items: { select: { productId: true, quantity: true, product: { select: { name: true } } } },
+        },
+      })
+    : [];
+
+  // Bucket each rep's orders into current / previous windows.
+  const byRep: Record<string, { current: typeof orders; previous: typeof orders }> = {};
+  for (const id of repIds) byRep[id] = { current: [], previous: [] };
+  for (const o of orders) {
+    if (!o.salesRepId || !byRep[o.salesRepId]) continue;
+    if (o.createdAt >= currentStart && o.createdAt <= currentEnd) byRep[o.salesRepId].current.push(o);
+    else if (o.createdAt >= prevStart && o.createdAt <= prevEnd) byRep[o.salesRepId].previous.push(o);
+  }
+
+  const rows = reps.map((rep) => {
+    const { current, previous } = byRep[rep.id];
+    const cur = computeRepMetrics(current);
+    const prev = computeRepMetrics(previous);
+    return {
+      id: rep.id,
+      name: rep.name,
+      phone: rep.phone,
+      avatarUrl: rep.avatarUrl,
+      team: rep.team?.name ?? null,
+      total: cur.total,
+      delivered: cur.delivered,
+      pending: cur.pending,
+      confirmed: cur.confirmed,
+      failed: cur.failed,
+      cancelled: cur.cancelled,
+      kpi: cur.kpi,
+      generalPerformance: cur.generalPerformance,
+      deliveryRate: cur.deliveryRate,
+      confirmationRate: cur.confirmationRate,
+      upsellRate: cur.upsellRate,
+      cancellationRate: cur.cancellationRate,
+      reorderRate: cur.reorderRate,
+      totalProductsSold: cur.totalProductsSold,
+      bestProduct: cur.bestProduct?.name ?? null,
+      distinctCustomers: cur.distinctCustomers,
+      trends: {
+        total: trendLabel(cur.total, prev.total),
+        delivered: trendLabel(cur.delivered, prev.delivered),
+        kpi: trendLabel(cur.kpi, prev.kpi),
+        generalPerformance: trendLabel(cur.generalPerformance, prev.generalPerformance),
+        confirmed: trendLabel(cur.confirmed, prev.confirmed),
+        cancelled: trendLabel(cur.cancelled, prev.cancelled),
+        upsellRate: trendLabel(cur.upsellRate, prev.upsellRate),
+      },
+    };
+  });
+
+  return rows;
+}
+
+export type SalesRepOverviewRow = Awaited<ReturnType<typeof getSalesRepOverview>>[number];
 
 export async function deleteUser(id: string) {
   const orderCount = await prisma.order.count({ where: { salesRepId: id, deletedAt: null } });
@@ -323,6 +457,13 @@ export async function getAllTeams() {
   return prisma.team.findMany({
     select: { id: true, name: true, department: true },
     orderBy: { name: "asc" },
+  });
+}
+
+export async function getTeamById(id: string) {
+  return prisma.team.findUnique({
+    where: { id },
+    select: { id: true, name: true, department: true },
   });
 }
 
@@ -388,6 +529,29 @@ export async function getTeamLeads() {
   });
 }
 
+/**
+ * Sales team leads only — a SALES_REP flagged `isTeamLead`. Unlike
+ * `getTeamLeads()` (which counts the flag across every role/department), this
+ * scopes to the sales org so the sales-manager Teams page count is meaningful.
+ */
+export async function getSalesTeamLeads() {
+  return prisma.user.findMany({
+    where: {
+      isTeamLead: true,
+      role: "SALES_REP",
+      accountActivationStatus: "APPROVED",
+      isActive: true,
+    },
+    select: {
+      id: true,
+      name: true,
+      avatarUrl: true,
+      team: { select: { id: true, name: true } },
+    },
+    orderBy: { name: "asc" },
+  });
+}
+
 // ── Sales Rep Manager service functions ──────────────────────────────────────
 
 function computeProductTables(orders: Array<{
@@ -430,6 +594,32 @@ export async function getManagerWithTeam(managerId: string) {
   });
 }
 
+/**
+ * All-time per-rep metrics keyed by rep id. One query for the whole set, then
+ * the shared {@link computeRepMetrics} (same weighted "General Performance" the
+ * analytics pages use) so the reps list, the overview average, and the
+ * analytics screens all agree on one number.
+ */
+async function repMetricsByRep(memberIds: string[]) {
+  const orders = await prisma.order.findMany({
+    where: { salesRepId: { in: memberIds }, deletedAt: null },
+    select: {
+      salesRepId: true, status: true, customerId: true, isReorder: true,
+      items: { select: { productId: true, quantity: true, product: { select: { name: true } } } },
+    },
+  });
+
+  const byRep: Record<string, typeof orders> = {};
+  for (const id of memberIds) byRep[id] = [];
+  for (const o of orders) {
+    if (o.salesRepId && byRep[o.salesRepId]) byRep[o.salesRepId].push(o);
+  }
+
+  const map: Record<string, ReturnType<typeof computeRepMetrics>> = {};
+  for (const id of memberIds) map[id] = computeRepMetrics(byRep[id]);
+  return map;
+}
+
 export async function getTeamMembersWithStats(teamId: string) {
   const members = await prisma.user.findMany({
     where: { teamId, role: "SALES_REP", isActive: true },
@@ -439,35 +629,71 @@ export async function getTeamMembersWithStats(teamId: string) {
 
   if (members.length === 0) return [];
 
-  const memberIds = members.map(m => m.id);
-  const stats = await prisma.order.groupBy({
-    by: ["salesRepId", "status"],
-    where: { salesRepId: { in: memberIds }, deletedAt: null },
-    _count: { id: true },
-  });
-
-  const statsMap: Record<string, Record<string, number>> = {};
-  for (const s of stats) {
-    if (!s.salesRepId) continue;
-    statsMap[s.salesRepId] ??= {};
-    statsMap[s.salesRepId][s.status] = s._count.id;
-  }
+  const metrics = await repMetricsByRep(members.map(m => m.id));
 
   return members.map(member => {
-    const s = statsMap[member.id] ?? {};
-    const delivered = s.DELIVERED ?? 0;
-    const failed = s.FAILED ?? 0;
-    const confirmed = s.CONFIRMED ?? 0;
-    const pending = s.PENDING ?? 0;
-    const cancelled = s.CANCELLED ?? 0;
-    const pendingOrders = pending + confirmed;
-    const total = delivered + failed + confirmed + pending + cancelled;
-    const dispatched = delivered + failed;
-    const deliveryRate = dispatched > 0 ? delivered / dispatched : 0;
-    const confirmationRate = total > 0 ? (confirmed + delivered) / total : 0;
-    const performance = Math.min(100, Math.round((deliveryRate * 0.6 + confirmationRate * 0.4) * 100));
-    return { ...member, pendingOrders, performance };
+    const m = metrics[member.id];
+    // "Performance" = weighted General Performance (delivery/recovery/upsell/
+    // reorder/low-cancellation), matching the analytics pages.
+    return { ...member, pendingOrders: m.pending + m.confirmed, performance: m.generalPerformance };
   });
+}
+
+/**
+ * Company-wide version of getTeamMembersWithStats — every active sales rep
+ * across all teams, with the same per-rep stats plus team info for grouping.
+ * Used by the company-wide Sales Rep Manager (role SALES_REP_MANAGER).
+ */
+export async function getAllActiveSalesReps() {
+  const members = await prisma.user.findMany({
+    where: { role: "SALES_REP", isActive: true },
+    select: {
+      id: true, name: true, phone: true, avatarUrl: true,
+      teamId: true, team: { select: { id: true, name: true } },
+    },
+    orderBy: { name: "asc" },
+  });
+
+  if (members.length === 0) return [];
+
+  const metrics = await repMetricsByRep(members.map(m => m.id));
+
+  return members.map(member => {
+    const m = metrics[member.id];
+    return {
+      id: member.id,
+      name: member.name,
+      phone: member.phone,
+      avatarUrl: member.avatarUrl,
+      teamId: member.teamId,
+      teamName: member.team?.name ?? null,
+      pendingOrders: m.pending + m.confirmed,
+      // "Performance" = weighted General Performance, matching the analytics pages.
+      performance: m.generalPerformance,
+    };
+  });
+}
+
+/**
+ * Live company-wide order pipeline — a snapshot of every sales order grouped by
+ * status (NOT period-scoped; open orders are inherently "now"). Used by the
+ * company sales-manager overview.
+ */
+export async function getCompanyOrderStatusCounts() {
+  const grouped = await prisma.order.groupBy({
+    by: ["status"],
+    where: { deletedAt: null, salesRep: { role: "SALES_REP" } },
+    _count: { id: true },
+  });
+  const map = Object.fromEntries(grouped.map((g) => [g.status, g._count.id]));
+  return {
+    pending: map["PENDING"] ?? 0,
+    confirmed: map["CONFIRMED"] ?? 0,
+    delivered: map["DELIVERED"] ?? 0,
+    cancelled: map["CANCELLED"] ?? 0,
+    failed: map["FAILED"] ?? 0,
+    total: grouped.reduce((s, g) => s + g._count.id, 0),
+  };
 }
 
 type ReportOrder = {
@@ -499,9 +725,9 @@ function toReportMetrics(orders: ReportOrder[]): MonthMetrics {
   };
 }
 
-export async function getTeamAnalytics(teamId: string, period?: MonthPeriod) {
+export async function getTeamAnalytics(teamId: string, period?: MonthPeriod | DatePeriod) {
   const members = await prisma.user.findMany({
-    where: { teamId, role: "SALES_REP" },
+    where: { teamId, role: "SALES_REP", isActive: true },
     select: { id: true },
   });
 
@@ -530,7 +756,89 @@ export async function getTeamAnalytics(teamId: string, period?: MonthPeriod) {
   }
 
   const memberIds = members.map(m => m.id);
-  const { currentStart, currentEnd, prevStart, prevEnd } = monthRanges(period ?? parseMonthParam());
+  const { currentStart, currentEnd, prevStart, prevEnd } = !period
+    ? monthRanges(parseMonthParam())
+    : "from" in period
+      ? dateRanges(period)
+      : monthRanges(period);
+
+  const allOrders = await prisma.order.findMany({
+    where: { salesRepId: { in: memberIds }, deletedAt: null },
+    select: {
+      status: true, customerId: true, createdAt: true, isReorder: true,
+      items: { select: { productId: true, quantity: true, product: { select: { name: true } } } },
+    },
+  });
+
+  const thisMonthOrders = allOrders.filter(o => o.createdAt >= currentStart && o.createdAt <= currentEnd);
+  const lastMonthOrders = allOrders.filter(o => o.createdAt >= prevStart && o.createdAt <= prevEnd);
+
+  const current = computeRepMetrics(thisMonthOrders);
+  const previous = computeRepMetrics(lastMonthOrders);
+  const tables = computeProductTables(thisMonthOrders);
+
+  return {
+    current,
+    trends: {
+      distinctCustomers: trendLabel(current.distinctCustomers, previous.distinctCustomers),
+      total: trendLabel(current.total, previous.total),
+      delivered: trendLabel(current.delivered, previous.delivered),
+      generalPerformance: trendLabel(current.generalPerformance, previous.generalPerformance),
+      upsellRate: trendLabel(current.upsellRate, previous.upsellRate),
+      confirmationRate: trendLabel(current.confirmationRate, previous.confirmationRate),
+      deliveryRate: trendLabel(current.deliveryRate, previous.deliveryRate),
+      cancellationRate: trendLabel(current.cancellationRate, previous.cancellationRate),
+      recoveryRate: trendLabel(current.recoveryRate, previous.recoveryRate),
+      reorderRate: trendLabel(current.reorderRate, previous.reorderRate),
+      kpi: trendLabel(current.kpi, previous.kpi),
+    },
+    tables,
+    reportMetrics: toReportMetrics(thisMonthOrders),
+    memberCount: members.length,
+  };
+}
+
+/**
+ * Company-wide analytics across every sales rep (all teams). Mirrors
+ * getTeamAnalytics but drops the teamId filter. Used by the company-wide
+ * Sales Rep Manager dashboard.
+ */
+export async function getCompanyAnalytics(period?: MonthPeriod | DatePeriod) {
+  const members = await prisma.user.findMany({
+    where: { role: "SALES_REP", isActive: true },
+    select: { id: true },
+  });
+
+  if (members.length === 0) {
+    const empty = computeRepMetrics([]);
+    const emptyTrend = "—";
+    return {
+      current: empty,
+      trends: {
+        distinctCustomers: emptyTrend,
+        total: emptyTrend,
+        delivered: emptyTrend,
+        generalPerformance: emptyTrend,
+        upsellRate: emptyTrend,
+        confirmationRate: emptyTrend,
+        deliveryRate: emptyTrend,
+        cancellationRate: emptyTrend,
+        recoveryRate: emptyTrend,
+        reorderRate: emptyTrend,
+        kpi: emptyTrend,
+      },
+      tables: { bestSellingTable: [], upsellingTable: [] },
+      reportMetrics: toReportMetrics([]),
+      memberCount: 0,
+    };
+  }
+
+  const memberIds = members.map(m => m.id);
+  const { currentStart, currentEnd, prevStart, prevEnd } = !period
+    ? monthRanges(parseMonthParam())
+    : "from" in period
+      ? dateRanges(period)
+      : monthRanges(period);
 
   const allOrders = await prisma.order.findMany({
     where: { salesRepId: { in: memberIds }, deletedAt: null },
@@ -610,9 +918,18 @@ export async function getStaffMemberById(id: string) {
     select: {
       id: true, name: true, email: true, phone: true, whatsappNumber: true,
       avatarUrl: true, isActive: true, isTeamLead: true, createdAt: true, role: true,
+      accountingPermissions: true,
       team: { select: { id: true, name: true } },
       warehouse: { select: { id: true, name: true } },
     },
+  });
+}
+
+/** Replace an accountant's granted accounting features (positive-grant model). */
+export async function setAccountingPermissions(userId: string, permissions: string[]) {
+  return prisma.user.updateMany({
+    where: { id: userId, role: "ACCOUNTANT" },
+    data: { accountingPermissions: permissions },
   });
 }
 

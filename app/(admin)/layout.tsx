@@ -20,6 +20,7 @@ export default async function DashboardLayout({
 
   return (
     <div
+      className="admin-shell"
       style={{
         display: "flex",
         height: "100vh",
@@ -29,10 +30,13 @@ export default async function DashboardLayout({
       }}
     >
       {/* Sidebar */}
-      <Sidebar />
+      <div className="print:hidden">
+        <Sidebar />
+      </div>
 
       {/* Main area */}
       <div
+        className="admin-col"
         style={{
           flex: 1,
           display: "flex",
@@ -42,6 +46,7 @@ export default async function DashboardLayout({
       >
         {/* Top bar */}
         <header
+          className="print:hidden"
           style={{
             height: 64,
             background: "#f0f0f3",
@@ -88,6 +93,7 @@ export default async function DashboardLayout({
 
         {/* Page content */}
         <main
+          className="admin-main"
           style={{
             flex: 1,
             overflowY: "auto",
