@@ -15,6 +15,13 @@ import {
   searchOrdersForTag,
   getOrderTagSummary,
 } from "../services/tags.service";
+import {
+  getOrCreateDirectConversation,
+  getConversationListItem,
+  searchDirectory,
+  type ConversationListItem,
+  type DirectoryUser,
+} from "../services/conversations.service";
 import { publishMessageCreated } from "@/lib/chat/socket";
 
 type Result<T> = { ok: true; data: T } | { ok: false; error: string };
@@ -123,6 +130,51 @@ export async function searchOrderTagAction(q: string) {
     return { ok: true as const, data };
   } catch {
     return { ok: false as const, error: "Failed" };
+  }
+}
+
+/**
+ * Open (creating on first use) the DM with another user and hand back its id.
+ * No `revalidatePath` — the conversation list is a client store, and forcing a
+ * server re-render here would throw away its live state.
+ */
+export async function openDirectAction(
+  peerUserId: string
+): Promise<Result<{ conversationId: string }>> {
+  try {
+    const userId = await requireUserId();
+    const peerId = z.string().min(1).parse(peerUserId);
+    const conversationId = await getOrCreateDirectConversation(userId, peerId);
+    return { ok: true, data: { conversationId } };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "Could not open conversation",
+    };
+  }
+}
+
+export async function searchDirectoryAction(q: string): Promise<Result<DirectoryUser[]>> {
+  try {
+    const userId = await requireUserId();
+    const data = await searchDirectory(userId, q.trim());
+    return { ok: true, data };
+  } catch {
+    return { ok: false, error: "Failed" };
+  }
+}
+
+/** One conversation list row — used to splice in a DM the client hasn't seen. */
+export async function getConversationListItemAction(
+  conversationId: string
+): Promise<Result<ConversationListItem>> {
+  try {
+    const userId = await requireUserId();
+    const data = await getConversationListItem(conversationId, userId);
+    if (!data) return { ok: false, error: "Conversation not found" };
+    return { ok: true, data };
+  } catch {
+    return { ok: false, error: "Failed" };
   }
 }
 

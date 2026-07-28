@@ -1200,7 +1200,10 @@ model Conversation {
   id                 String               @id @default(cuid())
   type               ConversationType     @default(AGENT_GROUP)
   agentId            String?              @unique // set for AGENT_GROUP
-  title              String? // denormalized agent companyName
+  // set for DIRECT: sorted "userIdA:userIdB" — the deterministic pair identity
+  // that makes get-or-create atomic (no unique key exists over member pairs).
+  directKey          String?              @unique
+  title              String? // denormalized agent companyName; null for DIRECT (resolved per-viewer)
   isArchived         Boolean              @default(false)
   // denormalized "last message" for a zero-scan conversation list:
   lastMessageAt      DateTime?
@@ -1287,6 +1290,7 @@ model MessageOrderRef {
 
 enum ConversationType {
   AGENT_GROUP
+  DIRECT
 }
 
 enum MessageType {
