@@ -25,6 +25,7 @@ type Props = {
   role?: string;
   warehouses?: WarehouseOption[];
   currentWarehouseId?: string | null;
+  isTeamLead?: boolean | null;
   accountingPermissions?: string[];
 };
 
@@ -258,13 +259,11 @@ export default function StaffDetailAdvancedClient({
                 modal === "suspend" ? "bg-amber-50 text-amber-500" :
                 modal === "assignWarehouse" ? "bg-emerald-50 text-emerald-500" :
                 modal === "toggleHead" ? "bg-amber-50 text-amber-500" :
-                "bg-purple-50 text-purple-500"
-              }`}>
-                {modal === "assignWarehouse" ? <Warehouse size={24} /> : modal === "toggleHead" ? <Crown size={24} /> : <AlertTriangle size={24} />}
                 modal === "accountingAccess" ? "bg-indigo-50 text-indigo-500" :
                 "bg-purple-50 text-purple-500"
               }`}>
                 {modal === "assignWarehouse" ? <Warehouse size={24} /> :
+                 modal === "toggleHead" ? <Crown size={24} /> :
                  modal === "accountingAccess" ? <ShieldCheck size={24} /> :
                  <AlertTriangle size={24} />}
               </div>
@@ -370,6 +369,20 @@ export default function StaffDetailAdvancedClient({
                       : <><span className="font-bold text-slate-700">{staffName}</span> will be able to see all Logistics Managers, drill into the movements each one has handled, and will become the only Logistics Manager who can add or remove drivers and delivery agents.</>
                   )}
                 </p>
+                {error && <p className="text-rose-500 text-sm mb-4">{error}</p>}
+                <div className="flex gap-4">
+                  <button onClick={closeModal} className="flex-1 bg-slate-50 hover:bg-slate-100 text-slate-600 py-3.5 rounded-2xl font-bold transition-all">Cancel</button>
+                  <button
+                    onClick={handleToggleHead}
+                    disabled={isPending}
+                    className="flex-1 bg-amber-500 hover:bg-amber-600 text-white py-3.5 rounded-2xl font-bold transition-all shadow-lg shadow-amber-100 disabled:opacity-60"
+                  >
+                    {isPending ? "Processing..." : isTeamLead ? "Remove" : "Assign"}
+                  </button>
+                </div>
+              </>
+            )}
+
             {modal === "accountingAccess" && (
               <>
                 <h3 className="text-xl font-black text-slate-800 mb-2">Manage Accounting Access</h3>
@@ -405,13 +418,6 @@ export default function StaffDetailAdvancedClient({
                 {error && <p className="text-rose-500 text-sm mb-4">{error}</p>}
                 <div className="flex gap-4">
                   <button onClick={closeModal} className="flex-1 bg-slate-50 hover:bg-slate-100 text-slate-600 py-3.5 rounded-2xl font-bold transition-all">Cancel</button>
-                  <button
-                    onClick={handleToggleHead}
-                    disabled={isPending}
-                    className="flex-1 bg-amber-500 hover:bg-amber-600 text-white py-3.5 rounded-2xl font-bold transition-all shadow-lg shadow-amber-100 disabled:opacity-60"
-                  >
-                    {isPending ? "Processing..." : isTeamLead ? "Remove" : "Assign"}
-                     </button>
                   <button
                     onClick={handleSaveAccountingAccess}
                     disabled={isPending}
