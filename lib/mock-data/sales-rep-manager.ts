@@ -261,9 +261,24 @@ export const MOCK_ORDERS = [
   { id: "o10", email: "victor.uche.ng@gmail.com", name: "Victor Uche", agent: { name: "Mrs. Sunmi", state: "Oyo State" }, product: "Fonio-Mill", qty: 7, date: "04-02-2026", status: "DELIVERED" },
 ];
 
+export interface OrderDetailItem {
+  product: string;
+  image?: string | null;
+  // For a merged line: the ORIGINAL quantity (line qty minus upsold). For a
+  // whole-upsell line: the full quantity.
+  quantity: number;
+  upsellQuantity: number;
+  upsellAmount: string; // formatted ₦ — managers see the upsold amount
+  isUpsell: boolean; // whole-upsell line (a brand-new upsold product)
+}
+
 export interface OrderDetail {
   orderId: string;
+  orderNumber?: string; // the human order code (e.g. NEURO-002); shown in the header
   status: "PENDING" | "CONFIRMED" | "DELIVERED" | "CANCELLED" | "FAILED";
+  // Per-line breakdown (original + upsold), used by the detail view. Optional so
+  // legacy mock objects still compile; the real mapper always populates it.
+  items?: OrderDetailItem[];
   customer: {
     fullName: string;
     phone: string;

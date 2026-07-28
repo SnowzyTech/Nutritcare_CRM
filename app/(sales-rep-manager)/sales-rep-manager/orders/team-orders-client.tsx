@@ -29,7 +29,8 @@ export type TeamOrderListItem = {
   product: string;
   qty: number;
   isReorder: boolean;
-  itemNames: string[]; // all product names on the order (for the +N badge)
+  itemNames: string[]; // all product names on the order (tooltip for the +N badge)
+  extraCount: number; // extra products + merged upsells (drives the +N badge)
   date: string; // ISO date: YYYY-MM-DD (order created date)
   statusDate: string; // ISO date: YYYY-MM-DD (last status change / updatedAt)
 };
@@ -351,9 +352,9 @@ export function TeamOrdersClient({ orders, counts, products = [], teams = [] }: 
                     <div className="truncate flex items-center gap-1">
                       <span className="text-gray-400">Product:</span>{" "}
                       <span className="text-gray-700 font-medium truncate">{order.product}</span>
-                      {order.itemNames.length > 1 && (
+                      {order.extraCount > 0 && (
                         <span className="shrink-0 inline-flex items-center bg-purple-100 text-[#532194] text-[9px] font-bold px-1 py-0.5 rounded-full">
-                          +{order.itemNames.length - 1}
+                          +{order.extraCount}
                         </span>
                       )}
                     </div>
@@ -431,12 +432,12 @@ export function TeamOrdersClient({ orders, counts, products = [], teams = [] }: 
                     <td className="px-6 py-4 text-gray-500 font-medium">
                       <div className="flex items-center gap-1.5">
                         <span className="truncate max-w-[160px]">{order.product}</span>
-                        {order.itemNames.length > 1 && (
+                        {order.extraCount > 0 && (
                           <span
                             title={order.itemNames.join(", ")}
                             className="shrink-0 inline-flex items-center bg-purple-100 text-[#532194] text-[10px] font-bold px-1.5 py-0.5 rounded-full"
                           >
-                            +{order.itemNames.length - 1}
+                            +{order.extraCount}
                           </span>
                         )}
                       </div>

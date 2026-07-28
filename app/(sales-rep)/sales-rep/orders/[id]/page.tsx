@@ -82,6 +82,8 @@ export default async function OrderDetailPage({ params }: Props) {
       unitPrice: item.unitPrice.toString(),
       lineTotal: item.lineTotal.toString(),
       isUpsell: item.isUpsell,
+      upsellQuantity: item.upsellQuantity,
+      upsellAmount: item.upsellAmount.toString(),
       product: {
         id: item.product.id,
         name: item.product.name,

@@ -34,6 +34,8 @@ export default async function AllOrdersPage() {
       : null,
     items: o.items.map((item) => ({
       quantity: item.quantity,
+      upsellQuantity: item.upsellQuantity,
+      isUpsell: item.isUpsell,
       product: { name: item.product.name },
     })),
     salesRep: { name: o.salesRep.name },

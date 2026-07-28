@@ -192,7 +192,7 @@ export function OrderDetailClient({ repName, order }: OrderDetailClientProps) {
       </div>
 
       <div className="flex flex-wrap gap-3 justify-between items-center bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-        <h2 className="text-lg md:text-xl font-bold text-gray-900 break-all">Order ID: {order.orderId}</h2>
+        <h2 className="text-lg md:text-xl font-bold text-gray-900 break-all">Order ID: {order.orderNumber ?? order.orderId}</h2>
         <span className={`${badge.bg} text-white px-5 py-2 rounded-full text-[10px] uppercase font-bold tracking-wider`}>
           {badge.label}
         </span>
@@ -230,32 +230,45 @@ export function OrderDetailClient({ repName, order }: OrderDetailClientProps) {
             </div>
           </div>
           
-          <div className="bg-purple-50 p-4 rounded-xl border border-purple-100 mt-4 mb-8 flex justify-between items-center">
-            <div>
-              <p className="text-[10px] uppercase tracking-wider text-purple-400 font-bold">Product(s)</p>
-              <p className="text-sm font-bold text-purple-900 mt-1">{order.product}</p>
-            </div>
-            <div className="text-right">
-              <p className="text-[10px] uppercase tracking-wider text-purple-400 font-bold">Quantity</p>
-              <p className="text-sm font-bold text-purple-900 mt-1">{order.quantity}</p>
-            </div>
-          </div>
+          <div className="mt-4 mb-8 flex flex-col gap-4">
+            {(order.items ?? []).map((it, i) => (
+              <React.Fragment key={i}>
+                {/* Original (non-upsell) portion of the line */}
+                {!it.isUpsell && (
+                  <div className="bg-purple-50 p-4 rounded-xl border border-purple-100 flex justify-between items-center">
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wider text-purple-400 font-bold">Product(s)</p>
+                      <p className="text-sm font-bold text-purple-900 mt-1">{it.product}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[10px] uppercase tracking-wider text-purple-400 font-bold">Quantity</p>
+                      <p className="text-sm font-bold text-purple-900 mt-1">{it.quantity}</p>
+                    </div>
+                  </div>
+                )}
 
-          {order.upsell && (
-            <div className="mb-8">
-              <h3 className="text-[10px] uppercase tracking-wider text-gray-400 font-bold mb-3">Added Product (Upsold)</h3>
-              <div className="bg-green-50 p-4 rounded-xl border border-green-100 flex justify-between items-center">
-                <div>
-                  <p className="text-[10px] uppercase tracking-wider text-green-600 font-bold">Product</p>
-                  <p className="text-sm font-bold text-green-900 mt-1">{order.upsell.product}</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-[10px] uppercase tracking-wider text-green-600 font-bold">Quantity</p>
-                  <p className="text-sm font-bold text-green-900 mt-1">{order.upsell.quantity}</p>
-                </div>
-              </div>
-            </div>
-          )}
+                {/* Rep-upsold portion (whole-upsell line, or the merged surplus) */}
+                {(it.isUpsell || it.upsellQuantity > 0) && (
+                  <div className="bg-green-50 p-4 rounded-xl border border-green-100 flex justify-between items-center">
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wider text-green-600 font-bold">Added Product (Upsold)</p>
+                      <p className="text-sm font-bold text-green-900 mt-1">{it.product}</p>
+                    </div>
+                    <div className="flex items-center gap-6 text-right">
+                      <div>
+                        <p className="text-[10px] uppercase tracking-wider text-green-600 font-bold">Quantity</p>
+                        <p className="text-sm font-bold text-green-900 mt-1">{it.isUpsell ? it.quantity : it.upsellQuantity}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] uppercase tracking-wider text-green-600 font-bold">Amount</p>
+                        <p className="text-sm font-bold text-green-900 mt-1">{it.upsellAmount}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </React.Fragment>
+            ))}
+          </div>
 
           <div className="mt-auto">
             <h4 className="text-[10px] font-bold text-gray-400 mb-4 uppercase tracking-wider">Order History</h4>

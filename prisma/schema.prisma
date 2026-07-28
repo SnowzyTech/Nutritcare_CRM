@@ -453,6 +453,12 @@ model OrderItem {
   costPriceAtSale Decimal  @default(0) @db.Decimal(10, 2)
   addedById       String?
   isUpsell        Boolean  @default(false)
+  // Revenue on this line attributable to sales-rep upselling (incremental over
+  // the original form price when merged). Source of truth for upsell-revenue
+  // reporting: upsell revenue = SUM(upsellAmount). See docs/upsell-package-pricing.md.
+  upsellAmount    Decimal  @default(0) @db.Decimal(10, 2)
+  // Units on this line added by sales-rep upselling. Upsell units = SUM(upsellQuantity).
+  upsellQuantity  Int      @default(0)
   addedBy         User?    @relation("UpsoldOrderItems", fields: [addedById], references: [id])
   order           Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
   product         Product  @relation(fields: [productId], references: [id])

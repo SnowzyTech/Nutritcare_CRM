@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import type { OrderStatus } from "@prisma/client";
 import { formatDate } from "@/lib/utils";
+import { upsellExtraCount } from "@/lib/orders/upsell";
 import { Button } from "@/components/ui/button";
 
 type OrderRow = {
@@ -18,7 +19,7 @@ type OrderRow = {
   date: string;
   customer: { name: string; email: string | null };
   agent: { companyName: string; state: string | null } | null;
-  items: { quantity: number; product: { name: string } }[];
+  items: { quantity: number; upsellQuantity: number; isUpsell: boolean; product: { name: string } }[];
 };
 
 type StatusCounts = Partial<Record<OrderStatus, number>>;
@@ -185,7 +186,8 @@ export function LogisticsOrdersClient({
                   const dot = STATUS_STYLES[order.status]?.dot ?? "bg-gray-300";
                   const firstItem = order.items[0];
                   const productName = firstItem ? firstItem.product.name : "—";
-                  const extraItems = order.items.length > 1 ? ` +${order.items.length - 1}` : "";
+                  const extra = upsellExtraCount(order.items);
+                  const extraItems = extra > 0 ? ` +${extra}` : "";
                   const totalQty = order.items.reduce((sum, i) => sum + i.quantity, 0);
 
                   return (

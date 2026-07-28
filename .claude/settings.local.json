@@ -101,7 +101,11 @@
       "PowerShell($c = Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue; if \\($c\\) { $c.OwningProcess | Select-Object -Unique | ForEach-Object { try { Stop-Process -Id $_ -Force; \"stopped $_\" } catch {} } } else { \"no listener\" })",
       "PowerShell(npx prisma generate)",
       "Bash(node --env-file=.env -e \"const u=process.env.DATABASE_URL||''; console.log\\('defined:', !!u, '| len:', u.length, '| first2:', JSON.stringify\\(u.slice\\(0,2\\)\\), '| scheme:', u.split\\('://'\\)[0], '| hasNeon:', u.includes\\('neon.tech'\\)\\);\")",
-      "Bash(grep -A6 -iE \"company-overview-client|sales-rep-manager\\\\\\\\\\\\\\\\page|users.service\")"
+      "Bash(grep -A6 -iE \"company-overview-client|sales-rep-manager\\\\\\\\\\\\\\\\page|users.service\")",
+      "Bash(ls .claude/skills/)",
+      "Bash(node -e \"try{require.resolve\\('playwright'\\);console.log\\('playwright present'\\)}catch{try{require.resolve\\('@playwright/test'\\);console.log\\('@playwright/test present'\\)}catch{console.log\\('no playwright'\\)}}\")",
+      "Bash(node -e \"console.log\\(Object.keys\\(require\\('./package.json'\\).scripts\\).join\\(', '\\)\\)\")",
+      "Bash(grep -rnE \"items.length > 1|items.length - 1|firstItem|product.name|\\\\+\\\\$\\\\{|items:.*map\" \"app/\\(delivery-agent\\)\" --include=\"*.tsx\")"
     ]
   }
 }

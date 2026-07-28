@@ -23,6 +23,8 @@ export async function getAgentOrders(agentId: string) {
       items: {
         select: {
           quantity: true,
+          upsellQuantity: true,
+          isUpsell: true,
           product: { select: { name: true } },
         },
       },

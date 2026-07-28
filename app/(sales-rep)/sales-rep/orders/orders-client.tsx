@@ -4,6 +4,7 @@ import React, { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { createOrderAction } from '@/modules/orders/actions/orders.action';
+import { upsellExtraCount } from '@/lib/orders/upsell';
 import { format } from 'date-fns';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -48,7 +49,7 @@ export type OrderListItem = {
   updatedAt: string; // ISO string - used for status date
   customer: { name: string; email: string | null };
   agent: { companyName: string; state: string | null } | null;
-  items: Array<{ quantity: number; product: { name: string } }>;
+  items: Array<{ quantity: number; upsellQuantity: number; isUpsell: boolean; product: { name: string } }>;
 };
 
 export type OrderCounts = {
@@ -177,9 +178,12 @@ export function OrdersClient({ orders, counts, userName, products }: OrdersClien
     setFormProducts(formProducts.filter((_, i) => i !== index));
   };
 
-  const updateProductRow = (index: number, field: 'productId' | 'quantity', value: any) => {
+  const updateProductRow = (index: number, field: 'productId' | 'quantity', value: string | number) => {
     const updated = [...formProducts];
-    updated[index] = { ...updated[index], [field]: value };
+    updated[index] =
+      field === 'quantity'
+        ? { ...updated[index], quantity: Number(value) }
+        : { ...updated[index], productId: String(value) };
     setFormProducts(updated);
   };
 
@@ -233,6 +237,8 @@ export function OrdersClient({ orders, counts, userName, products }: OrdersClien
       agent: null,
       items: formProducts.map((fp) => ({
         quantity: fp.quantity,
+        upsellQuantity: 0,
+        isUpsell: false,
         product: { name: products.find((p) => p.id === fp.productId)?.name ?? fp.productId },
       })),
     };
@@ -433,7 +439,7 @@ export function OrdersClient({ orders, counts, userName, products }: OrdersClien
                     <div className="grid grid-cols-2 gap-y-1.5 text-xs text-gray-500 mt-1">
                       <div className="truncate"><span className="text-gray-400">Email:</span> {order.customer.email ?? '—'}</div>
                       <div className="text-right"><span className="text-gray-400">Date:</span> {dateLabel}</div>
-                      <div className="truncate flex items-center gap-1"><span className="text-gray-400">Product:</span> <span className="text-gray-700 font-medium truncate">{firstItem?.product.name ?? '—'}</span>{order.items.length > 1 && (<span className="shrink-0 inline-flex items-center bg-purple-100 text-[#532194] text-[9px] font-bold px-1 py-0.5 rounded-full">+{order.items.length - 1}</span>)}</div>
+                      <div className="truncate flex items-center gap-1"><span className="text-gray-400">Product:</span> <span className="text-gray-700 font-medium truncate">{firstItem?.product.name ?? '—'}</span>{upsellExtraCount(order.items) > 0 && (<span className="shrink-0 inline-flex items-center bg-purple-100 text-[#532194] text-[9px] font-bold px-1 py-0.5 rounded-full">+{upsellExtraCount(order.items)}</span>)}</div>
                       <div className="text-right"><span className="text-gray-400">Qty:</span> <span className="text-gray-700 font-medium">{totalQty}</span></div>
                       {order.agent && (
                         <div className="col-span-2 truncate"><span className="text-gray-400">Agent:</span> {order.agent.companyName}</div>
@@ -510,12 +516,12 @@ export function OrdersClient({ orders, counts, userName, products }: OrdersClien
                             <span className="text-xs sm:text-sm font-medium text-gray-700 truncate max-w-[140px]">
                               {firstItem?.product.name ?? '—'}
                             </span>
-                            {order.items.length > 1 && (
+                            {upsellExtraCount(order.items) > 0 && (
                               <span
                                 title={order.items.map((i) => i.product.name).join(', ')}
                                 className="shrink-0 inline-flex items-center bg-purple-100 text-[#532194] text-[10px] font-bold px-1.5 py-0.5 rounded-full"
                               >
-                                +{order.items.length - 1}
+                                +{upsellExtraCount(order.items)}
                               </span>
                             )}
                           </div>

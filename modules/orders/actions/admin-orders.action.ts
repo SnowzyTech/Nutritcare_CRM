@@ -11,6 +11,11 @@ import { formatCurrency } from "@/lib/utils";
 import { isAdmin } from "@/lib/auth/role-routes";
 import { suppressCameraForRequest } from "@/lib/audit/context";
 import { describeReassignment } from "@/modules/orders/services/reassign-description.service";
+import {
+  applyUpsellItems,
+  previewUpsellPrice,
+  upsellOrderSelect,
+} from "@/modules/orders/services/upsell-apply.service";
 
 // Returned (not thrown) so the message survives production builds, where Next.js
 // strips messages from thrown server-action errors.
@@ -314,45 +319,92 @@ export async function adminUpdateOrderNotesAction(orderId: string, notes: string
 
 export async function adminAddOrderItemsAction(
   orderId: string,
-  items: Array<{ productId: string; quantity: number }>
+  // `unitPrice` is the price-of-one typed in the popup — only used (and required)
+  // when the merged quantity has no exact package. Shared with the rep flow.
+  items: Array<{ productId: string; quantity: number; unitPrice?: number }>
 ): Promise<ActionResult> {
   const session = await checkAdmin();
   suppressCameraForRequest();
-  const order = await getOrder(orderId);
-  if (!order || order.status !== "PENDING") return { error: "Cannot modify this order" };
 
-  const products = await prisma.product.findMany({
-    where: { id: { in: items.map((i) => i.productId) } },
-    select: { id: true, sellingPrice: true, costPrice: true },
+  const order = await prisma.order.findFirst({
+    where: { id: orderId, deletedAt: null },
+    select: upsellOrderSelect,
   });
+  if (!order) return { error: "Order not found" };
 
-  const productMap = new Map(products.map((p) => [p.id, p]));
-  let addedTotal = 0;
-
-  const itemsToCreate = items.map((item) => {
-    const product = productMap.get(item.productId);
-    if (!product) throw new Error(`Product ${item.productId} not found`);
-    const unitPrice = Number(product.sellingPrice);
-    const lineTotal = unitPrice * item.quantity;
-    addedTotal += lineTotal;
-    return { orderId, productId: item.productId, quantity: item.quantity, unitPrice, lineTotal, costPriceAtSale: Number(product.costPrice), isUpsell: true, addedById: session.user.id };
-  });
-
-  await prisma.$transaction([
-    prisma.orderItem.createMany({ data: itemsToCreate }),
-    prisma.order.update({
-      where: { id: orderId },
-      data: { totalAmount: { increment: addedTotal }, netAmount: { increment: addedTotal } },
-    }),
-  ]);
+  // Same merge + package-pricing + tracking core as the rep flow (PENDING +
+  // CONFIRMED, incl. the agent stock-capacity check on CONFIRMED).
+  const result = await applyUpsellItems(order, items, session.user.id);
+  if ("error" in result) return { error: result.error };
 
   await logActivity({
-    userId: session.user.id, action: "Updated", entityType: "Order", entityId: orderId,
-    description: `Added ${items.length} product line${items.length === 1 ? "" : "s"} to Order #${order.orderNumber}`,
+    userId: session.user.id,
+    action: "Updated",
+    entityType: "Order",
+    entityId: orderId,
+    description: `Added ${result.addedCount} product line${result.addedCount === 1 ? "" : "s"} to Order #${order.orderNumber}`,
   });
 
-  revalidatePath(`/admin/orders/${orderId}`);
+  // Audit trail for every manually-priced (surplus) line.
+  for (const s of result.surplusPlans) {
+    await logActivity({
+      userId: session.user.id,
+      action: "Updated",
+      entityType: "OrderItem",
+      entityId: orderId,
+      description: `Manual unit price ${formatCurrency(
+        s.typedUnitPrice,
+      )} used for ${s.productName} (qty ${s.mergedQty}) on Order #${order.orderNumber}`,
+      details: {
+        field: "unitPrice",
+        amount: s.lineTotal,
+        productId: s.productId,
+        mergedQty: s.mergedQty,
+        typedUnitPrice: s.typedUnitPrice,
+      },
+    });
+  }
+
+  revalidate(orderId);
   return { success: true };
+}
+
+/**
+ * Live price preview for the admin Add-Product popup (admin counterpart to
+ * `resolveUpsellPriceAction`). Read-only; writes nothing.
+ */
+export async function adminResolveUpsellPriceAction(
+  orderId: string,
+  productId: string,
+  addedQty: number,
+  typedUnitPrice?: number
+): Promise<
+  | {
+      lineTotal: number;
+      unitPrice: number;
+      source: "package" | "surplus";
+      requiresUnitPrice: boolean;
+      mergedQty: number;
+    }
+  | { error: string }
+> {
+  await checkAdmin();
+  const order = await prisma.order.findFirst({
+    where: { id: orderId, deletedAt: null },
+    select: {
+      formId: true,
+      items: { where: { productId }, select: { quantity: true } },
+    },
+  });
+  if (!order) return { error: "Order not found." };
+
+  return previewUpsellPrice(
+    order.formId,
+    order.items,
+    productId,
+    addedQty,
+    typedUnitPrice ?? 0,
+  );
 }
 
 /**

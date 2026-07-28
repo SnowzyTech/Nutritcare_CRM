@@ -1,4 +1,5 @@
 import { getTeamOrders } from "@/modules/orders/services/orders.service";
+import { upsellExtraCount } from "@/lib/orders/upsell";
 import { getActiveProducts } from "@/modules/orders/services/products.service";
 import { TeamOrdersClient, type TeamOrderListItem } from "./team-orders-client";
 import { resolveManagerScope } from "../_lib/manager-scope";
@@ -28,6 +29,7 @@ export default async function TeamOrdersPage() {
     qty: o.items.reduce((sum, i) => sum + i.quantity, 0),
     isReorder: o.isReorder,
     itemNames: o.items.map(i => i.product.name),
+    extraCount: upsellExtraCount(o.items),
     date: o.createdAt.toISOString().split("T")[0],
     statusDate: o.updatedAt.toISOString().split("T")[0],
   }));
