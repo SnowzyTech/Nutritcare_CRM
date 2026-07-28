@@ -103,14 +103,10 @@ export default function ProductDetailClient({ product }: { product: any }) {
                 </h3>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="bg-gray-50 p-4 rounded-xl">
-                    <p className="text-gray-500 text-xs mb-1">Cost Price</p>
-                    <p className="text-xl font-bold text-gray-900">{formatCurrency(product.costPrice)}</p>
-                  </div>
-                  <div className="bg-gray-50 p-4 rounded-xl">
                     <p className="text-gray-500 text-xs mb-1">Selling Price</p>
                     <p className="text-xl font-bold text-[#9D00FF]">{formatCurrency(product.sellingPrice)}</p>
                   </div>
-                  <div className="bg-[#FAF5FF] p-4 rounded-xl col-span-2 border border-[#9D00FF]/10">
+                  <div className="bg-[#FAF5FF] p-4 rounded-xl border border-[#9D00FF]/10">
                     <p className="text-[#9D00FF] text-xs mb-1 font-semibold uppercase">Quantity Left</p>
                     <p className="text-3xl font-black text-gray-900">{product.quantity.toLocaleString()} <span className="text-sm font-normal text-gray-400">Units</span></p>
                   </div>

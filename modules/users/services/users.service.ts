@@ -449,6 +449,11 @@ export async function toggleTeamLead(id: string, isTeamLead: boolean) {
   return prisma.user.update({ where: { id }, data: { isTeamLead } });
 }
 
+export async function isUserTeamLead(id: string): Promise<boolean> {
+  const user = await prisma.user.findUnique({ where: { id }, select: { isTeamLead: true } });
+  return user?.isTeamLead === true;
+}
+
 export async function changeUserTeam(id: string, teamId: string | null) {
   return prisma.user.update({ where: { id }, data: { teamId } });
 }
@@ -906,7 +911,7 @@ export async function getStaffByRole(role: UserRole) {
     where: { role },
     select: {
       id: true, name: true, email: true, phone: true,
-      isActive: true, createdAt: true, avatarUrl: true,
+      isActive: true, createdAt: true, avatarUrl: true, isTeamLead: true,
     },
     orderBy: { name: "asc" },
   });

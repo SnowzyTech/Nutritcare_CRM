@@ -1081,6 +1081,60 @@ export async function getCompanyAnalytics(options?: {
   return toRepAnalyticsData(current, last, salesRepCount);
 }
 
+export type ChartPoint = { name: string; value: number };
+
+/** Order volume (any status) for the current week, by weekday — for the
+ *  dashboard's weekday bar chart. */
+export async function getWeeklyOrderVolume(): Promise<ChartPoint[]> {
+  const now = new Date();
+  const from = new Date(now);
+  from.setDate(now.getDate() - 6);
+  from.setHours(0, 0, 0, 0);
+  const to = new Date(now);
+  to.setDate(now.getDate() + 1);
+  to.setHours(0, 0, 0, 0);
+
+  const orders = await prisma.order.findMany({
+    where: { deletedAt: null, createdAt: { gte: from, lt: to } },
+    select: { createdAt: true },
+  });
+
+  // counts[0]=Sun, counts[1]=Mon, ..., counts[6]=Sat
+  const counts = new Array(7).fill(0);
+  for (const order of orders) counts[order.createdAt.getDay()]++;
+
+  return [
+    { name: "Mo", value: counts[1] },
+    { name: "Tu", value: counts[2] },
+    { name: "We", value: counts[3] },
+    { name: "Th", value: counts[4] },
+    { name: "Fr", value: counts[5] },
+    { name: "Sa", value: counts[6] },
+    { name: "Su", value: counts[0] },
+  ];
+}
+
+/** Order volume (any status) per month for the given year — for the
+ *  dashboard's yearly trend line chart. */
+export async function getMonthlyOrderVolume(year: number): Promise<ChartPoint[]> {
+  const yearStart = new Date(year, 0, 1);
+  const yearEnd = new Date(year + 1, 0, 1);
+
+  const orders = await prisma.order.findMany({
+    where: { deletedAt: null, createdAt: { gte: yearStart, lt: yearEnd } },
+    select: { createdAt: true },
+  });
+
+  const monthlyCounts = new Array(12).fill(0);
+  for (const order of orders) monthlyCounts[order.createdAt.getMonth()]++;
+
+  const months = [
+    "JAN", "FEB", "MAR", "APR", "MAY", "JUN",
+    "JUL", "AUG", "SEP", "OCT", "NOV", "DEC",
+  ];
+  return months.map((name, i) => ({ name, value: monthlyCounts[i] }));
+}
+
 export async function getUserActivityHistory(userId: string): Promise<ActivityGroup[]> {
   const logs = await prisma.auditLog.findMany({
     where: { userId },

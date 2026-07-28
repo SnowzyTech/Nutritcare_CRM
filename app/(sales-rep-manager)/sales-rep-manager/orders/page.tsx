@@ -32,6 +32,7 @@ export default async function TeamOrdersPage() {
     extraCount: upsellExtraCount(o.items),
     date: o.createdAt.toISOString().split("T")[0],
     statusDate: o.updatedAt.toISOString().split("T")[0],
+    deliveryFee: Number(o.deliveryFee),
   }));
 
   // Distinct teams present in these orders — drives the (company-manager) team filter.

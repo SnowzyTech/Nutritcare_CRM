@@ -127,8 +127,13 @@ export type ChatThread = {
   conversation: {
     id: string;
     title: string | null;
+    type: "AGENT_GROUP" | "DIRECT";
     isArchived: boolean;
     agent: { id: string; companyName: string; state: string | null } | null;
+    /** The other participant — DIRECT only. */
+    peer: { id: string; name: string; role: string; avatarUrl: string | null } | null;
+    /** Every member including the viewer; the client uses it to route typing. */
+    memberUserIds: string[];
   };
   messages: ChatMessage[];
   nextCursor: string | null;
@@ -144,7 +149,7 @@ export async function getThreadForUser(
   conversationId: string,
   userId: string
 ): Promise<ChatThread | null> {
-  const [member, page] = await Promise.all([
+  const [member, page, memberRows] = await Promise.all([
     prisma.conversationMember.findUnique({
       where: { conversationId_userId: { conversationId, userId } },
       select: {
@@ -152,18 +157,38 @@ export async function getThreadForUser(
           select: {
             id: true,
             title: true,
+            type: true,
             isArchived: true,
             agent: { select: { id: true, companyName: true, state: true } },
+            // The other participant, for the DM header. Filtered + take 1 so a
+            // large agent group doesn't drag its whole roster along.
+            members: {
+              where: { userId: { not: userId } },
+              take: 1,
+              select: {
+                user: { select: { id: true, name: true, role: true, avatarUrl: true } },
+              },
+            },
           },
         },
       },
     }),
     fetchMessagesPage(conversationId),
+    // Runs in the same parallel batch, so this costs no extra wall time.
+    prisma.conversationMember.findMany({
+      where: { conversationId },
+      select: { userId: true },
+    }),
   ]);
 
   if (!member) return null;
+  const { members, ...conversation } = member.conversation;
   return {
-    conversation: member.conversation,
+    conversation: {
+      ...conversation,
+      peer: conversation.type === "DIRECT" ? members[0]?.user ?? null : null,
+      memberUserIds: memberRows.map((m) => m.userId),
+    },
     messages: page.messages,
     nextCursor: page.nextCursor,
   };

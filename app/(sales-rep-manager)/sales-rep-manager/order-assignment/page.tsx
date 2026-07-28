@@ -36,6 +36,7 @@ export default async function OrderAssignmentPage() {
     extraCount: upsellExtraCount(o.items),
     date: o.createdAt.toISOString().split("T")[0],
     statusDate: o.updatedAt.toISOString().split("T")[0],
+    deliveryFee: Number(o.deliveryFee),
   }));
 
   const salesReps = members.map(m => ({

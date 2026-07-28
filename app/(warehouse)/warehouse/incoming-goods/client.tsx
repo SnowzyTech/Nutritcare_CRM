@@ -125,6 +125,7 @@ export default function IncomingGoodsClient({ goods, hasWarehouse }: Props) {
                     <th className="px-3 py-3 font-normal uppercase tracking-wider border-r border-gray-100">Supplier Ref</th>
                     <th className="px-3 py-3 font-normal uppercase tracking-wider border-r border-gray-100">Product</th>
                     <th className="px-3 py-3 font-normal uppercase tracking-wider border-r border-gray-100">Status</th>
+                    <th className="px-3 py-3 font-normal uppercase tracking-wider border-r border-gray-100">RAPS</th>
                     <th className="px-3 py-3 font-normal uppercase tracking-wider border-r border-gray-100">Created Time</th>
                     <th className="px-3 py-3 font-normal uppercase tracking-wider">
                       <div className="flex items-center justify-between">
@@ -150,6 +151,23 @@ export default function IncomingGoodsClient({ goods, hasWarehouse }: Props) {
                       <td className="px-3 py-2.5 border-r border-gray-100 text-[#9747FF]">{item.supplierRef}</td>
                       <td className="px-3 py-2.5 border-r border-gray-100">{item.product}</td>
                       <td className="px-3 py-2.5 border-r border-gray-100">{item.status}</td>
+                      <td className="px-3 py-2.5 border-r border-gray-100 whitespace-nowrap">
+                        {item.rapsQuantity > 0 ? (
+                          <span
+                            className={`px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase ${
+                              item.rapsApprovalStatus === "APPROVED"
+                                ? "bg-emerald-100 text-emerald-700"
+                                : item.rapsApprovalStatus === "REJECTED"
+                                ? "bg-red-100 text-red-600"
+                                : "bg-amber-100 text-amber-700"
+                            }`}
+                          >
+                            {item.rapsQuantity} {item.rapsApprovalStatus === "APPROVED" ? "Approved" : item.rapsApprovalStatus === "REJECTED" ? "Rejected" : "Pending"}
+                          </span>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
                       <td className="px-3 py-2.5 border-r border-gray-100 whitespace-nowrap">{item.createdTime}</td>
                       <td className="px-3 py-2.5 whitespace-nowrap">{item.addedBy}</td>
                     </tr>

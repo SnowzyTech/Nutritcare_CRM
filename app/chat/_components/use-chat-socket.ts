@@ -1,15 +1,28 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import type { ChatMessage } from "@/modules/chat/services/messages.service";
 
-export type ChatSocketEvent = {
-  type: "message.created";
-  conversationId: string;
-  message: ChatMessage;
-};
+export type ChatSocketEvent =
+  | { type: "message.created"; conversationId: string; message: ChatMessage }
+  | { type: "presence.snapshot"; userIds: string[] }
+  | { type: "presence.update"; userId: string; online: boolean }
+  | { type: "typing"; conversationId: string; userId: string; typing: boolean };
 
 type Handler = (evt: ChatSocketEvent) => void;
+
+export type SendTyping = (
+  conversationId: string,
+  recipientUserIds: string[],
+  typing: boolean
+) => void;
+
+const KNOWN_EVENTS = new Set([
+  "message.created",
+  "presence.snapshot",
+  "presence.update",
+  "typing",
+]);
 
 /**
  * Connects the browser to the standalone chat socket server for the lifetime of
@@ -18,10 +31,35 @@ type Handler = (evt: ChatSocketEvent) => void;
  *
  * If realtime is not configured (`/api/chat/socket-token` returns
  * `enabled: false`), it quietly stops — the app keeps working via optimistic UI.
+ *
+ * Returns `sendTyping`, the one client→server frame the socket server accepts.
+ * It no-ops while disconnected, which is the right behaviour for an ephemeral
+ * hint: a typing notice that arrives late is worse than one that never arrives.
  */
-export function useChatSocket(onEvent: Handler): void {
+export function useChatSocket(onEvent: Handler): SendTyping {
+  // Kept in a ref so the connection effect never re-runs (and the socket never
+  // reconnects) just because the caller passed a new closure.
   const handlerRef = useRef(onEvent);
-  handlerRef.current = onEvent;
+  useEffect(() => {
+    handlerRef.current = onEvent;
+  });
+  const wsRef = useRef<WebSocket | null>(null);
+
+  const sendTyping = useCallback<SendTyping>(
+    (conversationId, recipientUserIds, typing) => {
+      const ws = wsRef.current;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      if (recipientUserIds.length === 0) return;
+      try {
+        ws.send(
+          JSON.stringify({ type: "typing", conversationId, recipientUserIds, typing })
+        );
+      } catch {
+        // no-op: best-effort
+      }
+    },
+    []
+  );
 
   useEffect(() => {
     let ws: WebSocket | null = null;
@@ -42,10 +80,15 @@ export function useChatSocket(onEvent: Handler): void {
         const res = await fetch("/api/chat/socket-token", { cache: "no-store" });
         if (!res.ok) return scheduleReconnect();
         const cfg = await res.json();
-        if (!cfg.enabled || !cfg.url || !cfg.token) return; // realtime disabled — stop
+        // Realtime deliberately off — stop for good. A malformed/partial
+        // response is a different case: retry rather than killing realtime
+        // for the rest of the page's life.
+        if (!cfg.enabled) return;
+        if (!cfg.url || !cfg.token) return scheduleReconnect();
 
         const url = `${cfg.url}/ws?token=${encodeURIComponent(cfg.token)}`;
         ws = new WebSocket(url);
+        wsRef.current = ws;
 
         ws.onopen = () => {
           retry = 0;
@@ -53,12 +96,13 @@ export function useChatSocket(onEvent: Handler): void {
         ws.onmessage = (e) => {
           try {
             const data = JSON.parse(e.data as string) as ChatSocketEvent;
-            if (data?.type === "message.created") handlerRef.current(data);
+            if (data?.type && KNOWN_EVENTS.has(data.type)) handlerRef.current(data);
           } catch {
             // ignore malformed frames
           }
         };
         ws.onclose = () => {
+          wsRef.current = null;
           if (!closed) scheduleReconnect();
         };
         ws.onerror = () => {
@@ -77,6 +121,7 @@ export function useChatSocket(onEvent: Handler): void {
 
     return () => {
       closed = true;
+      wsRef.current = null;
       if (reconnectTimer) clearTimeout(reconnectTimer);
       try {
         ws?.close();
@@ -85,4 +130,6 @@ export function useChatSocket(onEvent: Handler): void {
       }
     };
   }, []);
+
+  return sendTyping;
 }

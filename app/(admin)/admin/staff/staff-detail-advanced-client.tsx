@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { X, AlertTriangle, Copy, Check, Warehouse, ShieldCheck } from "lucide-react";
+import { X, AlertTriangle, Copy, Check, Warehouse, Crown ,ShieldCheck} from "lucide-react";
 import { toast } from "sonner";
 import {
   deleteUserAction,
@@ -10,6 +10,7 @@ import {
   activateUserAction,
   resetUserPasswordAction,
   assignWarehouseAction,
+  toggleTeamLeadAction,
   updateAccountingPermissionsAction,
 } from "@/modules/users/actions/users.action";
 import { ACCOUNTING_PERMISSIONS } from "@/lib/auth/accounting-permissions";
@@ -27,7 +28,7 @@ type Props = {
   accountingPermissions?: string[];
 };
 
-type ModalType = "delete" | "suspend" | "resetPassword" | "assignWarehouse" | "accountingAccess" | null;
+type ModalType = "delete" | "suspend" | "resetPassword" | "assignWarehouse" |"toggleHead"| "accountingAccess" | null;
 
 export default function StaffDetailAdvancedClient({
   staffName,
@@ -37,11 +38,13 @@ export default function StaffDetailAdvancedClient({
   role,
   warehouses,
   currentWarehouseId,
+  isTeamLead: initialIsTeamLead,
   accountingPermissions = [],
 }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [isActive, setIsActive] = useState(initialIsActive);
+  const [isTeamLead, setIsTeamLead] = useState(initialIsTeamLead ?? false);
   const [modal, setModal] = useState<ModalType>(null);
   const [error, setError] = useState<string | null>(null);
   const [tempPassword, setTempPassword] = useState<string | null>(null);
@@ -162,6 +165,23 @@ export default function StaffDetailAdvancedClient({
     });
   }
 
+  function handleToggleHead() {
+    setError(null);
+    startTransition(async () => {
+      const result = await toggleTeamLeadAction(staffId, !isTeamLead);
+      if ("error" in result) {
+        setError(result.error);
+        toast.error(result.error);
+      } else {
+        const label = role === "DATA_ANALYST" ? "Team Lead" : "Head Logistics Manager";
+        toast.success(isTeamLead ? `${label} removed` : `Assigned as ${label}`);
+        setIsTeamLead(!isTeamLead);
+        closeModal();
+        router.refresh();
+      }
+    });
+  }
+
   return (
     <>
       <section>
@@ -194,6 +214,22 @@ export default function StaffDetailAdvancedClient({
               <Warehouse size={18} /> Assign Warehouse
             </button>
           )}
+          {role === "LOGISTICS_MANAGER" && (
+            <button
+              onClick={() => openModal("toggleHead")}
+              className="bg-amber-500 hover:bg-amber-600 text-white px-8 py-4 rounded-xl text-[0.9rem] font-bold flex items-center justify-center gap-3 transition-all shadow-lg shadow-amber-200 min-w-[220px]"
+            >
+              <Crown size={18} /> {isTeamLead ? "Remove as Head" : "Assign as Head"}
+            </button>
+          )}
+          {role === "DATA_ANALYST" && (
+            <button
+              onClick={() => openModal("toggleHead")}
+              className="bg-amber-500 hover:bg-amber-600 text-white px-8 py-4 rounded-xl text-[0.9rem] font-bold flex items-center justify-center gap-3 transition-all shadow-lg shadow-amber-200 min-w-[220px]"
+            >
+              <Crown size={18} /> {isTeamLead ? "Remove as Team Lead" : "Assign as Team Lead"}
+             </button>
+              )}
           {role === "ACCOUNTANT" && (
             <button
               onClick={() => openModal("accountingAccess")}
@@ -221,6 +257,10 @@ export default function StaffDetailAdvancedClient({
                 modal === "delete" ? "bg-rose-50 text-rose-500" :
                 modal === "suspend" ? "bg-amber-50 text-amber-500" :
                 modal === "assignWarehouse" ? "bg-emerald-50 text-emerald-500" :
+                modal === "toggleHead" ? "bg-amber-50 text-amber-500" :
+                "bg-purple-50 text-purple-500"
+              }`}>
+                {modal === "assignWarehouse" ? <Warehouse size={24} /> : modal === "toggleHead" ? <Crown size={24} /> : <AlertTriangle size={24} />}
                 modal === "accountingAccess" ? "bg-indigo-50 text-indigo-500" :
                 "bg-purple-50 text-purple-500"
               }`}>
@@ -312,6 +352,24 @@ export default function StaffDetailAdvancedClient({
               </>
             )}
 
+            {modal === "toggleHead" && (
+              <>
+                <h3 className="text-xl font-black text-slate-800 mb-2">
+                  {role === "DATA_ANALYST"
+                    ? (isTeamLead ? "Remove as Team Lead" : "Assign as Team Lead")
+                    : (isTeamLead ? "Remove as Head Logistics Manager" : "Assign as Head Logistics Manager")}
+                </h3>
+                <p className="text-slate-500 text-[0.95rem] leading-relaxed mb-8">
+                  {role === "DATA_ANALYST" ? (
+                    isTeamLead
+                      ? <><span className="font-bold text-slate-700">{staffName}</span> will lose Team Lead access — no more Dashboard access, and they'll no longer be able to mark orders as Delivered or Failed.</>
+                      : <><span className="font-bold text-slate-700">{staffName}</span> will get access to the Data Analyst Dashboard, and will become the only Data Analyst who can mark orders as Delivered or Failed.</>
+                  ) : (
+                    isTeamLead
+                      ? <><span className="font-bold text-slate-700">{staffName}</span> will lose Head oversight — no more team roster, per-manager movement history, or exclusive ability to add/remove drivers and agents.</>
+                      : <><span className="font-bold text-slate-700">{staffName}</span> will be able to see all Logistics Managers, drill into the movements each one has handled, and will become the only Logistics Manager who can add or remove drivers and delivery agents.</>
+                  )}
+                </p>
             {modal === "accountingAccess" && (
               <>
                 <h3 className="text-xl font-black text-slate-800 mb-2">Manage Accounting Access</h3>
@@ -347,6 +405,13 @@ export default function StaffDetailAdvancedClient({
                 {error && <p className="text-rose-500 text-sm mb-4">{error}</p>}
                 <div className="flex gap-4">
                   <button onClick={closeModal} className="flex-1 bg-slate-50 hover:bg-slate-100 text-slate-600 py-3.5 rounded-2xl font-bold transition-all">Cancel</button>
+                  <button
+                    onClick={handleToggleHead}
+                    disabled={isPending}
+                    className="flex-1 bg-amber-500 hover:bg-amber-600 text-white py-3.5 rounded-2xl font-bold transition-all shadow-lg shadow-amber-100 disabled:opacity-60"
+                  >
+                    {isPending ? "Processing..." : isTeamLead ? "Remove" : "Assign"}
+                     </button>
                   <button
                     onClick={handleSaveAccountingAccess}
                     disabled={isPending}

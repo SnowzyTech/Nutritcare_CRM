@@ -42,12 +42,17 @@ export function MessageComposer({
   replyTo,
   onCancelReply,
   onSend,
+  onTyping,
+  onStopTyping,
 }: {
   conversationId: string;
   disabled?: boolean;
   replyTo: ChatMessage | null;
   onCancelReply: () => void;
   onSend: (body: string, imageUrl: string | null, replyToId: string | null) => Promise<void>;
+  /** Fired on every keystroke; the thread throttles before hitting the socket. */
+  onTyping?: () => void;
+  onStopTyping?: () => void;
 }) {
   const [text, setText] = useState("");
   const [entities, setEntities] = useState<Entity[]>([]);
@@ -104,6 +109,8 @@ export function MessageComposer({
   function onChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
     const value = e.target.value;
     setText(value);
+    if (value) onTyping?.();
+    else onStopTyping?.();
     const caret = e.target.selectionStart ?? value.length;
     const tok = detectToken(value, caret);
     if (tok && tok.query.length >= 0) runSearch(tok);
@@ -153,6 +160,7 @@ export function MessageComposer({
     setSending(true);
     try {
       await onSend(body, image, replyTo?.id ?? null);
+      onStopTyping?.();
       setText("");
       setEntities([]);
       setImage(null);
@@ -257,6 +265,7 @@ export function MessageComposer({
             value={text}
             onChange={onChange}
             onKeyDown={onKeyDown}
+            onBlur={() => onStopTyping?.()}
             rows={1}
             placeholder="Message"
             className="max-h-32 w-full resize-none bg-transparent text-sm outline-none placeholder:text-gray-400"

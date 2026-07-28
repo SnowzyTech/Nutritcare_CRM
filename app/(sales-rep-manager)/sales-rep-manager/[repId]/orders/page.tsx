@@ -35,6 +35,7 @@ export default async function RepOrdersPage({
     itemNames: o.items.map(i => i.product.name),
     extraCount: upsellExtraCount(o.items),
     date: o.createdAt.toISOString().split("T")[0],
+    deliveryFee: Number(o.deliveryFee),
   }));
 
   const counts = {

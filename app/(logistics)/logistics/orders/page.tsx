@@ -21,6 +21,7 @@ export default async function LogisticsOrdersPage() {
       isUpsell: i.isUpsell,
       product: { name: i.product.name },
     })),
+      deliveryFee: Number(o.deliveryFee),
   }));
 
   return <LogisticsOrdersClient orders={orders} statusCounts={statusCounts} />;

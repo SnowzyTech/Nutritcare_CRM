@@ -18,7 +18,7 @@ type Agent = {
   statesCovered: unknown;
 };
 
-export default function AgentDetailClient({ agent }: { agent: Agent }) {
+export default function AgentDetailClient({ agent, canManageStaff }: { agent: Agent; canManageStaff?: boolean }) {
   const [isPending, startTransition] = useTransition();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -95,14 +95,16 @@ export default function AgentDetailClient({ agent }: { agent: Agent }) {
 
         {/* Action Buttons at Bottom Right */}
         <div className="flex justify-end gap-3 mt-8">
-          <Button
-            variant="outline"
-            onClick={() => setShowDeleteDialog(true)}
-            disabled={isPending}
-            className="bg-[#f1f5f9] border-none text-gray-500 hover:bg-gray-200 gap-2 px-6 h-10 rounded-lg text-xs disabled:opacity-60"
-          >
-            <Trash2 className="w-4 h-4" /> Delete
-          </Button>
+          {canManageStaff && (
+            <Button
+              variant="outline"
+              onClick={() => setShowDeleteDialog(true)}
+              disabled={isPending}
+              className="bg-[#f1f5f9] border-none text-gray-500 hover:bg-gray-200 gap-2 px-6 h-10 rounded-lg text-xs disabled:opacity-60"
+            >
+              <Trash2 className="w-4 h-4" /> Delete
+            </Button>
+          )}
           <Button
             variant="outline"
             onClick={() => window.print()}

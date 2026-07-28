@@ -41,6 +41,7 @@ export default async function OrdersPage() {
       isUpsell: item.isUpsell,
       product: { name: item.product.name },
     })),
+    deliveryFee: Number(o.deliveryFee),
   }));
 
   // Derive per-status counts from the single fetch (no extra DB round-trip per tab)

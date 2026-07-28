@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { createDeliveryAgentWithUser } from "../services/create-delivery-agent.service";
 import { createDriver, softDeleteDriver } from "../services/create-driver.service";
 import { softDeleteAgent } from "../services/agents.service";
+import { isUserTeamLead } from "@/modules/users/services/users.service";
 import { isAdmin } from "@/lib/auth/role-routes";
 import { logActivity } from "@/modules/audit/services/audit-log.service";
 import { suppressCameraForRequest } from "@/lib/audit/context";
@@ -27,6 +28,19 @@ async function requireLogisticsAuth() {
   return session.user;
 }
 
+// Adding/removing drivers/agents is restricted to the Head Logistics Manager
+// (Admin always retains override access, matching every other admin-gated
+// action in this app).
+async function requireHeadLogisticsAuth() {
+  const user = await requireLogisticsAuth();
+  if (user.role === "ADMIN") return user;
+  const isHead = await isUserTeamLead(user.id);
+  if (!isHead) {
+    throw new Error("Only the Head Logistics Manager can manage drivers or delivery agents");
+  }
+  return user;
+}
+
 export async function createAgentAction(input: {
   name: string;
   email: string;
@@ -41,7 +55,7 @@ export async function createAgentAction(input: {
   deliveryFee?: number;
 }): Promise<AgentResult> {
   try {
-    const user = await requireLogisticsAuth();
+    const user = await requireHeadLogisticsAuth()
     suppressCameraForRequest();
     const result = await createDeliveryAgentWithUser({ ...input, addedById: user.id });
     await logActivity({
@@ -58,7 +72,7 @@ export async function createAgentAction(input: {
 
 export async function deleteAgentLogisticsAction(agentId: string): Promise<{ error: string } | never> {
   try {
-    await requireLogisticsAuth();
+    await requireHeadLogisticsAuth();
     await softDeleteAgent(agentId);
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Failed to delete agent" };
@@ -78,7 +92,7 @@ export async function createDriverAction(input: {
   vehicleNo?: string;
 }): Promise<DriverResult> {
   try {
-    const user = await requireLogisticsAuth();
+    const user = await requireHeadLogisticsAuth();
     suppressCameraForRequest();
     const driver = await createDriver({ ...input, addedById: user.id });
     await logActivity({
@@ -95,7 +109,7 @@ export async function createDriverAction(input: {
 
 export async function deleteDriverAction(driverId: string): Promise<{ error: string } | never> {
   try {
-    await requireLogisticsAuth();
+    await requireHeadLogisticsAuth();
     await softDeleteDriver(driverId);
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Failed to delete driver" };

@@ -28,6 +28,24 @@ function generateRefNumber(prefix: string): string {
   return `${prefix}-${ts}-${rand}`;
 }
 
+// RAPS units are excluded from creditWarehouse at receipt time, so any later
+// debit (delete/reverse) must undo the same net amount, not the full item qty.
+function creditedQuantities(
+  items: { productId: string; quantity: number }[],
+  rapsAssignments: unknown,
+): { productId: string; quantity: number }[] {
+  let rapsEntries: { productId: string; quantity: number }[] = [];
+  if (rapsAssignments) {
+    try {
+      rapsEntries = rapsAssignments as { productId: string; quantity: number }[];
+    } catch {
+      rapsEntries = [];
+    }
+  }
+  const rapsMap = new Map(rapsEntries.map((e) => [e.productId, e.quantity]));
+  return items.map((i) => ({ productId: i.productId, quantity: i.quantity - (rapsMap.get(i.productId) ?? 0) }));
+}
+
 function generateSku(name: string): string {
   const prefix = name
     .toUpperCase()
@@ -786,7 +804,7 @@ export async function reverseIncomingMovementAction(
       data: { status: "REVERSED", remarks: reason.trim() || null },
     });
     if (wasCredited && movement.warehouseId) {
-      await debitWarehouse(tx, movement.warehouseId, movement.items);
+      await debitWarehouse(tx, movement.warehouseId, creditedQuantities(movement.items, movement.rapsAssignments));
     }
   });
 
@@ -819,7 +837,7 @@ export async function deleteIncomingMovementAction(
 
   await prisma.$transaction(async (tx) => {
     if (wasCredited && movement.warehouseId) {
-      await debitWarehouse(tx, movement.warehouseId, movement.items);
+      await debitWarehouse(tx, movement.warehouseId, creditedQuantities(movement.items, movement.rapsAssignments));
     }
     await tx.stockMovement.delete({ where: { id } });
   });
@@ -830,6 +848,89 @@ export async function deleteIncomingMovementAction(
     description: `Deleted incoming movement ${movement.referenceNumber}`,
   });
 
+  revalidatePath("/inventory/incoming");
+  return {};
+}
+
+// ── RAPS Approval (Returned at Point of Supply) ───────────────────────────────
+// Pure audit sign-off: RAPS units were never credited to warehouse stock (see
+// confirmIncomingReceiptAction), so neither approving nor rejecting touches
+// StockLevel/shelf data.
+
+export async function approveRapsAction(id: string): Promise<{ error?: string }> {
+  let user: Awaited<ReturnType<typeof requireAuth>>;
+  try {
+    user = await requireAuth();
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Unauthorized" };
+  }
+  if (user.role !== "INVENTORY_MANAGER" && user.role !== "ADMIN") {
+    return { error: "Only inventory managers can approve RAPS" };
+  }
+
+  const movement = await prisma.stockMovement.findUnique({ where: { id } });
+  if (!movement || movement.type !== "INCOMING") return { error: "Movement not found" };
+  if (movement.rapsApprovalStatus !== "PENDING_APPROVAL") {
+    return { error: "This RAPS claim is not pending approval" };
+  }
+
+  await prisma.stockMovement.update({
+    where: { id },
+    data: { rapsApprovalStatus: "APPROVED" },
+  });
+
+  await prisma.notification.create({
+    data: {
+      recipientId: movement.createdById,
+      title: "RAPS Approved",
+      message: `Your Returned-at-Point-of-Supply claim on voucher ${movement.referenceNumber} has been approved.`,
+      type: "raps_approved",
+      link: `/warehouse/incoming-goods/${movement.id}`,
+      entityType: "StockMovement",
+      entityId: movement.id,
+    },
+  });
+
+  revalidatePath(`/inventory/incoming/${id}`);
+  revalidatePath("/inventory/incoming");
+  return {};
+}
+
+export async function rejectRapsAction(id: string, reason: string): Promise<{ error?: string }> {
+  let user: Awaited<ReturnType<typeof requireAuth>>;
+  try {
+    user = await requireAuth();
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Unauthorized" };
+  }
+  if (user.role !== "INVENTORY_MANAGER" && user.role !== "ADMIN") {
+    return { error: "Only inventory managers can reject RAPS" };
+  }
+
+  const movement = await prisma.stockMovement.findUnique({ where: { id } });
+  if (!movement || movement.type !== "INCOMING") return { error: "Movement not found" };
+  if (movement.rapsApprovalStatus !== "PENDING_APPROVAL") {
+    return { error: "This RAPS claim is not pending approval" };
+  }
+
+  await prisma.stockMovement.update({
+    where: { id },
+    data: { rapsApprovalStatus: "REJECTED", rapsRejectionReason: reason.trim() || null },
+  });
+
+  await prisma.notification.create({
+    data: {
+      recipientId: movement.createdById,
+      title: "RAPS Rejected",
+      message: `Your Returned-at-Point-of-Supply claim on voucher ${movement.referenceNumber} was rejected${reason.trim() ? `: ${reason.trim()}` : "."}`,
+      type: "raps_rejected",
+      link: `/warehouse/incoming-goods/${movement.id}`,
+      entityType: "StockMovement",
+      entityId: movement.id,
+    },
+  });
+
+  revalidatePath(`/inventory/incoming/${id}`);
   revalidatePath("/inventory/incoming");
   return {};
 }
@@ -1310,7 +1411,9 @@ const AddProductSchema = z.object({
   lowStockAgents: z.string().optional(),
   lowStockTotal: z.string().optional(),
   alertEmails: z.string().optional(),
-  costPrice: z.string().min(1, "Cost price is required"),
+  // Cost price is set by Accountant/Admin (see updateProductCostPriceAction) —
+  // Inventory Manager's Add/Edit Product form never submits it.
+  costPrice: z.string().optional(),
   sellingPrice: z.string().min(1, "Selling price is required"),
   unit: z.string().optional(),
   imageUrl: z.string().optional(),
@@ -1345,6 +1448,7 @@ export async function addProductAction(
   _prev: { error?: string } | null,
   formData: FormData
 ): Promise<{ error?: string }> {
+  const user = await requireAuth();
   const actor = await requireAuth();
   suppressCameraForRequest();
 
@@ -1360,7 +1464,7 @@ export async function addProductAction(
     lowStockAgents: (formData.get("lowStockAgents") as string) || undefined,
     lowStockTotal: (formData.get("lowStockTotal") as string) || undefined,
     alertEmails: (formData.get("alertEmails") as string) || undefined,
-    costPrice: formData.get("costPrice") as string,
+    costPrice: (formData.get("costPrice") as string) || undefined,
     sellingPrice: formData.get("sellingPrice") as string,
     unit: (formData.get("unit") as string) || undefined,
     imageUrl: (formData.get("imageUrl") as string) || undefined,
@@ -1396,7 +1500,9 @@ export async function addProductAction(
       lowStockAlertQtyAgent: parsed.data.lowStockAgents ? parseInt(parsed.data.lowStockAgents, 10) : null,
       lowStockAlertQtyTotal: parsed.data.lowStockTotal ? parseInt(parsed.data.lowStockTotal, 10) : null,
       alertEmails: parsed.data.alertEmails ?? null,
-      costPrice: parseFloat(parsed.data.costPrice),
+      // No cost price input on this form — Accountant/Admin set the real value
+      // afterward via updateProductCostPriceAction.
+      costPrice: parsed.data.costPrice ? parseFloat(parsed.data.costPrice) : 0,
       sellingPrice: parseFloat(parsed.data.sellingPrice),
       unit: parsed.data.unit ?? null,
       imageUrl: parsed.data.imageUrl || null,
@@ -1404,6 +1510,28 @@ export async function addProductAction(
       sku,
     },
   });
+
+  // No cost price was submitted — nudge Accountant/Admin to set the real value
+  // before this product's inventory valuation is trusted.
+  if (!parsed.data.costPrice) {
+    const financeUsers = await prisma.user.findMany({
+      where: { role: { in: ["ACCOUNTANT", "ADMIN"] } },
+      select: { id: true },
+    });
+    if (financeUsers.length > 0) {
+      await prisma.notification.createMany({
+        data: financeUsers.map((u) => ({
+          recipientId: u.id,
+          title: "Product Needs Cost Price",
+          message: `${user.name} added "${product.name}" without a cost price. Set it in Inventory Valuation before it affects reports.`,
+          type: "product_needs_cost_price",
+          link: "/accounting/inventory",
+          entityType: "Product",
+          entityId: product.id,
+        })),
+      });
+    }
+  }
 
   // Save packages as ProductPackage records
   const pkgNames = formData.getAll("pkgName") as string[];
@@ -1490,7 +1618,7 @@ export async function updateProductAction(
     lowStockAgents: (formData.get("lowStockAgents") as string) || undefined,
     lowStockTotal: (formData.get("lowStockTotal") as string) || undefined,
     alertEmails: (formData.get("alertEmails") as string) || undefined,
-    costPrice: formData.get("costPrice") as string,
+    costPrice: (formData.get("costPrice") as string) || undefined,
     sellingPrice: formData.get("sellingPrice") as string,
     unit: (formData.get("unit") as string) || undefined,
     imageUrl: (formData.get("imageUrl") as string) || undefined,
@@ -1526,7 +1654,9 @@ export async function updateProductAction(
           lowStockAlertQtyAgent: parsed.data.lowStockAgents ? parseInt(parsed.data.lowStockAgents, 10) : null,
           lowStockAlertQtyTotal: parsed.data.lowStockTotal ? parseInt(parsed.data.lowStockTotal, 10) : null,
           alertEmails: parsed.data.alertEmails ?? null,
-          costPrice: parseFloat(parsed.data.costPrice),
+          // Cost price is intentionally omitted — this form doesn't submit it,
+          // so the existing value is left untouched. Accountant/Admin edit it
+          // separately via updateProductCostPriceAction.
           sellingPrice: parseFloat(parsed.data.sellingPrice),
           unit: parsed.data.unit ?? null,
           imageUrl: parsed.data.imageUrl || null,

@@ -24,6 +24,7 @@ import {
   CalendarClock,
 } from 'lucide-react';
 import type { OrderStatus } from '@prisma/client';
+import { formatCurrency } from '@/lib/utils';
 
 /** Green "Rescheduled" pill — shown for active orders whose delivery was pushed. */
 function RescheduledPill() {
@@ -50,6 +51,7 @@ export type OrderListItem = {
   customer: { name: string; email: string | null };
   agent: { companyName: string; state: string | null } | null;
   items: Array<{ quantity: number; upsellQuantity: number; isUpsell: boolean; product: { name: string } }>;
+     deliveryFee: number;
 };
 
 export type OrderCounts = {
@@ -241,6 +243,7 @@ export function OrdersClient({ orders, counts, userName, products }: OrdersClien
         isUpsell: false,
         product: { name: products.find((p) => p.id === fp.productId)?.name ?? fp.productId },
       })),
+      deliveryFee: 0,
     };
 
     setLocalOrders([newOrder, ...localOrders]);
@@ -441,6 +444,7 @@ export function OrdersClient({ orders, counts, userName, products }: OrdersClien
                       <div className="text-right"><span className="text-gray-400">Date:</span> {dateLabel}</div>
                       <div className="truncate flex items-center gap-1"><span className="text-gray-400">Product:</span> <span className="text-gray-700 font-medium truncate">{firstItem?.product.name ?? '—'}</span>{upsellExtraCount(order.items) > 0 && (<span className="shrink-0 inline-flex items-center bg-purple-100 text-[#532194] text-[9px] font-bold px-1 py-0.5 rounded-full">+{upsellExtraCount(order.items)}</span>)}</div>
                       <div className="text-right"><span className="text-gray-400">Qty:</span> <span className="text-gray-700 font-medium">{totalQty}</span></div>
+                      <div className="truncate"><span className="text-gray-400">Delivery Fee:</span> {formatCurrency(order.deliveryFee)}</div>
                       {order.agent && (
                         <div className="col-span-2 truncate"><span className="text-gray-400">Agent:</span> {order.agent.companyName}</div>
                       )}
@@ -460,6 +464,7 @@ export function OrdersClient({ orders, counts, userName, products }: OrdersClien
                     <th className="px-4 sm:px-6 py-4 sm:py-5 text-left text-xs font-bold text-gray-500 tracking-wider">Agent</th>
                     <th className="px-4 sm:px-6 py-4 sm:py-5 text-left text-xs font-bold text-gray-500 tracking-wider">Product</th>
                     <th className="px-4 sm:px-6 py-4 sm:py-5 text-center text-xs font-bold text-gray-500 tracking-wider">Quantity</th>
+                    <th className="px-4 sm:px-6 py-4 sm:py-5 text-right text-xs font-bold text-gray-500 tracking-wider whitespace-nowrap">Delivery Fee</th>
                     <th className="px-4 sm:px-6 py-4 sm:py-5 text-right text-xs font-bold text-gray-500 tracking-wider">Date</th>
                     <th className="px-4 sm:px-6 py-4 sm:py-5 text-left text-xs font-bold text-gray-500 tracking-wider whitespace-nowrap">Status Date</th>
                   </tr>
@@ -528,6 +533,9 @@ export function OrdersClient({ orders, counts, userName, products }: OrdersClien
                         </td>
                         <td className="px-4 sm:px-6 py-4 sm:py-5 text-center">
                           <span className="text-xs sm:text-sm text-gray-500">{totalQty}</span>
+                        </td>
+                        <td className="px-4 sm:px-6 py-4 sm:py-5 text-right whitespace-nowrap">
+                          <span className="text-xs sm:text-sm text-gray-500">{formatCurrency(order.deliveryFee)}</span>
                         </td>
                         <td className="px-4 sm:px-6 py-4 sm:py-5 text-right">
                           <span className="text-xs sm:text-sm text-gray-500">{dateLabel}</span>

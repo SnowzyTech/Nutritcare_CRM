@@ -52,6 +52,8 @@ export type IncomingMovementRow = {
   status: string;
   createdTime: string;
   addedBy: string;
+  rapsApprovalStatus: "PENDING_APPROVAL" | "APPROVED" | "REJECTED" | null;
+  rapsQuantity: number;
 };
 
 export type OutgoingMovementRow = {
@@ -256,6 +258,10 @@ export async function getIncomingMovements(): Promise<IncomingMovementRow[]> {
     status: m.status === "RECORDED" ? "Recorded" : m.status === "DRAFT" ? "Draft" : m.status,
     createdTime: formatMovementTime(m.createdAt),
     addedBy: m.createdBy.name,
+    rapsApprovalStatus: m.rapsApprovalStatus,
+    rapsQuantity: m.rapsAssignments
+      ? (m.rapsAssignments as { productId: string; quantity: number }[]).reduce((s, e) => s + e.quantity, 0)
+      : 0,
   }));
 }
 
@@ -557,6 +563,8 @@ export async function getStockCategories(): Promise<StockCategoryRow[]> {
 type DetailProduct = { id: number; product: string; productCode: string; quantity: number };
 type DetailProductWithUnit = DetailProduct & { unit: string };
 
+export type RapsItemRow = { product: string; productCode: string; quantity: number };
+
 export type IncomingMovementDetail = {
   id: string;
   siId: string;
@@ -568,6 +576,11 @@ export type IncomingMovementDetail = {
   status: string;
   reversalReason: string | null;
   dateReversed: string | null;
+  supplierInvoiceUrls: string[];
+  rapsApprovalStatus: "PENDING_APPROVAL" | "APPROVED" | "REJECTED" | null;
+  rapsApprovalStatusLabel: string | null;
+  rapsRejectionReason: string | null;
+  rapsItems: RapsItemRow[];
   products: DetailProduct[];
 };
 
@@ -629,6 +642,22 @@ export async function getIncomingMovementById(id: string): Promise<IncomingMovem
     DRAFT: "Draft", RECORDED: "Recorded", RECEIVED: "Received", SHELVED: "Shelved", REVERSED: "Reversed",
   };
 
+  const rapsStatusLabel: Record<string, string> = {
+    PENDING_APPROVAL: "Pending Approval",
+    APPROVED: "Approved",
+    REJECTED: "Rejected",
+  };
+
+  let rapsItems: RapsItemRow[] = [];
+  if (m.rapsAssignments) {
+    const entries = m.rapsAssignments as { productId: string; quantity: number }[];
+    const productMap = new Map(m.items.map((i) => [i.productId, i.product]));
+    rapsItems = entries.map((e) => {
+      const p = productMap.get(e.productId);
+      return { product: p?.name ?? e.productId, productCode: p?.sku ?? "", quantity: e.quantity };
+    });
+  }
+
   return {
     id: m.id,
     siId: m.referenceNumber,
@@ -640,6 +669,11 @@ export async function getIncomingMovementById(id: string): Promise<IncomingMovem
     status: statusLabel[m.status] ?? m.status,
     reversalReason: m.status === "REVERSED" ? (m.remarks ?? null) : null,
     dateReversed: m.status === "REVERSED" ? formatMovementDate(m.updatedAt) : null,
+    supplierInvoiceUrls: m.supplierInvoiceUrls,
+    rapsApprovalStatus: m.rapsApprovalStatus,
+    rapsApprovalStatusLabel: m.rapsApprovalStatus ? (rapsStatusLabel[m.rapsApprovalStatus] ?? m.rapsApprovalStatus) : null,
+    rapsRejectionReason: m.rapsRejectionReason,
+    rapsItems,
     products: m.items.map((item, i) => ({
       id: i + 1,
       product: item.product.name,

@@ -17,6 +17,7 @@ export type ActivityAction =
   | "Suspended"
   | "Activated"
   | "Order Confirmed"
+  | "Dispatched"
   | "Delivered"
   | "Cancel"
   | "Failed"

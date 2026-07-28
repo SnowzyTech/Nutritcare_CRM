@@ -67,6 +67,14 @@ export async function dispatchOrderAction(
         },
       });
     }
+
+    await logActivity({
+      userId: session.user.id,
+      action: "Dispatched",
+      entityType: "Order",
+      entityId: itemId,
+      description: `Dispatched order #${order.orderNumber}`,
+    });
   } else if (sourceType === "stockOut") {
     const movement = await prisma.stockMovement.findUnique({
       where: { id: itemId },
@@ -104,6 +112,14 @@ export async function dispatchOrderAction(
         scheduledTime: new Date(),
       },
     });
+
+    await logActivity({
+      userId: session.user.id,
+      action: "Dispatched",
+      entityType: "StockMovement",
+      entityId: itemId,
+      description: `Dispatched stock-out voucher ${movement.referenceNumber}`,
+    });
   } else {
     // stockTransfer
     const transfer = await prisma.stockTransfer.findUnique({
@@ -139,6 +155,14 @@ export async function dispatchOrderAction(
         driverId: driverAgentId || null,
         scheduledTime: new Date(),
       },
+    });
+
+    await logActivity({
+      userId: session.user.id,
+      action: "Dispatched",
+      entityType: "StockTransfer",
+      entityId: itemId,
+      description: `Dispatched stock transfer ${transfer.referenceNumber}`,
     });
   }
 

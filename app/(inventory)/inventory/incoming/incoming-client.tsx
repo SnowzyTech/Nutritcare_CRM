@@ -94,6 +94,7 @@ export function IncomingClient({ initialRows }: { initialRows: IncomingMovementR
                 <th className={thClass}>Supplier Ref.</th>
                 <th className={thClass}>Product</th>
                 <th className={thClass}>Status</th>
+                <th className={thClass}>RAPS</th>
                 <th className={thClass}>CREATED TIME</th>
                 <th className={thClass}>Added By</th>
                 <th className="py-2.5 pr-2">
@@ -125,6 +126,23 @@ export function IncomingClient({ initialRows }: { initialRows: IncomingMovementR
                     <span className={row.status === "Draft" ? "text-amber-500 font-medium" : "text-gray-600"}>
                       {row.status}
                     </span>
+                  </td>
+                  <td className={tdClass}>
+                    {row.rapsQuantity > 0 ? (
+                      <span
+                        className={`px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase whitespace-nowrap ${
+                          row.rapsApprovalStatus === "APPROVED"
+                            ? "bg-emerald-100 text-emerald-700"
+                            : row.rapsApprovalStatus === "REJECTED"
+                            ? "bg-red-100 text-red-600"
+                            : "bg-amber-100 text-amber-700"
+                        }`}
+                      >
+                        {row.rapsQuantity} {row.rapsApprovalStatus === "APPROVED" ? "Approved" : row.rapsApprovalStatus === "REJECTED" ? "Rejected" : "Pending"}
+                      </span>
+                    ) : (
+                      "—"
+                    )}
                   </td>
                   <td className={tdClass}>{row.createdTime}</td>
                   <td className={tdClass}>{row.addedBy}</td>

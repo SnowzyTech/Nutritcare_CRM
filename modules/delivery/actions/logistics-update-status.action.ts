@@ -41,6 +41,14 @@ export async function updateDeliveryStatusAction(
       where: { id: itemId },
       data: { status: finalStatus === "DELIVERED" ? "RECEIVED" : "NOT_RECEIVED" },
     });
+
+    await logActivity({
+      userId: session.user.id,
+      action: finalStatus === "DELIVERED" ? "Delivered" : "Failed",
+      entityType: "StockMovement",
+      entityId: itemId,
+      description: `Marked stock-out voucher ${movement.referenceNumber} as ${finalStatus === "DELIVERED" ? "delivered" : "failed"}`,
+    });
     label = `stock-out ${movement.referenceNumber}`;
   } else {
     if (finalStatus === "DELIVERED") {
@@ -57,6 +65,14 @@ export async function updateDeliveryStatusAction(
     await prisma.stockTransfer.update({
       where: { id: itemId },
       data: { status: "FAILED" },
+    });
+
+    await logActivity({
+      userId: session.user.id,
+      action: "Failed",
+      entityType: "StockTransfer",
+      entityId: itemId,
+      description: `Marked stock transfer ${transfer.referenceNumber} as failed`,
     });
     label = `stock transfer ${transfer.referenceNumber}`;
   }

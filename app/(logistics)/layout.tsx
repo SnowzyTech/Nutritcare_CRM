@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth/auth";
 import type { Metadata } from "next";
 import { LogisticsSidebarClient } from "./logistics/sidebar-client";
-import { getSelfProfile } from "@/modules/users/services/users.service";
+import { getSelfProfile, isUserTeamLead } from "@/modules/users/services/users.service";
 
 export const metadata: Metadata = {
   title: {
@@ -19,6 +19,7 @@ export default async function LogisticsLayout({
   // Read the avatar from the DB (the session JWT doesn't carry it), so an
   // avatar changed on the settings page reflects here after revalidation.
   const profile = session?.user?.id ? await getSelfProfile(session.user.id) : null;
+  const isHead = session?.user?.id ? await isUserTeamLead(session.user.id) : false;
 
   return (
     <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
@@ -28,6 +29,7 @@ export default async function LogisticsLayout({
           email: session?.user?.email,
           image: profile?.avatarUrl ?? null,
         }}
+        isHead={isHead}
       />
 
       {/* Main area */}

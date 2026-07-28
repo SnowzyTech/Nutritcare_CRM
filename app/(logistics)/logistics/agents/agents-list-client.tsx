@@ -36,9 +36,10 @@ type DriverRow = {
 interface Props {
   agents: AgentRow[];
   drivers: DriverRow[];
+  canAddStaff?: boolean;
 }
 
-export default function AgentsListClient({ agents, drivers }: Props) {
+export default function AgentsListClient({ agents, drivers, canAddStaff }: Props) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<"Agents" | "Drivers">("Agents");
   const [search, setSearch] = useState("");
@@ -103,15 +104,17 @@ export default function AgentsListClient({ agents, drivers }: Props) {
           />
         </div>
         <div className="flex items-center gap-2">
-          <Link href={activeTab === "Agents" ? "/logistics/agents/new" : "/logistics/agents/new-driver"}>
-            <Button
-              variant="outline"
-              className="text-[#ad1df4] border-[#ad1df4] hover:bg-[#faf5ff] gap-2 font-semibold h-10"
-            >
-              Add New {activeTab === "Agents" ? "Agent" : "Driver"}{" "}
-              <PlusCircle className="w-5 h-5" />
-            </Button>
-          </Link>
+          {canAddStaff && (
+            <Link href={activeTab === "Agents" ? "/logistics/agents/new" : "/logistics/agents/new-driver"}>
+              <Button
+                variant="outline"
+                className="text-[#ad1df4] border-[#ad1df4] hover:bg-[#faf5ff] gap-2 font-semibold h-10"
+              >
+                Add New {activeTab === "Agents" ? "Agent" : "Driver"}{" "}
+                <PlusCircle className="w-5 h-5" />
+              </Button>
+            </Link>
+          )}
           <Button variant="outline" className="text-gray-500 border-gray-300 hover:bg-gray-50 h-10 px-6 font-semibold">
             Excel
           </Button>

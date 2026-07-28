@@ -105,19 +105,28 @@ export async function removeWarehouseZoneAction(
   }
 }
 
+// Manual overrides are limited to RESERVED and DAMAGE — FULL/PARTIAL/EMPTY are
+// always derived from stock vs. threshold (see deriveOccupancyStatus) and must
+// never be set by hand. "AUTO" clears an override by writing the neutral EMPTY
+// placeholder, which deriveOccupancyStatus then recomputes from live stock.
 export async function updateLocationOccupancyAction(
   locationCode: string,
-  status: string,
+  status: "RESERVED" | "DAMAGE" | "AUTO",
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const { warehouseId } = await requireWarehouseManager();
 
+    if (!["RESERVED", "DAMAGE", "AUTO"].includes(status)) {
+      return { success: false, error: "A location can only be manually set to Reserved or Damage." };
+    }
+
     await prisma.warehouseLocation.updateMany({
       where: { warehouseId, locationCode },
-      data: { occupancyStatus: status as "FULL" | "PARTIAL" | "RESERVED" | "EMPTY" | "DAMAGE" },
+      data: { occupancyStatus: status === "AUTO" ? "EMPTY" : status },
     });
 
     revalidatePath("/warehouse/location-management");
+    revalidatePath("/warehouse");
     return { success: true };
   } catch (e) {
     return { success: false, error: (e as Error).message };

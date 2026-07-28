@@ -153,6 +153,8 @@ export async function toggleTeamLeadAction(userId: string, makeTeamLead: boolean
     suppressCameraForRequest();
     const name = await staffName(userId);
     await toggleTeamLead(userId, makeTeamLead);
+    // Generic across roles — a "team lead" flag currently powers the Sales Rep
+    // Manager, Head Logistics Manager, and Data Analyst Team Lead designations.
     await logActivity({
       userId: actor.id, actorName: actor.name, actorRole: actor.role,
       action: "Updated", entityType: "User", entityId: userId,
@@ -160,6 +162,12 @@ export async function toggleTeamLeadAction(userId: string, makeTeamLead: boolean
     });
     revalidatePath(`/admin/staff/sales-rep/${userId}`);
     revalidatePath("/admin/staff/sales-rep");
+    revalidatePath(`/admin/staff/logistics-manager/${userId}`);
+    revalidatePath("/admin/staff/logistics-manager");
+    revalidatePath("/logistics/team");
+    revalidatePath(`/admin/staff/data-analyst/${userId}`);
+    revalidatePath("/admin/staff/data-analyst");
+    revalidatePath("/data/dashboard");
     return { success: true };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Failed to update team lead status" };
