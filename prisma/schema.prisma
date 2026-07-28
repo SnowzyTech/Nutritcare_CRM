@@ -24,6 +24,8 @@ model User {
   accountActivationStatus AccountActivationStatus @default(PENDING)
   agentId                 String?                 @unique
   warehouseId             String?
+  revokedAdminPages       String[]                @default([])
+  accountingPermissions   String[]                @default([])
   createdAt               DateTime                @default(now())
   updatedAt               DateTime                @updatedAt
   agentsAdded             Agent[]                 @relation("AgentAddedBy")
@@ -72,6 +74,17 @@ model Team {
 
   @@index([department])
   @@map("teams")
+}
+
+// Per-prefix running counter for meaningful order codes (e.g. NEURO-001). One
+// row per 5-letter product abbreviation; incremented atomically at order
+// creation. Products sharing a prefix share the sequence.
+model OrderCounter {
+  prefix    String   @id
+  value     Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  @@map("order_counters")
 }
 
 model Customer {
@@ -398,6 +411,7 @@ model Order {
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
   isReorder       Boolean     @default(false)
+  isRescheduled   Boolean     @default(false)
   discountedById  String?
   discountReason  String?
   discountedAt    DateTime?
@@ -439,6 +453,12 @@ model OrderItem {
   costPriceAtSale Decimal  @default(0) @db.Decimal(10, 2)
   addedById       String?
   isUpsell        Boolean  @default(false)
+  // Revenue on this line attributable to sales-rep upselling (incremental over
+  // the original form price when merged). Source of truth for upsell-revenue
+  // reporting: upsell revenue = SUM(upsellAmount). See docs/upsell-package-pricing.md.
+  upsellAmount    Decimal  @default(0) @db.Decimal(10, 2)
+  // Units on this line added by sales-rep upselling. Upsell units = SUM(upsellQuantity).
+  upsellQuantity  Int      @default(0)
   addedBy         User?    @relation("UpsoldOrderItems", fields: [addedById], references: [id])
   order           Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
   product         Product  @relation(fields: [productId], references: [id])
@@ -1042,6 +1062,8 @@ model Notification {
 model AuditLog {
   id         String   @id @default(cuid())
   userId     String
+  actorName  String?
+  actorRole  String?
   action     String
   entityType String
   entityId   String
@@ -1054,6 +1076,8 @@ model AuditLog {
   @@index([userId])
   @@index([entityType])
   @@index([createdAt])
+  @@index([actorRole])
+  @@index([action])
   @@map("audit_logs")
 }
 
@@ -1300,6 +1324,7 @@ enum MessageType {
 }
 
 enum UserRole {
+  SUPER_ADMIN
   ADMIN
   SALES_REP
   SALES_REP_MANAGER

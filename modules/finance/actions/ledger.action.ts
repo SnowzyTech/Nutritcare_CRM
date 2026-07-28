@@ -4,6 +4,8 @@ import { auth } from "@/lib/auth/auth";
 import { prisma } from "@/lib/db/prisma";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { logActivity } from "@/modules/audit/services/audit-log.service";
+import { suppressCameraForRequest } from "@/lib/audit/context";
 
 const rowSchema = z.object({
   account: z.string().min(1, "Account is required"),
@@ -35,6 +37,7 @@ export async function createJournalEntryAction(
 ) {
   const session = await auth();
   if (!session?.user?.id) return { error: "Unauthorized" };
+  suppressCameraForRequest();
 
   const parsed = createJournalEntrySchema.safeParse(input);
   if (!parsed.success)
@@ -68,6 +71,14 @@ export async function createJournalEntryAction(
         })),
       },
     },
+  });
+
+  await logActivity({
+    userId: session.user.id,
+    action: "Created",
+    entityType: "JournalEntry",
+    entityId: entry.id,
+    description: `Journal entry ${journalNo} posted`,
   });
 
   revalidatePath("/accounting/accounting-ledger");

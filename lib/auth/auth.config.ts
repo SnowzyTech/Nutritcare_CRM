@@ -1,29 +1,43 @@
 import type { NextAuthConfig } from "next-auth";
-import { getRoleHome } from "@/lib/auth/role-routes";
+import { getRoleHome, isAdmin } from "@/lib/auth/role-routes";
 
 const PUBLIC_AUTH_PAGES = ["/login", "/signup", "/admin/login"];
 
-// Which roles may access each admin sub-route prefix
+// Which roles may access each admin sub-route prefix. Both admin tiers share
+// every admin capability EXCEPT the Account oversight page (SUPER_ADMIN only).
+// Note: fine-grained per-admin page revocation is enforced fresh in the section
+// layouts (guard-admin-page.ts), not here.
 const ADMIN_ROUTE_ROLES: { prefix: string; roles: string[] }[] = [
-  { prefix: "/admin/orders", roles: ["ADMIN",] },
-  { prefix: "/admin/delivery", roles: ["ADMIN",] },
-  { prefix: "/admin/inventory", roles: ["ADMIN",] },
-  { prefix: "/admin/accounting", roles: ["ADMIN",] },
-  { prefix: "/admin/users", roles: ["ADMIN"] },
-  { prefix: "/admin/staff", roles: ["ADMIN"] },
-  { prefix: "/admin/analytics", roles: ["ADMIN",] },
+  // `/admin/accounting` must precede `/admin/account` — the latter is a string
+  // prefix of the former, and the first match wins.
+  { prefix: "/admin/accounting", roles: ["ADMIN", "SUPER_ADMIN"] },
+  { prefix: "/admin/account", roles: ["SUPER_ADMIN"] },
+  { prefix: "/admin/orders", roles: ["ADMIN", "SUPER_ADMIN"] },
+  { prefix: "/admin/delivery", roles: ["ADMIN", "SUPER_ADMIN"] },
+  { prefix: "/admin/inventory", roles: ["ADMIN", "SUPER_ADMIN"] },
+  { prefix: "/admin/users", roles: ["ADMIN", "SUPER_ADMIN"] },
+  { prefix: "/admin/staff", roles: ["ADMIN", "SUPER_ADMIN"] },
+  { prefix: "/admin/analytics", roles: ["ADMIN", "SUPER_ADMIN"] },
 ];
 
-// Role-specific dashboard routes (non-admin)
+// Role-specific dashboard routes (non-admin). The cross-department oversight
+// fallback belongs to SUPER_ADMIN (limited admins use /admin/*, not these).
 const ROLE_ROUTES: { prefix: string; roles: string[] }[] = [
-  { prefix: "/sales-rep", roles: ["ADMIN", "SALES_REP"] },
-  { prefix: "/delivery-agents", roles: ["ADMIN", "DELIVERY_AGENT"] },
-  { prefix: "/data", roles: ["ADMIN", "DATA_ANALYST"] },
-  { prefix: "/accounting", roles: ["ADMIN", "ACCOUNTANT"] },
-  { prefix: "/inventory", roles: ["ADMIN", "INVENTORY_MANAGER"] },
-  { prefix: "/warehouse", roles: ["ADMIN", "WAREHOUSE_MANAGER"] },
-  { prefix: "/logistics", roles: ["ADMIN", "LOGISTICS_MANAGER"] },
-  { prefix: "/media-buyer", roles: ["ADMIN", "MEDIA_BUYER"] },
+  // The company-wide manager (SALES_REP_MANAGER) has a dedicated /sales-manager
+  // dashboard; SUPER_ADMIN may view it too.
+  { prefix: "/sales-manager", roles: ["SUPER_ADMIN", "SALES_REP_MANAGER"] },
+  // `/sales-rep-manager` must precede `/sales-rep` — the latter is a string
+  // prefix of the former, and the first match wins. This dashboard is for
+  // team-leads (SALES_REP + isTeamLead); the layout enforces the isTeamLead gate.
+  { prefix: "/sales-rep-manager", roles: ["SUPER_ADMIN", "SALES_REP"] },
+  { prefix: "/sales-rep", roles: ["SUPER_ADMIN", "SALES_REP"] },
+  { prefix: "/delivery-agents", roles: ["SUPER_ADMIN", "DELIVERY_AGENT"] },
+  { prefix: "/data", roles: ["SUPER_ADMIN", "DATA_ANALYST"] },
+  { prefix: "/accounting", roles: ["SUPER_ADMIN", "ACCOUNTANT"] },
+  { prefix: "/inventory", roles: ["SUPER_ADMIN", "INVENTORY_MANAGER"] },
+  { prefix: "/warehouse", roles: ["SUPER_ADMIN", "WAREHOUSE_MANAGER"] },
+  { prefix: "/logistics", roles: ["SUPER_ADMIN", "LOGISTICS_MANAGER"] },
+  { prefix: "/media-buyer", roles: ["SUPER_ADMIN", "MEDIA_BUYER"] },
 ];
 
 export const authConfig: NextAuthConfig = {
@@ -75,8 +89,8 @@ export const authConfig: NextAuthConfig = {
             return Response.redirect(new URL(getRoleHome(role), nextUrl));
           }
         } else {
-          // No explicit entry → admin-only
-          if (role !== "ADMIN") {
+          // No explicit entry → either admin tier
+          if (!isAdmin(role)) {
             return Response.redirect(new URL(getRoleHome(role), nextUrl));
           }
         }

@@ -5,6 +5,8 @@ import { prisma } from "@/lib/db/prisma";
 import { formatCurrency } from "@/lib/utils";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { logActivity } from "@/modules/audit/services/audit-log.service";
+import { suppressCameraForRequest } from "@/lib/audit/context";
 
 const updateDeliveryFeeSchema = z.object({
   orderId: z.string().min(1),
@@ -14,6 +16,7 @@ const updateDeliveryFeeSchema = z.object({
 export async function updateOrderDeliveryFeeAction(input: z.infer<typeof updateDeliveryFeeSchema>) {
   const session = await auth();
   if (!session?.user?.id) return { error: "Unauthorized" };
+  suppressCameraForRequest();
   const parsed = updateDeliveryFeeSchema.safeParse(input);
   if (!parsed.success) return { error: "Invalid input" };
 
@@ -51,6 +54,22 @@ export async function updateOrderDeliveryFeeAction(input: z.infer<typeof updateD
         },
       });
     }
+  }
+
+  if (previousFee !== newFee) {
+    await logActivity({
+      userId: session.user.id,
+      action: "Updated",
+      entityType: "Order",
+      entityId: order.id,
+      description: `Delivery fee for order ${order.orderNumber} changed from ${formatCurrency(previousFee)} to ${formatCurrency(newFee)}`,
+      details: {
+        before: formatCurrency(previousFee),
+        after: formatCurrency(newFee),
+        field: "deliveryFee",
+        amount: Math.abs(newFee - previousFee),
+      },
+    });
   }
 
   revalidatePath("/accounting/sales-record");

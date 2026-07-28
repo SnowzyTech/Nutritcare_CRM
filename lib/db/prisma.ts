@@ -1,7 +1,8 @@
 import { PrismaClient } from "@prisma/client";
+import { createAuditCamera } from "@/lib/audit/camera";
 
 const globalForPrisma = globalThis as unknown as {
-  prisma: PrismaClient | undefined;
+  basePrisma: PrismaClient | undefined;
 };
 
 function createPrismaClient(): PrismaClient {
@@ -34,8 +35,28 @@ function createPrismaClient(): PrismaClient {
   return new PrismaClient();
 }
 
-export const prisma = globalForPrisma.prisma ?? createPrismaClient();
+/**
+ * The un-extended client. Private to this module + the audit layer: the audit
+ * "camera" writes rows through this so its own inserts never re-trigger the
+ * camera (recursion-safe). Everything else in the app uses `prisma` below.
+ */
+export const basePrisma = globalForPrisma.basePrisma ?? createPrismaClient();
 
 if (process.env.NODE_ENV !== "production") {
-  globalForPrisma.prisma = prisma;
+  globalForPrisma.basePrisma = basePrisma;
 }
+
+/**
+ * The application client: the base client + the audit camera extension, which
+ * auto-logs every create/update/delete to `audit_logs`. All app code should
+ * import THIS.
+ *
+ * The camera only adds a query interceptor — it exposes the exact same models
+ * and operations as the base client — so we present it with the plain
+ * `PrismaClient` type. This keeps the runtime extension while avoiding the
+ * "excessive stack depth" type blow-ups that `$extends` triggers in code using
+ * `Prisma.*Args` generics against a large schema.
+ */
+export const prisma: PrismaClient = basePrisma.$extends(
+  createAuditCamera(basePrisma)
+) as unknown as PrismaClient;

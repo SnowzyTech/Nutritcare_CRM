@@ -1,5 +1,7 @@
 import { getMediaBuyerDashboard } from "@/modules/media-buyer/services/media-buyer.service";
 import { formatDate } from "@/lib/utils";
+import { StaffPeriodFilter } from "@/components/admin/staff-period-filter";
+import type { StaffPeriod } from "@/lib/staff-period";
 
 function StatCard({ label, value }: { label: string; value: string }) {
   return (
@@ -12,20 +14,35 @@ function StatCard({ label, value }: { label: string; value: string }) {
 
 const GRID = "grid grid-cols-[1.6fr_1.2fr_0.8fr_0.7fr_0.7fr_0.8fr_0.8fr] gap-3";
 
-/** Read-only view of a media buyer's forms + performance (all-time). */
-export default async function MediaBuyerFormsSection({ userId }: { userId: string }) {
-  const { metrics, funnel, forms } = await getMediaBuyerDashboard(userId);
+/**
+ * Read-only view of a media buyer's forms + performance. Forms are always
+ * listed (all their forms); the views/leads/delivered counts are scoped to the
+ * selected Day / Week / Month period.
+ */
+export default async function MediaBuyerFormsSection({
+  userId,
+  period,
+}: {
+  userId: string;
+  period: StaffPeriod;
+}) {
+  const { metrics, funnel, forms } = await getMediaBuyerDashboard(userId, period.range);
 
   return (
     <div>
-      <h2 className="text-lg font-bold mb-4 text-slate-600">Forms &amp; Performance</h2>
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <h2 className="text-lg font-bold text-slate-600">
+          Forms &amp; Performance <span className="text-sm font-medium text-slate-400">· {period.valueLabel}</span>
+        </h2>
+        <StaffPeriodFilter />
+      </div>
 
       {/* Metric cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-8">
         <StatCard label="Total Forms" value={metrics.totalForms.toLocaleString()} />
-        <StatCard label="Total Leads" value={metrics.totalLeads.toLocaleString()} />
-        <StatCard label="Total Delivered" value={metrics.totalDeliveredOrders.toLocaleString()} />
-        <StatCard label="Total Views" value={funnel.views.toLocaleString()} />
+        <StatCard label="Leads" value={metrics.totalLeads.toLocaleString()} />
+        <StatCard label="Delivered" value={metrics.totalDeliveredOrders.toLocaleString()} />
+        <StatCard label="Views" value={funnel.views.toLocaleString()} />
       </div>
 
       {/* Forms table */}

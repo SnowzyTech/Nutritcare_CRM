@@ -23,6 +23,10 @@ Required in `.env`:
 - `DIRECT_URL` — Neon direct connection string (used by Prisma migrations)
 - `AUTH_SECRET` — NextAuth secret
 
+Admin bootstrap (used only by the seed scripts; never commit real values):
+- `SUPERADMIN_EMAIL` / `SUPERADMIN_PASSWORD` — `npm run db:seed:superadmin` upserts a `SUPER_ADMIN`
+- `ADMIN_EMAIL` / `ADMIN_PASSWORD` (opt. `ADMIN_NAME`) — `npm run db:seed:admin` upserts a limited `ADMIN`
+
 ## Stack
 
 Next.js 16.2.4, React 19.2.4, TypeScript 5 (strict), NextAuth v5 (beta.31), Prisma 5.22 + Neon serverless PostgreSQL, Tailwind CSS v4, Zod v4, Recharts 3, Base UI (`@base-ui/react`), lucide-react, date-fns 4, bcryptjs.

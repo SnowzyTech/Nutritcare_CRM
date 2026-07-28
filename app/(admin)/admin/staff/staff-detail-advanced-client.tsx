@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { X, AlertTriangle, Copy, Check, Warehouse, Crown } from "lucide-react";
+import { X, AlertTriangle, Copy, Check, Warehouse, Crown ,ShieldCheck} from "lucide-react";
 import { toast } from "sonner";
 import {
   deleteUserAction,
@@ -11,7 +11,9 @@ import {
   resetUserPasswordAction,
   assignWarehouseAction,
   toggleTeamLeadAction,
+  updateAccountingPermissionsAction,
 } from "@/modules/users/actions/users.action";
+import { ACCOUNTING_PERMISSIONS } from "@/lib/auth/accounting-permissions";
 
 type WarehouseOption = { id: string; name: string };
 
@@ -23,10 +25,10 @@ type Props = {
   role?: string;
   warehouses?: WarehouseOption[];
   currentWarehouseId?: string | null;
-  isTeamLead?: boolean;
+  accountingPermissions?: string[];
 };
 
-type ModalType = "delete" | "suspend" | "resetPassword" | "assignWarehouse" | "toggleHead" | null;
+type ModalType = "delete" | "suspend" | "resetPassword" | "assignWarehouse" |"toggleHead"| "accountingAccess" | null;
 
 export default function StaffDetailAdvancedClient({
   staffName,
@@ -37,6 +39,7 @@ export default function StaffDetailAdvancedClient({
   warehouses,
   currentWarehouseId,
   isTeamLead: initialIsTeamLead,
+  accountingPermissions = [],
 }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -48,6 +51,8 @@ export default function StaffDetailAdvancedClient({
   const [copied, setCopied] = useState(false);
   const [selectedWarehouseId, setSelectedWarehouseId] = useState<string>(currentWarehouseId ?? "");
   const [assignedWarehouseId, setAssignedWarehouseId] = useState<string | null>(currentWarehouseId ?? null);
+  const [grantedPerms, setGrantedPerms] = useState<string[]>(accountingPermissions);
+  const [draftPerms, setDraftPerms] = useState<string[]>(accountingPermissions);
 
   function openModal(type: ModalType) {
     setError(null);
@@ -55,6 +60,9 @@ export default function StaffDetailAdvancedClient({
     setCopied(false);
     if (type === "assignWarehouse") {
       setSelectedWarehouseId(assignedWarehouseId ?? "");
+    }
+    if (type === "accountingAccess") {
+      setDraftPerms(grantedPerms);
     }
     setModal(type);
   }
@@ -117,6 +125,28 @@ export default function StaffDetailAdvancedClient({
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
+  }
+
+  function toggleDraftPerm(key: string) {
+    setDraftPerms(prev =>
+      prev.includes(key) ? prev.filter(p => p !== key) : [...prev, key]
+    );
+  }
+
+  function handleSaveAccountingAccess() {
+    setError(null);
+    startTransition(async () => {
+      const result = await updateAccountingPermissionsAction({ userId: staffId, permissions: draftPerms });
+      if ("error" in result) {
+        setError(result.error);
+        toast.error(result.error);
+      } else {
+        toast.success("Accounting access updated");
+        setGrantedPerms(draftPerms);
+        closeModal();
+        router.refresh();
+      }
+    });
   }
 
   function handleAssignWarehouse() {
@@ -198,9 +228,24 @@ export default function StaffDetailAdvancedClient({
               className="bg-amber-500 hover:bg-amber-600 text-white px-8 py-4 rounded-xl text-[0.9rem] font-bold flex items-center justify-center gap-3 transition-all shadow-lg shadow-amber-200 min-w-[220px]"
             >
               <Crown size={18} /> {isTeamLead ? "Remove as Team Lead" : "Assign as Team Lead"}
+             </button>
+              )}
+          {role === "ACCOUNTANT" && (
+            <button
+              onClick={() => openModal("accountingAccess")}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-4 rounded-xl text-[0.9rem] font-bold flex items-center justify-center gap-3 transition-all shadow-lg shadow-indigo-200 min-w-[220px]"
+            >
+              <ShieldCheck size={18} /> Manage Accounting Access
             </button>
           )}
         </div>
+        {role === "ACCOUNTANT" && (
+          <p className="text-[0.8rem] text-slate-400 mt-3">
+            {grantedPerms.length === 0
+              ? "No elevated accounting features granted (normal accountant)."
+              : `Head-of-accounting access: ${grantedPerms.length} of ${ACCOUNTING_PERMISSIONS.length} features granted.`}
+          </p>
+        )}
       </section>
 
       {modal && (
@@ -216,6 +261,12 @@ export default function StaffDetailAdvancedClient({
                 "bg-purple-50 text-purple-500"
               }`}>
                 {modal === "assignWarehouse" ? <Warehouse size={24} /> : modal === "toggleHead" ? <Crown size={24} /> : <AlertTriangle size={24} />}
+                modal === "accountingAccess" ? "bg-indigo-50 text-indigo-500" :
+                "bg-purple-50 text-purple-500"
+              }`}>
+                {modal === "assignWarehouse" ? <Warehouse size={24} /> :
+                 modal === "accountingAccess" ? <ShieldCheck size={24} /> :
+                 <AlertTriangle size={24} />}
               </div>
               <button
                 onClick={closeModal}
@@ -319,6 +370,38 @@ export default function StaffDetailAdvancedClient({
                       : <><span className="font-bold text-slate-700">{staffName}</span> will be able to see all Logistics Managers, drill into the movements each one has handled, and will become the only Logistics Manager who can add or remove drivers and delivery agents.</>
                   )}
                 </p>
+            {modal === "accountingAccess" && (
+              <>
+                <h3 className="text-xl font-black text-slate-800 mb-2">Manage Accounting Access</h3>
+                <p className="text-slate-500 text-[0.95rem] leading-relaxed mb-6">
+                  Choose which accounting features <span className="font-bold text-slate-700">{staffName}</span> can see. Normal accountants see none of these.
+                </p>
+                <div className="flex flex-col gap-2 mb-6 max-h-[300px] overflow-y-auto pr-1">
+                  {ACCOUNTING_PERMISSIONS.map((perm) => {
+                    const checked = draftPerms.includes(perm.key);
+                    return (
+                      <button
+                        key={perm.key}
+                        onClick={() => toggleDraftPerm(perm.key)}
+                        className={`w-full flex items-start gap-3 px-4 py-3 rounded-2xl border-2 text-left transition-all ${
+                          checked
+                            ? "border-indigo-500 bg-indigo-50"
+                            : "border-slate-100 bg-slate-50 hover:border-indigo-200 hover:bg-indigo-50/40"
+                        }`}
+                      >
+                        <span className={`mt-0.5 w-5 h-5 rounded-md flex items-center justify-center shrink-0 border-2 ${
+                          checked ? "bg-indigo-500 border-indigo-500 text-white" : "border-slate-300 text-transparent"
+                        }`}>
+                          <Check size={14} />
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block font-bold text-[0.9rem] text-slate-700">{perm.label}</span>
+                          <span className="block text-[0.78rem] text-slate-400">{perm.description}</span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
                 {error && <p className="text-rose-500 text-sm mb-4">{error}</p>}
                 <div className="flex gap-4">
                   <button onClick={closeModal} className="flex-1 bg-slate-50 hover:bg-slate-100 text-slate-600 py-3.5 rounded-2xl font-bold transition-all">Cancel</button>
@@ -328,6 +411,13 @@ export default function StaffDetailAdvancedClient({
                     className="flex-1 bg-amber-500 hover:bg-amber-600 text-white py-3.5 rounded-2xl font-bold transition-all shadow-lg shadow-amber-100 disabled:opacity-60"
                   >
                     {isPending ? "Processing..." : isTeamLead ? "Remove" : "Assign"}
+                     </button>
+                  <button
+                    onClick={handleSaveAccountingAccess}
+                    disabled={isPending}
+                    className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-3.5 rounded-2xl font-bold transition-all shadow-lg shadow-indigo-100 disabled:opacity-60"
+                  >
+                    {isPending ? "Saving..." : "Save Access"}
                   </button>
                 </div>
               </>

@@ -2,6 +2,7 @@
 
 import React from "react";
 import Link from "next/link";
+import { useBasePath } from "../_lib/base-path";
 
 interface AnalyticsSectionProps {
   repId: string;
@@ -15,6 +16,7 @@ interface AnalyticsSectionProps {
 }
 
 export function AnalyticsSection({ repId, repName, currentAnalytics }: AnalyticsSectionProps) {
+  const base = useBasePath();
   return (
     <div>
       <h2 className="text-xl font-bold text-gray-600 mb-6">Analytics</h2>
@@ -35,7 +37,7 @@ export function AnalyticsSection({ repId, repName, currentAnalytics }: Analytics
           </div>
 
           <Link
-            href={`/sales-rep-manager/${repId}/analytics`}
+            href={`${base}/${repId}/analytics`}
             className="flex items-center justify-center gap-2 border border-[#E9D5FF] text-[#A020F0] bg-white px-8 py-3.5 rounded-xl text-sm font-bold hover:bg-[#FAF5FF] transition shadow-sm"
           >
             <span className="w-4 h-4 rounded-full border border-current flex items-center justify-center text-[10px]">📊</span>

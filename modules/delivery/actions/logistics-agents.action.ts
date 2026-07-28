@@ -7,6 +7,9 @@ import { createDeliveryAgentWithUser } from "../services/create-delivery-agent.s
 import { createDriver, softDeleteDriver } from "../services/create-driver.service";
 import { softDeleteAgent } from "../services/agents.service";
 import { isUserTeamLead } from "@/modules/users/services/users.service";
+import { isAdmin } from "@/lib/auth/role-routes";
+import { logActivity } from "@/modules/audit/services/audit-log.service";
+import { suppressCameraForRequest } from "@/lib/audit/context";
 
 type AgentResult =
   | { success: true; data: { agentId: string; userId: string; name: string; email: string; tempPassword: string } }
@@ -18,7 +21,7 @@ async function requireLogisticsAuth() {
   const session = await auth();
   if (
     !session?.user?.id ||
-    (session.user.role !== "LOGISTICS_MANAGER" && session.user.role !== "ADMIN")
+    (session.user.role !== "LOGISTICS_MANAGER" && !isAdmin(session.user.role))
   ) {
     throw new Error("Unauthorized");
   }
@@ -52,8 +55,14 @@ export async function createAgentAction(input: {
   deliveryFee?: number;
 }): Promise<AgentResult> {
   try {
-    const user = await requireHeadLogisticsAuth();
+    const user = await requireHeadLogisticsAuth()
+    suppressCameraForRequest();
     const result = await createDeliveryAgentWithUser({ ...input, addedById: user.id });
+    await logActivity({
+      userId: user.id, actorName: user.name, actorRole: user.role,
+      action: "Created", entityType: "Agent", entityId: result.agentId,
+      description: `Created delivery agent ${input.name}`,
+    });
     revalidatePath("/logistics/agents");
     return { success: true, data: result };
   } catch (e) {
@@ -84,7 +93,13 @@ export async function createDriverAction(input: {
 }): Promise<DriverResult> {
   try {
     const user = await requireHeadLogisticsAuth();
+    suppressCameraForRequest();
     const driver = await createDriver({ ...input, addedById: user.id });
+    await logActivity({
+      userId: user.id, actorName: user.name, actorRole: user.role,
+      action: "Created", entityType: "Driver", entityId: driver.id,
+      description: `Created driver ${input.name}`,
+    });
     revalidatePath("/logistics/agents");
     return { success: true, driverId: driver.id };
   } catch (e) {

@@ -5,6 +5,7 @@ import { auth } from "@/lib/auth/auth";
 import { prisma } from "@/lib/db/prisma";
 import { recordDeliveryFeeEntry } from "@/modules/finance/services/agent-settlement.service";
 import { logActivity } from "@/modules/audit/services/audit-log.service";
+import { suppressCameraForRequest } from "@/lib/audit/context";
 import { sendOrderDeliveredTemplate } from "@/lib/whatsapp/whatsapp";
 import {
   getSalesRepAnalyticsForUI,
@@ -81,9 +82,21 @@ export async function deleteOrderPermanently(
   orderNumber: string
 ): Promise<{ success: boolean; error?: string }> {
   const session = await auth();
+  suppressCameraForRequest();
   const result = await hardDeleteOrder(orderNumber, session?.user?.id);
 
   if (result.success) {
+    if (session?.user?.id) {
+      await logActivity({
+        userId: session.user.id,
+        actorName: session.user.name,
+        actorRole: session.user.role,
+        action: "Deleted",
+        entityType: "Order",
+        entityId: orderNumber,
+        description: `Permanently deleted order #${orderNumber}`,
+      });
+    }
     revalidatePath("/data/order");
     revalidatePath("/data");
     revalidatePath("/data/history");
@@ -115,6 +128,7 @@ export async function markOrderDeliveredByAnalyst(
   if (!(await isUserTeamLead(session.user.id))) {
     return { success: false, error: "Only the Data Analyst team lead can finalize orders" };
   }
+  suppressCameraForRequest();
 
   const order = await prisma.order.findFirst({
     where: { id: orderId, deletedAt: null },
@@ -160,9 +174,11 @@ export async function markOrderDeliveredByAnalyst(
     });
   }
 
-  // Log against the order's sales rep so it surfaces in their History page
+  // Log against the order's sales rep for their History page; show the analyst as actor.
   await logActivity({
     userId: order.salesRepId,
+    actorName: session.user.name,
+    actorRole: session.user.role,
     action: "Delivered",
     entityType: "Order",
     entityId: orderId,
@@ -205,6 +221,7 @@ export async function markOrderFailedByAnalyst(
   if (!(await isUserTeamLead(session.user.id))) {
     return { success: false, error: "Only the Data Analyst team lead can finalize orders" };
   }
+  suppressCameraForRequest();
 
   const reason = failureReason.trim();
   if (!reason) return { success: false, error: "A failure reason is required" };
@@ -226,9 +243,11 @@ export async function markOrderFailedByAnalyst(
     }),
   ]);
 
-  // Log against the order's sales rep so it surfaces in their History page
+  // Log against the order's sales rep for their History page; show the analyst as actor.
   await logActivity({
     userId: order.salesRepId,
+    actorName: session.user.name,
+    actorRole: session.user.role,
     action: "Failed",
     entityType: "Order",
     entityId: orderId,

@@ -1,6 +1,7 @@
 "use server";
 
 import { auth } from "@/lib/auth/auth";
+import { getAccountingAccess } from "@/lib/auth/accounting-access";
 import {
   getFinancialSummary,
   getSalesByProduct,
@@ -16,6 +17,7 @@ import {
 export async function getFinancialSummaryForMonthAction(month: number, year: number) {
   const session = await auth();
   if (!session?.user?.id) return null;
+  if (!(await getAccountingAccess()).FINANCIAL_SUMMARY) return null;
   if (!Number.isInteger(month) || month < 1 || month > 12) return null;
 
   // Any day inside the target month resolves to that month's window.
@@ -30,6 +32,7 @@ export async function getFinancialSummaryForMonthAction(month: number, year: num
 export async function getSalesBreakdownForPeriodAction(period: DashboardPeriod) {
   const session = await auth();
   if (!session?.user?.id) return null;
+  if (!(await getAccountingAccess()).SALES_ANALYTICS) return null;
 
   if (period?.type === "month") {
     if (

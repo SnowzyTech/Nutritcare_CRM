@@ -15,8 +15,13 @@ export default async function LogisticsOrdersPage() {
     date: o.date.toISOString(),
     customer: { name: o.customer.name, email: o.customer.email },
     agent: o.agent ? { companyName: o.agent.companyName, state: o.agent.state } : null,
-    items: o.items.map((i) => ({ quantity: i.quantity, product: { name: i.product.name } })),
-    deliveryFee: Number(o.deliveryFee),
+    items: o.items.map((i) => ({
+      quantity: i.quantity,
+      upsellQuantity: i.upsellQuantity,
+      isUpsell: i.isUpsell,
+      product: { name: i.product.name },
+    })),
+      deliveryFee: Number(o.deliveryFee),
   }));
 
   return <LogisticsOrdersClient orders={orders} statusCounts={statusCounts} />;

@@ -28,6 +28,7 @@ export default async function OrdersPage() {
     orderNumber: o.orderNumber,
     status: o.status,
     isReorder: o.isReorder,
+    isRescheduled: o.isRescheduled,
     createdAt: o.createdAt.toISOString(),
     updatedAt: o.updatedAt.toISOString(),
     customer: { name: o.customer.name, email: o.customer.email ?? null },
@@ -36,6 +37,8 @@ export default async function OrdersPage() {
       : null,
     items: o.items.map((item) => ({
       quantity: item.quantity,
+      upsellQuantity: item.upsellQuantity,
+      isUpsell: item.isUpsell,
       product: { name: item.product.name },
     })),
     deliveryFee: Number(o.deliveryFee),

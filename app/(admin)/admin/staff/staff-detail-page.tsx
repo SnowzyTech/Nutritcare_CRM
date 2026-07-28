@@ -155,6 +155,7 @@ export default async function StaffDetailPage({ id, roleLabel, basePath, extra }
         warehouses={member.role === "WAREHOUSE_MANAGER" ? warehouses : undefined}
         currentWarehouseId={member.warehouse?.id ?? null}
         isTeamLead={member.isTeamLead}
+        accountingPermissions={member.accountingPermissions ?? []}
       />
 
       {extra && <section className="mt-10">{extra}</section>}

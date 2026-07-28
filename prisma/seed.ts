@@ -221,10 +221,10 @@ async function main() {
     }),
     prisma.user.create({
       data: {
-        name: "Admin User",
+        name: "Super Admin User",
         email: "admin@seed.nutritcare",
         password: await bcrypt.hash("Admin@123", 10),
-        role: "ADMIN",
+        role: "SUPER_ADMIN",
         phone: "+2340000000000",
         isActive: true,
         accountActivationStatus: "APPROVED",

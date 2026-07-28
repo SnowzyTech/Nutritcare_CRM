@@ -3,6 +3,7 @@
 import { signIn } from "@/lib/auth/auth";
 import { loginSchema } from "@/lib/validations/auth";
 import { getUserByEmail } from "@/modules/auth/services/auth.service";
+import { isAdmin } from "@/lib/auth/role-routes";
 import { AuthError } from "next-auth";
 import { redirect } from "next/navigation";
 
@@ -30,12 +31,12 @@ export async function adminLoginAction(
     return { error: firstError ?? "Invalid input." };
   }
 
-  // Check the user exists and is an ADMIN before we even attempt signIn
+  // Check the user exists and is an admin (either tier) before we attempt signIn
   const user = await getUserByEmail(parsed.data.email);
   if (!user) {
     return { error: "Invalid email or password." };
   }
-  if (user.role !== "ADMIN") {
+  if (!isAdmin(user.role)) {
     return { error: "Access denied. This portal is for administrators only." };
   }
 

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Search, SlidersHorizontal, ArrowUpDown, ChevronLeft, ChevronDown, CalendarDays, RotateCcw } from "lucide-react";
 import { formatDate, formatCurrency } from "@/lib/utils";
 import { Calendar } from "@/components/ui/calendar";
+import { useBasePath } from "../_lib/base-path";
 
 /** Local YYYY-MM-DD (avoids UTC shift from toISOString). */
 function toYMD(d: Date): string {
@@ -23,10 +24,13 @@ export type TeamOrderListItem = {
   name: string;
   agent: { name: string; state: string } | null;
   salesRep: string;
+  teamId?: string | null;
+  teamName?: string | null;
   product: string;
   qty: number;
   isReorder: boolean;
-  itemNames: string[]; // all product names on the order (for the +N badge)
+  itemNames: string[]; // all product names on the order (tooltip for the +N badge)
+  extraCount: number; // extra products + merged upsells (drives the +N badge)
   date: string; // ISO date: YYYY-MM-DD (order created date)
   statusDate: string; // ISO date: YYYY-MM-DD (last status change / updatedAt)
   deliveryFee: number;
@@ -45,6 +49,7 @@ interface TeamOrdersClientProps {
   orders: TeamOrderListItem[];
   counts: OrderCounts;
   products?: string[];
+  teams?: { id: string; name: string }[];
 }
 
 const STATUS_STYLES: Record<OrderStatus, { dot: string; bg: string; text: string; label: string }> = {
@@ -72,14 +77,19 @@ const NIGERIAN_STATES = [
   "Yobe","Zamfara",
 ];
 
-export function TeamOrdersClient({ orders, counts, products = [] }: TeamOrdersClientProps) {
+export function TeamOrdersClient({ orders, counts, products = [], teams = [] }: TeamOrdersClientProps) {
   const router = useRouter();
+  const base = useBasePath();
   const [activeTab, setActiveTab] = useState<OrderStatus | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [dateValue, setDateValue] = useState<Date | undefined>(undefined);
   const [isDateOpen, setIsDateOpen] = useState(false);
   const [productFilter, setProductFilter] = useState("");
   const [stateFilter, setStateFilter] = useState("");
+  const [teamFilter, setTeamFilter] = useState("");
+  // Only the company manager sees orders spanning multiple teams; show the team
+  // filter only when there's more than one team to choose between.
+  const showTeamFilter = teams.length > 1;
 
   // Full catalog when provided; otherwise fall back to products seen in the orders.
   const uniqueProducts = useMemo(() => {
@@ -103,6 +113,10 @@ export function TeamOrdersClient({ orders, counts, products = [] }: TeamOrdersCl
       result = result.filter(o => o.agent?.state === stateFilter);
     }
 
+    if (teamFilter) {
+      result = result.filter(o => o.teamId === teamFilter);
+    }
+
     const q = searchQuery.trim().toLowerCase();
     if (q) {
       result = result.filter(
@@ -114,14 +128,15 @@ export function TeamOrdersClient({ orders, counts, products = [] }: TeamOrdersCl
       );
     }
     return result;
-  }, [orders, activeTab, dateValue, productFilter, stateFilter, searchQuery]);
+  }, [orders, activeTab, dateValue, productFilter, stateFilter, teamFilter, searchQuery]);
 
-  const hasActiveFilters = dateValue || productFilter || stateFilter;
+  const hasActiveFilters = dateValue || productFilter || stateFilter || teamFilter;
 
   function clearFilters() {
     setDateValue(undefined);
     setProductFilter("");
     setStateFilter("");
+    setTeamFilter("");
   }
 
   return (
@@ -200,6 +215,28 @@ export function TeamOrdersClient({ orders, counts, products = [] }: TeamOrdersCl
             </>
           )}
         </div>
+
+        {/* Team (company manager only) */}
+        {showTeamFilter && (
+          <div className="relative min-w-[120px]">
+            <select
+              value={teamFilter}
+              onChange={e => setTeamFilter(e.target.value)}
+              className="w-full appearance-none bg-gray-900 border border-gray-900 rounded-lg pl-4 pr-10 py-2 text-sm text-white font-medium outline-none hover:bg-gray-800 transition-colors cursor-pointer"
+            >
+              <option value="">Team</option>
+              {teams.map(t => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+            <ChevronLeft
+              className="-rotate-90 absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
+              size={14}
+            />
+          </div>
+        )}
 
         {/* Product */}
         <div className="relative min-w-[120px]">
@@ -292,7 +329,7 @@ export function TeamOrdersClient({ orders, counts, products = [] }: TeamOrdersCl
               return (
                 <div
                   key={order.id}
-                  onClick={() => router.push(`/sales-rep-manager/orders/${order.id}`)}
+                  onClick={() => router.push(`${base}/orders/${order.id}`)}
                   className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm active:bg-gray-50 transition-colors cursor-pointer"
                 >
                   <div className="flex items-center justify-between gap-2 mb-2">
@@ -316,9 +353,9 @@ export function TeamOrdersClient({ orders, counts, products = [] }: TeamOrdersCl
                     <div className="truncate flex items-center gap-1">
                       <span className="text-gray-400">Product:</span>{" "}
                       <span className="text-gray-700 font-medium truncate">{order.product}</span>
-                      {order.itemNames.length > 1 && (
+                      {order.extraCount > 0 && (
                         <span className="shrink-0 inline-flex items-center bg-purple-100 text-[#532194] text-[9px] font-bold px-1 py-0.5 rounded-full">
-                          +{order.itemNames.length - 1}
+                          +{order.extraCount}
                         </span>
                       )}
                     </div>
@@ -355,7 +392,7 @@ export function TeamOrdersClient({ orders, counts, products = [] }: TeamOrdersCl
                 return (
                   <tr
                     key={order.id}
-                    onClick={() => router.push(`/sales-rep-manager/orders/${order.id}`)}
+                    onClick={() => router.push(`${base}/orders/${order.id}`)}
                     className={`group hover:bg-gray-50/80 transition-colors border-b border-gray-100 last:border-0 cursor-pointer ${
                       idx % 2 === 0 ? "bg-white" : "bg-[#FAFAFA]"
                     }`}
@@ -398,12 +435,12 @@ export function TeamOrdersClient({ orders, counts, products = [] }: TeamOrdersCl
                     <td className="px-6 py-4 text-gray-500 font-medium">
                       <div className="flex items-center gap-1.5">
                         <span className="truncate max-w-[160px]">{order.product}</span>
-                        {order.itemNames.length > 1 && (
+                        {order.extraCount > 0 && (
                           <span
                             title={order.itemNames.join(", ")}
                             className="shrink-0 inline-flex items-center bg-purple-100 text-[#532194] text-[10px] font-bold px-1.5 py-0.5 rounded-full"
                           >
-                            +{order.itemNames.length - 1}
+                            +{order.extraCount}
                           </span>
                         )}
                       </div>

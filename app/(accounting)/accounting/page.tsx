@@ -1,5 +1,6 @@
 import { DashboardClient } from "./_components/DashboardClient";
 import { auth } from "@/lib/auth/auth";
+import { getAccountingAccess } from "@/lib/auth/accounting-access";
 import {
   getFinancialSummary,
   getSalesTrends,
@@ -18,17 +19,20 @@ export default async function AccountingDashboardPage() {
     to: new Date(now.getFullYear(), now.getMonth() + 1, 1),
   };
 
-  const [session, summary, salesTrends, salesByProduct, salesByState, inventory, settlementSummary] = await Promise.all([
-    auth(),
-    getFinancialSummary(),
-    getSalesTrends(),
-    getSalesByProduct(monthRange),
-    getSalesByState(monthRange),
-    getInventorySnapshot(),
-    // Agent Settlement is always all-time (outstanding balances don't split
-    // meaningfully by period), so it's not passed a date range.
-    getAgentSettlementSummary(),
-  ]);
+  const [session, access] = await Promise.all([auth(), getAccountingAccess()]);
+
+  // Only fetch gated data the viewer is allowed to see (defense-in-depth: the
+  // sections are also conditionally rendered in DashboardClient).
+  const [summary, salesTrends, salesByProduct, salesByState, inventory, settlementSummary] =
+    await Promise.all([
+      access.FINANCIAL_SUMMARY ? getFinancialSummary() : Promise.resolve(undefined),
+      access.SALES_ANALYTICS ? getSalesTrends() : Promise.resolve(undefined),
+      access.SALES_ANALYTICS ? getSalesByProduct(monthRange) : Promise.resolve(undefined),
+      access.SALES_ANALYTICS ? getSalesByState(monthRange) : Promise.resolve(undefined),
+      access.INVENTORY_SNAPSHOT ? getInventorySnapshot() : Promise.resolve(undefined),
+      // Agent Settlement is always all-time and always visible.
+      getAgentSettlementSummary(),
+    ]);
 
   return (
     <DashboardClient
@@ -39,6 +43,7 @@ export default async function AccountingDashboardPage() {
       inventory={inventory}
       settlementSummary={settlementSummary}
       userName={session?.user?.name ?? undefined}
+      access={access}
     />
   );
 }

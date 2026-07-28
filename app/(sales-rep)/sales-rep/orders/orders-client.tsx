@@ -4,6 +4,7 @@ import React, { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { createOrderAction } from '@/modules/orders/actions/orders.action';
+import { upsellExtraCount } from '@/lib/orders/upsell';
 import { format } from 'date-fns';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -20,21 +21,37 @@ import {
   ChevronDown,
   Trash2,
   Calendar as CalendarIcon,
+  CalendarClock,
 } from 'lucide-react';
 import type { OrderStatus } from '@prisma/client';
 import { formatCurrency } from '@/lib/utils';
+
+/** Green "Rescheduled" pill — shown for active orders whose delivery was pushed. */
+function RescheduledPill() {
+  return (
+    <span className="inline-flex items-center gap-1 bg-emerald-100 text-emerald-700 text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0">
+      <CalendarClock size={10} /> Rescheduled
+    </span>
+  );
+}
+
+/** True when an order should surface the Rescheduled tag (still awaiting delivery). */
+function showRescheduled(o: { isRescheduled: boolean; status: OrderStatus }) {
+  return o.isRescheduled && (o.status === 'PENDING' || o.status === 'CONFIRMED');
+}
 
 export type OrderListItem = {
   id: string;
   orderNumber: string;
   status: OrderStatus;
   isReorder: boolean;
+  isRescheduled: boolean;
   createdAt: string; // ISO string (serialized from server)
   updatedAt: string; // ISO string - used for status date
   customer: { name: string; email: string | null };
   agent: { companyName: string; state: string | null } | null;
-  items: Array<{ quantity: number; product: { name: string } }>;
-  deliveryFee: number;
+  items: Array<{ quantity: number; upsellQuantity: number; isUpsell: boolean; product: { name: string } }>;
+     deliveryFee: number;
 };
 
 export type OrderCounts = {
@@ -163,9 +180,12 @@ export function OrdersClient({ orders, counts, userName, products }: OrdersClien
     setFormProducts(formProducts.filter((_, i) => i !== index));
   };
 
-  const updateProductRow = (index: number, field: 'productId' | 'quantity', value: any) => {
+  const updateProductRow = (index: number, field: 'productId' | 'quantity', value: string | number) => {
     const updated = [...formProducts];
-    updated[index] = { ...updated[index], [field]: value };
+    updated[index] =
+      field === 'quantity'
+        ? { ...updated[index], quantity: Number(value) }
+        : { ...updated[index], productId: String(value) };
     setFormProducts(updated);
   };
 
@@ -212,12 +232,15 @@ export function OrdersClient({ orders, counts, userName, products }: OrdersClien
       orderNumber: result.orderNumber,
       status: 'PENDING',
       isReorder,
+      isRescheduled: false,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       customer: { name: customerName.trim(), email: email.trim() || null },
       agent: null,
       items: formProducts.map((fp) => ({
         quantity: fp.quantity,
+        upsellQuantity: 0,
+        isUpsell: false,
         product: { name: products.find((p) => p.id === fp.productId)?.name ?? fp.productId },
       })),
       deliveryFee: 0,
@@ -409,14 +432,17 @@ export function OrdersClient({ orders, counts, userName, products }: OrdersClien
                           </span>
                         )}
                       </div>
-                      <span className={`${style.bg} ${style.text} text-[10px] font-bold px-2.5 py-1 rounded-full shrink-0`}>
-                        {style.label}
-                      </span>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {showRescheduled(order) && <RescheduledPill />}
+                        <span className={`${style.bg} ${style.text} text-[10px] font-bold px-2.5 py-1 rounded-full shrink-0`}>
+                          {style.label}
+                        </span>
+                      </div>
                     </div>
                     <div className="grid grid-cols-2 gap-y-1.5 text-xs text-gray-500 mt-1">
                       <div className="truncate"><span className="text-gray-400">Email:</span> {order.customer.email ?? '—'}</div>
                       <div className="text-right"><span className="text-gray-400">Date:</span> {dateLabel}</div>
-                      <div className="truncate flex items-center gap-1"><span className="text-gray-400">Product:</span> <span className="text-gray-700 font-medium truncate">{firstItem?.product.name ?? '—'}</span>{order.items.length > 1 && (<span className="shrink-0 inline-flex items-center bg-purple-100 text-[#532194] text-[9px] font-bold px-1 py-0.5 rounded-full">+{order.items.length - 1}</span>)}</div>
+                      <div className="truncate flex items-center gap-1"><span className="text-gray-400">Product:</span> <span className="text-gray-700 font-medium truncate">{firstItem?.product.name ?? '—'}</span>{upsellExtraCount(order.items) > 0 && (<span className="shrink-0 inline-flex items-center bg-purple-100 text-[#532194] text-[9px] font-bold px-1 py-0.5 rounded-full">+{upsellExtraCount(order.items)}</span>)}</div>
                       <div className="text-right"><span className="text-gray-400">Qty:</span> <span className="text-gray-700 font-medium">{totalQty}</span></div>
                       <div className="truncate"><span className="text-gray-400">Delivery Fee:</span> {formatCurrency(order.deliveryFee)}</div>
                       {order.agent && (
@@ -495,12 +521,12 @@ export function OrdersClient({ orders, counts, userName, products }: OrdersClien
                             <span className="text-xs sm:text-sm font-medium text-gray-700 truncate max-w-[140px]">
                               {firstItem?.product.name ?? '—'}
                             </span>
-                            {order.items.length > 1 && (
+                            {upsellExtraCount(order.items) > 0 && (
                               <span
                                 title={order.items.map((i) => i.product.name).join(', ')}
                                 className="shrink-0 inline-flex items-center bg-purple-100 text-[#532194] text-[10px] font-bold px-1.5 py-0.5 rounded-full"
                               >
-                                +{order.items.length - 1}
+                                +{upsellExtraCount(order.items)}
                               </span>
                             )}
                           </div>
@@ -519,6 +545,7 @@ export function OrdersClient({ orders, counts, userName, products }: OrdersClien
                             <span className="text-xs sm:text-sm text-gray-500">---</span>
                           ) : (
                             <div className="flex flex-col gap-1 items-start">
+                              {showRescheduled(order) && <RescheduledPill />}
                               <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold tracking-wider uppercase ${style.bg} ${style.text}`}>
                                 {style.label}
                               </span>

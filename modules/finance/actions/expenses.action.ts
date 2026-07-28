@@ -4,6 +4,8 @@ import { auth } from "@/lib/auth/auth";
 import { prisma } from "@/lib/db/prisma";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { logActivity } from "@/modules/audit/services/audit-log.service";
+import { suppressCameraForRequest } from "@/lib/audit/context";
 
 const lineItemSchema = z.object({
   product: z.string().optional(),
@@ -36,6 +38,7 @@ async function nextExpenseRef() {
 
 export async function createExpenseAction(input: z.infer<typeof createExpenseSchema>) {
   const session = await auth();
+  suppressCameraForRequest();
   if (!session?.user?.id) return { error: "Unauthorized" };
   const parsed = createExpenseSchema.safeParse(input);
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
@@ -71,6 +74,14 @@ export async function createExpenseAction(input: z.infer<typeof createExpenseSch
         },
       },
     },
+  });
+
+  await logActivity({
+    userId: session.user.id,
+    action: "Created",
+    entityType: "Expense",
+    entityId: expense.id,
+    description: `Expense ${referenceNumber} recorded`,
   });
 
   revalidatePath("/accounting/expenses");
@@ -118,6 +129,7 @@ export async function createExpenseCategoryAction(
   accounts?: AccountInput[]
 ) {
   const session = await auth();
+  suppressCameraForRequest();
   if (!session?.user?.id) return { error: "Unauthorized" };
   const trimmed = name.trim();
   if (!trimmed) return { error: "Name required" };
@@ -152,6 +164,11 @@ export async function createExpenseCategoryAction(
       return { cat, createdNames };
     });
 
+    await logActivity({
+      userId: session.user.id, action: "Created", entityType: "ExpenseCategory",
+      entityId: result.cat.id, description: `Created expense category ${result.cat.name}`,
+    });
+
     revalidatePath("/accounting/expenses");
     revalidatePath("/accounting/accounting-ledger");
     return {
@@ -168,6 +185,7 @@ export async function createExpenseCategoryAction(
 
 export async function addExpenseNamesToCategoryAction(categoryId: string, accounts: AccountInput[]) {
   const session = await auth();
+  suppressCameraForRequest();
   if (!session?.user?.id) return { error: "Unauthorized" };
 
   const valid = accounts.filter(a => a.name.trim());
@@ -206,11 +224,16 @@ export async function addExpenseNamesToCategoryAction(categoryId: string, accoun
 
 export async function createPaymentAccountAction(name: string, type: string = "BANK", logoUrl?: string) {
   const session = await auth();
+  suppressCameraForRequest();
   if (!session?.user?.id) return { error: "Unauthorized" };
   if (!name.trim()) return { error: "Name required" };
 
   const acc = await prisma.paymentAccount.create({
     data: { name: name.trim(), type, isActive: true, ...(logoUrl ? { logoUrl } : {}) },
+  });
+  await logActivity({
+    userId: session.user.id, action: "Created", entityType: "PaymentAccount",
+    entityId: acc.id, description: `Created payment account ${acc.name}`,
   });
   revalidatePath("/accounting/expenses");
   return { id: acc.id, name: acc.name, logoUrl: acc.logoUrl ?? undefined };
@@ -218,6 +241,7 @@ export async function createPaymentAccountAction(name: string, type: string = "B
 
 export async function updatePaymentAccountAction(id: string, name: string, logoUrl?: string) {
   const session = await auth();
+  suppressCameraForRequest();
   if (!session?.user?.id) return { error: "Unauthorized" };
   if (!id) return { error: "Account id required" };
   if (!name.trim()) return { error: "Name required" };
@@ -226,6 +250,10 @@ export async function updatePaymentAccountAction(id: string, name: string, logoU
     const acc = await prisma.paymentAccount.update({
       where: { id },
       data: { name: name.trim(), ...(logoUrl ? { logoUrl } : {}) },
+    });
+    await logActivity({
+      userId: session.user.id, action: "Updated", entityType: "PaymentAccount",
+      entityId: acc.id, description: `Updated payment account ${acc.name}`,
     });
     revalidatePath("/accounting/expenses");
     return { id: acc.id, name: acc.name, logoUrl: acc.logoUrl ?? undefined };
@@ -236,11 +264,17 @@ export async function updatePaymentAccountAction(id: string, name: string, logoU
 
 export async function deletePaymentAccountAction(id: string) {
   const session = await auth();
+  suppressCameraForRequest();
   if (!session?.user?.id) return { error: "Unauthorized" };
   if (!id) return { error: "Account id required" };
 
   try {
+    const existing = await prisma.paymentAccount.findUnique({ where: { id }, select: { name: true } });
     await prisma.paymentAccount.delete({ where: { id } });
+    await logActivity({
+      userId: session.user.id, action: "Deleted", entityType: "PaymentAccount",
+      entityId: id, description: `Deleted payment account ${existing?.name ?? ""}`.trim(),
+    });
     revalidatePath("/accounting/expenses");
     return { id };
   } catch (e: unknown) {

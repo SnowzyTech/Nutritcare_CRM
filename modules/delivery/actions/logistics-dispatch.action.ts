@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db/prisma";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { logActivity } from "@/modules/audit/services/audit-log.service";
+import { suppressCameraForRequest } from "@/lib/audit/context";
 
 const dispatchSchema = z.object({
   itemId: z.string().min(1, "Item is required"),
@@ -19,6 +20,7 @@ export async function dispatchOrderAction(
 ): Promise<{ success: true } | { success: false; error: string }> {
   const session = await auth();
   if (!session?.user?.id) return { success: false, error: "Unauthorized" };
+  suppressCameraForRequest();
 
   const parsed = dispatchSchema.safeParse({
     itemId,
@@ -27,6 +29,8 @@ export async function dispatchOrderAction(
   });
   if (!parsed.success)
     return { success: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
+
+  let dispatched = "";
 
   if (sourceType === "order") {
     const order = await prisma.order.findUnique({
@@ -37,6 +41,7 @@ export async function dispatchOrderAction(
     if (!order) return { success: false, error: "Order not found" };
     if (order.status !== "CONFIRMED")
       return { success: false, error: "Only CONFIRMED orders can be dispatched" };
+    dispatched = `order #${order.orderNumber}`;
 
     const existing = await prisma.delivery.findFirst({
       where: { orderId: itemId, status: "PENDING_DISPATCH" },
@@ -81,6 +86,7 @@ export async function dispatchOrderAction(
       return { success: false, error: "Only outgoing movements can be dispatched" };
     if (movement.status !== "RECORDED")
       return { success: false, error: "Movement is not in a dispatchable state" };
+    dispatched = `stock-out ${movement.referenceNumber}`;
 
     const alreadyQueued = await prisma.pickPack.findFirst({
       where: { stockMovementId: itemId },
@@ -124,6 +130,7 @@ export async function dispatchOrderAction(
     if (!transfer) return { success: false, error: "Stock transfer not found" };
     if (transfer.status !== "SUBMITTED")
       return { success: false, error: "Transfer is not in a dispatchable state" };
+    dispatched = `stock transfer ${transfer.referenceNumber}`;
 
     const alreadyQueued = await prisma.pickPack.findFirst({
       where: { stockTransferId: itemId },
@@ -158,6 +165,14 @@ export async function dispatchOrderAction(
       description: `Dispatched stock transfer ${transfer.referenceNumber}`,
     });
   }
+
+  await logActivity({
+    userId: session.user.id,
+    action: "Dispatched",
+    entityType: sourceType === "order" ? "Order" : sourceType === "stockOut" ? "StockMovement" : "StockTransfer",
+    entityId: itemId,
+    description: `Dispatched ${dispatched} for delivery`,
+  });
 
   revalidatePath("/logistics/deliveries");
   revalidatePath("/logistics/orders");

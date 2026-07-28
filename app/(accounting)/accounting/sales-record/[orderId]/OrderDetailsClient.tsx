@@ -53,12 +53,23 @@ export default function OrderDetailsClient({ order }: OrderDetailsClientProps) {
   const productList =
     order.items.length > 0 ? (
       <div className="flex flex-col items-end gap-1">
-        {order.items.map((it, i) => (
-          <span key={i}>
-            {it.description}
-            <span className="text-gray-400 font-medium"> × {it.quantity}</span>
-          </span>
-        ))}
+        {order.items.map((it, i) => {
+          const originalQty =
+            it.upsellQuantity > 0 ? it.quantity - it.upsellQuantity : it.quantity;
+          return (
+            <span key={i} className="flex flex-col items-end">
+              <span>
+                {it.description}
+                <span className="text-gray-400 font-medium"> × {originalQty}</span>
+              </span>
+              {it.upsellQuantity > 0 && (
+                <span className="text-[11px] font-semibold text-purple-600">
+                  incl. {it.upsellQuantity} upsold · {formatCurrency(it.upsellAmount)}
+                </span>
+              )}
+            </span>
+          );
+        })}
       </div>
     ) : (
       '—'

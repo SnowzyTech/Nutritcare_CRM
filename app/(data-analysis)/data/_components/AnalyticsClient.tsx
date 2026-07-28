@@ -267,8 +267,9 @@ export function AnalyticsClient({ teamsData = [], companyData }: AnalyticsClient
               // Threshold scales with BOTH the period (180/wk vs 720/mo) and the
               // number of reps in the current selection (team, or all reps for
               // "All Teams"), matching the sales-rep portal and manager views.
-              const bonus = calculateBonus(kpiValue, activeMetrics?.kpi.totalOrders ?? 0, selectedPeriod, salesRepCount);
-              const periodLabel = selectedPeriod === 'week' ? 'week' : 'month';
+              const bonusPeriod = selectedPeriod === 'week' ? 'week' : 'month';
+              const bonus = calculateBonus(kpiValue, activeMetrics?.kpi.totalOrders ?? 0, bonusPeriod, salesRepCount);
+              const periodLabel = bonusPeriod;
 
               return (
                 <>

@@ -14,10 +14,14 @@ export default async function SalesRepManagerLayout({
   const session = await auth();
   const user = session?.user;
 
+  // This dashboard is for team-leads only — a SALES_REP with isTeamLead=true who
+  // oversees their own team. The company-wide manager (SALES_REP_MANAGER) has a
+  // dedicated dashboard at /sales-manager.
   const userRecord = user?.id ? await getSalesRepById(user.id) : null;
   if (!userRecord?.isTeamLead) {
     redirect(getRoleHome(user?.role));
   }
+  const isCompanyManager = false;
 
   return (
     <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
@@ -30,13 +34,16 @@ export default async function SalesRepManagerLayout({
         <header className="absolute top-0 right-0 left-0 h-16 md:h-20 px-4 md:px-8 flex justify-between items-center z-10 pointer-events-none">
           <div></div>
           <div className="flex items-center gap-3 md:gap-4 pointer-events-auto">
-            <Link
-              href="/sales-rep"
-              className="bg-gray-900 text-white px-3 md:px-4 py-2 rounded-xl text-xs md:text-sm font-semibold hover:bg-gray-800 transition flex items-center gap-2"
-            >
-              ← <span className="hidden sm:inline">Sales Rep Mode</span>
-              <span className="sm:hidden">Rep Mode</span>
-            </Link>
+            {/* Company managers are pure oversight — no rep mode to switch to. */}
+            {!isCompanyManager && (
+              <Link
+                href="/sales-rep"
+                className="bg-gray-900 text-white px-3 md:px-4 py-2 rounded-xl text-xs md:text-sm font-semibold hover:bg-gray-800 transition flex items-center gap-2"
+              >
+                ← <span className="hidden sm:inline">Sales Rep Mode</span>
+                <span className="sm:hidden">Rep Mode</span>
+              </Link>
+            )}
             <Link
               href="/chat"
               className="w-9 h-9 md:w-10 md:h-10 bg-purple-100 text-[#A020F0] rounded-full flex items-center justify-center hover:bg-purple-200 transition"

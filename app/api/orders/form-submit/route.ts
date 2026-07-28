@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
-import { generateOrderNumber } from "@/lib/utils";
+import { nextOrderNumber } from "@/modules/orders/services/order-number.service";
 
 // ── CORS headers — allow any origin so iframes on external sites work ──────
 const CORS_HEADERS = {
@@ -132,17 +132,15 @@ export async function POST(req: NextRequest) {
       (countMap.get(rep.id) ?? 0) < (countMap.get(least.id) ?? 0) ? rep : least
     );
 
-    // ── 3. Generate Order Number ────────────────────────────────────────────
-    // Short time-based `ORD-` code; the `orderNumber` unique constraint guards duplicates.
-    const orderNumber = generateOrderNumber();
-
-    // ── 4. Validate product(s) exist ───────────────────────────────────────
+    // ── 3. Validate product(s) exist ───────────────────────────────────────
+    // The order code prefix comes from the main product; the number itself is
+    // assigned atomically inside the create transaction (see below).
     const productIdsToFetch = [productId];
     if (orderBumpProductId) productIdsToFetch.push(orderBumpProductId);
 
     const products = await prisma.product.findMany({
       where: { id: { in: productIdsToFetch }, deletedAt: null },
-      select: { id: true, sellingPrice: true, costPrice: true },
+      select: { id: true, name: true, sellingPrice: true, costPrice: true },
     });
     const productMap = new Map(products.map((p) => [p.id, p]));
 
@@ -199,6 +197,7 @@ export async function POST(req: NextRequest) {
 
     // ── 6. Create Order in a transaction ───────────────────────────────────
     const order = await prisma.$transaction(async (tx) => {
+      const orderNumber = await nextOrderNumber(tx, productMap.get(productId)?.name);
       const newOrder = await tx.order.create({
         data: {
           orderNumber,

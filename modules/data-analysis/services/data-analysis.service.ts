@@ -954,7 +954,54 @@ export async function getSalesRepAnalyticsForUI(
   return toRepAnalyticsData(current, last);
 }
 
-export type Period = "week" | "month";
+export type Period = "day" | "week" | "month";
+
+/**
+ * Resolves a Period (+ optional month/year for month mode) into the current
+ * window and the prior window's start (used for trend deltas). Shared by
+ * getTeamsAnalytics and getCompanyAnalytics so they stay in lockstep.
+ *  • day   → today vs yesterday
+ *  • week  → last 7 days vs the prior 7
+ *  • month → calendar month vs the prior month
+ */
+function resolvePeriodWindow(
+  period: Period,
+  month?: number,
+  year?: number,
+): { currentStart: Date; currentEnd: Date; lastStart: Date } {
+  const now = new Date();
+
+  if (period === "day") {
+    const currentStart = new Date(now);
+    currentStart.setHours(0, 0, 0, 0);
+    const currentEnd = new Date(currentStart);
+    currentEnd.setDate(currentStart.getDate() + 1);
+    const lastStart = new Date(currentStart);
+    lastStart.setDate(currentStart.getDate() - 1);
+    return { currentStart, currentEnd, lastStart };
+  }
+
+  if (period === "week") {
+    const currentStart = new Date(now);
+    currentStart.setDate(now.getDate() - 6);
+    currentStart.setHours(0, 0, 0, 0);
+    const currentEnd = new Date(now);
+    currentEnd.setDate(now.getDate() + 1);
+    currentEnd.setHours(0, 0, 0, 0);
+    const lastStart = new Date(now);
+    lastStart.setDate(now.getDate() - 13);
+    lastStart.setHours(0, 0, 0, 0);
+    return { currentStart, currentEnd, lastStart };
+  }
+
+  const m = month ?? now.getMonth();
+  const y = year ?? now.getFullYear();
+  return {
+    currentStart: new Date(y, m, 1),
+    currentEnd: new Date(y, m + 1, 1),
+    lastStart: new Date(y, m - 1, 1),
+  };
+}
 
 export async function getTeamsAnalytics(options?: {
   month?: number;
@@ -971,33 +1018,11 @@ export async function getTeamsAnalytics(options?: {
     orderBy: { name: "asc" },
   });
 
-  const now = new Date();
-  const period = options?.period ?? "month";
-
-  let currentStart: Date;
-  let currentEnd: Date;
-  let lastStart: Date;
-
-  if (period === "week") {
-    // Current week: last 7 days
-    currentStart = new Date(now);
-    currentStart.setDate(now.getDate() - 6);
-    currentStart.setHours(0, 0, 0, 0);
-    currentEnd = new Date(now);
-    currentEnd.setDate(now.getDate() + 1);
-    currentEnd.setHours(0, 0, 0, 0);
-    // Last week: 7 days before current week
-    lastStart = new Date(now);
-    lastStart.setDate(now.getDate() - 13);
-    lastStart.setHours(0, 0, 0, 0);
-  } else {
-    // Month mode
-    const month = options?.month ?? now.getMonth();
-    const year = options?.year ?? now.getFullYear();
-    currentStart = new Date(year, month, 1);
-    currentEnd = new Date(year, month + 1, 1);
-    lastStart = new Date(year, month - 1, 1);
-  }
+  const { currentStart, currentEnd, lastStart } = resolvePeriodWindow(
+    options?.period ?? "month",
+    options?.month,
+    options?.year,
+  );
 
   const results: TeamAnalyticsEntry[] = [];
 
@@ -1035,33 +1060,11 @@ export async function getCompanyAnalytics(options?: {
   year?: number;
   period?: Period;
 }): Promise<RepAnalyticsData> {
-  const now = new Date();
-  const period = options?.period ?? "month";
-
-  let currentStart: Date;
-  let currentEnd: Date;
-  let lastStart: Date;
-
-  if (period === "week") {
-    // Current week: last 7 days
-    currentStart = new Date(now);
-    currentStart.setDate(now.getDate() - 6);
-    currentStart.setHours(0, 0, 0, 0);
-    currentEnd = new Date(now);
-    currentEnd.setDate(now.getDate() + 1);
-    currentEnd.setHours(0, 0, 0, 0);
-    // Last week: 7 days before current week
-    lastStart = new Date(now);
-    lastStart.setDate(now.getDate() - 13);
-    lastStart.setHours(0, 0, 0, 0);
-  } else {
-    // Month mode
-    const month = options?.month ?? now.getMonth();
-    const year = options?.year ?? now.getFullYear();
-    currentStart = new Date(year, month, 1);
-    currentEnd = new Date(year, month + 1, 1);
-    lastStart = new Date(year, month - 1, 1);
-  }
+  const { currentStart, currentEnd, lastStart } = resolvePeriodWindow(
+    options?.period ?? "month",
+    options?.month,
+    options?.year,
+  );
 
   // Count all sales reps in the company
   const salesRepCount = await prisma.user.count({
