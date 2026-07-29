@@ -25,7 +25,7 @@ type Props = {
   role?: string;
   warehouses?: WarehouseOption[];
   currentWarehouseId?: string | null;
-  isTeamLead?: boolean;
+  isTeamLead?: boolean | null;
   accountingPermissions?: string[];
 };
 
