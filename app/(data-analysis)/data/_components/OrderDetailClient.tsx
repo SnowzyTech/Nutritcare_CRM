@@ -12,11 +12,23 @@ import {
   deleteOrderPermanently,
   markOrderDeliveredByAnalyst,
   markOrderFailedByAnalyst,
+  reassignOrderAgentByAnalyst,
 } from '@/modules/data-analysis/actions/data-analysis.action';
 import { toast } from 'sonner';
 
+type AgentReassignOption = {
+  id: string;
+  companyName: string;
+  state: string | null;
+  phone: string;
+  activeOrders: number;
+  totalDeliveries: number;
+};
+
 interface OrderDetailClientProps {
   order: OrderDetailFull;
+  canReassign: boolean;
+  agents: AgentReassignOption[];
 }
 
 const FAIL_REASONS = [
@@ -34,7 +46,7 @@ const BADGE_STYLES: Record<string, string> = {
   Failed: 'bg-[#DC3545] text-white',
 };
 
-export function OrderDetailClient({ order }: OrderDetailClientProps) {
+export function OrderDetailClient({ order, canReassign, agents }: OrderDetailClientProps) {
   const router = useRouter();
   const [isAgentModalOpen, setIsAgentModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
@@ -45,6 +57,28 @@ export function OrderDetailClient({ order }: OrderDetailClientProps) {
   const [failReason, setFailReason] = useState(''); // a preset reason, or ''
   const [customFailReason, setCustomFailReason] = useState('');
   const [isFailing, setIsFailing] = useState(false);
+  const [isReassignOpen, setIsReassignOpen] = useState(false);
+  const [selectedAgentId, setSelectedAgentId] = useState('');
+  const [isReassigning, setIsReassigning] = useState(false);
+
+  // Only the team-lead analyst may reassign, and only while the order is still
+  // CONFIRMED or FAILED.
+  const showReassign =
+    canReassign && (order.status === 'Confirmed' || order.status === 'Failed');
+
+  const handleReassign = async () => {
+    if (!selectedAgentId) return;
+    setIsReassigning(true);
+    const result = await reassignOrderAgentByAnalyst(order.id, selectedAgentId);
+    setIsReassigning(false);
+    if (result.success) {
+      toast.success('Agent reassigned');
+      setIsReassignOpen(false);
+      router.refresh();
+    } else {
+      toast.error(result.error || 'Failed to reassign agent');
+    }
+  };
 
   const handleMarkDelivered = async () => {
     setIsDelivering(true);
@@ -316,6 +350,15 @@ export function OrderDetailClient({ order }: OrderDetailClientProps) {
                   View Agent Info
                 </button>
               )}
+
+              {showReassign && (
+                <button
+                  onClick={() => { setSelectedAgentId(''); setIsReassignOpen(true); }}
+                  className="w-full py-4 bg-purple-100 border border-purple-200 text-purple-600 rounded-2xl text-xs font-black transition-all hover:bg-purple-50 uppercase tracking-widest"
+                >
+                  {order.agent ? 'Reassign Agent' : 'Assign Agent'}
+                </button>
+              )}
             </div>
 
             <div className="space-y-4 pt-6 border-t border-gray-100">
@@ -398,6 +441,70 @@ export function OrderDetailClient({ order }: OrderDetailClientProps) {
           isOpen={isAgentModalOpen}
           onClose={() => setIsAgentModalOpen(false)}
         />
+      )}
+
+      {/* Reassign Agent Modal */}
+      {isReassignOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            onClick={() => !isReassigning && setIsReassignOpen(false)}
+          />
+          <div className="relative bg-white rounded-[40px] shadow-2xl w-full max-w-[500px] p-10 animate-in fade-in zoom-in duration-300">
+            <div className="flex items-center justify-between mb-8">
+              <h2 className="text-2xl font-black text-slate-800">Reassign Agent</h2>
+              <button
+                onClick={() => !isReassigning && setIsReassignOpen(false)}
+                className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-200 transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <p className="text-sm text-gray-500 mb-6">
+              Select a new delivery agent for this order.
+              {order.status === 'Failed' && (
+                <span className="block mt-1 text-purple-600 font-medium">
+                  The order status will be reset to Confirmed.
+                </span>
+              )}
+            </p>
+
+            <div className="flex flex-col gap-3 max-h-[320px] overflow-y-auto pr-1 mb-8">
+              {agents.length === 0 && (
+                <p className="text-sm text-gray-400 text-center py-6">No active agents available.</p>
+              )}
+              {agents.map((agent) => (
+                <button
+                  key={agent.id}
+                  onClick={() => setSelectedAgentId(agent.id)}
+                  className={`flex items-center justify-between p-4 rounded-2xl border-2 text-left transition-all ${
+                    selectedAgentId === agent.id
+                      ? 'border-purple-600 bg-purple-50'
+                      : 'border-slate-100 bg-slate-50 hover:border-purple-200'
+                  }`}
+                >
+                  <div>
+                    <p className="font-bold text-slate-800 text-sm">{agent.companyName}</p>
+                    <p className="text-xs text-slate-400 mt-0.5">{agent.state ?? '—'} · {agent.phone}</p>
+                  </div>
+                  <div className="text-right shrink-0 ml-4">
+                    <p className="text-xs text-slate-500">{agent.activeOrders} active orders</p>
+                    <p className="text-xs text-slate-400">{agent.totalDeliveries} deliveries</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            <button
+              disabled={isReassigning || !selectedAgentId}
+              onClick={handleReassign}
+              className="w-full bg-purple-600 text-white py-4 rounded-2xl text-[1rem] font-black hover:bg-purple-700 transition-all shadow-lg shadow-purple-100 flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              {isReassigning ? 'Reassigning…' : 'Confirm Reassignment →'}
+            </button>
+          </div>
+        </div>
       )}
 
       {/* Mark as Failed Modal */}

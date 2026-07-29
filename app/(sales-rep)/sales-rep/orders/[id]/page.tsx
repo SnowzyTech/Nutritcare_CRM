@@ -2,7 +2,6 @@ import { auth } from "@/lib/auth/auth";
 import { notFound, redirect } from "next/navigation";
 import { getOrderWithDetails } from "@/modules/orders/services/orders.service";
 import { getActiveProducts } from "@/modules/orders/services/products.service";
-import { getAgentsForReassignment } from "@/modules/delivery/services/agents.service";
 import { OrderDetailClient } from "./order-detail-client";
 import { isAdmin } from "@/lib/auth/role-routes";
 import type { Metadata } from "next";
@@ -22,10 +21,9 @@ export default async function OrderDetailPage({ params }: Props) {
   const session = await auth();
   if (!session?.user?.id) redirect("/login");
 
-  const [rawOrder, rawProducts, rawAgents] = await Promise.all([
+  const [rawOrder, rawProducts] = await Promise.all([
     getOrderWithDetails(id),
     getActiveProducts(),
-    getAgentsForReassignment(),
   ]);
 
   if (!rawOrder) notFound();
@@ -111,14 +109,5 @@ export default async function OrderDetailPage({ params }: Props) {
     sku: p.sku,
   }));
 
-  const agents = rawAgents.map((a) => ({
-    id: a.id,
-    companyName: a.companyName,
-    state: a.state ?? null,
-    phone: a.phone1,
-    activeOrders: a._count.orders,
-    totalDeliveries: a._count.deliveries,
-  }));
-
-  return <OrderDetailClient order={order} products={products} agents={agents} />;
+  return <OrderDetailClient order={order} products={products} />;
 }

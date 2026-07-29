@@ -9,12 +9,23 @@ import { useBasePath, useCanManage } from "../../../_lib/base-path";
 import {
   markOrderDeliveredByManager,
   markOrderFailedByManager,
+  reassignOrderAgentByManager,
 } from "@/modules/orders/actions/sales-manager-orders.action";
+
+type AgentReassignOption = {
+  id: string;
+  companyName: string;
+  state: string | null;
+  phone: string;
+  activeOrders: number;
+  totalDeliveries: number;
+};
 
 interface OrderDetailClientProps {
   repId: string;
   repName: string;
   order: OrderDetail;
+  agents: AgentReassignOption[];
 }
 
 // Each step is coloured by the stage it represents: pending stays orange,
@@ -125,7 +136,7 @@ const FAIL_REASONS = [
   "Could not reach customer",
 ];
 
-export function OrderDetailClient({ repName, order }: OrderDetailClientProps) {
+export function OrderDetailClient({ repName, order, agents }: OrderDetailClientProps) {
   const router = useRouter();
   const base = useBasePath();
   const canManage = useCanManage();
@@ -136,11 +147,20 @@ export function OrderDetailClient({ repName, order }: OrderDetailClientProps) {
   // order delivered or failed — the same authority the data analyst has. A
   // super-admin viewing the dashboard is read-only (canManage=false).
   const canMark = base === "/sales-manager" && canManage && order.status === "CONFIRMED";
+  // Reassigning the delivery agent is allowed for CONFIRMED or FAILED orders.
+  const canReassign =
+    base === "/sales-manager" &&
+    canManage &&
+    (order.status === "CONFIRMED" || order.status === "FAILED");
   const [busy, setBusy] = useState<null | "delivered" | "failed">(null);
   const [error, setError] = useState<string | null>(null);
   const [showFailModal, setShowFailModal] = useState(false);
   const [failReason, setFailReason] = useState(""); // a preset reason, or ""
   const [customFailReason, setCustomFailReason] = useState("");
+  const [isReassignOpen, setIsReassignOpen] = useState(false);
+  const [selectedAgentId, setSelectedAgentId] = useState("");
+  const [reassignBusy, setReassignBusy] = useState(false);
+  const [reassignError, setReassignError] = useState<string | null>(null);
 
   async function handleDelivered() {
     setBusy("delivered");
@@ -169,6 +189,20 @@ export function OrderDetailClient({ repName, order }: OrderDetailClientProps) {
       router.refresh();
     } else {
       setError(res.error ?? "Failed to mark as failed");
+    }
+  }
+
+  async function handleReassign() {
+    if (!selectedAgentId) return;
+    setReassignBusy(true);
+    setReassignError(null);
+    const res = await reassignOrderAgentByManager(order.orderId, selectedAgentId);
+    setReassignBusy(false);
+    if (res.success) {
+      setIsReassignOpen(false);
+      router.refresh();
+    } else {
+      setReassignError(res.error ?? "Failed to reassign agent");
     }
   }
 
@@ -380,7 +414,26 @@ export function OrderDetailClient({ repName, order }: OrderDetailClientProps) {
                   </div>
                 </div>
               </div>
+              {canReassign && (
+                <button
+                  onClick={() => { setSelectedAgentId(""); setReassignError(null); setIsReassignOpen(true); }}
+                  type="button"
+                  className="w-full bg-purple-100 border border-purple-200 px-4 py-2 rounded-lg text-purple-600 font-semibold text-sm hover:bg-purple-50 transition"
+                >
+                  Reassign Agent
+                </button>
+              )}
             </div>
+          )}
+
+          {canReassign && order.status === "FAILED" && !order.agent && (
+            <button
+              onClick={() => { setSelectedAgentId(""); setReassignError(null); setIsReassignOpen(true); }}
+              type="button"
+              className="w-full bg-purple-100 border border-purple-200 px-4 py-2 rounded-lg text-purple-600 font-semibold text-sm hover:bg-purple-50 transition"
+            >
+              Assign Agent
+            </button>
           )}
 
           {order.status === "DELIVERED" && order.deliveredDate && (
@@ -511,6 +564,74 @@ export function OrderDetailClient({ repName, order }: OrderDetailClientProps) {
               className="w-full bg-rose-600 text-white py-3.5 rounded-2xl text-sm font-black hover:bg-rose-700 transition shadow-lg shadow-rose-100 disabled:opacity-50"
             >
               {busy === "failed" ? "Marking…" : "Confirm Failure"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Reassign Agent modal */}
+      {isReassignOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            onClick={() => !reassignBusy && setIsReassignOpen(false)}
+          />
+          <div className="relative bg-white rounded-[40px] shadow-2xl w-full max-w-[500px] p-10">
+            <div className="flex items-center justify-between mb-8">
+              <h2 className="text-2xl font-black text-slate-800">Reassign Agent</h2>
+              <button
+                onClick={() => !reassignBusy && setIsReassignOpen(false)}
+                className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-200 transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <p className="text-sm text-gray-500 mb-6">
+              Select a new delivery agent for this order.
+              {order.status === "FAILED" && (
+                <span className="block mt-1 text-purple-600 font-medium">
+                  The order status will be reset to Confirmed.
+                </span>
+              )}
+            </p>
+
+            <div className="flex flex-col gap-3 max-h-[320px] overflow-y-auto pr-1 mb-8">
+              {agents.length === 0 && (
+                <p className="text-sm text-gray-400 text-center py-6">No active agents available.</p>
+              )}
+              {agents.map((agent) => (
+                <button
+                  key={agent.id}
+                  onClick={() => setSelectedAgentId(agent.id)}
+                  className={`flex items-center justify-between p-4 rounded-2xl border-2 text-left transition-all ${
+                    selectedAgentId === agent.id
+                      ? "border-purple-600 bg-purple-50"
+                      : "border-slate-100 bg-slate-50 hover:border-purple-200"
+                  }`}
+                >
+                  <div>
+                    <p className="font-bold text-slate-800 text-sm">{agent.companyName}</p>
+                    <p className="text-xs text-slate-400 mt-0.5">{agent.state ?? "—"} · {agent.phone}</p>
+                  </div>
+                  <div className="text-right shrink-0 ml-4">
+                    <p className="text-xs text-slate-500">{agent.activeOrders} active orders</p>
+                    <p className="text-xs text-slate-400">{agent.totalDeliveries} deliveries</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            {reassignError && (
+              <p className="text-sm font-semibold text-red-600 mb-4">{reassignError}</p>
+            )}
+
+            <button
+              disabled={reassignBusy || !selectedAgentId}
+              onClick={handleReassign}
+              className="w-full bg-purple-600 text-white py-4 rounded-2xl text-[1rem] font-black hover:bg-purple-700 transition-all shadow-lg shadow-purple-100 flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              {reassignBusy ? "Reassigning…" : "Confirm Reassignment →"}
             </button>
           </div>
         </div>

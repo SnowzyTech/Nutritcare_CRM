@@ -14,6 +14,7 @@ import {
   hardDeleteOrder,
 } from "@/modules/data-analysis/services/data-analysis.service";
 import { isUserTeamLead } from "@/modules/users/services/users.service";
+import { reassignAgentForOrder } from "@/modules/orders/services/reassign-agent.service";
 import type {
   RepAnalyticsData,
   TeamAnalyticsEntry,
@@ -256,6 +257,51 @@ export async function markOrderFailedByAnalyst(
 
   revalidatePath("/data/order");
   revalidatePath(`/data/order/${order.orderNumber}`);
+  revalidatePath("/data");
+  return { success: true };
+}
+
+/**
+ * Data analyst (team lead only) reassigns an order to a different delivery agent
+ * — the same authority admins have. Works on CONFIRMED or FAILED orders; a FAILED
+ * order is revived to CONFIRMED. The target agent must hold enough available stock.
+ */
+export async function reassignOrderAgentByAnalyst(
+  orderId: string,
+  agentId: string
+): Promise<{ success: boolean; error?: string }> {
+  const session = await auth();
+  if (!session?.user?.id) return { success: false, error: "Unauthorized" };
+  if (session.user.role !== "DATA_ANALYST") return { success: false, error: "Forbidden" };
+  if (!(await isUserTeamLead(session.user.id))) {
+    return { success: false, error: "Only the Data Analyst team lead can reassign orders" };
+  }
+  suppressCameraForRequest();
+
+  const result = await reassignAgentForOrder(orderId, agentId, { verifyStock: true });
+  if (!result.ok) {
+    return {
+      success: false,
+      error:
+        result.reason === "no_stock"
+          ? "The selected agent doesn't have enough available stock to take this order. Please choose another agent."
+          : "This order can no longer be reassigned.",
+    };
+  }
+
+  // Log against the order's sales rep for their History page; show the analyst as actor.
+  await logActivity({
+    userId: result.order.salesRepId,
+    actorName: session.user.name,
+    actorRole: session.user.role,
+    action: "Reassigned",
+    entityType: "Order",
+    entityId: orderId,
+    description: `Order #${result.order.orderNumber} reassigned to a different delivery agent`,
+  });
+
+  revalidatePath("/data/order");
+  revalidatePath(`/data/order/${result.order.orderNumber}`);
   revalidatePath("/data");
   return { success: true };
 }

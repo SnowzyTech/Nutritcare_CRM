@@ -18,7 +18,6 @@ import {
   removeUpsellFromItemAction,
   updateOrderNotesAction,
   applyOrderDiscountAction,
-  reassignOrderAgentAction,
   setOrderContactMethodAction,
   reviveOrderAction,
 } from "@/modules/orders/actions/orders.action";
@@ -90,19 +89,9 @@ export type ProductOption = {
   sku: string;
 };
 
-export type AgentOption = {
-  id: string;
-  companyName: string;
-  state: string | null;
-  phone: string;
-  activeOrders: number;
-  totalDeliveries: number;
-};
-
 interface OrderDetailClientProps {
   order: SerializedOrder;
   products: ProductOption[];
-  agents: AgentOption[];
 }
 
 // Each step is coloured by the stage it represents (not a generic active/done
@@ -272,13 +261,11 @@ const FAIL_REASONS = [
   "Could not reach customer",
 ];
 
-export function OrderDetailClient({ order, products, agents }: OrderDetailClientProps) {
+export function OrderDetailClient({ order, products }: OrderDetailClientProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [isAddProductOpen, setIsAddProductOpen] = useState(false);
   const [isAgentDrawerOpen, setIsAgentDrawerOpen] = useState(false);
-  const [isReassignOpen, setIsReassignOpen] = useState(false);
-  const [selectedAgentId, setSelectedAgentId] = useState("");
   const [isCancelOpen, setIsCancelOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState(""); // a preset reason, or ""
   const [customCancelReason, setCustomCancelReason] = useState("");
@@ -858,26 +845,7 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
                 >
                   View Agent Info
                 </button>
-                {(order.status === "CONFIRMED" || order.status === "FAILED") && (
-                  <button
-                    onClick={() => { setSelectedAgentId(order.agent?.id ?? ""); setIsReassignOpen(true); }}
-                    type="button"
-                    className="w-full bg-purple-100 border border-purple-200 px-4 py-2 rounded-lg text-purple-600 font-semibold text-sm hover:bg-purple-50 transition"
-                  >
-                    Reassign Agent
-                  </button>
-                )}
               </div>
-            )}
-
-            {order.status === "FAILED" && !order.agent && (
-              <button
-                onClick={() => { setSelectedAgentId(""); setIsReassignOpen(true); }}
-                type="button"
-                className="w-full bg-purple-100 border border-purple-200 px-4 py-2 rounded-lg text-purple-600 font-semibold text-sm hover:bg-purple-50 transition"
-              >
-                Assign Agent
-              </button>
             )}
 
             {order.status === "DELIVERED" && deliveredDate && (
@@ -1280,80 +1248,6 @@ export function OrderDetailClient({ order, products, agents }: OrderDetailClient
                 </button>
               );
             })()}
-          </div>
-        </div>
-      )}
-
-      {/* Reassign Agent Modal */}
-      {isReassignOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-          <div
-            className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
-            onClick={() => setIsReassignOpen(false)}
-          />
-          <div className="relative bg-white rounded-[40px] shadow-2xl w-full max-w-[500px] p-10 animate-in fade-in zoom-in duration-300">
-            <div className="flex items-center justify-between mb-8">
-              <h2 className="text-2xl font-black text-slate-800">Reassign Agent</h2>
-              <button
-                onClick={() => setIsReassignOpen(false)}
-                className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-200 transition-colors"
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            <p className="text-sm text-gray-500 mb-6">
-              Select a new delivery agent for this order.
-              {order.status === "FAILED" && (
-                <span className="block mt-1 text-purple-600 font-medium">
-                  The order status will be reset to Confirmed.
-                </span>
-              )}
-            </p>
-
-            <div className="flex flex-col gap-3 max-h-[320px] overflow-y-auto pr-1 mb-8">
-              {agents.length === 0 && (
-                <p className="text-sm text-gray-400 text-center py-6">No active agents available.</p>
-              )}
-              {agents.map((agent) => (
-                <button
-                  key={agent.id}
-                  onClick={() => setSelectedAgentId(agent.id)}
-                  className={`flex items-center justify-between p-4 rounded-2xl border-2 text-left transition-all ${
-                    selectedAgentId === agent.id
-                      ? "border-purple-600 bg-purple-50"
-                      : "border-slate-100 bg-slate-50 hover:border-purple-200"
-                  }`}
-                >
-                  <div>
-                    <p className="font-bold text-slate-800 text-sm">{agent.companyName}</p>
-                    <p className="text-xs text-slate-400 mt-0.5">{agent.state ?? "—"} · {agent.phone}</p>
-                  </div>
-                  <div className="text-right shrink-0 ml-4">
-                    <p className="text-xs text-slate-500">{agent.activeOrders} active orders</p>
-                    <p className="text-xs text-slate-400">{agent.totalDeliveries} deliveries</p>
-                  </div>
-                </button>
-              ))}
-            </div>
-
-            <button
-              disabled={isPending || !selectedAgentId}
-              onClick={() =>
-                startTransition(async () => {
-                  const res = await reassignOrderAgentAction(order.id, selectedAgentId);
-                  if (res?.error) {
-                    toast.error(res.error);
-                    return;
-                  }
-                  setIsReassignOpen(false);
-                  toast.success("Agent reassigned successfully");
-                })
-              }
-              className="w-full bg-purple-600 text-white py-4 rounded-2xl text-[1rem] font-black hover:bg-purple-700 transition-all shadow-lg shadow-purple-100 flex items-center justify-center gap-2 disabled:opacity-50"
-            >
-              Confirm Reassignment →
-            </button>
           </div>
         </div>
       )}

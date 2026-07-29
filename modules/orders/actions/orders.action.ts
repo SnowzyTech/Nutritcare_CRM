@@ -454,58 +454,6 @@ export async function applyOrderDiscountAction(
   return { discountAmount, discountPercent, netAmount: negotiatedPrice, totalAmount: gross };
 }
 
-export async function reassignOrderAgentAction(
-  orderId: string,
-  agentId: string,
-): Promise<{ error?: string }> {
-  // Returns { error } rather than throwing so the message always reaches the UI
-  // clearly — Next.js redacts thrown Server Action errors in production.
-  const session = await auth();
-  suppressCameraForRequest();
-  if (!session?.user?.id) {
-    return { error: "You are not signed in. Please refresh and try again." };
-  }
-
-  const order = await prisma.order.findFirst({
-    where: { id: orderId, salesRepId: session.user.id, deletedAt: null },
-    include: { items: { select: { productId: true, quantity: true } } },
-  });
-  if (!order || (order.status !== "CONFIRMED" && order.status !== "FAILED")) {
-    return { error: "This order can no longer be reassigned." };
-  }
-
-  // Verify the TARGET agent has enough available stock, under its lock, before
-  // moving the order (excludes this order in case it's already on that agent).
-  let hasStock = true;
-  await prisma.$transaction(async (tx) => {
-    await lockAgent(tx, agentId);
-    hasStock = await agentHasAvailableStock(tx, agentId, order.items, { excludeOrderId: orderId });
-    if (!hasStock) return; // leave the order untouched
-    await tx.order.update({
-      where: { id: orderId },
-      data: { agentId, ...(order.status === "FAILED" ? { status: "CONFIRMED" } : {}) },
-    });
-  });
-
-  if (!hasStock) {
-    return {
-      error:
-        "The selected agent doesn't have enough available stock to take this order. Please choose another agent.",
-    };
-  }
-
-  await logActivity({
-    userId: session.user.id,
-    action: "Reassigned",
-    entityType: "Order",
-    entityId: orderId,
-    description: `Order #${order.orderNumber} reassigned to a different delivery agent`,
-  });
-
-  revalidateOrderPaths(orderId);
-  return {};
-}
-
 export async function createOrderAction(input: {
   customerName: string;
   phone: string;

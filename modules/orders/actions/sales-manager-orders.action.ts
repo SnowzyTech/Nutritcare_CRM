@@ -7,6 +7,7 @@ import { recordDeliveryFeeEntry } from "@/modules/finance/services/agent-settlem
 import { logActivity } from "@/modules/audit/services/audit-log.service";
 import { suppressCameraForRequest } from "@/lib/audit/context";
 import { sendOrderDeliveredTemplate } from "@/lib/whatsapp/whatsapp";
+import { reassignAgentForOrder } from "@/modules/orders/services/reassign-agent.service";
 
 /**
  * Company Sales Manager marks a confirmed order as delivered — a one-click
@@ -96,6 +97,48 @@ export async function markOrderDeliveredByManager(
       .then((result) => console.log("[WhatsApp] delivery notification result:", JSON.stringify(result)))
       .catch((err) => console.error("[WhatsApp] markOrderDeliveredByManager send error:", err));
   }
+
+  revalidatePath("/sales-manager/orders");
+  revalidatePath(`/sales-manager/orders/${orderId}`);
+  revalidatePath("/sales-manager");
+  return { success: true };
+}
+
+/**
+ * Company Sales Manager reassigns an order to a different delivery agent — the
+ * same authority admins have. Works on CONFIRMED or FAILED orders; a FAILED order
+ * is revived to CONFIRMED. The target agent must hold enough available stock.
+ */
+export async function reassignOrderAgentByManager(
+  orderId: string,
+  agentId: string
+): Promise<{ success: boolean; error?: string }> {
+  const session = await auth();
+  if (!session?.user?.id) return { success: false, error: "Unauthorized" };
+  if (session.user.role !== "SALES_REP_MANAGER") return { success: false, error: "Forbidden" };
+  suppressCameraForRequest();
+
+  const result = await reassignAgentForOrder(orderId, agentId, { verifyStock: true });
+  if (!result.ok) {
+    return {
+      success: false,
+      error:
+        result.reason === "no_stock"
+          ? "The selected agent doesn't have enough available stock to take this order. Please choose another agent."
+          : "This order can no longer be reassigned.",
+    };
+  }
+
+  // Log against the order's sales rep for their History page; show the manager as actor.
+  await logActivity({
+    userId: result.order.salesRepId,
+    actorName: session.user.name,
+    actorRole: session.user.role,
+    action: "Reassigned",
+    entityType: "Order",
+    entityId: orderId,
+    description: `Order #${result.order.orderNumber} reassigned to a different delivery agent`,
+  });
 
   revalidatePath("/sales-manager/orders");
   revalidatePath(`/sales-manager/orders/${orderId}`);
