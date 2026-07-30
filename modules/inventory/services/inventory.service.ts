@@ -5,6 +5,8 @@ import {
   getAgentStockMap,
 } from "./stock-level.service";
 import { getInventorySnapshot } from "@/modules/finance/services/dashboard.service";
+import { formatMovementDate, formatMovementTime } from "./movement-format";
+import { rapsTotal } from "./raps";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -122,14 +124,6 @@ function sevenDaysAgo() {
 }
 
 const DAY_NAMES = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
-
-function formatMovementDate(date: Date): string {
-  return date.toLocaleDateString("en-NG", { day: "2-digit", month: "short", year: "numeric" });
-}
-
-function formatMovementTime(date: Date): string {
-  return date.toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit", hour12: true }).toLowerCase();
-}
 
 // ── Dashboard ────────────────────────────────────────────────────────────────
 
@@ -259,9 +253,7 @@ export async function getIncomingMovements(): Promise<IncomingMovementRow[]> {
     createdTime: formatMovementTime(m.createdAt),
     addedBy: m.createdBy.name,
     rapsApprovalStatus: m.rapsApprovalStatus,
-    rapsQuantity: m.rapsAssignments
-      ? (m.rapsAssignments as { productId: string; quantity: number }[]).reduce((s, e) => s + e.quantity, 0)
-      : 0,
+    rapsQuantity: rapsTotal(m.rapsAssignments),
   }));
 }
 

@@ -19,6 +19,9 @@ import {
   getWarehouseProductStock,
   getAgentProductStock,
 } from "@/modules/inventory/services/stock-level.service";
+// RAPS units are excluded from creditWarehouse at receipt time, so any later
+// debit (delete/reverse) must undo the same net amount, not the full item qty.
+import { creditedQuantities } from "@/modules/inventory/services/raps";
 
 // ── Shared ────────────────────────────────────────────────────────────────────
 
@@ -26,24 +29,6 @@ function generateRefNumber(prefix: string): string {
   const ts = Date.now().toString(36).toUpperCase();
   const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
   return `${prefix}-${ts}-${rand}`;
-}
-
-// RAPS units are excluded from creditWarehouse at receipt time, so any later
-// debit (delete/reverse) must undo the same net amount, not the full item qty.
-function creditedQuantities(
-  items: { productId: string; quantity: number }[],
-  rapsAssignments: unknown,
-): { productId: string; quantity: number }[] {
-  let rapsEntries: { productId: string; quantity: number }[] = [];
-  if (rapsAssignments) {
-    try {
-      rapsEntries = rapsAssignments as { productId: string; quantity: number }[];
-    } catch {
-      rapsEntries = [];
-    }
-  }
-  const rapsMap = new Map(rapsEntries.map((e) => [e.productId, e.quantity]));
-  return items.map((i) => ({ productId: i.productId, quantity: i.quantity - (rapsMap.get(i.productId) ?? 0) }));
 }
 
 function generateSku(name: string): string {

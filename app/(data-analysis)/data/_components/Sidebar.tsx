@@ -16,8 +16,20 @@ import {
   User,
   Menu,
   MessageCircle,
-  LayoutDashboard
+  LayoutDashboard,
+  Package
 } from 'lucide-react';
+
+const stockLinks = [
+  { href: '/data/stock', label: 'Overview' },
+  { href: '/data/stock/incoming', label: 'Incoming Stock' },
+  { href: '/data/stock/outgoing', label: 'Outgoing Stock' },
+  { href: '/data/stock/returned', label: 'Returned Stock' },
+  { href: '/data/stock/transfer', label: 'Stock Transfer' },
+  { href: '/data/stock/adjustment', label: 'Stock Adjustment' },
+  { href: '/data/stock/warehouse', label: 'Stock in Warehouse' },
+  { href: '/data/stock/agents', label: 'Stock Left with Agent' },
+];
 
 interface SidebarProps {
   user?: {
@@ -37,12 +49,24 @@ export function DataSidebar({ user, isTeamLead }: SidebarProps) {
   const rawId = isSalesRepDetail ? pathParts[pathParts.indexOf('sales-reps') + 1] : null;
   const activeSalesRepId = (rawId && rawId !== 'undefined' && rawId !== '') ? rawId : null;
 
+  const isStockSection = pathname.startsWith('/data/stock');
+
   const [isSalesRepOpen, setIsSalesRepOpen] = useState(isSalesRepDetail);
+  const [isStockOpen, setIsStockOpen] = useState(isStockSection);
   const [isCollapsed, setIsCollapsed] = useState(false);
 
   useEffect(() => {
     setIsSalesRepOpen(isSalesRepDetail);
   }, [pathname, isSalesRepDetail]);
+
+  // Auto-expand the Stock group on entering the section, without an effect
+  // (adjusting state during render — the sanctioned pattern). Only the
+  // transition forces it open, so collapsing while inside still works.
+  const [wasInStockSection, setWasInStockSection] = useState(isStockSection);
+  if (wasInStockSection !== isStockSection) {
+    setWasInStockSection(isStockSection);
+    if (isStockSection) setIsStockOpen(true);
+  }
 
   const navLinks = [
     ...(isTeamLead ? [{ href: '/data/dashboard', icon: LayoutDashboard, label: 'Dashboard' }] : []),
@@ -165,18 +189,72 @@ export function DataSidebar({ user, isTeamLead }: SidebarProps) {
           const isActive = pathname === link.href || (link.href !== '/data' && pathname.startsWith(link.href));
           const Icon = link.icon;
           return (
-            <Link
-              key={link.href}
-              href={link.href}
-              className={`flex items-center ${isCollapsed ? 'justify-center px-0' : 'gap-3 px-4'} py-3 rounded-xl transition-all duration-200 group ${
-                isActive
-                  ? 'bg-[#A020F0] text-white shadow-lg shadow-purple-200'
-                  : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'
-              }`}
-            >
-              <Icon size={20} className={`shrink-0 ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-600'}`} />
-              {!isCollapsed && <span className="font-medium text-sm whitespace-nowrap">{link.label}</span>}
-            </Link>
+            <React.Fragment key={link.href}>
+              <Link
+                href={link.href}
+                className={`flex items-center ${isCollapsed ? 'justify-center px-0' : 'gap-3 px-4'} py-3 rounded-xl transition-all duration-200 group ${
+                  isActive
+                    ? 'bg-[#A020F0] text-white shadow-lg shadow-purple-200'
+                    : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'
+                }`}
+              >
+                <Icon size={20} className={`shrink-0 ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-600'}`} />
+                {!isCollapsed && <span className="font-medium text-sm whitespace-nowrap">{link.label}</span>}
+              </Link>
+
+              {/* Stock sits directly under Order — it's the physical-goods
+                  counterpart to the order flow. */}
+              {link.href === '/data/order' && (
+                <div>
+                  <button
+                    onClick={() => {
+                      if (isCollapsed) router.push('/data/stock');
+                      else setIsStockOpen(!isStockOpen);
+                    }}
+                    className={`w-full flex items-center ${isCollapsed ? 'justify-center px-0' : 'justify-between px-4'} py-3 rounded-xl transition-all duration-200 group ${
+                      isStockSection
+                        ? 'bg-[#A020F0] text-white shadow-lg shadow-purple-200'
+                        : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <Package size={20} className={`shrink-0 ${isStockSection ? 'text-white' : 'text-gray-400 group-hover:text-gray-600'}`} />
+                      {!isCollapsed && <span className="font-medium text-sm whitespace-nowrap">Stock</span>}
+                    </div>
+                    {!isCollapsed && (
+                      <ChevronDown
+                        size={16}
+                        className={`transition-transform duration-200 shrink-0 ${isStockOpen ? 'rotate-180' : ''}`}
+                      />
+                    )}
+                  </button>
+
+                  {!isCollapsed && isStockOpen && (
+                    <div className="mt-2 ml-4 space-y-1 overflow-hidden">
+                      {stockLinks.map((s) => {
+                        // Overview must match exactly, or every child would
+                        // light it up too.
+                        const isChildActive = s.href === '/data/stock'
+                          ? pathname === '/data/stock'
+                          : pathname.startsWith(s.href);
+                        return (
+                          <Link
+                            key={s.href}
+                            href={s.href}
+                            className={`flex items-center gap-3 px-8 py-2 rounded-lg text-sm transition-colors ${
+                              isChildActive ? 'text-gray-900 font-bold' : 'text-gray-400 hover:text-gray-600'
+                            }`}
+                          >
+                            <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${isChildActive ? 'bg-gray-900' : 'bg-transparent'}`} />
+                            <span className="whitespace-nowrap">{s.label}</span>
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+            </React.Fragment>
           );
         })}
       </nav>

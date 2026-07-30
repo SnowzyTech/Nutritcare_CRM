@@ -525,6 +525,10 @@ model StockMovement {
   @@index([referenceNumber])
   @@index([createdAt])
   @@index([shelfLocationId])
+  // Every movement read orders/filters on `date` (not createdAt), and the
+  // data-analysis reporting queries filter on type + date together.
+  @@index([date])
+  @@index([type, date])
   @@map("stock_movements")
 }
 
