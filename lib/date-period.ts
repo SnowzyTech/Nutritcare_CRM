@@ -75,13 +75,20 @@ export function presetPeriod(preset: DatePreset, now = new Date()): DatePeriod {
 /**
  * Parse `?from`/`?to`/`?preset` search params into a {@link DatePeriod}.
  * Priority: an explicit `preset` wins; otherwise an explicit from/to becomes a
- * custom range; otherwise defaults to Today.
+ * custom range; otherwise falls back to `defaultPreset`.
+ *
+ * `defaultPreset` exists because not every board wants the same landing window:
+ * the admin overviews open on Today (an end-of-day review), while the data
+ * analyst's media-buyer screens open on This Month so they aren't empty.
  */
-export function parseDateRangeParams(params: {
-  from?: string | null;
-  to?: string | null;
-  preset?: string | null;
-}): DatePeriod {
+export function parseDateRangeParams(
+  params: {
+    from?: string | null;
+    to?: string | null;
+    preset?: string | null;
+  },
+  defaultPreset: Exclude<DatePreset, "custom"> = "today"
+): DatePeriod {
   const { from, to, preset } = params;
 
   if (preset && ["today", "yesterday", "week", "month"].includes(preset)) {
@@ -98,7 +105,7 @@ export function parseDateRangeParams(params: {
     return { from: startOfDay(lo), to: endOfDay(hi), preset: "custom" };
   }
 
-  return presetPeriod("today");
+  return presetPeriod(defaultPreset);
 }
 
 /**

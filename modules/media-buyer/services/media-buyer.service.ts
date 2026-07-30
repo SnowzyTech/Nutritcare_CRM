@@ -179,13 +179,14 @@ export async function getMyFormRows(
 }
 
 /**
- * A single form owned by this creator, with derived (all-time) stats and its
- * full saved config (`data`). Returns null if not found or not theirs.
+ * A single form owned by this creator, with derived stats (all-time unless
+ * `period` narrows them) and its full saved config (`data`). Returns null if
+ * not found or not theirs.
  */
 export async function getMyFormDetail(
   creatorId: string,
   formId: string,
-  period?: string | null
+  period?: string | { gte: Date; lte: Date } | null
 ): Promise<MediaBuyerFormDetail | null> {
   const form = await prisma.form.findFirst({
     where: { id: formId, createdById: creatorId, deletedAt: null },
@@ -193,7 +194,8 @@ export async function getMyFormDetail(
   });
   if (!form) return null;
 
-  const range = periodRange(period);
+  // An explicit range is used directly; a string token maps through periodRange.
+  const range = period && typeof period === "object" ? period : periodRange(period ?? null);
   const [orderStats, viewCount] = await Promise.all([
     prisma.order.groupBy({
       by: ["status"],
@@ -234,7 +236,8 @@ export async function getMyFormDetail(
 
 // ── Admin department overview ────────────────────────────────────────────────
 
-function mbTrendLabel(current: number, previous: number): string {
+/** Period-over-period delta as a signed percent label, or "—" when there's no base. */
+export function mbTrendLabel(current: number, previous: number): string {
   if (previous === 0) return current > 0 ? "+100%" : "—";
   const pct = Math.round(((current - previous) / previous) * 100);
   return pct >= 0 ? `+${pct}%` : `${pct}%`;

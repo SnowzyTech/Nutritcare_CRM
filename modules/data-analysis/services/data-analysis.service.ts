@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db/prisma";
-import { OrderStatus } from "@prisma/client";
+import { OrderStatus, Prisma } from "@prisma/client";
 import { generalPerformanceScore, kpiScore } from "@/lib/performance";
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
@@ -119,6 +119,8 @@ export type OrderRow = {
   date: string;
   status: OrderDisplayStatus;
   statusDate: string | null;  // Date when status changed (null for PENDING)
+  formId: string | null;      // set when the order came from a media buyer's form
+  formName: string | null;
 };
 
 export type OrderDetailFull = {
@@ -635,9 +637,16 @@ export async function getSalesRepsList(): Promise<SalesRepItem[]> {
   }));
 }
 
-export async function getAllOrders(): Promise<OrderRow[]> {
+/**
+ * Order rows for the analyst tables. `where` is merged on top of the
+ * always-applied soft-delete filter, so callers can scope to a subset (e.g. the
+ * orders attributed to one media buyer's forms) and reuse this mapping.
+ */
+export async function getOrderRows(
+  where: Prisma.OrderWhereInput = {}
+): Promise<OrderRow[]> {
   const orders = await prisma.order.findMany({
-    where: { deletedAt: null },
+    where: { deletedAt: null, ...where },
     orderBy: { createdAt: "desc" },
     select: {
       id: true,
@@ -646,6 +655,8 @@ export async function getAllOrders(): Promise<OrderRow[]> {
       isReorder: true,
       createdAt: true,
       updatedAt: true,
+      formId: true,
+      form: { select: { name: true } },
       customer: { select: { name: true, email: true, state: true } },
       agent: { select: { id: true, companyName: true, state: true } },
       salesRep: { select: { id: true, name: true, team: { select: { id: true, name: true } } } },
@@ -678,7 +689,13 @@ export async function getAllOrders(): Promise<OrderRow[]> {
     date: fmtDate(o.createdAt),
     status: STATUS_MAP[o.status] ?? "Pending",
     statusDate: o.status === "PENDING" ? null : fmtDate(o.updatedAt),
+    formId: o.formId,
+    formName: o.form?.name ?? null,
   }));
+}
+
+export async function getAllOrders(): Promise<OrderRow[]> {
+  return getOrderRows();
 }
 
 export async function getOrderByOrderNumber(orderNumber: string): Promise<OrderDetailFull | null> {
@@ -887,49 +904,7 @@ export async function getSalesRepProfile(userId: string): Promise<SalesRepProfil
 }
 
 export async function getSalesRepOrders(salesRepId: string): Promise<OrderRow[]> {
-  const orders = await prisma.order.findMany({
-    where: { salesRepId, deletedAt: null },
-    orderBy: { createdAt: "desc" },
-    select: {
-      id: true,
-      orderNumber: true,
-      status: true,
-      isReorder: true,
-      createdAt: true,
-      updatedAt: true,
-      customer: { select: { name: true, email: true, state: true } },
-      agent: { select: { id: true, companyName: true, state: true } },
-      salesRep: { select: { id: true, name: true, team: { select: { id: true, name: true } } } },
-      _count: { select: { items: true } },
-      items: {
-        select: {
-          quantity: true,
-          product: { select: { name: true } },
-        },
-        orderBy: { createdAt: "asc" },
-        take: 1,
-      },
-    },
-  });
-
-  return orders.map((o) => ({
-    id: o.orderNumber,
-    gmail: o.customer.email ?? "",
-    name: o.customer.name,
-    agent: o.agent ? { id: o.agent.id, name: o.agent.companyName, state: o.agent.state ?? "" } : null,
-    state: o.customer.state,
-    salesRep: o.salesRep.name,
-    salesRepId: o.salesRep.id,
-    teamId: o.salesRep.team?.id ?? null,
-    teamName: o.salesRep.team?.name ?? null,
-    product: o.items[0]?.product.name ?? "—",
-    itemCount: o._count.items,
-    isReorder: o.isReorder,
-    quantity: o.items[0]?.quantity ?? 0,
-    date: fmtDate(o.createdAt),
-    status: STATUS_MAP[o.status] ?? "Pending",
-    statusDate: o.status === "PENDING" ? null : fmtDate(o.updatedAt),
-  }));
+  return getOrderRows({ salesRepId });
 }
 
 export async function getSalesRepAnalyticsForUI(

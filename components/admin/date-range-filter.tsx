@@ -17,8 +17,12 @@ const PRESETS: { key: Exclude<DatePreset, "custom">; label: string }[] = [
  * Date-range filter for the department overview boards. Drives
  * `?preset=…` (for the quick presets) or `?from=YYYY-MM-DD&to=YYYY-MM-DD`
  * (for a custom day / span). Defaults to "Today" when nothing is set.
+ *
+ * `defaultPreset` must match whatever the page passes to
+ * `parseDateRangeParams`, so the highlighted chip reflects the window the
+ * server actually rendered.
  */
-function DateRangeFilterInner() {
+function DateRangeFilterInner({ defaultPreset }: { defaultPreset: string }) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -26,8 +30,8 @@ function DateRangeFilterInner() {
   const from = searchParams.get("from");
   const to = searchParams.get("to");
 
-  // Active preset: explicit preset param, else "today" when nothing custom is set.
-  const activePreset = preset ?? (from ? "custom" : "today");
+  // Active preset: explicit preset param, else the page default when nothing custom is set.
+  const activePreset = preset ?? (from ? "custom" : defaultPreset);
 
   const setPreset = (key: string) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -102,10 +106,14 @@ function DateRangeFilterInner() {
   );
 }
 
-export function DateRangeFilter() {
+export function DateRangeFilter({
+  defaultPreset = "today",
+}: {
+  defaultPreset?: Exclude<DatePreset, "custom">;
+} = {}) {
   return (
     <Suspense>
-      <DateRangeFilterInner />
+      <DateRangeFilterInner defaultPreset={defaultPreset} />
     </Suspense>
   );
 }

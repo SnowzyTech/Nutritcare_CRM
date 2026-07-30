@@ -52,7 +52,7 @@ export default async function AnalyticsPage() {
         <StatCard label="Total Views" value={funnel.views.toLocaleString()} hint="Landing-page visits" />
         <StatCard label="Total Leads" value={metrics.totalLeads.toLocaleString()} hint="Orders placed from your forms" />
         <StatCard label="Delivered" value={metrics.totalDeliveredOrders.toLocaleString()} hint="Orders marked delivered" />
-        <StatCard label="Conversion Rate" value={`${metrics.conversionRate}%`} hint="Leads ÷ Views" />
+        <StatCard label="Conversion Rate" value={`${metrics.conversionRate}%`} hint="Delivered ÷ Leads" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6">

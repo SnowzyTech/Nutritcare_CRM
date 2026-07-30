@@ -17,7 +17,8 @@ import {
   Menu,
   MessageCircle,
   LayoutDashboard,
-  Package
+  Package,
+  Megaphone
 } from 'lucide-react';
 
 const stockLinks = [
@@ -29,6 +30,14 @@ const stockLinks = [
   { href: '/data/stock/adjustment', label: 'Stock Adjustment' },
   { href: '/data/stock/warehouse', label: 'Stock in Warehouse' },
   { href: '/data/stock/agents', label: 'Stock Left with Agent' },
+];
+
+// Sub-views of a single media buyer. Rendered only once a buyer is selected,
+// since each one needs their id.
+const mediaBuyerLinks = [
+  { segment: 'analytics', label: 'Analytics' },
+  { segment: 'forms', label: 'Forms' },
+  { segment: 'leads', label: 'Leads' },
 ];
 
 interface SidebarProps {
@@ -49,15 +58,27 @@ export function DataSidebar({ user, isTeamLead }: SidebarProps) {
   const rawId = isSalesRepDetail ? pathParts[pathParts.indexOf('sales-reps') + 1] : null;
   const activeSalesRepId = (rawId && rawId !== 'undefined' && rawId !== '') ? rawId : null;
 
+  const isMediaBuyerSection = pathname.startsWith('/data/media-buyers');
+  const rawBuyerId = isMediaBuyerSection ? pathParts[pathParts.indexOf('media-buyers') + 1] : null;
+  const activeMediaBuyerId = (rawBuyerId && rawBuyerId !== 'undefined' && rawBuyerId !== '') ? rawBuyerId : null;
+
   const isStockSection = pathname.startsWith('/data/stock');
 
   const [isSalesRepOpen, setIsSalesRepOpen] = useState(isSalesRepDetail);
+  const [isMediaBuyerOpen, setIsMediaBuyerOpen] = useState(isMediaBuyerSection);
   const [isStockOpen, setIsStockOpen] = useState(isStockSection);
   const [isCollapsed, setIsCollapsed] = useState(false);
 
   useEffect(() => {
     setIsSalesRepOpen(isSalesRepDetail);
   }, [pathname, isSalesRepDetail]);
+
+  // Same adjust-state-during-render pattern as the Stock group below.
+  const [wasInMediaBuyerSection, setWasInMediaBuyerSection] = useState(isMediaBuyerSection);
+  if (wasInMediaBuyerSection !== isMediaBuyerSection) {
+    setWasInMediaBuyerSection(isMediaBuyerSection);
+    if (isMediaBuyerSection) setIsMediaBuyerOpen(true);
+  }
 
   // Auto-expand the Stock group on entering the section, without an effect
   // (adjusting state during render — the sanctioned pattern). Only the
@@ -85,6 +106,14 @@ export function DataSidebar({ user, isTeamLead }: SidebarProps) {
       setIsSalesRepOpen(!isSalesRepOpen);
     } else {
       router.push('/data');
+    }
+  };
+
+  const handleMediaBuyerClick = () => {
+    if (pathname === '/data/media-buyers') {
+      setIsMediaBuyerOpen(!isMediaBuyerOpen);
+    } else {
+      router.push('/data/media-buyers');
     }
   };
 
@@ -181,6 +210,52 @@ export function DataSidebar({ user, isTeamLead }: SidebarProps) {
                 <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${pathname.includes('/analytics') && isSalesRepDetail ? 'bg-gray-900' : 'bg-transparent'}`} />
                 <span className="whitespace-nowrap">Analytics</span>
               </Link>
+            </div>
+          )}
+        </div>
+
+        {/* Media Buyers — the same list → drill-down shape as Sales Reps. */}
+        <div>
+          <button
+            onClick={handleMediaBuyerClick}
+            className={`w-full flex items-center ${isCollapsed ? 'justify-center px-0' : 'justify-between px-4'} py-3 rounded-xl transition-all duration-200 group ${
+              isMediaBuyerSection
+                ? 'bg-[#A020F0] text-white shadow-lg shadow-purple-200'
+                : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <Megaphone size={20} className={`shrink-0 ${isMediaBuyerSection ? 'text-white' : 'text-gray-400 group-hover:text-gray-600'}`} />
+              {!isCollapsed && <span className="font-bold text-sm whitespace-nowrap">Media Buyers</span>}
+            </div>
+            {!isCollapsed && (
+              <ChevronDown
+                size={16}
+                className={`transition-transform duration-200 shrink-0 ${isMediaBuyerOpen ? 'rotate-180' : ''}`}
+              />
+            )}
+          </button>
+
+          {!isCollapsed && isMediaBuyerOpen && (
+            <div className="mt-2 ml-4 space-y-1 overflow-hidden">
+              {mediaBuyerLinks.map((link) => {
+                const href = activeMediaBuyerId
+                  ? `/data/media-buyers/${activeMediaBuyerId}/${link.segment}`
+                  : '#';
+                const isChildActive = !!activeMediaBuyerId && pathname.startsWith(href);
+                return (
+                  <Link
+                    key={link.segment}
+                    href={href}
+                    className={`flex items-center gap-3 px-8 py-2 rounded-lg text-sm transition-colors ${
+                      isChildActive ? 'text-gray-900 font-bold' : 'text-gray-400 hover:text-gray-600'
+                    }`}
+                  >
+                    <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${isChildActive ? 'bg-gray-900' : 'bg-transparent'}`} />
+                    <span className="whitespace-nowrap">{link.label}</span>
+                  </Link>
+                );
+              })}
             </div>
           )}
         </div>
