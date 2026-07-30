@@ -105,7 +105,8 @@
       "Bash(ls .claude/skills/)",
       "Bash(node -e \"try{require.resolve\\('playwright'\\);console.log\\('playwright present'\\)}catch{try{require.resolve\\('@playwright/test'\\);console.log\\('@playwright/test present'\\)}catch{console.log\\('no playwright'\\)}}\")",
       "Bash(node -e \"console.log\\(Object.keys\\(require\\('./package.json'\\).scripts\\).join\\(', '\\)\\)\")",
-      "Bash(grep -rnE \"items.length > 1|items.length - 1|firstItem|product.name|\\\\+\\\\$\\\\{|items:.*map\" \"app/\\(delivery-agent\\)\" --include=\"*.tsx\")"
+      "Bash(grep -rnE \"items.length > 1|items.length - 1|firstItem|product.name|\\\\+\\\\$\\\\{|items:.*map\" \"app/\\(delivery-agent\\)\" --include=\"*.tsx\")",
+      "PowerShell(npx tsx scripts/_verify-login.ts)"
     ]
   }
 }

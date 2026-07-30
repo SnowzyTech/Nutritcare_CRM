@@ -1,7 +1,24 @@
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 
-const prisma = new PrismaClient();
+// Neon serverless (WebSocket) adapter when pointing at a Neon DB — the plain
+// client can't reach Neon's pooler endpoint. Mirrors lib/db/prisma.ts.
+function createClient(): PrismaClient {
+  const url = process.env.DATABASE_URL ?? "";
+  if (url.includes("neon.tech")) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { Pool, neonConfig } = require("@neondatabase/serverless");
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { PrismaNeon } = require("@prisma/adapter-neon");
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    neonConfig.webSocketConstructor = require("ws");
+    const pool = new Pool({ connectionString: url });
+    return new PrismaClient({ adapter: new PrismaNeon(pool) } as never);
+  }
+  return new PrismaClient();
+}
+
+const prisma = createClient();
 
 /**
  * Provision a limited ADMIN account. Credentials come from the environment.
