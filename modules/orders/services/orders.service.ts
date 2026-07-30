@@ -110,7 +110,7 @@ export async function getTeamOrders(memberIds: string[]) {
       customer: { select: { name: true, email: true } },
       agent: { select: { companyName: true, state: true } },
       items: { include: { product: { select: { name: true } } } },
-      salesRep: { select: { name: true } },
+      salesRep: { select: { name: true, team: { select: { id: true, name: true } } } },
     },
   });
 }

@@ -272,6 +272,8 @@ interface DashboardClientProps {
     topAgentRemitted: number;
   };
   userName?: string;
+  /** Per-feature gates. Absent = show everything (back-compat). */
+  access?: Record<string, boolean>;
 }
 
 const fmtN = (n: number) => `N${Number(n).toLocaleString("en-NG", { maximumFractionDigits: 0 })}`;
@@ -290,7 +292,14 @@ export function DashboardClient({
   inventory,
   settlementSummary,
   userName,
+  access,
 }: DashboardClientProps = {}) {
+  // Absent access map = full access (back-compat / admin view-as).
+  const can = {
+    FINANCIAL_SUMMARY: access?.FINANCIAL_SUMMARY ?? true,
+    INVENTORY_SNAPSHOT: access?.INVENTORY_SNAPSHOT ?? true,
+    SALES_ANALYTICS: access?.SALES_ANALYTICS ?? true,
+  };
   const firstName = userName?.trim().split(/\s+/)[0] || 'there';
   const [mounted, setMounted] = useState(false);
   const [activeRange, setActiveRange] = useState<'Daily' | 'Weekly' | 'Monthly'>('Monthly');
@@ -470,6 +479,7 @@ export function DashboardClient({
       </div>
 
       {/* Financial Summary */}
+      {can.FINANCIAL_SUMMARY && (
       <div className="bg-white  p-6">
         <h2 className="text-[17px] font-bold text-gray-900 mb-5 tracking-tight">Financial Summary</h2>
         <div className="grid grid-cols-5 gap-3">
@@ -506,8 +516,10 @@ export function DashboardClient({
           ))}
         </div>
       </div>
+      )}
 
       {/* Inventory Snapshot */}
+      {can.INVENTORY_SNAPSHOT && (
       <div className="bg-white  p-6  mt-6">
         <h2 className="text-[17px] font-bold text-gray-900 mb-5 tracking-tight">Inventory Snapshot</h2>
 
@@ -556,9 +568,12 @@ export function DashboardClient({
         </div>
       </div>
 
+      )}
+
       {/* Sales Chart + Agent Settlement */}
-      <div className="grid grid-cols-[1fr_440px] gap-6 mt-6">
+      <div className={`grid gap-6 mt-6 ${can.SALES_ANALYTICS ? 'grid-cols-[1fr_440px]' : 'grid-cols-1'}`}>
         {/* Sales Chart */}
+        {can.SALES_ANALYTICS && (
         <div className="bg-white  border border-gray-100/50 p-6 ">
           <div className="flex items-center justify-between mb-4">
             <div>
@@ -609,6 +624,7 @@ export function DashboardClient({
             </div>
           )}
         </div>
+        )}
 
         {/* Agent Settlement — always all-time (a per-period breakdown of an
             outstanding balance isn't meaningful, so it's not tied to the toggle). */}
@@ -661,6 +677,7 @@ export function DashboardClient({
       </div>
 
       {/* Activity Bar Charts */}
+      {can.SALES_ANALYTICS && (
       <div className="grid grid-cols-2 gap-4">
         {/* Sales by Product */}
         <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm">
@@ -733,6 +750,7 @@ export function DashboardClient({
           )}
         </div>
       </div>
+      )}
     </div>
   );
 }

@@ -5,18 +5,40 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { signOut } from 'next-auth/react';
-import { 
-  ShoppingBag, 
-  BarChart3, 
-  Clock, 
-  Settings, 
-  LogOut, 
+import {
+  ShoppingBag,
+  BarChart3,
+  Clock,
+  Settings,
+  LogOut,
   ChevronDown,
   Users,
   User,
   Menu,
-  MessageCircle
+  MessageCircle,
+  LayoutDashboard,
+  Package,
+  Megaphone
 } from 'lucide-react';
+
+const stockLinks = [
+  { href: '/data/stock', label: 'Overview' },
+  { href: '/data/stock/incoming', label: 'Incoming Stock' },
+  { href: '/data/stock/outgoing', label: 'Outgoing Stock' },
+  { href: '/data/stock/returned', label: 'Returned Stock' },
+  { href: '/data/stock/transfer', label: 'Stock Transfer' },
+  { href: '/data/stock/adjustment', label: 'Stock Adjustment' },
+  { href: '/data/stock/warehouse', label: 'Stock in Warehouse' },
+  { href: '/data/stock/agents', label: 'Stock Left with Agent' },
+];
+
+// Sub-views of a single media buyer. Rendered only once a buyer is selected,
+// since each one needs their id.
+const mediaBuyerLinks = [
+  { segment: 'analytics', label: 'Analytics' },
+  { segment: 'forms', label: 'Forms' },
+  { segment: 'leads', label: 'Leads' },
+];
 
 interface SidebarProps {
   user?: {
@@ -24,9 +46,10 @@ interface SidebarProps {
     email?: string | null;
     image?: string | null;
   };
+  isTeamLead?: boolean;
 }
 
-export function DataSidebar({ user }: SidebarProps) {
+export function DataSidebar({ user, isTeamLead }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   
@@ -35,14 +58,39 @@ export function DataSidebar({ user }: SidebarProps) {
   const rawId = isSalesRepDetail ? pathParts[pathParts.indexOf('sales-reps') + 1] : null;
   const activeSalesRepId = (rawId && rawId !== 'undefined' && rawId !== '') ? rawId : null;
 
+  const isMediaBuyerSection = pathname.startsWith('/data/media-buyers');
+  const rawBuyerId = isMediaBuyerSection ? pathParts[pathParts.indexOf('media-buyers') + 1] : null;
+  const activeMediaBuyerId = (rawBuyerId && rawBuyerId !== 'undefined' && rawBuyerId !== '') ? rawBuyerId : null;
+
+  const isStockSection = pathname.startsWith('/data/stock');
+
   const [isSalesRepOpen, setIsSalesRepOpen] = useState(isSalesRepDetail);
+  const [isMediaBuyerOpen, setIsMediaBuyerOpen] = useState(isMediaBuyerSection);
+  const [isStockOpen, setIsStockOpen] = useState(isStockSection);
   const [isCollapsed, setIsCollapsed] = useState(false);
 
   useEffect(() => {
     setIsSalesRepOpen(isSalesRepDetail);
   }, [pathname, isSalesRepDetail]);
 
+  // Same adjust-state-during-render pattern as the Stock group below.
+  const [wasInMediaBuyerSection, setWasInMediaBuyerSection] = useState(isMediaBuyerSection);
+  if (wasInMediaBuyerSection !== isMediaBuyerSection) {
+    setWasInMediaBuyerSection(isMediaBuyerSection);
+    if (isMediaBuyerSection) setIsMediaBuyerOpen(true);
+  }
+
+  // Auto-expand the Stock group on entering the section, without an effect
+  // (adjusting state during render — the sanctioned pattern). Only the
+  // transition forces it open, so collapsing while inside still works.
+  const [wasInStockSection, setWasInStockSection] = useState(isStockSection);
+  if (wasInStockSection !== isStockSection) {
+    setWasInStockSection(isStockSection);
+    if (isStockSection) setIsStockOpen(true);
+  }
+
   const navLinks = [
+    ...(isTeamLead ? [{ href: '/data/dashboard', icon: LayoutDashboard, label: 'Dashboard' }] : []),
     { href: '/chat', icon: MessageCircle, label: 'Chat' },
     { href: '/data/order', icon: ShoppingBag, label: 'Order' },
     { href: '/data/analytics', icon: BarChart3, label: 'Analytics' },
@@ -58,6 +106,14 @@ export function DataSidebar({ user }: SidebarProps) {
       setIsSalesRepOpen(!isSalesRepOpen);
     } else {
       router.push('/data');
+    }
+  };
+
+  const handleMediaBuyerClick = () => {
+    if (pathname === '/data/media-buyers') {
+      setIsMediaBuyerOpen(!isMediaBuyerOpen);
+    } else {
+      router.push('/data/media-buyers');
     }
   };
 
@@ -158,22 +214,122 @@ export function DataSidebar({ user }: SidebarProps) {
           )}
         </div>
 
+        {/* Media Buyers — the same list → drill-down shape as Sales Reps. */}
+        <div>
+          <button
+            onClick={handleMediaBuyerClick}
+            className={`w-full flex items-center ${isCollapsed ? 'justify-center px-0' : 'justify-between px-4'} py-3 rounded-xl transition-all duration-200 group ${
+              isMediaBuyerSection
+                ? 'bg-[#A020F0] text-white shadow-lg shadow-purple-200'
+                : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <Megaphone size={20} className={`shrink-0 ${isMediaBuyerSection ? 'text-white' : 'text-gray-400 group-hover:text-gray-600'}`} />
+              {!isCollapsed && <span className="font-bold text-sm whitespace-nowrap">Media Buyers</span>}
+            </div>
+            {!isCollapsed && (
+              <ChevronDown
+                size={16}
+                className={`transition-transform duration-200 shrink-0 ${isMediaBuyerOpen ? 'rotate-180' : ''}`}
+              />
+            )}
+          </button>
+
+          {!isCollapsed && isMediaBuyerOpen && (
+            <div className="mt-2 ml-4 space-y-1 overflow-hidden">
+              {mediaBuyerLinks.map((link) => {
+                const href = activeMediaBuyerId
+                  ? `/data/media-buyers/${activeMediaBuyerId}/${link.segment}`
+                  : '#';
+                const isChildActive = !!activeMediaBuyerId && pathname.startsWith(href);
+                return (
+                  <Link
+                    key={link.segment}
+                    href={href}
+                    className={`flex items-center gap-3 px-8 py-2 rounded-lg text-sm transition-colors ${
+                      isChildActive ? 'text-gray-900 font-bold' : 'text-gray-400 hover:text-gray-600'
+                    }`}
+                  >
+                    <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${isChildActive ? 'bg-gray-900' : 'bg-transparent'}`} />
+                    <span className="whitespace-nowrap">{link.label}</span>
+                  </Link>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
         {navLinks.map((link) => {
           const isActive = pathname === link.href || (link.href !== '/data' && pathname.startsWith(link.href));
           const Icon = link.icon;
           return (
-            <Link
-              key={link.href}
-              href={link.href}
-              className={`flex items-center ${isCollapsed ? 'justify-center px-0' : 'gap-3 px-4'} py-3 rounded-xl transition-all duration-200 group ${
-                isActive
-                  ? 'bg-[#A020F0] text-white shadow-lg shadow-purple-200'
-                  : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'
-              }`}
-            >
-              <Icon size={20} className={`shrink-0 ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-600'}`} />
-              {!isCollapsed && <span className="font-medium text-sm whitespace-nowrap">{link.label}</span>}
-            </Link>
+            <React.Fragment key={link.href}>
+              <Link
+                href={link.href}
+                className={`flex items-center ${isCollapsed ? 'justify-center px-0' : 'gap-3 px-4'} py-3 rounded-xl transition-all duration-200 group ${
+                  isActive
+                    ? 'bg-[#A020F0] text-white shadow-lg shadow-purple-200'
+                    : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'
+                }`}
+              >
+                <Icon size={20} className={`shrink-0 ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-600'}`} />
+                {!isCollapsed && <span className="font-medium text-sm whitespace-nowrap">{link.label}</span>}
+              </Link>
+
+              {/* Stock sits directly under Order — it's the physical-goods
+                  counterpart to the order flow. */}
+              {link.href === '/data/order' && (
+                <div>
+                  <button
+                    onClick={() => {
+                      if (isCollapsed) router.push('/data/stock');
+                      else setIsStockOpen(!isStockOpen);
+                    }}
+                    className={`w-full flex items-center ${isCollapsed ? 'justify-center px-0' : 'justify-between px-4'} py-3 rounded-xl transition-all duration-200 group ${
+                      isStockSection
+                        ? 'bg-[#A020F0] text-white shadow-lg shadow-purple-200'
+                        : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <Package size={20} className={`shrink-0 ${isStockSection ? 'text-white' : 'text-gray-400 group-hover:text-gray-600'}`} />
+                      {!isCollapsed && <span className="font-medium text-sm whitespace-nowrap">Stock</span>}
+                    </div>
+                    {!isCollapsed && (
+                      <ChevronDown
+                        size={16}
+                        className={`transition-transform duration-200 shrink-0 ${isStockOpen ? 'rotate-180' : ''}`}
+                      />
+                    )}
+                  </button>
+
+                  {!isCollapsed && isStockOpen && (
+                    <div className="mt-2 ml-4 space-y-1 overflow-hidden">
+                      {stockLinks.map((s) => {
+                        // Overview must match exactly, or every child would
+                        // light it up too.
+                        const isChildActive = s.href === '/data/stock'
+                          ? pathname === '/data/stock'
+                          : pathname.startsWith(s.href);
+                        return (
+                          <Link
+                            key={s.href}
+                            href={s.href}
+                            className={`flex items-center gap-3 px-8 py-2 rounded-lg text-sm transition-colors ${
+                              isChildActive ? 'text-gray-900 font-bold' : 'text-gray-400 hover:text-gray-600'
+                            }`}
+                          >
+                            <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${isChildActive ? 'bg-gray-900' : 'bg-transparent'}`} />
+                            <span className="whitespace-nowrap">{s.label}</span>
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+            </React.Fragment>
           );
         })}
       </nav>

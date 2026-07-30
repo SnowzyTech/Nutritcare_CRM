@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import {
@@ -16,6 +16,13 @@ import { MessageBubble } from "./message-bubble";
 import { MessageComposer } from "./message-composer";
 import { OrderTagModal } from "./order-tag-modal";
 import { useChatStore } from "./chat-store";
+import { ChatAvatar } from "./chat-people";
+import { UserProfilePopover, type ProfileTarget } from "./user-profile-popover";
+
+/** Don't re-announce "typing" more often than this while someone types on. */
+const TYPING_PING_MS = 2000;
+/** Announce "stopped" after this much keyboard silence. */
+const TYPING_IDLE_MS = 3000;
 
 function dayKey(d: Date | string): string {
   const date = typeof d === "string" ? new Date(d) : d;
@@ -40,6 +47,9 @@ export function ChatThread({
   currentUserId,
   initialMessages,
   initialCursor,
+  conversationType,
+  peer,
+  memberUserIds,
 }: {
   conversationId: string;
   title: string;
@@ -48,19 +58,27 @@ export function ChatThread({
   currentUserId: string;
   initialMessages: ChatMessage[];
   initialCursor: string | null;
+  conversationType: "AGENT_GROUP" | "DIRECT";
+  peer: { id: string; name: string; role: string; avatarUrl: string | null } | null;
+  memberUserIds: string[];
 }) {
-  const { markRead, applyOutgoing, subscribeIncoming } = useChatStore();
+  const { markRead, applyOutgoing, subscribeIncoming, isOnline, typingIn, sendTyping } =
+    useChatStore();
+  const isDirect = conversationType === "DIRECT";
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [cursor, setCursor] = useState<string | null>(initialCursor);
   const [loadingMore, setLoadingMore] = useState(false);
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
   const [openOrderId, setOpenOrderId] = useState<string | null>(null);
+  const [openProfile, setOpenProfile] = useState<ProfileTarget | null>(null);
   const [highlightId, setHighlightId] = useState<string | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const refs = useRef<Map<string, HTMLDivElement>>(new Map());
   const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastTypingPing = useRef(0);
+  const typingIdleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const registerRef = useCallback((id: string, el: HTMLDivElement | null) => {
     if (el) refs.current.set(id, el);
@@ -127,6 +145,37 @@ export function ChatThread({
     });
   }, [conversationId, subscribeIncoming, markRead, scrollToBottom]);
 
+  // Typing goes straight to the socket server, never through the app — an
+  // ephemeral hint isn't worth a DB round-trip per keystroke burst.
+  const recipients = useMemo(
+    () => memberUserIds.filter((id) => id !== currentUserId),
+    [memberUserIds, currentUserId]
+  );
+
+  const stopTyping = useCallback(() => {
+    if (typingIdleTimer.current) {
+      clearTimeout(typingIdleTimer.current);
+      typingIdleTimer.current = null;
+    }
+    if (lastTypingPing.current === 0) return; // never announced; nothing to undo
+    lastTypingPing.current = 0;
+    sendTyping(conversationId, recipients, false);
+  }, [conversationId, recipients, sendTyping]);
+
+  const handleTyping = useCallback(() => {
+    const now = Date.now();
+    if (now - lastTypingPing.current > TYPING_PING_MS) {
+      lastTypingPing.current = now;
+      sendTyping(conversationId, recipients, true);
+    }
+    if (typingIdleTimer.current) clearTimeout(typingIdleTimer.current);
+    typingIdleTimer.current = setTimeout(stopTyping, TYPING_IDLE_MS);
+  }, [conversationId, recipients, sendTyping, stopTyping]);
+
+  // Leaving the thread must retract the hint, or the other side sees a
+  // "typing…" that only expires on its TTL.
+  useEffect(() => stopTyping, [stopTyping]);
+
   async function handleLoadMore() {
     if (!cursor || loadingMore) return;
     setLoadingMore(true);
@@ -181,6 +230,15 @@ export function ChatThread({
     }
   }
 
+  const typingUserIds = typingIn(conversationId);
+  const typingLabel = describeTyping(typingUserIds, messages, isDirect);
+  const peerOnline = isOnline(peer?.id);
+
+  // Presence when we know it, then typing, then whatever the caller passed.
+  let headerSub: string | null = subtitle;
+  if (isDirect) headerSub = peerOnline ? "Online" : null;
+  if (typingLabel) headerSub = typingLabel;
+
   return (
     <div className="flex h-full w-full flex-col bg-white">
       {/* Header */}
@@ -188,12 +246,45 @@ export function ChatThread({
         <Link href="/chat" className="rounded-full p-1 text-gray-500 hover:bg-gray-100 md:hidden">
           <ArrowLeft className="h-5 w-5" />
         </Link>
-        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-purple-100 text-sm font-semibold text-purple-700">
-          {title.slice(0, 2).toUpperCase()}
-        </div>
+        {isDirect && peer ? (
+          <button
+            type="button"
+            onClick={() =>
+              setOpenProfile({
+                id: peer.id,
+                name: peer.name,
+                avatarUrl: peer.avatarUrl,
+                role: peer.role,
+              })
+            }
+            className="rounded-full"
+            aria-label={`View ${peer.name}`}
+          >
+            <ChatAvatar
+              name={peer.name}
+              avatarUrl={peer.avatarUrl}
+              online={peerOnline}
+              showPresence
+            />
+          </button>
+        ) : (
+          <ChatAvatar name={title} />
+        )}
         <div className="min-w-0">
           <h2 className="truncate text-base font-semibold">{title}</h2>
-          {subtitle && <p className="text-xs text-gray-400">{subtitle}</p>}
+          {headerSub && (
+            <p
+              className={`truncate text-xs ${
+                typingLabel
+                  ? "text-purple-600"
+                  : isDirect && peerOnline
+                    ? "text-emerald-600"
+                    : "text-gray-400"
+              }`}
+            >
+              {headerSub}
+            </p>
+          )}
         </div>
       </header>
 
@@ -223,6 +314,8 @@ export function ChatThread({
                 onReply={setReplyTo}
                 onJumpTo={jumpTo}
                 onOpenOrder={setOpenOrderId}
+                onOpenProfile={setOpenProfile}
+                showSenderAvatar={!isDirect}
               />
             </div>
           );
@@ -236,11 +329,45 @@ export function ChatThread({
         replyTo={replyTo}
         onCancelReply={() => setReplyTo(null)}
         onSend={handleSend}
+        onTyping={handleTyping}
+        onStopTyping={stopTyping}
       />
 
       {openOrderId && (
         <OrderTagModal orderId={openOrderId} onClose={() => setOpenOrderId(null)} />
       )}
+
+      {openProfile && (
+        <UserProfilePopover
+          user={openProfile}
+          isSelf={openProfile.id === currentUserId}
+          onClose={() => setOpenProfile(null)}
+        />
+      )}
     </div>
   );
+}
+
+/**
+ * Name the people typing. Names come from the loaded messages — the socket only
+ * carries ids, and a lookup would be a round-trip for a hint that expires in
+ * seconds. Anyone who hasn't spoken in this page of history stays anonymous.
+ */
+function describeTyping(
+  userIds: string[],
+  messages: ChatMessage[],
+  isDirect: boolean
+): string | null {
+  if (userIds.length === 0) return null;
+  if (isDirect || userIds.length > 2) {
+    return userIds.length > 1 ? "Several people are typing…" : "typing…";
+  }
+  const names = userIds.map((id) => {
+    const msg = messages.find((m) => m.senderId === id);
+    return msg?.senderName ?? null;
+  });
+  const known = names.filter((n): n is string => !!n);
+  if (known.length === 0) return "typing…";
+  if (known.length === 1 && userIds.length === 1) return `${known[0]} is typing…`;
+  return `${known.join(" and ")} are typing…`;
 }

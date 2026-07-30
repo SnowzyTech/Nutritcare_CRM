@@ -1,9 +1,11 @@
-import { auth } from "@/lib/auth/auth";
-import { getManagerWithTeam, getTeamAnalytics } from "@/modules/users/services/users.service";
-import { parseMonthParam, monthLabel } from "@/lib/month-period";
+import { getTeamAnalytics, getCompanyAnalytics, getAllTeams } from "@/modules/users/services/users.service";
+import { resolveManagerScope } from "../_lib/manager-scope";
+import { parseMonthParam } from "@/lib/month-period";
 import { calculateBonus } from "@/lib/bonus";
 import { AnalyticsDashboardClient, AnalyticsData } from "./analytics-dashboard-client";
-import { MonthSelect } from "@/app/(sales-rep)/sales-rep/analytics/month-select";
+import { AnalyticsPeriodToggle } from "./period-toggle";
+import { TeamSelect } from "./team-select";
+import { parseRange, resolveAnalyticsPeriod } from "./analytics-period";
 import { TeamAnalyticsReportButtons } from "./report-buttons";
 
 export const dynamic = "force-dynamic";
@@ -11,21 +13,36 @@ export const dynamic = "force-dynamic";
 const KPI_TARGET = "65%";
 
 export default async function TeamAnalyticsPage(props: {
-  searchParams: Promise<{ month?: string }>;
+  searchParams: Promise<{ month?: string; range?: string; team?: string }>;
 }) {
-  const { month } = await props.searchParams;
-  const period = parseMonthParam(month);
+  const { month, range: rangeParam, team: teamParam } = await props.searchParams;
+  const range = parseRange(rangeParam);
+  const { periodArg, periodText, vsLabel, bonusPeriod, bonusPeriodLabel } =
+    resolveAnalyticsPeriod(range, month);
+
+  const mp = parseMonthParam(month);
   const currentMonthParam =
-    month ?? `${period.year}-${String(period.month).padStart(2, "0")}`;
+    month ?? `${mp.year}-${String(mp.month).padStart(2, "0")}`;
 
-  const session = await auth();
-  const managerId = session?.user?.id;
+  const { isCompanyManager, teamId, teamName } = await resolveManagerScope();
 
-  const manager = managerId ? await getManagerWithTeam(managerId) : null;
-  const teamId = manager?.teamId;
-  const teamName = manager?.team?.name ?? "Team";
+  // Company managers can narrow the company-wide view to a single team ("All"
+  // by default). Team-leads have no such filter — always their own team.
+  const salesTeams = isCompanyManager
+    ? (await getAllTeams()).filter(t => t.department === "SALES")
+    : [];
+  const selectedTeam =
+    isCompanyManager && teamParam ? salesTeams.find(t => t.id === teamParam) ?? null : null;
 
-  const analytics = teamId ? await getTeamAnalytics(teamId, period) : null;
+  const analytics = isCompanyManager
+    ? selectedTeam
+      ? await getTeamAnalytics(selectedTeam.id, periodArg)
+      : await getCompanyAnalytics(periodArg)
+    : teamId
+      ? await getTeamAnalytics(teamId, periodArg)
+      : null;
+
+  const reportTeamName = selectedTeam?.name ?? teamName;
   const { current, trends, tables, reportMetrics, memberCount } = analytics ?? {
     current: {
       totalProductsSold: 0, distinctCustomers: 0, generalPerformance: 0,
@@ -43,11 +60,9 @@ export default async function TeamAnalyticsPage(props: {
     memberCount: 0,
   };
 
-  const ml = monthLabel(period);
-  const periodText = ml === "This Month" ? "this month" : `in ${ml}`;
-
   const data: AnalyticsData = {
     monthLabel: periodText,
+    vsLabel,
     totalProductsSold: { value: String(current.delivered), trend: trends.delivered },
     totalOrderCustomer: { value: String(current.total), trend: trends.total },
     bestSellingProduct: { name: current.bestProduct?.name ?? "—", subtitle: periodText },
@@ -67,9 +82,12 @@ export default async function TeamAnalyticsPage(props: {
     },
     bonus: {
       // Team aggregate → scale the minimum-orders threshold by the number of reps.
-      ...calculateBonus(current.kpi, current.total, "month", memberCount),
+      // Bonuses are weekly/monthly only; the Day view shows "not applicable".
+      ...(bonusPeriod
+        ? calculateBonus(current.kpi, current.total, bonusPeriod, memberCount)
+        : { amount: 0, eligible: false, reason: "Bonuses apply to weekly/monthly periods" }),
       kpi: current.kpi,
-      periodLabel: "Monthly",
+      periodLabel: bonusPeriodLabel,
     },
     bestSellingTable: tables.bestSellingTable,
     upsellingTable: tables.upsellingTable,
@@ -79,13 +97,18 @@ export default async function TeamAnalyticsPage(props: {
     <AnalyticsDashboardClient
       header={{ type: "team" }}
       data={data}
-      monthSelector={<MonthSelect />}
+      monthSelector={
+        <div className="flex flex-wrap items-center gap-3">
+          {isCompanyManager && <TeamSelect teams={salesTeams} />}
+          <AnalyticsPeriodToggle />
+        </div>
+      }
       reportButtons={
-        reportMetrics ? (
+        range === "month" && reportMetrics ? (
           <TeamAnalyticsReportButtons
             monthlyData={reportMetrics}
             month={currentMonthParam}
-            teamName={teamName}
+            teamName={reportTeamName}
           />
         ) : undefined
       }

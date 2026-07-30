@@ -1,7 +1,9 @@
 import { notFound } from "next/navigation";
 import { getOrderWithDetails } from "@/modules/orders/services/orders.service";
+import { getAgentsForReassignment } from "@/modules/delivery/services/agents.service";
 import { OrderDetailClient } from "../../[repId]/orders/[orderId]/order-detail-client";
 import { mapOrderToDetail } from "../../_lib/map-order-detail";
+import { mapAgentsForReassignment } from "../../_lib/map-agents";
 
 export const dynamic = "force-dynamic";
 
@@ -11,7 +13,10 @@ export default async function TeamOrderDetailPage({
   params: Promise<{ orderId: string }>;
 }) {
   const { orderId } = await params;
-  const dbOrder = await getOrderWithDetails(orderId);
+  const [dbOrder, rawAgents] = await Promise.all([
+    getOrderWithDetails(orderId),
+    getAgentsForReassignment(),
+  ]);
 
   if (!dbOrder) notFound();
 
@@ -20,5 +25,12 @@ export default async function TeamOrderDetailPage({
 
   const order = mapOrderToDetail(dbOrder, repName);
 
-  return <OrderDetailClient repId={repId} repName={repName} order={order} />;
+  return (
+    <OrderDetailClient
+      repId={repId}
+      repName={repName}
+      order={order}
+      agents={mapAgentsForReassignment(rawAgents)}
+    />
+  );
 }

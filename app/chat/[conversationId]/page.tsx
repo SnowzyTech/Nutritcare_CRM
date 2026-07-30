@@ -16,17 +16,27 @@ export default async function ConversationPage({
   if (!thread) notFound();
 
   const { conversation, messages, nextCursor } = thread;
+  const isDirect = conversation.type === "DIRECT";
 
   return (
     <ChatThread
       key={conversationId}
       conversationId={conversationId}
-      title={conversation.title ?? conversation.agent?.companyName ?? "Conversation"}
-      subtitle={conversation.agent?.state ?? null}
+      // A DM is named after whoever you're talking to, resolved per-viewer
+      // rather than denormalized onto the row.
+      title={
+        isDirect
+          ? conversation.peer?.name ?? "Direct message"
+          : conversation.title ?? conversation.agent?.companyName ?? "Conversation"
+      }
+      subtitle={isDirect ? null : conversation.agent?.state ?? null}
       isArchived={conversation.isArchived}
       currentUserId={session.user.id}
       initialMessages={messages}
       initialCursor={nextCursor}
+      conversationType={conversation.type}
+      peer={conversation.peer}
+      memberUserIds={conversation.memberUserIds}
     />
   );
 }

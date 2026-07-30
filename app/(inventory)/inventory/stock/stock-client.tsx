@@ -381,7 +381,6 @@ function ProductTab({
               <th className={thClass}>Category</th>
               <th className={thClass}>Country</th>
               <th className={thClass}>SKU</th>
-              <th className={thClass}>Cost Price</th>
               <th className={thClass}>Selling Price</th>
               <th className={thClass}>Stock Left</th>
             </tr>
@@ -403,14 +402,13 @@ function ProductTab({
                 <td className={tdClass}>{row.categoryName}</td>
                 <td className={tdClass}>{row.country}</td>
                 <td className={tdClass}>{row.sku}</td>
-                <td className={tdClass}>{formatCurrency(row.costPrice)}</td>
                 <td className={tdClass}>{formatCurrency(row.sellingPrice)}</td>
                 <td className={tdClass}>{row.stockLeft.toLocaleString()}</td>
               </tr>
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={8} className="py-8 text-center text-sm text-gray-400">
+                <td colSpan={7} className="py-8 text-center text-sm text-gray-400">
                   No products match your search.
                 </td>
               </tr>

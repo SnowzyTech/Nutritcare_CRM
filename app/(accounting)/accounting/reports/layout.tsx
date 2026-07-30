@@ -1,6 +1,8 @@
 import { ChevronLeft, ChevronRight, RotateCcw, MessageCircle } from 'lucide-react';
+import { requireAccountingPermission } from '@/lib/auth/accounting-access';
 
-export default function ReportsLayout({ children }: { children: React.ReactNode }) {
+export default async function ReportsLayout({ children }: { children: React.ReactNode }) {
+  await requireAccountingPermission('REPORTS');
   return (
     <div className="p-8 max-w-[1600px] mx-auto min-h-screen bg-[#F9FAFB]">
       <div className="flex items-center justify-between mb-8">

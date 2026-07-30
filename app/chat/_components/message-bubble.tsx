@@ -3,6 +3,8 @@
 import { CornerUpLeft, Tag } from "lucide-react";
 import { parseTokens } from "@/lib/chat/tokens";
 import type { ChatMessage } from "@/modules/chat/services/messages.service";
+import { ChatAvatar } from "./chat-people";
+import type { ProfileTarget } from "./user-profile-popover";
 
 function MessageBody({
   body,
@@ -54,6 +56,8 @@ export function MessageBubble({
   onReply,
   onJumpTo,
   onOpenOrder,
+  onOpenProfile,
+  showSenderAvatar = false,
 }: {
   message: ChatMessage;
   isMine: boolean;
@@ -62,6 +66,9 @@ export function MessageBubble({
   onReply: (m: ChatMessage) => void;
   onJumpTo: (messageId: string) => void;
   onOpenOrder: (orderId: string) => void;
+  onOpenProfile: (user: ProfileTarget) => void;
+  /** Group threads show who said what; a DM has only one other person. */
+  showSenderAvatar?: boolean;
 }) {
   if (message.type === "SYSTEM") {
     return (
@@ -73,21 +80,45 @@ export function MessageBubble({
     );
   }
 
+  // Tapping a person opens their card — the in-thread route to a private chat.
+  const profile: ProfileTarget | null = message.senderId
+    ? {
+        id: message.senderId,
+        name: message.senderName ?? "Unknown",
+        avatarUrl: message.senderAvatar,
+      }
+    : null;
+
   return (
     <div
       ref={(el) => registerRef(message.id, el)}
       className={`group flex w-full ${isMine ? "justify-end" : "justify-start"}`}
     >
       <div className={`flex max-w-[78%] items-end gap-2 ${isMine ? "flex-row-reverse" : ""}`}>
+        {showSenderAvatar && !isMine && profile && (
+          <button
+            type="button"
+            onClick={() => onOpenProfile(profile)}
+            aria-label={`View ${profile.name}`}
+            className="mb-1 rounded-full"
+          >
+            <ChatAvatar name={profile.name} avatarUrl={profile.avatarUrl} size="sm" />
+          </button>
+        )}
         <div
           className={`relative rounded-2xl px-3 py-2 text-sm transition-colors ${
             isMine ? "bg-purple-100" : "bg-gray-100"
           } ${highlighted ? "ring-2 ring-purple-400" : ""}`}
         >
           {!isMine && message.senderName && (
-            <div className="mb-0.5 text-xs font-semibold text-gray-700">
+            <button
+              type="button"
+              onClick={() => profile && onOpenProfile(profile)}
+              disabled={!profile}
+              className="mb-0.5 block text-xs font-semibold text-gray-700 hover:text-purple-600 hover:underline disabled:no-underline"
+            >
               {message.senderName}
-            </div>
+            </button>
           )}
 
           {message.replyToId && (message.replyPreview || message.replySender) && (

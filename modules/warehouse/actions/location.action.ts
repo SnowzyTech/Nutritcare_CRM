@@ -3,6 +3,8 @@
 import { auth } from "@/lib/auth/auth";
 import { prisma } from "@/lib/db/prisma";
 import { revalidatePath } from "next/cache";
+import { logActivity } from "@/modules/audit/services/audit-log.service";
+import { suppressCameraForRequest } from "@/lib/audit/context";
 
 async function requireWarehouseManager() {
   const session = await auth();
@@ -22,7 +24,8 @@ export async function addWarehouseZoneAction(
   thresholds?: ZoneThresholds,
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const { warehouseId } = await requireWarehouseManager();
+    const { userId, warehouseId } = await requireWarehouseManager();
+    suppressCameraForRequest();
 
     const existing = await prisma.warehouseLocation.findFirst({ where: { warehouseId, zone } });
     if (existing) return { success: false, error: `Zone ${zone} already exists` };
@@ -63,6 +66,14 @@ export async function addWarehouseZoneAction(
       })),
     });
 
+    await logActivity({
+      userId,
+      action: "Created",
+      entityType: "WarehouseLocation",
+      entityId: zone,
+      description: `Added warehouse shelf zone ${zone}`,
+    });
+
     revalidatePath("/warehouse/location-management");
     return { success: true };
   } catch (e) {
@@ -74,9 +85,18 @@ export async function removeWarehouseZoneAction(
   zone: string,
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const { warehouseId } = await requireWarehouseManager();
+    const { userId, warehouseId } = await requireWarehouseManager();
+    suppressCameraForRequest();
 
     await prisma.warehouseLocation.deleteMany({ where: { warehouseId, zone } });
+
+    await logActivity({
+      userId,
+      action: "Deleted",
+      entityType: "WarehouseLocation",
+      entityId: zone,
+      description: `Removed warehouse shelf zone ${zone}`,
+    });
 
     revalidatePath("/warehouse/location-management");
     return { success: true };
@@ -85,19 +105,28 @@ export async function removeWarehouseZoneAction(
   }
 }
 
+// Manual overrides are limited to RESERVED and DAMAGE — FULL/PARTIAL/EMPTY are
+// always derived from stock vs. threshold (see deriveOccupancyStatus) and must
+// never be set by hand. "AUTO" clears an override by writing the neutral EMPTY
+// placeholder, which deriveOccupancyStatus then recomputes from live stock.
 export async function updateLocationOccupancyAction(
   locationCode: string,
-  status: string,
+  status: "RESERVED" | "DAMAGE" | "AUTO",
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const { warehouseId } = await requireWarehouseManager();
 
+    if (!["RESERVED", "DAMAGE", "AUTO"].includes(status)) {
+      return { success: false, error: "A location can only be manually set to Reserved or Damage." };
+    }
+
     await prisma.warehouseLocation.updateMany({
       where: { warehouseId, locationCode },
-      data: { occupancyStatus: status as "FULL" | "PARTIAL" | "RESERVED" | "EMPTY" | "DAMAGE" },
+      data: { occupancyStatus: status === "AUTO" ? "EMPTY" : status },
     });
 
     revalidatePath("/warehouse/location-management");
+    revalidatePath("/warehouse");
     return { success: true };
   } catch (e) {
     return { success: false, error: (e as Error).message };

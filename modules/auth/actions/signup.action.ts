@@ -2,6 +2,8 @@
 
 import { registerSchema } from "@/lib/validations/auth";
 import { createUser } from "@/modules/auth/services/auth.service";
+import { logActivity } from "@/modules/audit/services/audit-log.service";
+import { suppressCameraForRequest } from "@/lib/audit/context";
 import type { UserRole } from "@prisma/client";
 
 export type SignupActionState = {
@@ -53,8 +55,9 @@ export async function signupAction(
     return { error: firstError ?? "Invalid input.", fields };
   }
 
+  suppressCameraForRequest();
   try {
-    await createUser({
+    const created = await createUser({
       name: parsed.data.name,
       email: parsed.data.email,
       password: parsed.data.password,
@@ -64,6 +67,15 @@ export async function signupAction(
       avatarUrl: parsed.data.avatarUrl || undefined,
       warehouseId: parsed.data.warehouseId || undefined,
       teamId: parsed.data.teamId || undefined,
+    });
+    await logActivity({
+      userId: created.id,
+      actorName: created.name,
+      actorRole: created.role,
+      action: "Sign Up",
+      entityType: "User",
+      entityId: created.id,
+      description: `New account sign-up: ${created.name} (${created.role})`,
     });
   } catch (err) {
     if (err instanceof Error && err.message === "EMAIL_TAKEN") {

@@ -14,8 +14,16 @@ import {
   sendOrderConfirmationTemplate,
   sendDeliveryCodeTemplate,
 } from "@/lib/whatsapp/whatsapp";
-import { formatCurrency, formatDate, generateOrderNumber } from "@/lib/utils";
+import { formatCurrency, formatDate } from "@/lib/utils";
+import { nextOrderNumber } from "@/modules/orders/services/order-number.service";
+import { describeReassignment } from "@/modules/orders/services/reassign-description.service";
 import { logActivity } from "@/modules/audit/services/audit-log.service";
+import { suppressCameraForRequest } from "@/lib/audit/context";
+import {
+  applyUpsellItems,
+  previewUpsellPrice,
+  upsellOrderSelect,
+} from "@/modules/orders/services/upsell-apply.service";
 
 /** Generates a cryptographically random 6-digit numeric delivery code. */
 function generateDeliveryCode(): string {
@@ -26,6 +34,7 @@ function generateDeliveryCode(): string {
 
 export async function getWeeklyAnalyticsAction(): Promise<MonthMetrics | { error: string }> {
   const session = await auth();
+  suppressCameraForRequest();
   if (!session?.user?.id) return { error: "Unauthorized" };
   try {
     return await getSalesRepWeeklyAnalytics(session.user.id);
@@ -39,6 +48,7 @@ export async function reassignOrdersAction(
   repIds: string[]
 ): Promise<{ error?: string }> {
   const session = await auth();
+  suppressCameraForRequest();
   if (!session?.user?.id) return { error: "Unauthorized" };
   if (orderIds.length === 0 || repIds.length === 0) return { error: "No orders or reps selected" };
 
@@ -52,9 +62,20 @@ export async function reassignOrdersAction(
     })
   );
 
+  await logActivity({
+    userId: session.user.id,
+    action: "Reassigned",
+    entityType: "Order",
+    entityId: orderIds[0] ?? "bulk",
+    description: await describeReassignment(orderIds, repIds),
+  });
+
   revalidatePath("/sales-rep-manager");
   revalidatePath("/sales-rep-manager/orders");
   revalidatePath("/sales-rep-manager/order-assignment");
+  revalidatePath("/sales-manager");
+  revalidatePath("/sales-manager/orders");
+  revalidatePath("/sales-manager/order-assignment");
   return {};
 }
 
@@ -77,6 +98,7 @@ export async function confirmOrderAction(
   // Returns { error } rather than throwing so messages reach the UI clearly in
   // production (Next.js redacts thrown Server Action errors).
   const session = await auth();
+  suppressCameraForRequest();
   if (!session?.user?.id) {
     return { error: "You are not signed in. Please refresh and try again." };
   }
@@ -200,6 +222,7 @@ export async function confirmOrderAction(
 
 export async function updateOrderNotesAction(orderId: string, notes: string) {
   const session = await auth();
+  suppressCameraForRequest();
   if (!session?.user?.id) throw new Error("Unauthorized");
 
   const order = await getOwnedOrder(orderId, session.user.id);
@@ -211,6 +234,7 @@ export async function updateOrderNotesAction(orderId: string, notes: string) {
 
 export async function cancelOrderAction(orderId: string, reason?: string) {
   const session = await auth();
+  suppressCameraForRequest();
   if (!session?.user?.id) throw new Error("Unauthorized");
 
   const order = await getOwnedOrder(orderId, session.user.id);
@@ -234,6 +258,7 @@ export async function cancelOrderAction(orderId: string, reason?: string) {
 
 export async function failOrderAction(orderId: string, reason?: string) {
   const session = await auth();
+  suppressCameraForRequest();
   if (!session?.user?.id) throw new Error("Unauthorized");
 
   const order = await getOwnedOrder(orderId, session.user.id);
@@ -266,6 +291,7 @@ export async function failOrderAction(orderId: string, reason?: string) {
  */
 export async function reviveOrderAction(orderId: string): Promise<{ error?: string }> {
   const session = await auth();
+  suppressCameraForRequest();
   if (!session?.user?.id) {
     return { error: "You are not signed in. Please refresh and try again." };
   }
@@ -335,6 +361,7 @@ export async function setOrderContactMethodAction(
   method: "PHONE" | "WHATSAPP",
 ) {
   const session = await auth();
+  suppressCameraForRequest();
   if (!session?.user?.id) throw new Error("Unauthorized");
 
   const order = await getOwnedOrder(orderId, session.user.id);
@@ -368,6 +395,7 @@ export async function applyOrderDiscountAction(
   reason?: string,
 ): Promise<{ discountAmount: number; discountPercent: number; netAmount: number; totalAmount: number }> {
   const session = await auth();
+  suppressCameraForRequest();
   if (!session?.user?.id) throw new Error("Unauthorized");
 
   const order = await prisma.order.findFirst({
@@ -413,54 +441,17 @@ export async function applyOrderDiscountAction(
       entityType: "Order",
       entityId: orderId,
       description: `Discount of ${formatCurrency(discountAmount)} (${discountPercent}%) applied to Order #${order.orderNumber}`,
+      details: {
+        before: formatCurrency(gross),
+        after: formatCurrency(negotiatedPrice),
+        field: "price",
+        amount: discountAmount,
+      },
     });
   }
 
   revalidateOrderPaths(orderId);
   return { discountAmount, discountPercent, netAmount: negotiatedPrice, totalAmount: gross };
-}
-
-export async function reassignOrderAgentAction(
-  orderId: string,
-  agentId: string,
-): Promise<{ error?: string }> {
-  // Returns { error } rather than throwing so the message always reaches the UI
-  // clearly — Next.js redacts thrown Server Action errors in production.
-  const session = await auth();
-  if (!session?.user?.id) {
-    return { error: "You are not signed in. Please refresh and try again." };
-  }
-
-  const order = await prisma.order.findFirst({
-    where: { id: orderId, salesRepId: session.user.id, deletedAt: null },
-    include: { items: { select: { productId: true, quantity: true } } },
-  });
-  if (!order || (order.status !== "CONFIRMED" && order.status !== "FAILED")) {
-    return { error: "This order can no longer be reassigned." };
-  }
-
-  // Verify the TARGET agent has enough available stock, under its lock, before
-  // moving the order (excludes this order in case it's already on that agent).
-  let hasStock = true;
-  await prisma.$transaction(async (tx) => {
-    await lockAgent(tx, agentId);
-    hasStock = await agentHasAvailableStock(tx, agentId, order.items, { excludeOrderId: orderId });
-    if (!hasStock) return; // leave the order untouched
-    await tx.order.update({
-      where: { id: orderId },
-      data: { agentId, ...(order.status === "FAILED" ? { status: "CONFIRMED" } : {}) },
-    });
-  });
-
-  if (!hasStock) {
-    return {
-      error:
-        "The selected agent doesn't have enough available stock to take this order. Please choose another agent.",
-    };
-  }
-
-  revalidateOrderPaths(orderId);
-  return {};
 }
 
 export async function createOrderAction(input: {
@@ -475,6 +466,7 @@ export async function createOrderAction(input: {
   products: Array<{ productId: string; quantity: number }>;
 }): Promise<{ orderId: string; orderNumber: string } | { error: string }> {
   const session = await auth();
+  suppressCameraForRequest();
   if (!session?.user?.id) return { error: "Unauthorized" };
 
   const { customerName, phone, whatsappNumber, email, deliveryAddress, state, landmark, isReorder, products } = input;
@@ -511,13 +503,13 @@ export async function createOrderAction(input: {
     });
   }
 
-  const orderNumber = generateOrderNumber();
-
   const dbProducts = await prisma.product.findMany({
     where: { id: { in: products.map((p) => p.productId) }, deletedAt: null },
-    select: { id: true, sellingPrice: true, costPrice: true },
+    select: { id: true, name: true, sellingPrice: true, costPrice: true },
   });
   const productMap = new Map(dbProducts.map((p) => [p.id, p]));
+  // Order code prefix comes from the main (first-selected) product.
+  const mainProductName = productMap.get(products[0]?.productId)?.name;
 
   for (const item of products) {
     if (!productMap.has(item.productId)) {
@@ -542,6 +534,7 @@ export async function createOrderAction(input: {
 
   try {
     const order = await prisma.$transaction(async (tx) => {
+      const orderNumber = await nextOrderNumber(tx, mainProductName);
       return tx.order.create({
         data: {
           orderNumber,
@@ -556,6 +549,15 @@ export async function createOrderAction(input: {
       });
     });
 
+    await logActivity({
+      userId: session.user.id,
+      action: "Created",
+      entityType: "Order",
+      entityId: order.id,
+      description: `Order #${order.orderNumber} created for ${customerName.trim()}`,
+      details: { amount: totalAmount },
+    });
+
     revalidatePath("/sales-rep/orders");
     return { orderId: order.id, orderNumber: order.orderNumber };
   } catch (err) {
@@ -566,87 +568,99 @@ export async function createOrderAction(input: {
 
 export async function addOrderItemsAction(
   orderId: string,
-  items: Array<{ productId: string; quantity: number }>
+  // `unitPrice` is the price-of-one the rep types in the popup. It is only
+  // required (and only used) when the merged quantity has no exact package;
+  // see docs/upsell-package-pricing.md.
+  items: Array<{ productId: string; quantity: number; unitPrice?: number }>
 ): Promise<{ error?: string }> {
   const session = await auth();
+  suppressCameraForRequest();
   if (!session?.user?.id) {
     return { error: "You are not signed in. Please refresh and try again." };
   }
 
   const order = await prisma.order.findFirst({
     where: { id: orderId, salesRepId: session.user.id, deletedAt: null },
-    include: { items: { select: { lineTotal: true } } },
+    select: upsellOrderSelect,
   });
   if (!order) return { error: "Order not found." };
-  if (order.status !== "PENDING" && order.status !== "CONFIRMED") {
-    return { error: "Products can only be added to pending or confirmed orders." };
-  }
 
-  const products = await prisma.product.findMany({
-    where: { id: { in: items.map((i) => i.productId) } },
-    select: { id: true, name: true, sellingPrice: true, costPrice: true },
+  const result = await applyUpsellItems(order, items, session.user.id);
+  if ("error" in result) return { error: result.error };
+
+  await logActivity({
+    userId: session.user.id,
+    action: "Updated",
+    entityType: "Order",
+    entityId: orderId,
+    description: `Added ${result.addedCount} product line${result.addedCount === 1 ? "" : "s"} to Order #${order.orderNumber}`,
   });
 
-  const productMap = new Map(products.map((p) => [p.id, p]));
-
-  for (const item of items) {
-    if (!productMap.has(item.productId)) {
-      return { error: "One or more selected products are unavailable." };
-    }
-  }
-
-  // For confirmed orders the delivery agent is already assigned, so the agent
-  // must physically hold the new product on top of everything already promised.
-  const confirmedAgentId =
-    order.status === "CONFIRMED" && order.agentId ? order.agentId : null;
-
-  let addedTotal = 0;
-
-  const itemsToCreate = items.map((item) => {
-    const product = productMap.get(item.productId)!;
-    const unitPrice = Number(product.sellingPrice);
-    const lineTotal = unitPrice * item.quantity;
-    addedTotal += lineTotal;
-    return { orderId, productId: item.productId, quantity: item.quantity, unitPrice, lineTotal, costPriceAtSale: Number(product.costPrice), isUpsell: true, addedById: session.user.id };
-  });
-
-  // Recompute totals from the authoritative gross, preserving any existing
-  // discount (same approach as removeOrderItemAction) so discountPercent never
-  // goes stale when the order total changes.
-  const existingGross = order.items.reduce((s, i) => s + Number(i.lineTotal), 0);
-  const newGross = Math.round((existingGross + addedTotal) * 100) / 100;
-  const discountAmount = Math.min(Number(order.discountAmount), newGross);
-  const netAmount = Math.round((newGross - discountAmount) * 100) / 100;
-  const discountPercent =
-    newGross > 0 ? Math.round((discountAmount / newGross) * 10000) / 100 : 0;
-
-  let capacityHit = false;
-  await prisma.$transaction(async (tx) => {
-    if (confirmedAgentId) {
-      await lockAgent(tx, confirmedAgentId);
-      // Available already nets out this confirmed order's existing items, so we
-      // only need room for the NEW items on top of the agent's commitments.
-      const ok = await agentHasAvailableStock(tx, confirmedAgentId, items);
-      if (!ok) {
-        capacityHit = true;
-        return; // leave the order untouched
-      }
-    }
-    await tx.orderItem.createMany({ data: itemsToCreate });
-    await tx.order.update({
-      where: { id: orderId },
-      data: { totalAmount: newGross, netAmount, discountAmount, discountPercent },
+  // Audit trail for every manually-priced (surplus) line — lets finance review
+  // rep-entered unit prices (guardrail: min > 0 + audit log).
+  for (const s of result.surplusPlans) {
+    await logActivity({
+      userId: session.user.id,
+      action: "Updated",
+      entityType: "OrderItem",
+      entityId: orderId,
+      description: `Manual unit price ${formatCurrency(
+        s.typedUnitPrice,
+      )} used for ${s.productName} (qty ${s.mergedQty}) on Order #${order.orderNumber}`,
+      details: {
+        field: "unitPrice",
+        amount: s.lineTotal,
+        productId: s.productId,
+        mergedQty: s.mergedQty,
+        typedUnitPrice: s.typedUnitPrice,
+      },
     });
-  });
-
-  if (capacityHit) {
-    return {
-      error: "The assigned agent doesn't have enough available stock for the added product(s).",
-    };
   }
 
   revalidateOrderPaths(orderId);
   return {};
+}
+
+/**
+ * Live price preview for the Add-Product popup. Validates the rep owns the
+ * order, computes the MERGED quantity (existing line(s) + this add), and prices
+ * it via the shared resolver — so the rep sees the exact charge (and whether a
+ * manual unit price is needed) before confirming. Read-only; writes nothing.
+ */
+export async function resolveUpsellPriceAction(
+  orderId: string,
+  productId: string,
+  addedQty: number,
+  typedUnitPrice?: number
+): Promise<
+  | {
+      lineTotal: number;
+      unitPrice: number;
+      source: "package" | "surplus";
+      requiresUnitPrice: boolean;
+      mergedQty: number;
+    }
+  | { error: string }
+> {
+  const session = await auth();
+  if (!session?.user?.id) return { error: "Not signed in." };
+
+  const order = await prisma.order.findFirst({
+    where: { id: orderId, salesRepId: session.user.id, deletedAt: null },
+    select: {
+      formId: true,
+      items: { where: { productId }, select: { quantity: true } },
+    },
+  });
+  if (!order) return { error: "Order not found." };
+
+  return previewUpsellPrice(
+    order.formId,
+    order.items,
+    productId,
+    addedQty,
+    typedUnitPrice ?? 0,
+  );
 }
 
 /**
@@ -657,6 +671,7 @@ export async function addOrderItemsAction(
  */
 export async function removeOrderItemAction(orderId: string, itemId: string) {
   const session = await auth();
+  suppressCameraForRequest();
   if (!session?.user?.id) throw new Error("Unauthorized");
 
   const order = await prisma.order.findFirst({
@@ -685,6 +700,102 @@ export async function removeOrderItemAction(orderId: string, itemId: string) {
       data: { totalAmount: remainingGross, netAmount, discountAmount, discountPercent },
     }),
   ]);
+
+  await logActivity({
+    userId: session.user.id,
+    action: "Updated",
+    entityType: "Order",
+    entityId: orderId,
+    description: `Removed a product line from Order #${order.orderNumber}`,
+  });
+
+  revalidateOrderPaths(orderId);
+}
+
+/**
+ * Removes the sales-rep-upsold portion of a merged line, reverting it to the
+ * original order (quantity, price, and the upsell tracking fields). If the whole
+ * line was an upsell, the line is deleted outright (keeping ≥1 product). Only
+ * pending orders; totals recomputed, preserving any discount.
+ */
+export async function removeUpsellFromItemAction(orderId: string, itemId: string) {
+  const session = await auth();
+  suppressCameraForRequest();
+  if (!session?.user?.id) throw new Error("Unauthorized");
+
+  const order = await prisma.order.findFirst({
+    where: { id: orderId, salesRepId: session.user.id, deletedAt: null },
+    include: {
+      items: {
+        select: {
+          id: true,
+          quantity: true,
+          lineTotal: true,
+          isUpsell: true,
+          upsellAmount: true,
+          upsellQuantity: true,
+        },
+      },
+    },
+  });
+  if (!order) throw new Error("Order not found");
+  if (order.status !== "PENDING") {
+    throw new Error("Upsold products can only be removed from pending orders.");
+  }
+
+  const item = order.items.find((i) => i.id === itemId);
+  if (!item) throw new Error("Product not found on this order.");
+  if (item.upsellQuantity <= 0 && !item.isUpsell) {
+    throw new Error("This line has no upsold products to remove.");
+  }
+
+  const originalQty = item.quantity - item.upsellQuantity;
+  const originalLineTotal =
+    Math.round((Number(item.lineTotal) - Number(item.upsellAmount)) * 100) / 100;
+
+  // A whole-upsell line (or one with nothing left after removing the upsold
+  // portion) is deleted; a merged line reverts to its original quantity/price.
+  const deleteLine = item.isUpsell || originalQty <= 0;
+  if (deleteLine && order.items.length <= 1) {
+    throw new Error("An order must have at least one product.");
+  }
+
+  const remainingGross = order.items.reduce((sum, i) => {
+    if (i.id !== itemId) return sum + Number(i.lineTotal);
+    return sum + (deleteLine ? 0 : originalLineTotal);
+  }, 0);
+  const newGross = Math.round(remainingGross * 100) / 100;
+  const discountAmount = Math.min(Number(order.discountAmount), newGross);
+  const netAmount = Math.round((newGross - discountAmount) * 100) / 100;
+  const discountPercent =
+    newGross > 0 ? Math.round((discountAmount / newGross) * 10000) / 100 : 0;
+
+  await prisma.$transaction([
+    deleteLine
+      ? prisma.orderItem.delete({ where: { id: itemId } })
+      : prisma.orderItem.update({
+          where: { id: itemId },
+          data: {
+            quantity: originalQty,
+            lineTotal: originalLineTotal,
+            unitPrice: Math.round((originalLineTotal / originalQty) * 100) / 100,
+            upsellAmount: 0,
+            upsellQuantity: 0,
+          },
+        }),
+    prisma.order.update({
+      where: { id: orderId },
+      data: { totalAmount: newGross, netAmount, discountAmount, discountPercent },
+    }),
+  ]);
+
+  await logActivity({
+    userId: session.user.id,
+    action: "Updated",
+    entityType: "Order",
+    entityId: orderId,
+    description: `Removed upsold product(s) from Order #${order.orderNumber}`,
+  });
 
   revalidateOrderPaths(orderId);
 }

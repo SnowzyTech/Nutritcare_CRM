@@ -24,6 +24,8 @@ model User {
   accountActivationStatus AccountActivationStatus @default(PENDING)
   agentId                 String?                 @unique
   warehouseId             String?
+  revokedAdminPages       String[]                @default([])
+  accountingPermissions   String[]                @default([])
   createdAt               DateTime                @default(now())
   updatedAt               DateTime                @updatedAt
   agentsAdded             Agent[]                 @relation("AgentAddedBy")
@@ -72,6 +74,17 @@ model Team {
 
   @@index([department])
   @@map("teams")
+}
+
+// Per-prefix running counter for meaningful order codes (e.g. NEURO-001). One
+// row per 5-letter product abbreviation; incremented atomically at order
+// creation. Products sharing a prefix share the sequence.
+model OrderCounter {
+  prefix    String   @id
+  value     Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  @@map("order_counters")
 }
 
 model Customer {
@@ -398,6 +411,7 @@ model Order {
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
   isReorder       Boolean     @default(false)
+  isRescheduled   Boolean     @default(false)
   discountedById  String?
   discountReason  String?
   discountedAt    DateTime?
@@ -439,6 +453,12 @@ model OrderItem {
   costPriceAtSale Decimal  @default(0) @db.Decimal(10, 2)
   addedById       String?
   isUpsell        Boolean  @default(false)
+  // Revenue on this line attributable to sales-rep upselling (incremental over
+  // the original form price when merged). Source of truth for upsell-revenue
+  // reporting: upsell revenue = SUM(upsellAmount). See docs/upsell-package-pricing.md.
+  upsellAmount    Decimal  @default(0) @db.Decimal(10, 2)
+  // Units on this line added by sales-rep upselling. Upsell units = SUM(upsellQuantity).
+  upsellQuantity  Int      @default(0)
   addedBy         User?    @relation("UpsoldOrderItems", fields: [addedById], references: [id])
   order           Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
   product         Product  @relation(fields: [productId], references: [id])
@@ -478,6 +498,10 @@ model StockMovement {
   shelfAssignments       Json?
   shelfLocationId        String?
   shelfQuantity          Int?
+  supplierInvoiceUrls    String[]            @default([])
+  rapsAssignments        Json?
+  rapsApprovalStatus     RapsApprovalStatus?
+  rapsRejectionReason    String?
   driverId               String?
   goodsReceivings        GoodsReceiving[]
   pickPacks              PickPack[]          @relation("PickPackStockMovement")
@@ -501,6 +525,10 @@ model StockMovement {
   @@index([referenceNumber])
   @@index([createdAt])
   @@index([shelfLocationId])
+  // Every movement read orders/filters on `date` (not createdAt), and the
+  // data-analysis reporting queries filter on type + date together.
+  @@index([date])
+  @@index([type, date])
   @@map("stock_movements")
 }
 
@@ -1038,6 +1066,8 @@ model Notification {
 model AuditLog {
   id         String   @id @default(cuid())
   userId     String
+  actorName  String?
+  actorRole  String?
   action     String
   entityType String
   entityId   String
@@ -1050,6 +1080,8 @@ model AuditLog {
   @@index([userId])
   @@index([entityType])
   @@index([createdAt])
+  @@index([actorRole])
+  @@index([action])
   @@map("audit_logs")
 }
 
@@ -1196,7 +1228,10 @@ model Conversation {
   id                 String               @id @default(cuid())
   type               ConversationType     @default(AGENT_GROUP)
   agentId            String?              @unique // set for AGENT_GROUP
-  title              String? // denormalized agent companyName
+  // set for DIRECT: sorted "userIdA:userIdB" — the deterministic pair identity
+  // that makes get-or-create atomic (no unique key exists over member pairs).
+  directKey          String?              @unique
+  title              String? // denormalized agent companyName; null for DIRECT (resolved per-viewer)
   isArchived         Boolean              @default(false)
   // denormalized "last message" for a zero-scan conversation list:
   lastMessageAt      DateTime?
@@ -1283,6 +1318,7 @@ model MessageOrderRef {
 
 enum ConversationType {
   AGENT_GROUP
+  DIRECT
 }
 
 enum MessageType {
@@ -1292,6 +1328,7 @@ enum MessageType {
 }
 
 enum UserRole {
+  SUPER_ADMIN
   ADMIN
   SALES_REP
   SALES_REP_MANAGER
@@ -1362,6 +1399,16 @@ enum StockMovementStatus {
   QC_CHECK
   SHELVED
   REVERSED
+}
+
+// Returned-at-Point-of-Supply: units rejected back to the supplier while
+// confirming an incoming receipt. Purely an audit sign-off — the rejected
+// quantity is never credited to warehouse stock in the first place, so
+// neither APPROVED nor REJECTED trigger any stock movement.
+enum RapsApprovalStatus {
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
 }
 
 enum StockTransferNodeType {

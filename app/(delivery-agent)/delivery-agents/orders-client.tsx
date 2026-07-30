@@ -2,13 +2,16 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
-import { Search, Settings, Bell } from "lucide-react";
+import { Search, Settings, Bell, CalendarClock } from "lucide-react";
 import { formatDate } from "@/lib/utils";
+import { upsellExtraCount } from "@/lib/orders/upsell";
 
 type UIStatus = "All" | "Pending" | "Delivered" | "Failed";
 
 interface OrderItem {
   quantity: number;
+  upsellQuantity: number;
+  isUpsell: boolean;
   product: { name: string };
 }
 
@@ -16,6 +19,7 @@ interface Order {
   id: string;
   orderNumber: string;
   status: string;
+  isRescheduled: boolean;
   createdAt: Date;
   deliveryDate: Date | null;
   customer: { name: string; email: string | null; phone: string };
@@ -140,12 +144,24 @@ export function OrdersClient({ orders, statusCounts, user }: Props) {
                 </div>
                 <div className="flex items-center gap-4">
                   <div className="text-right space-y-1">
-                    <h4 className="font-bold text-[#1e1e2d] text-xs leading-none">{summariseItems(order.items)}</h4>
+                    <h4 className="font-bold text-[#1e1e2d] text-xs leading-none flex items-center justify-end gap-1.5">
+                      <span>{summariseItems(order.items)}</span>
+                      {upsellExtraCount(order.items) > 0 && (
+                        <span className="shrink-0 inline-flex items-center bg-purple-100 text-[#532194] text-[9px] font-bold px-1.5 py-0.5 rounded-full">
+                          +{upsellExtraCount(order.items)}
+                        </span>
+                      )}
+                    </h4>
                     <p className="text-[10px] text-gray-400 font-medium">{formatDate(order.createdAt)}</p>
                     {order.deliveryDate && (
                       <p className="text-[10px] text-[#ad1df4] font-semibold">
                         {mapToUIStatus(order.status) === "Delivered" ? "Delivered" : "Delivery"}: {formatDate(order.deliveryDate)}
                       </p>
+                    )}
+                    {order.isRescheduled && (order.status === "PENDING" || order.status === "CONFIRMED") && (
+                      <span className="inline-flex items-center gap-1 bg-amber-100 text-amber-700 text-[9px] font-bold px-1.5 py-0.5 rounded-full">
+                        <CalendarClock size={9} /> Rescheduled
+                      </span>
                     )}
                   </div>
                   <div className="pt-1">{getStatusIcon(mapToUIStatus(order.status))}</div>

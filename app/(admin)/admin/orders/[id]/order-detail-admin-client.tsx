@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useTransition } from "react";
+import React, { useState, useTransition, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronLeft, MessageCircle, X, Trash2, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
@@ -14,11 +14,13 @@ import {
   adminDeliverOrderAction,
   adminReviveOrderAction,
   adminAddOrderItemsAction,
+  adminResolveUpsellPriceAction,
   adminRemoveOrderItemAction,
   adminApplyOrderDiscountAction,
   adminReassignOrderAgentAction,
   adminUpdateOrderNotesAction,
 } from "@/modules/orders/actions/admin-orders.action";
+import { useUpsellPreview } from "@/lib/orders/use-upsell-preview";
 
 export type SerializedOrder = {
   id: string;
@@ -61,6 +63,8 @@ export type SerializedOrder = {
     unitPrice: string;
     lineTotal: string;
     isUpsell: boolean;
+    upsellQuantity: number;
+    upsellAmount: string;
     product: { id: string; name: string; imageUrl: string | null };
   }>;
   salesRep: { id: string; name: string };
@@ -178,9 +182,18 @@ export function AdminOrderDetailClient({
   const [discountReason, setDiscountReason] = useState(order.discountReason ?? "");
   const [prescription, setPrescription] = useState(order.notes ?? "");
   const [deliveryDate, setDeliveryDate] = useState("");
+  const rowIdRef = useRef(1);
   const [productRows, setProductRows] = useState([
-    { id: Date.now(), productId: products[0]?.id ?? "", qty: "1" },
+    { id: 0, productId: products[0]?.id ?? "", qty: "1", unitPrice: "" },
   ]);
+
+  // Live, merge-aware price preview per row (shared hook; admin resolver action).
+  const { previews } = useUpsellPreview(
+    order.id,
+    isAddProductOpen,
+    productRows,
+    adminResolveUpsellPriceAction,
+  );
 
   const steps = getStepState(order.status);
   const badge = STATUS_BADGE[order.status];
@@ -201,7 +214,7 @@ export function AdminOrderDetailClient({
   function addRow() {
     setProductRows([
       ...productRows,
-      { id: Date.now(), productId: products[0]?.id ?? "", qty: "1" },
+      { id: rowIdRef.current++, productId: products[0]?.id ?? "", qty: "1", unitPrice: "" },
     ]);
   }
 
@@ -210,7 +223,11 @@ export function AdminOrderDetailClient({
       setProductRows(productRows.filter((r) => r.id !== id));
   }
 
-  function updateRow(id: number, field: "productId" | "qty", value: string) {
+  function updateRow(
+    id: number,
+    field: "productId" | "qty" | "unitPrice",
+    value: string,
+  ) {
     setProductRows(
       productRows.map((r) => (r.id === id ? { ...r, [field]: value } : r))
     );
@@ -247,17 +264,43 @@ export function AdminOrderDetailClient({
   }
 
   function handleAddProducts() {
+    const activeRows = productRows.filter((r) => r.productId);
+
+    // Guardrail: a unit price (> ₦0) is required for any row whose merged
+    // quantity has no exact package (resolver flagged requiresUnitPrice).
+    const missingUnitPrice = activeRows.some((r) => {
+      const pv = previews[r.id];
+      return pv?.requiresUnitPrice && !(parseFloat(r.unitPrice) > 0);
+    });
+    if (missingUnitPrice) {
+      toast.error(
+        "Enter a unit price greater than ₦0 for products with no matching package.",
+      );
+      return;
+    }
+
     handleAction(async () => {
-      const items = productRows
-        .filter((r) => r.productId)
-        .map((r) => ({ productId: r.productId, quantity: parseInt(r.qty) || 1 }));
-      await adminAddOrderItemsAction(order.id, items);
-      const added = productRows
-        .filter((r) => r.productId)
-        .reduce((sum, r) => {
-          const price = Number(products.find((p) => p.id === r.productId)?.sellingPrice ?? 0);
-          return sum + price * (parseInt(r.qty) || 1);
-        }, 0);
+      const items = activeRows.map((r) => {
+        const typed = parseFloat(r.unitPrice);
+        return {
+          productId: r.productId,
+          quantity: parseInt(r.qty) || 1,
+          ...(typed > 0 ? { unitPrice: typed } : {}),
+        };
+      });
+      const res = await adminAddOrderItemsAction(order.id, items);
+      if (res && "error" in res && res.error) return res; // surface error
+      // Bump the negotiated-price input by the true gross increase (new merged
+      // line total − the product's existing line total) so any discount stays
+      // intact. Uses the live preview totals the admin already saw.
+      const added = activeRows.reduce((sum, r) => {
+        const pv = previews[r.id];
+        if (!pv) return sum;
+        const oldProductTotal = order.items
+          .filter((i) => i.product.id === r.productId)
+          .reduce((s, i) => s + Number(i.lineTotal), 0);
+        return sum + Math.max(0, pv.lineTotal - oldProductTotal);
+      }, 0);
       setPriceInput(String(Number(priceInput) + added));
       setIsAddProductOpen(false);
     }, "Products added to order");
@@ -375,62 +418,101 @@ export function AdminOrderDetailClient({
               {/* Products */}
               <div className="flex flex-col gap-4">
                 {order.items.map((item) => (
-                  <div
-                    key={item.id}
-                    className={`p-6 rounded-2xl flex justify-between items-center border ${
-                      item.isUpsell
-                        ? "bg-purple-50 border-purple-200"
-                        : "bg-slate-50 border-slate-100"
-                    }`}
-                  >
-                    <div>
-                      <p className="text-[0.7rem] font-bold uppercase mb-1 flex items-center gap-2">
-                        <span className="text-slate-400">
-                          {item.isUpsell ? "Upsold Product" : "Product(s)"}
-                        </span>
-                        {item.isUpsell && (
-                          <span className="bg-purple-600 text-white px-2 py-0.5 rounded-full text-[0.6rem] tracking-wide">
-                            UPSELL
+                  <React.Fragment key={item.id}>
+                    <div
+                      className={`p-6 rounded-2xl flex justify-between items-center border ${
+                        item.isUpsell
+                          ? "bg-purple-50 border-purple-200"
+                          : "bg-slate-50 border-slate-100"
+                      }`}
+                    >
+                      <div>
+                        <p className="text-[0.7rem] font-bold uppercase mb-1 flex items-center gap-2">
+                          <span className="text-slate-400">
+                            {item.isUpsell ? "Upsold Product" : "Product(s)"}
                           </span>
-                        )}
-                      </p>
-                      <p className="text-xl font-bold text-slate-700">
-                        {item.product.name}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-4">
-                      <div className="text-right">
-                        <p className="text-[0.7rem] font-bold text-slate-400 uppercase mb-1">
-                          Quantity
+                          {item.isUpsell && (
+                            <span className="bg-purple-600 text-white px-2 py-0.5 rounded-full text-[0.6rem] tracking-wide">
+                              UPSELL
+                            </span>
+                          )}
                         </p>
-                        <p className="text-2xl font-bold text-slate-700">
-                          {item.quantity}
+                        <p className="text-xl font-bold text-slate-700">
+                          {item.product.name}
                         </p>
                       </div>
-                      {order.status === "PENDING" && order.items.length > 1 && (
-                        <button
-                          type="button"
-                          disabled={isPending}
-                          title="Remove product"
-                          onClick={() => {
-                            if (confirm(`Remove ${item.product.name} from this order?`)) {
-                              handleAction(
-                                () => adminRemoveOrderItemAction(order.id, item.id),
-                                "Product removed",
-                              );
-                            }
-                          }}
-                          className="shrink-0 p-2 rounded-lg border border-red-100 text-red-500 hover:bg-red-50 disabled:opacity-50 transition"
-                        >
-                          <Trash2 className="w-5 h-5" />
-                        </button>
-                      )}
+                      <div className="flex items-center gap-4">
+                        <div className="text-right">
+                          <p className="text-[0.7rem] font-bold text-slate-400 uppercase mb-1">
+                            Quantity
+                          </p>
+                          <p className="text-2xl font-bold text-slate-700">
+                            {!item.isUpsell && item.upsellQuantity > 0
+                              ? item.quantity - item.upsellQuantity
+                              : item.quantity}
+                          </p>
+                        </div>
+                        {order.status === "PENDING" && order.items.length > 1 && (
+                          <button
+                            type="button"
+                            disabled={isPending}
+                            title="Remove product"
+                            onClick={() => {
+                              if (confirm(`Remove ${item.product.name} from this order?`)) {
+                                handleAction(
+                                  () => adminRemoveOrderItemAction(order.id, item.id),
+                                  "Product removed",
+                                );
+                              }
+                            }}
+                            className="shrink-0 p-2 rounded-lg border border-red-100 text-red-500 hover:bg-red-50 disabled:opacity-50 transition"
+                          >
+                            <Trash2 className="w-5 h-5" />
+                          </button>
+                        )}
+                      </div>
                     </div>
-                  </div>
+
+                    {/* Separate "Upsold" card for a merged line — the rep-added
+                        portion (units + amount), distinct from the original order. */}
+                    {!item.isUpsell && item.upsellQuantity > 0 && (
+                      <div className="p-6 rounded-2xl flex justify-between items-center bg-purple-50 border border-purple-200">
+                        <div>
+                          <p className="text-[0.7rem] font-bold uppercase mb-1 flex items-center gap-2">
+                            <span className="text-purple-500">Upsold</span>
+                            <span className="bg-purple-600 text-white px-2 py-0.5 rounded-full text-[0.6rem] tracking-wide">
+                              UPSELL
+                            </span>
+                          </p>
+                          <p className="text-xl font-bold text-slate-700">
+                            {item.product.name}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-6">
+                          <div className="text-right">
+                            <p className="text-[0.7rem] font-bold text-purple-500 uppercase mb-1">
+                              Quantity
+                            </p>
+                            <p className="text-2xl font-bold text-slate-700">
+                              {item.upsellQuantity}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-[0.7rem] font-bold text-purple-500 uppercase mb-1">
+                              Amount
+                            </p>
+                            <p className="text-2xl font-bold text-slate-700">
+                              ₦{Number(item.upsellAmount).toLocaleString("en-NG")}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </React.Fragment>
                 ))}
               </div>
 
-              {order.status === "PENDING" && (
+              {(order.status === "PENDING" || order.status === "CONFIRMED") && (
                 <button
                   onClick={() => setIsAddProductOpen(true)}
                   className="w-full mt-4 bg-purple-100 border border-purple-200 px-4 py-3 rounded-lg text-purple-600 font-semibold text-sm hover:bg-purple-50 transition flex items-center justify-center gap-2"
@@ -901,6 +983,7 @@ export function AdminOrderDetailClient({
             <div className="space-y-4 mb-8 max-h-[350px] overflow-y-auto pr-2">
               {productRows.map((row) => {
                 const selectedProduct = products.find((p) => p.id === row.productId);
+                const preview = previews[row.id];
                 return (
                   <div key={row.id} className="flex gap-3 items-center group">
                     <div className="flex-1 bg-slate-50 rounded-2xl p-4 flex flex-col gap-3 border border-slate-100">
@@ -912,7 +995,7 @@ export function AdminOrderDetailClient({
                         <option value="" disabled>Select Product</option>
                         {products.map((p) => (
                           <option key={p.id} value={p.id}>
-                            {p.name} — ₦{Number(p.sellingPrice).toLocaleString("en-NG")}
+                            {p.name}
                           </option>
                         ))}
                       </select>
@@ -921,9 +1004,6 @@ export function AdminOrderDetailClient({
                         <div className="flex flex-col min-w-0">
                           <span className="text-sm font-bold text-slate-800 truncate">
                             {selectedProduct?.name ?? "—"}
-                          </span>
-                          <span className="text-xs text-purple-600 font-semibold">
-                            ₦{selectedProduct ? Number(selectedProduct.sellingPrice).toLocaleString("en-NG") : "0"}
                           </span>
                         </div>
                         <div className="flex items-center justify-between bg-white rounded-xl h-[44px] px-2 shadow-sm border border-slate-100 shrink-0 w-[130px]">
@@ -943,6 +1023,48 @@ export function AdminOrderDetailClient({
                             +
                           </button>
                         </div>
+                      </div>
+
+                      {/* Manual unit price — only when the merged quantity has no
+                          exact package (resolver flagged requiresUnitPrice). */}
+                      {preview?.requiresUnitPrice && (
+                        <div className="flex flex-col gap-1">
+                          <input
+                            type="number"
+                            min="1"
+                            inputMode="decimal"
+                            value={row.unitPrice}
+                            onChange={(e) => updateRow(row.id, "unitPrice", e.target.value)}
+                            placeholder="Enter price of 1 unit (₦)"
+                            className="w-full h-[44px] bg-white border border-amber-300 rounded-xl px-4 text-sm font-semibold text-slate-800 outline-none focus:border-amber-400"
+                          />
+                          <span className="text-[11px] text-amber-600 font-medium">
+                            Qty {preview.mergedQty} has no set package — enter the current price of 1 unit.
+                          </span>
+                        </div>
+                      )}
+
+                      {/* Live, merge-aware price preview */}
+                      <div className="flex items-center justify-between text-sm border-t border-slate-100 pt-2">
+                        <span className="text-slate-500 font-medium">
+                          {(() => {
+                            const picked = parseInt(row.qty) || 1;
+                            if (preview && preview.mergedQty !== picked) {
+                              const existing = preview.mergedQty - picked;
+                              return `Total for ${preview.mergedQty} (${existing} already on order + ${picked} new)`;
+                            }
+                            return "Total";
+                          })()}
+                        </span>
+                        <span className="font-black text-slate-800">
+                          {!row.productId
+                            ? "—"
+                            : preview?.loading
+                              ? "…"
+                              : preview
+                                ? fmtNaira(preview.lineTotal)
+                                : "—"}
+                        </span>
                       </div>
                     </div>
                     {productRows.length > 1 && (

@@ -10,6 +10,7 @@ import {
   MapPin,
   Pencil,
   X,
+  AlertTriangle,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
@@ -68,6 +69,10 @@ export function InventoryClient({ productList, productBreakdown, locationView }:
   const [activeTab, setActiveTab] = useState<'product' | 'location'>('product');
   const mainTableData = (productList && productList.length > 0) ? productList : fallbackMainTableData;
   const cards = productBreakdown ?? [];
+
+  // Products created without a cost price (Inventory Manager's form no longer
+  // collects it) sit at 0 until an Accountant/Admin sets the real value here.
+  const rowsNeedingCost = mainTableData.filter((r) => r.id && (r.costValue == null || r.costValue === 0));
 
   // Cost-price editing (accountants / admins). Editing is forward-looking only:
   // past orders keep the cost snapshotted at sale time; this updates future
@@ -145,6 +150,17 @@ export function InventoryClient({ productList, productBreakdown, locationView }:
         </div>
       </div>
 
+      {activeTab === 'product' && rowsNeedingCost.length > 0 && (
+        <div className="flex items-center gap-3 mb-6 px-5 py-3.5 rounded-xl bg-amber-50 border border-amber-200">
+          <AlertTriangle size={18} className="text-amber-500 flex-shrink-0" />
+          <p className="text-[13px] text-amber-800">
+            <span className="font-bold">{rowsNeedingCost.length} product{rowsNeedingCost.length !== 1 ? 's' : ''}</span>{' '}
+            {rowsNeedingCost.length !== 1 ? 'have' : 'has'} no cost price set — inventory valuation and margins for{' '}
+            {rowsNeedingCost.length !== 1 ? 'them' : 'it'} will read as ₦0 until you set {rowsNeedingCost.length !== 1 ? 'them' : 'it'} below.
+          </p>
+        </div>
+      )}
+
       {activeTab === 'product' ? (
         <>
           {/* Main Table Container */}
@@ -162,8 +178,10 @@ export function InventoryClient({ productList, productBreakdown, locationView }:
                 </tr>
               </thead>
               <tbody>
-                {mainTableData.map((row, idx) => (
-                  <tr key={idx} className={`${idx % 2 === 1 ? 'bg-[#F9FAFB]' : 'bg-white'}`}>
+                {mainTableData.map((row, idx) => {
+                  const needsCost = !!row.id && (row.costValue == null || row.costValue === 0);
+                  return (
+                  <tr key={idx} className={`${needsCost ? 'bg-amber-50/60' : idx % 2 === 1 ? 'bg-[#F9FAFB]' : 'bg-white'}`}>
                     <td className="px-8 py-[22px] text-[14px] text-gray-500">{row.name}</td>
                     <td className="px-8 py-[22px] text-[14px] text-gray-500">
                       <div className="flex items-center gap-2 group">
@@ -177,6 +195,15 @@ export function InventoryClient({ productList, productBreakdown, locationView }:
                             <Pencil size={14} />
                           </button>
                         )}
+                        {needsCost && (
+                          <button
+                            onClick={() => openCostEditor(row)}
+                            className="flex items-center gap-1 text-[10px] font-bold text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full hover:bg-amber-200 transition-colors"
+                          >
+                            <AlertTriangle size={10} />
+                            Needs Cost Price
+                          </button>
+                        )}
                       </div>
                     </td>
                     <td className="px-8 py-[22px] text-[14px] text-gray-500">{row.selling}</td>
@@ -185,7 +212,8 @@ export function InventoryClient({ productList, productBreakdown, locationView }:
                     <td className="px-8 py-[22px] text-[14px] text-gray-500">{row.agents}</td>
                     <td className="px-8 py-[22px] text-[14px] text-gray-500">{row.value}</td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

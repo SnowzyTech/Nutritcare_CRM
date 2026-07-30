@@ -11,8 +11,8 @@ import {
   User,
   UserCircle2,
   Bell,
-  Settings,
   LogOut,
+  Receipt,
 } from "lucide-react";
 
 interface SidebarClientProps {
@@ -34,6 +34,7 @@ export function DeliveryAgentSidebarClient({ user, pendingCount, unreadNotificat
     { label: "Chat", icon: MessageCircle, href: "/chat" },
     { label: "Inventory", icon: Package, href: "/delivery-agents/inventory" },
     { label: "Account", icon: User, href: "/delivery-agents/account" },
+    { label: "Remittances", icon: Receipt, href: "/delivery-agents/remittances" },
     { label: "Profile", icon: UserCircle2, href: "/delivery-agents/profile" },
   ];
 
@@ -88,10 +89,6 @@ export function DeliveryAgentSidebarClient({ user, pendingCount, unreadNotificat
         </nav>
 
         <div className="p-4 mt-auto space-y-2">
-          <button className="flex items-center gap-3 px-4 py-3 text-gray-500 hover:text-gray-700 w-full transition-colors font-medium text-sm rounded-xl hover:bg-gray-50">
-            <Settings className="w-5 h-5" />
-            Settings
-          </button>
           <button
             onClick={() => signOut({ callbackUrl: "/login" })}
             className="flex items-center gap-3 px-4 py-3 text-red-500 hover:text-red-700 w-full transition-colors font-bold text-sm rounded-xl hover:bg-red-50"
@@ -103,14 +100,14 @@ export function DeliveryAgentSidebarClient({ user, pendingCount, unreadNotificat
       </aside>
 
       {/* Mobile Bottom Navigation */}
-      <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t flex items-center justify-around py-3 px-2 shadow-[0_-4px_10px_rgba(0,0,0,0.02)] z-50">
+      <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t flex items-center justify-around py-3 px-1 shadow-[0_-4px_10px_rgba(0,0,0,0.02)] z-50">
         {navItems.map((item) => {
           const isActive = pathname === item.href;
           return (
             <Link
               key={item.label}
               href={item.href}
-              className={`flex flex-col items-center gap-1 min-w-[64px] relative transition-all ${
+              className={`flex flex-col items-center gap-1 flex-1 min-w-0 relative transition-all ${
                 isActive ? "text-[#ad1df4]" : "text-gray-400"
               }`}
             >
@@ -122,7 +119,7 @@ export function DeliveryAgentSidebarClient({ user, pendingCount, unreadNotificat
                   </span>
                 ) : null}
               </div>
-              <span className={`text-[10px] font-bold ${isActive ? "opacity-100" : "opacity-70"}`}>
+              <span className={`text-[9px] font-bold truncate max-w-full ${isActive ? "opacity-100" : "opacity-70"}`}>
                 {item.label}
               </span>
             </Link>

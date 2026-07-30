@@ -15,6 +15,7 @@ import {
   SelectTrigger,
 } from "@/components/ui/select";
 import type { OrderStatus } from "@prisma/client";
+import { upsellExtraCount } from "@/lib/orders/upsell";
 
 const nigerianStates = [
   "Abia State",
@@ -64,7 +65,7 @@ export type AdminOrderListItem = {
   updatedAt: string;
   customer: { name: string; email: string | null; state: string };
   agent: { companyName: string; state: string | null } | null;
-  items: Array<{ quantity: number; product: { name: string } }>;
+  items: Array<{ quantity: number; upsellQuantity: number; isUpsell: boolean; product: { name: string } }>;
   salesRep: { name: string };
   team?: { id: string; name: string } | null;
 };
@@ -444,8 +445,16 @@ export function AdminOrdersClient({
                   </span>
 
                   {/* Product */}
-                  <span className="text-sm font-medium text-gray-700">
-                    {firstItem?.product.name ?? "—"}
+                  <span className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
+                    <span className="truncate">{firstItem?.product.name ?? "—"}</span>
+                    {upsellExtraCount(order.items) > 0 && (
+                      <span
+                        title={order.items.map((i) => i.product.name).join(", ")}
+                        className="shrink-0 inline-flex items-center bg-purple-100 text-[#532194] text-[10px] font-bold px-1.5 py-0.5 rounded-full"
+                      >
+                        +{upsellExtraCount(order.items)}
+                      </span>
+                    )}
                   </span>
 
                   {/* Quantity */}

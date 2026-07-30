@@ -5,6 +5,7 @@ import { auth } from "@/lib/auth/auth";
 import { prisma } from "@/lib/db/prisma";
 import { recordDeliveryFeeEntry } from "@/modules/finance/services/agent-settlement.service";
 import { logActivity } from "@/modules/audit/services/audit-log.service";
+import { suppressCameraForRequest } from "@/lib/audit/context";
 import { sendOrderDeliveredTemplate } from "@/lib/whatsapp/whatsapp";
 import {
   getSalesRepAnalyticsForUI,
@@ -12,6 +13,8 @@ import {
   getCompanyAnalytics,
   hardDeleteOrder,
 } from "@/modules/data-analysis/services/data-analysis.service";
+import { isUserTeamLead } from "@/modules/users/services/users.service";
+import { reassignAgentForOrder } from "@/modules/orders/services/reassign-agent.service";
 import type {
   RepAnalyticsData,
   TeamAnalyticsEntry,
@@ -80,9 +83,21 @@ export async function deleteOrderPermanently(
   orderNumber: string
 ): Promise<{ success: boolean; error?: string }> {
   const session = await auth();
+  suppressCameraForRequest();
   const result = await hardDeleteOrder(orderNumber, session?.user?.id);
 
   if (result.success) {
+    if (session?.user?.id) {
+      await logActivity({
+        userId: session.user.id,
+        actorName: session.user.name,
+        actorRole: session.user.role,
+        action: "Deleted",
+        entityType: "Order",
+        entityId: orderNumber,
+        description: `Permanently deleted order #${orderNumber}`,
+      });
+    }
     revalidatePath("/data/order");
     revalidatePath("/data");
     revalidatePath("/data/history");
@@ -111,6 +126,10 @@ export async function markOrderDeliveredByAnalyst(
   const session = await auth();
   if (!session?.user?.id) return { success: false, error: "Unauthorized" };
   if (session.user.role !== "DATA_ANALYST") return { success: false, error: "Forbidden" };
+  if (!(await isUserTeamLead(session.user.id))) {
+    return { success: false, error: "Only the Data Analyst team lead can finalize orders" };
+  }
+  suppressCameraForRequest();
 
   const order = await prisma.order.findFirst({
     where: { id: orderId, deletedAt: null },
@@ -156,9 +175,11 @@ export async function markOrderDeliveredByAnalyst(
     });
   }
 
-  // Log against the order's sales rep so it surfaces in their History page
+  // Log against the order's sales rep for their History page; show the analyst as actor.
   await logActivity({
     userId: order.salesRepId,
+    actorName: session.user.name,
+    actorRole: session.user.role,
     action: "Delivered",
     entityType: "Order",
     entityId: orderId,
@@ -198,6 +219,10 @@ export async function markOrderFailedByAnalyst(
   const session = await auth();
   if (!session?.user?.id) return { success: false, error: "Unauthorized" };
   if (session.user.role !== "DATA_ANALYST") return { success: false, error: "Forbidden" };
+  if (!(await isUserTeamLead(session.user.id))) {
+    return { success: false, error: "Only the Data Analyst team lead can finalize orders" };
+  }
+  suppressCameraForRequest();
 
   const reason = failureReason.trim();
   if (!reason) return { success: false, error: "A failure reason is required" };
@@ -219,9 +244,11 @@ export async function markOrderFailedByAnalyst(
     }),
   ]);
 
-  // Log against the order's sales rep so it surfaces in their History page
+  // Log against the order's sales rep for their History page; show the analyst as actor.
   await logActivity({
     userId: order.salesRepId,
+    actorName: session.user.name,
+    actorRole: session.user.role,
     action: "Failed",
     entityType: "Order",
     entityId: orderId,
@@ -230,6 +257,51 @@ export async function markOrderFailedByAnalyst(
 
   revalidatePath("/data/order");
   revalidatePath(`/data/order/${order.orderNumber}`);
+  revalidatePath("/data");
+  return { success: true };
+}
+
+/**
+ * Data analyst (team lead only) reassigns an order to a different delivery agent
+ * — the same authority admins have. Works on CONFIRMED or FAILED orders; a FAILED
+ * order is revived to CONFIRMED. The target agent must hold enough available stock.
+ */
+export async function reassignOrderAgentByAnalyst(
+  orderId: string,
+  agentId: string
+): Promise<{ success: boolean; error?: string }> {
+  const session = await auth();
+  if (!session?.user?.id) return { success: false, error: "Unauthorized" };
+  if (session.user.role !== "DATA_ANALYST") return { success: false, error: "Forbidden" };
+  if (!(await isUserTeamLead(session.user.id))) {
+    return { success: false, error: "Only the Data Analyst team lead can reassign orders" };
+  }
+  suppressCameraForRequest();
+
+  const result = await reassignAgentForOrder(orderId, agentId, { verifyStock: true });
+  if (!result.ok) {
+    return {
+      success: false,
+      error:
+        result.reason === "no_stock"
+          ? "The selected agent doesn't have enough available stock to take this order. Please choose another agent."
+          : "This order can no longer be reassigned.",
+    };
+  }
+
+  // Log against the order's sales rep for their History page; show the analyst as actor.
+  await logActivity({
+    userId: result.order.salesRepId,
+    actorName: session.user.name,
+    actorRole: session.user.role,
+    action: "Reassigned",
+    entityType: "Order",
+    entityId: orderId,
+    description: `Order #${result.order.orderNumber} reassigned to a different delivery agent`,
+  });
+
+  revalidatePath("/data/order");
+  revalidatePath(`/data/order/${result.order.orderNumber}`);
   revalidatePath("/data");
   return { success: true };
 }

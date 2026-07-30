@@ -3,10 +3,11 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useMemo, useState } from "react";
-import { ArrowLeft, AtSign, Search } from "lucide-react";
-import { getInitials } from "@/lib/utils";
+import { ArrowLeft, AtSign, Search, SquarePen } from "lucide-react";
 import type { ConversationListItem } from "@/modules/chat/services/conversations.service";
 import { ChatStoreProvider, useChatStore } from "./chat-store";
+import { ChatAvatar } from "./chat-people";
+import { NewChatPanel } from "./new-chat-panel";
 
 function formatListTime(d: Date | string | null): string {
   if (!d) return "";
@@ -47,10 +48,11 @@ function ChatShellInner({
   homeHref: string;
   children: React.ReactNode;
 }) {
-  const { conversations } = useChatStore();
+  const { conversations, isOnline, typingIn } = useChatStore();
   const pathname = usePathname();
   const activeId = pathname.startsWith("/chat/") ? pathname.split("/")[2] : null;
   const [query, setQuery] = useState("");
+  const [newChatOpen, setNewChatOpen] = useState(false);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -64,7 +66,7 @@ function ChatShellInner({
       <aside
         className={`${
           activeId ? "hidden md:flex" : "flex"
-        } w-full shrink-0 flex-col border-r border-gray-100 md:w-80 lg:w-96`}
+        } relative w-full shrink-0 flex-col border-r border-gray-100 md:w-80 lg:w-96`}
       >
         <header className="flex items-center gap-3 px-5 py-4">
           <Link
@@ -74,7 +76,16 @@ function ChatShellInner({
           >
             <ArrowLeft className="h-5 w-5" />
           </Link>
-          <h1 className="text-xl font-bold">Chat</h1>
+          <h1 className="flex-1 text-xl font-bold">Chat</h1>
+          <button
+            type="button"
+            onClick={() => setNewChatOpen(true)}
+            aria-label="New message"
+            title="New message"
+            className="rounded-full p-2 text-purple-600 transition-colors hover:bg-purple-50"
+          >
+            <SquarePen className="h-5 w-5" />
+          </button>
         </header>
 
         <div className="px-4 pb-3">
@@ -83,7 +94,7 @@ function ChatShellInner({
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="search the agent"
+              placeholder="Search people or groups"
               className="w-full bg-transparent text-sm outline-none placeholder:text-gray-400"
             />
           </div>
@@ -95,6 +106,7 @@ function ChatShellInner({
           )}
           {filtered.map((c) => {
             const isActive = c.id === activeId;
+            const isTyping = typingIn(c.id).length > 0;
             return (
               <Link
                 key={c.id}
@@ -103,9 +115,12 @@ function ChatShellInner({
                   isActive ? "bg-purple-50" : "hover:bg-gray-50"
                 }`}
               >
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-purple-100 text-sm font-semibold text-purple-700">
-                  {getInitials(c.title)}
-                </div>
+                <ChatAvatar
+                  name={c.title}
+                  avatarUrl={c.agentAvatar}
+                  online={isOnline(c.peer?.id)}
+                  showPresence={c.type === "DIRECT"}
+                />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between gap-2">
                     <span className="truncate text-sm font-semibold text-gray-900">
@@ -116,10 +131,16 @@ function ChatShellInner({
                     </span>
                   </div>
                   <div className="flex items-center justify-between gap-2">
-                    <span className="truncate text-xs text-gray-500">
-                      {c.lastMessageSender ? `${c.lastMessageSender}: ` : ""}
-                      {c.lastMessagePreview ?? "No messages yet"}
-                    </span>
+                    {isTyping ? (
+                      <span className="truncate text-xs font-medium text-purple-600">
+                        typing…
+                      </span>
+                    ) : (
+                      <span className="truncate text-xs text-gray-500">
+                        {c.lastMessageSender ? `${c.lastMessageSender}: ` : ""}
+                        {c.lastMessagePreview ?? "No messages yet"}
+                      </span>
+                    )}
                     <span className="flex shrink-0 items-center gap-1">
                       {c.hasUnreadMention && (
                         <AtSign className="h-3.5 w-3.5 text-purple-600" />
@@ -136,6 +157,8 @@ function ChatShellInner({
             );
           })}
         </nav>
+
+        {newChatOpen && <NewChatPanel onClose={() => setNewChatOpen(false)} />}
       </aside>
 
       {/* Thread pane */}

@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { getSalesRepById } from "@/modules/users/services/users.service";
 import { getSalesRepOrders } from "@/modules/orders/services/orders.service";
+import { upsellExtraCount } from "@/lib/orders/upsell";
 import { getActiveProducts } from "@/modules/orders/services/products.service";
 import { OrdersClient, type OrderListItem } from "./orders-client";
 
@@ -32,7 +33,9 @@ export default async function RepOrdersPage({
     qty: o.items.reduce((sum, i) => sum + i.quantity, 0),
     isReorder: o.isReorder,
     itemNames: o.items.map(i => i.product.name),
+    extraCount: upsellExtraCount(o.items),
     date: o.createdAt.toISOString().split("T")[0],
+    deliveryFee: Number(o.deliveryFee),
   }));
 
   const counts = {

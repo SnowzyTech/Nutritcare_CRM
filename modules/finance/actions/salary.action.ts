@@ -4,6 +4,8 @@ import { auth } from "@/lib/auth/auth";
 import { prisma } from "@/lib/db/prisma";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { logActivity } from "@/modules/audit/services/audit-log.service";
+import { suppressCameraForRequest } from "@/lib/audit/context";
 
 const money = z.coerce.number().min(0).default(0);
 
@@ -43,6 +45,7 @@ const createSalarySchema = z.object({
 export async function createSalaryRecordsAction(input: z.infer<typeof createSalarySchema>) {
   const session = await auth();
   if (!session?.user?.id) return { error: "Unauthorized" };
+  suppressCameraForRequest();
 
   const dbUser = await prisma.user.findUnique({
     where: { id: session.user.id },
@@ -104,6 +107,14 @@ export async function createSalaryRecordsAction(input: z.infer<typeof createSala
     }
     const created = await tx.salaryRecord.createMany({ data: rowData });
     return created.count;
+  });
+
+  await logActivity({
+    userId: session.user.id,
+    action: "Created",
+    entityType: "SalaryRecord",
+    entityId: data.month ?? "payroll",
+    description: `Payroll ${data.month ? `for ${data.month} ` : ""}saved (${count} staff)`,
   });
 
   revalidatePath("/accounting/salary");

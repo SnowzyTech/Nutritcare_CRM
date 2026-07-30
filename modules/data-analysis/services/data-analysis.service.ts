@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db/prisma";
-import { OrderStatus } from "@prisma/client";
+import { OrderStatus, Prisma } from "@prisma/client";
 import { generalPerformanceScore, kpiScore } from "@/lib/performance";
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
@@ -119,6 +119,8 @@ export type OrderRow = {
   date: string;
   status: OrderDisplayStatus;
   statusDate: string | null;  // Date when status changed (null for PENDING)
+  formId: string | null;      // set when the order came from a media buyer's form
+  formName: string | null;
 };
 
 export type OrderDetailFull = {
@@ -635,9 +637,16 @@ export async function getSalesRepsList(): Promise<SalesRepItem[]> {
   }));
 }
 
-export async function getAllOrders(): Promise<OrderRow[]> {
+/**
+ * Order rows for the analyst tables. `where` is merged on top of the
+ * always-applied soft-delete filter, so callers can scope to a subset (e.g. the
+ * orders attributed to one media buyer's forms) and reuse this mapping.
+ */
+export async function getOrderRows(
+  where: Prisma.OrderWhereInput = {}
+): Promise<OrderRow[]> {
   const orders = await prisma.order.findMany({
-    where: { deletedAt: null },
+    where: { deletedAt: null, ...where },
     orderBy: { createdAt: "desc" },
     select: {
       id: true,
@@ -646,6 +655,8 @@ export async function getAllOrders(): Promise<OrderRow[]> {
       isReorder: true,
       createdAt: true,
       updatedAt: true,
+      formId: true,
+      form: { select: { name: true } },
       customer: { select: { name: true, email: true, state: true } },
       agent: { select: { id: true, companyName: true, state: true } },
       salesRep: { select: { id: true, name: true, team: { select: { id: true, name: true } } } },
@@ -678,7 +689,13 @@ export async function getAllOrders(): Promise<OrderRow[]> {
     date: fmtDate(o.createdAt),
     status: STATUS_MAP[o.status] ?? "Pending",
     statusDate: o.status === "PENDING" ? null : fmtDate(o.updatedAt),
+    formId: o.formId,
+    formName: o.form?.name ?? null,
   }));
+}
+
+export async function getAllOrders(): Promise<OrderRow[]> {
+  return getOrderRows();
 }
 
 export async function getOrderByOrderNumber(orderNumber: string): Promise<OrderDetailFull | null> {
@@ -887,49 +904,7 @@ export async function getSalesRepProfile(userId: string): Promise<SalesRepProfil
 }
 
 export async function getSalesRepOrders(salesRepId: string): Promise<OrderRow[]> {
-  const orders = await prisma.order.findMany({
-    where: { salesRepId, deletedAt: null },
-    orderBy: { createdAt: "desc" },
-    select: {
-      id: true,
-      orderNumber: true,
-      status: true,
-      isReorder: true,
-      createdAt: true,
-      updatedAt: true,
-      customer: { select: { name: true, email: true, state: true } },
-      agent: { select: { id: true, companyName: true, state: true } },
-      salesRep: { select: { id: true, name: true, team: { select: { id: true, name: true } } } },
-      _count: { select: { items: true } },
-      items: {
-        select: {
-          quantity: true,
-          product: { select: { name: true } },
-        },
-        orderBy: { createdAt: "asc" },
-        take: 1,
-      },
-    },
-  });
-
-  return orders.map((o) => ({
-    id: o.orderNumber,
-    gmail: o.customer.email ?? "",
-    name: o.customer.name,
-    agent: o.agent ? { id: o.agent.id, name: o.agent.companyName, state: o.agent.state ?? "" } : null,
-    state: o.customer.state,
-    salesRep: o.salesRep.name,
-    salesRepId: o.salesRep.id,
-    teamId: o.salesRep.team?.id ?? null,
-    teamName: o.salesRep.team?.name ?? null,
-    product: o.items[0]?.product.name ?? "—",
-    itemCount: o._count.items,
-    isReorder: o.isReorder,
-    quantity: o.items[0]?.quantity ?? 0,
-    date: fmtDate(o.createdAt),
-    status: STATUS_MAP[o.status] ?? "Pending",
-    statusDate: o.status === "PENDING" ? null : fmtDate(o.updatedAt),
-  }));
+  return getOrderRows({ salesRepId });
 }
 
 export async function getSalesRepAnalyticsForUI(
@@ -954,7 +929,54 @@ export async function getSalesRepAnalyticsForUI(
   return toRepAnalyticsData(current, last);
 }
 
-export type Period = "week" | "month";
+export type Period = "day" | "week" | "month";
+
+/**
+ * Resolves a Period (+ optional month/year for month mode) into the current
+ * window and the prior window's start (used for trend deltas). Shared by
+ * getTeamsAnalytics and getCompanyAnalytics so they stay in lockstep.
+ *  • day   → today vs yesterday
+ *  • week  → last 7 days vs the prior 7
+ *  • month → calendar month vs the prior month
+ */
+function resolvePeriodWindow(
+  period: Period,
+  month?: number,
+  year?: number,
+): { currentStart: Date; currentEnd: Date; lastStart: Date } {
+  const now = new Date();
+
+  if (period === "day") {
+    const currentStart = new Date(now);
+    currentStart.setHours(0, 0, 0, 0);
+    const currentEnd = new Date(currentStart);
+    currentEnd.setDate(currentStart.getDate() + 1);
+    const lastStart = new Date(currentStart);
+    lastStart.setDate(currentStart.getDate() - 1);
+    return { currentStart, currentEnd, lastStart };
+  }
+
+  if (period === "week") {
+    const currentStart = new Date(now);
+    currentStart.setDate(now.getDate() - 6);
+    currentStart.setHours(0, 0, 0, 0);
+    const currentEnd = new Date(now);
+    currentEnd.setDate(now.getDate() + 1);
+    currentEnd.setHours(0, 0, 0, 0);
+    const lastStart = new Date(now);
+    lastStart.setDate(now.getDate() - 13);
+    lastStart.setHours(0, 0, 0, 0);
+    return { currentStart, currentEnd, lastStart };
+  }
+
+  const m = month ?? now.getMonth();
+  const y = year ?? now.getFullYear();
+  return {
+    currentStart: new Date(y, m, 1),
+    currentEnd: new Date(y, m + 1, 1),
+    lastStart: new Date(y, m - 1, 1),
+  };
+}
 
 export async function getTeamsAnalytics(options?: {
   month?: number;
@@ -971,33 +993,11 @@ export async function getTeamsAnalytics(options?: {
     orderBy: { name: "asc" },
   });
 
-  const now = new Date();
-  const period = options?.period ?? "month";
-
-  let currentStart: Date;
-  let currentEnd: Date;
-  let lastStart: Date;
-
-  if (period === "week") {
-    // Current week: last 7 days
-    currentStart = new Date(now);
-    currentStart.setDate(now.getDate() - 6);
-    currentStart.setHours(0, 0, 0, 0);
-    currentEnd = new Date(now);
-    currentEnd.setDate(now.getDate() + 1);
-    currentEnd.setHours(0, 0, 0, 0);
-    // Last week: 7 days before current week
-    lastStart = new Date(now);
-    lastStart.setDate(now.getDate() - 13);
-    lastStart.setHours(0, 0, 0, 0);
-  } else {
-    // Month mode
-    const month = options?.month ?? now.getMonth();
-    const year = options?.year ?? now.getFullYear();
-    currentStart = new Date(year, month, 1);
-    currentEnd = new Date(year, month + 1, 1);
-    lastStart = new Date(year, month - 1, 1);
-  }
+  const { currentStart, currentEnd, lastStart } = resolvePeriodWindow(
+    options?.period ?? "month",
+    options?.month,
+    options?.year,
+  );
 
   const results: TeamAnalyticsEntry[] = [];
 
@@ -1035,33 +1035,11 @@ export async function getCompanyAnalytics(options?: {
   year?: number;
   period?: Period;
 }): Promise<RepAnalyticsData> {
-  const now = new Date();
-  const period = options?.period ?? "month";
-
-  let currentStart: Date;
-  let currentEnd: Date;
-  let lastStart: Date;
-
-  if (period === "week") {
-    // Current week: last 7 days
-    currentStart = new Date(now);
-    currentStart.setDate(now.getDate() - 6);
-    currentStart.setHours(0, 0, 0, 0);
-    currentEnd = new Date(now);
-    currentEnd.setDate(now.getDate() + 1);
-    currentEnd.setHours(0, 0, 0, 0);
-    // Last week: 7 days before current week
-    lastStart = new Date(now);
-    lastStart.setDate(now.getDate() - 13);
-    lastStart.setHours(0, 0, 0, 0);
-  } else {
-    // Month mode
-    const month = options?.month ?? now.getMonth();
-    const year = options?.year ?? now.getFullYear();
-    currentStart = new Date(year, month, 1);
-    currentEnd = new Date(year, month + 1, 1);
-    lastStart = new Date(year, month - 1, 1);
-  }
+  const { currentStart, currentEnd, lastStart } = resolvePeriodWindow(
+    options?.period ?? "month",
+    options?.month,
+    options?.year,
+  );
 
   // Count all sales reps in the company
   const salesRepCount = await prisma.user.count({
@@ -1076,6 +1054,60 @@ export async function getCompanyAnalytics(options?: {
   const current = computeMetrics(currentOrders);
   const last = lastOrders.length > 0 ? computeMetrics(lastOrders) : null;
   return toRepAnalyticsData(current, last, salesRepCount);
+}
+
+export type ChartPoint = { name: string; value: number };
+
+/** Order volume (any status) for the current week, by weekday — for the
+ *  dashboard's weekday bar chart. */
+export async function getWeeklyOrderVolume(): Promise<ChartPoint[]> {
+  const now = new Date();
+  const from = new Date(now);
+  from.setDate(now.getDate() - 6);
+  from.setHours(0, 0, 0, 0);
+  const to = new Date(now);
+  to.setDate(now.getDate() + 1);
+  to.setHours(0, 0, 0, 0);
+
+  const orders = await prisma.order.findMany({
+    where: { deletedAt: null, createdAt: { gte: from, lt: to } },
+    select: { createdAt: true },
+  });
+
+  // counts[0]=Sun, counts[1]=Mon, ..., counts[6]=Sat
+  const counts = new Array(7).fill(0);
+  for (const order of orders) counts[order.createdAt.getDay()]++;
+
+  return [
+    { name: "Mo", value: counts[1] },
+    { name: "Tu", value: counts[2] },
+    { name: "We", value: counts[3] },
+    { name: "Th", value: counts[4] },
+    { name: "Fr", value: counts[5] },
+    { name: "Sa", value: counts[6] },
+    { name: "Su", value: counts[0] },
+  ];
+}
+
+/** Order volume (any status) per month for the given year — for the
+ *  dashboard's yearly trend line chart. */
+export async function getMonthlyOrderVolume(year: number): Promise<ChartPoint[]> {
+  const yearStart = new Date(year, 0, 1);
+  const yearEnd = new Date(year + 1, 0, 1);
+
+  const orders = await prisma.order.findMany({
+    where: { deletedAt: null, createdAt: { gte: yearStart, lt: yearEnd } },
+    select: { createdAt: true },
+  });
+
+  const monthlyCounts = new Array(12).fill(0);
+  for (const order of orders) monthlyCounts[order.createdAt.getMonth()]++;
+
+  const months = [
+    "JAN", "FEB", "MAR", "APR", "MAY", "JUN",
+    "JUL", "AUG", "SEP", "OCT", "NOV", "DEC",
+  ];
+  return months.map((name, i) => ({ name, value: monthlyCounts[i] }));
 }
 
 export async function getUserActivityHistory(userId: string): Promise<ActivityGroup[]> {

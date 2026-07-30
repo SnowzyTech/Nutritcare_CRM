@@ -17,11 +17,14 @@ export async function getAgentOrders(agentId: string) {
       id: true,
       orderNumber: true,
       status: true,
+      isRescheduled: true,
       createdAt: true,
       customer: { select: { name: true, email: true, phone: true } },
       items: {
         select: {
           quantity: true,
+          upsellQuantity: true,
+          isUpsell: true,
           product: { select: { name: true } },
         },
       },
@@ -65,6 +68,7 @@ export async function getAgentOrderById(orderId: string, agentId: string) {
       id: true,
       orderNumber: true,
       status: true,
+      isRescheduled: true,
       createdAt: true,
       deliveryFee: true,
       netAmount: true,
@@ -224,4 +228,80 @@ export async function getAgentAccountData(agentId: string) {
       lineTotal: Number(i.lineTotal),
     })),
   }));
+}
+
+export type AgentRemittanceEntry = {
+  id: string;
+  referenceId: string;
+  date: string; // YYYY-MM-DD
+  expected: number; // total sales value the agent was expected to remit
+  deliveryFees: number;
+  remitted: number; // what the agent actually paid
+  bank: string | null; // MONIEPOINT | ZENITH | null
+  orderCount: number;
+  underpayment: number; // > 0 → agent still owes the company for this batch
+  overpayment: number; // > 0 → company owes the agent (agent overpaid)
+};
+
+/**
+ * Read-only remittance documentation for the agent's own portal: every
+ * remittance an accountant recorded against this agent, plus the current net
+ * balance. Ledger convention (see settlements.action.ts): a positive running
+ * balance means the agent owes the company; negative means the company owes the
+ * agent. All data is scoped to the agent's own `agentId`.
+ */
+export async function getAgentRemittances(agentId: string): Promise<{
+  netBalance: number;
+  totalRemitted: number;
+  entries: AgentRemittanceEntry[];
+}> {
+  const [settlements, latest] = await Promise.all([
+    prisma.agentSettlement.findMany({
+      where: { agentId },
+      orderBy: { date: "desc" },
+      select: {
+        id: true,
+        date: true,
+        totalSalesValue: true,
+        deliveryFeesEarned: true,
+        totalRemitted: true,
+        overpayment: true,
+        underpayment: true,
+        bank: true,
+        ordersJson: true,
+        ledgerEntries: {
+          where: { referenceType: "REMITTANCE" },
+          select: { referenceId: true },
+          take: 1,
+        },
+      },
+    }),
+    prisma.agentLedgerEntry.findFirst({
+      where: { agentId },
+      orderBy: { createdAt: "desc" },
+      select: { runningBalance: true },
+    }),
+  ]);
+
+  const entries: AgentRemittanceEntry[] = settlements.map((s) => {
+    const orderIds = Array.isArray(s.ordersJson) ? (s.ordersJson as string[]) : [];
+    return {
+      id: s.id,
+      referenceId: s.ledgerEntries[0]?.referenceId ?? "—",
+      date: s.date.toISOString().slice(0, 10),
+      expected: Number(s.totalSalesValue),
+      deliveryFees: Number(s.deliveryFeesEarned),
+      remitted: Number(s.totalRemitted),
+      bank: s.bank,
+      orderCount: orderIds.length,
+      underpayment: Number(s.underpayment),
+      overpayment: Number(s.overpayment),
+    };
+  });
+
+  return {
+    netBalance: Number(latest?.runningBalance ?? 0),
+    totalRemitted: entries.reduce((sum, e) => sum + e.remitted, 0),
+    entries,
+  };
 }

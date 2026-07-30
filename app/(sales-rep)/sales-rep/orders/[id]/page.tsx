@@ -2,8 +2,8 @@ import { auth } from "@/lib/auth/auth";
 import { notFound, redirect } from "next/navigation";
 import { getOrderWithDetails } from "@/modules/orders/services/orders.service";
 import { getActiveProducts } from "@/modules/orders/services/products.service";
-import { getAgentsForReassignment } from "@/modules/delivery/services/agents.service";
 import { OrderDetailClient } from "./order-detail-client";
+import { isAdmin } from "@/lib/auth/role-routes";
 import type { Metadata } from "next";
 
 interface Props {
@@ -21,16 +21,15 @@ export default async function OrderDetailPage({ params }: Props) {
   const session = await auth();
   if (!session?.user?.id) redirect("/login");
 
-  const [rawOrder, rawProducts, rawAgents] = await Promise.all([
+  const [rawOrder, rawProducts] = await Promise.all([
     getOrderWithDetails(id),
     getActiveProducts(),
-    getAgentsForReassignment(),
   ]);
 
   if (!rawOrder) notFound();
 
   // Only the owning sales rep can view this order
-  if (rawOrder.salesRepId !== session.user.id && session.user.role !== "ADMIN") {
+  if (rawOrder.salesRepId !== session.user.id && !isAdmin(session.user.role)) {
     notFound();
   }
 
@@ -40,6 +39,7 @@ export default async function OrderDetailPage({ params }: Props) {
     orderNumber: rawOrder.orderNumber,
     status: rawOrder.status,
     isReorder: rawOrder.isReorder,
+    isRescheduled: rawOrder.isRescheduled,
     totalAmount: rawOrder.totalAmount.toString(),
     netAmount: rawOrder.netAmount.toString(),
     deliveryFee: rawOrder.deliveryFee.toString(),
@@ -80,6 +80,8 @@ export default async function OrderDetailPage({ params }: Props) {
       unitPrice: item.unitPrice.toString(),
       lineTotal: item.lineTotal.toString(),
       isUpsell: item.isUpsell,
+      upsellQuantity: item.upsellQuantity,
+      upsellAmount: item.upsellAmount.toString(),
       product: {
         id: item.product.id,
         name: item.product.name,
@@ -107,14 +109,5 @@ export default async function OrderDetailPage({ params }: Props) {
     sku: p.sku,
   }));
 
-  const agents = rawAgents.map((a) => ({
-    id: a.id,
-    companyName: a.companyName,
-    state: a.state ?? null,
-    phone: a.phone1,
-    activeOrders: a._count.orders,
-    totalDeliveries: a._count.deliveries,
-  }));
-
-  return <OrderDetailClient order={order} products={products} agents={agents} />;
+  return <OrderDetailClient order={order} products={products} />;
 }

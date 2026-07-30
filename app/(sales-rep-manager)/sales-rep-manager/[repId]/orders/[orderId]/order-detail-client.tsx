@@ -1,15 +1,31 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, CheckCircle2, XCircle, X } from "lucide-react";
 import { OrderDetail } from "@/lib/mock-data/sales-rep-manager";
+import { useBasePath, useCanManage } from "../../../_lib/base-path";
+import {
+  markOrderDeliveredByManager,
+  markOrderFailedByManager,
+  reassignOrderAgentByManager,
+} from "@/modules/orders/actions/sales-manager-orders.action";
+
+type AgentReassignOption = {
+  id: string;
+  companyName: string;
+  state: string | null;
+  phone: string;
+  activeOrders: number;
+  totalDeliveries: number;
+};
 
 interface OrderDetailClientProps {
   repId: string;
   repName: string;
   order: OrderDetail;
+  agents: AgentReassignOption[];
 }
 
 // Each step is coloured by the stage it represents: pending stays orange,
@@ -113,10 +129,82 @@ function FieldRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-export function OrderDetailClient({ repName, order }: OrderDetailClientProps) {
+const FAIL_REASONS = [
+  "Customer unavailable at delivery",
+  "Customer refused the order",
+  "Incorrect / incomplete address",
+  "Could not reach customer",
+];
+
+export function OrderDetailClient({ repName, order, agents }: OrderDetailClientProps) {
   const router = useRouter();
+  const base = useBasePath();
+  const canManage = useCanManage();
   const steps = getSteps(order.status);
   const badge = getStatusBadge(order.status);
+
+  // The company sales-manager (only, at /sales-manager) may mark a confirmed
+  // order delivered or failed — the same authority the data analyst has. A
+  // super-admin viewing the dashboard is read-only (canManage=false).
+  const canMark = base === "/sales-manager" && canManage && order.status === "CONFIRMED";
+  // Reassigning the delivery agent is allowed for CONFIRMED or FAILED orders.
+  const canReassign =
+    base === "/sales-manager" &&
+    canManage &&
+    (order.status === "CONFIRMED" || order.status === "FAILED");
+  const [busy, setBusy] = useState<null | "delivered" | "failed">(null);
+  const [error, setError] = useState<string | null>(null);
+  const [showFailModal, setShowFailModal] = useState(false);
+  const [failReason, setFailReason] = useState(""); // a preset reason, or ""
+  const [customFailReason, setCustomFailReason] = useState("");
+  const [isReassignOpen, setIsReassignOpen] = useState(false);
+  const [selectedAgentId, setSelectedAgentId] = useState("");
+  const [reassignBusy, setReassignBusy] = useState(false);
+  const [reassignError, setReassignError] = useState<string | null>(null);
+
+  async function handleDelivered() {
+    setBusy("delivered");
+    setError(null);
+    const res = await markOrderDeliveredByManager(order.orderId);
+    setBusy(null);
+    if (res.success) {
+      router.refresh();
+    } else {
+      setError(res.error ?? "Failed to mark as delivered");
+    }
+  }
+
+  async function handleFailed() {
+    const effectiveReason = customFailReason.trim() || failReason;
+    if (!effectiveReason) {
+      setError("A failure reason is required");
+      return;
+    }
+    setBusy("failed");
+    setError(null);
+    const res = await markOrderFailedByManager(order.orderId, effectiveReason);
+    setBusy(null);
+    if (res.success) {
+      setShowFailModal(false);
+      router.refresh();
+    } else {
+      setError(res.error ?? "Failed to mark as failed");
+    }
+  }
+
+  async function handleReassign() {
+    if (!selectedAgentId) return;
+    setReassignBusy(true);
+    setReassignError(null);
+    const res = await reassignOrderAgentByManager(order.orderId, selectedAgentId);
+    setReassignBusy(false);
+    if (res.success) {
+      setIsReassignOpen(false);
+      router.refresh();
+    } else {
+      setReassignError(res.error ?? "Failed to reassign agent");
+    }
+  }
 
   return (
     <div className="max-w-6xl mx-auto flex flex-col gap-6">
@@ -138,7 +226,7 @@ export function OrderDetailClient({ repName, order }: OrderDetailClientProps) {
       </div>
 
       <div className="flex flex-wrap gap-3 justify-between items-center bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-        <h2 className="text-lg md:text-xl font-bold text-gray-900 break-all">Order ID: {order.orderId}</h2>
+        <h2 className="text-lg md:text-xl font-bold text-gray-900 break-all">Order ID: {order.orderNumber ?? order.orderId}</h2>
         <span className={`${badge.bg} text-white px-5 py-2 rounded-full text-[10px] uppercase font-bold tracking-wider`}>
           {badge.label}
         </span>
@@ -176,32 +264,45 @@ export function OrderDetailClient({ repName, order }: OrderDetailClientProps) {
             </div>
           </div>
           
-          <div className="bg-purple-50 p-4 rounded-xl border border-purple-100 mt-4 mb-8 flex justify-between items-center">
-            <div>
-              <p className="text-[10px] uppercase tracking-wider text-purple-400 font-bold">Product(s)</p>
-              <p className="text-sm font-bold text-purple-900 mt-1">{order.product}</p>
-            </div>
-            <div className="text-right">
-              <p className="text-[10px] uppercase tracking-wider text-purple-400 font-bold">Quantity</p>
-              <p className="text-sm font-bold text-purple-900 mt-1">{order.quantity}</p>
-            </div>
-          </div>
+          <div className="mt-4 mb-8 flex flex-col gap-4">
+            {(order.items ?? []).map((it, i) => (
+              <React.Fragment key={i}>
+                {/* Original (non-upsell) portion of the line */}
+                {!it.isUpsell && (
+                  <div className="bg-purple-50 p-4 rounded-xl border border-purple-100 flex justify-between items-center">
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wider text-purple-400 font-bold">Product(s)</p>
+                      <p className="text-sm font-bold text-purple-900 mt-1">{it.product}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[10px] uppercase tracking-wider text-purple-400 font-bold">Quantity</p>
+                      <p className="text-sm font-bold text-purple-900 mt-1">{it.quantity}</p>
+                    </div>
+                  </div>
+                )}
 
-          {order.upsell && (
-            <div className="mb-8">
-              <h3 className="text-[10px] uppercase tracking-wider text-gray-400 font-bold mb-3">Added Product (Upsold)</h3>
-              <div className="bg-green-50 p-4 rounded-xl border border-green-100 flex justify-between items-center">
-                <div>
-                  <p className="text-[10px] uppercase tracking-wider text-green-600 font-bold">Product</p>
-                  <p className="text-sm font-bold text-green-900 mt-1">{order.upsell.product}</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-[10px] uppercase tracking-wider text-green-600 font-bold">Quantity</p>
-                  <p className="text-sm font-bold text-green-900 mt-1">{order.upsell.quantity}</p>
-                </div>
-              </div>
-            </div>
-          )}
+                {/* Rep-upsold portion (whole-upsell line, or the merged surplus) */}
+                {(it.isUpsell || it.upsellQuantity > 0) && (
+                  <div className="bg-green-50 p-4 rounded-xl border border-green-100 flex justify-between items-center">
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wider text-green-600 font-bold">Added Product (Upsold)</p>
+                      <p className="text-sm font-bold text-green-900 mt-1">{it.product}</p>
+                    </div>
+                    <div className="flex items-center gap-6 text-right">
+                      <div>
+                        <p className="text-[10px] uppercase tracking-wider text-green-600 font-bold">Quantity</p>
+                        <p className="text-sm font-bold text-green-900 mt-1">{it.isUpsell ? it.quantity : it.upsellQuantity}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] uppercase tracking-wider text-green-600 font-bold">Amount</p>
+                        <p className="text-sm font-bold text-green-900 mt-1">{it.upsellAmount}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </React.Fragment>
+            ))}
+          </div>
 
           <div className="mt-auto">
             <h4 className="text-[10px] font-bold text-gray-400 mb-4 uppercase tracking-wider">Order History</h4>
@@ -313,7 +414,26 @@ export function OrderDetailClient({ repName, order }: OrderDetailClientProps) {
                   </div>
                 </div>
               </div>
+              {canReassign && (
+                <button
+                  onClick={() => { setSelectedAgentId(""); setReassignError(null); setIsReassignOpen(true); }}
+                  type="button"
+                  className="w-full bg-purple-100 border border-purple-200 px-4 py-2 rounded-lg text-purple-600 font-semibold text-sm hover:bg-purple-50 transition"
+                >
+                  Reassign Agent
+                </button>
+              )}
             </div>
+          )}
+
+          {canReassign && order.status === "FAILED" && !order.agent && (
+            <button
+              onClick={() => { setSelectedAgentId(""); setReassignError(null); setIsReassignOpen(true); }}
+              type="button"
+              className="w-full bg-purple-100 border border-purple-200 px-4 py-2 rounded-lg text-purple-600 font-semibold text-sm hover:bg-purple-50 transition"
+            >
+              Assign Agent
+            </button>
           )}
 
           {order.status === "DELIVERED" && order.deliveredDate && (
@@ -350,8 +470,172 @@ export function OrderDetailClient({ repName, order }: OrderDetailClientProps) {
               </p>
             </div>
           )}
+
+          {/* Manager actions — mark delivered/failed, below the prescription */}
+          {canMark && (
+            <div className="pt-2 flex flex-col gap-3">
+              {error && !showFailModal && (
+                <p className="text-sm font-semibold text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+                  {error}
+                </p>
+              )}
+              <div className="grid grid-cols-2 gap-4">
+                <button
+                  onClick={() => { setError(null); setFailReason(""); setCustomFailReason(""); setShowFailModal(true); }}
+                  disabled={busy !== null}
+                  type="button"
+                  className="inline-flex items-center justify-center gap-2 bg-red-50 border border-red-200 px-4 py-3 rounded-xl text-red-600 font-bold text-sm hover:bg-red-100 transition disabled:opacity-50"
+                >
+                  <XCircle size={16} /> Fail
+                </button>
+                <button
+                  onClick={handleDelivered}
+                  disabled={busy !== null}
+                  type="button"
+                  className="inline-flex items-center justify-center gap-2 bg-emerald-600 text-white px-4 py-3 rounded-xl font-bold text-sm hover:bg-emerald-700 transition disabled:opacity-50"
+                >
+                  <CheckCircle2 size={16} />
+                  {busy === "delivered" ? "Marking…" : "Delivered"}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
+
+      {/* Mark as Failed modal — preset reasons + optional custom, mirroring the analyst */}
+      {showFailModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            onClick={() => busy === null && setShowFailModal(false)}
+          />
+          <div className="relative bg-white rounded-3xl shadow-2xl w-full max-w-[500px] p-8 flex flex-col gap-5">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xl font-black text-slate-800">Mark as Failed</h3>
+              <button
+                onClick={() => busy === null && setShowFailModal(false)}
+                className="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-200 transition"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <p className="text-sm text-gray-500">Select a reason this delivery failed, or enter your own.</p>
+
+            <div className="flex flex-col gap-3">
+              {FAIL_REASONS.map((reason) => {
+                const selected = failReason === reason && !customFailReason.trim();
+                return (
+                  <button
+                    key={reason}
+                    type="button"
+                    onClick={() => { setFailReason(reason); setCustomFailReason(""); }}
+                    className={`flex items-center gap-3 p-4 rounded-2xl border-2 text-left text-sm font-bold transition-all ${
+                      selected
+                        ? "border-rose-500 bg-rose-50 text-rose-700"
+                        : "border-slate-100 bg-slate-50 text-slate-700 hover:border-rose-200"
+                    }`}
+                  >
+                    <span className={`w-4 h-4 rounded-full border-2 shrink-0 ${selected ? "border-rose-500 bg-rose-500" : "border-slate-300"}`} />
+                    {reason}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div>
+              <label className="text-xs text-gray-400 font-bold mb-2 block">Other reason (optional)</label>
+              <textarea
+                value={customFailReason}
+                onChange={(e) => { setCustomFailReason(e.target.value); if (e.target.value.trim()) setFailReason(""); }}
+                placeholder="Enter a custom reason…"
+                className="w-full min-h-[80px] border-2 border-rose-200 focus:border-rose-500 rounded-xl px-4 py-3 text-sm font-semibold text-gray-600 resize-none outline-none transition"
+              />
+            </div>
+
+            {error && showFailModal && (
+              <p className="text-sm font-semibold text-red-600">{error}</p>
+            )}
+
+            <button
+              type="button"
+              disabled={busy !== null || !(customFailReason.trim() || failReason)}
+              onClick={handleFailed}
+              className="w-full bg-rose-600 text-white py-3.5 rounded-2xl text-sm font-black hover:bg-rose-700 transition shadow-lg shadow-rose-100 disabled:opacity-50"
+            >
+              {busy === "failed" ? "Marking…" : "Confirm Failure"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Reassign Agent modal */}
+      {isReassignOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            onClick={() => !reassignBusy && setIsReassignOpen(false)}
+          />
+          <div className="relative bg-white rounded-[40px] shadow-2xl w-full max-w-[500px] p-10">
+            <div className="flex items-center justify-between mb-8">
+              <h2 className="text-2xl font-black text-slate-800">Reassign Agent</h2>
+              <button
+                onClick={() => !reassignBusy && setIsReassignOpen(false)}
+                className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-200 transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <p className="text-sm text-gray-500 mb-6">
+              Select a new delivery agent for this order.
+              {order.status === "FAILED" && (
+                <span className="block mt-1 text-purple-600 font-medium">
+                  The order status will be reset to Confirmed.
+                </span>
+              )}
+            </p>
+
+            <div className="flex flex-col gap-3 max-h-[320px] overflow-y-auto pr-1 mb-8">
+              {agents.length === 0 && (
+                <p className="text-sm text-gray-400 text-center py-6">No active agents available.</p>
+              )}
+              {agents.map((agent) => (
+                <button
+                  key={agent.id}
+                  onClick={() => setSelectedAgentId(agent.id)}
+                  className={`flex items-center justify-between p-4 rounded-2xl border-2 text-left transition-all ${
+                    selectedAgentId === agent.id
+                      ? "border-purple-600 bg-purple-50"
+                      : "border-slate-100 bg-slate-50 hover:border-purple-200"
+                  }`}
+                >
+                  <div>
+                    <p className="font-bold text-slate-800 text-sm">{agent.companyName}</p>
+                    <p className="text-xs text-slate-400 mt-0.5">{agent.state ?? "—"} · {agent.phone}</p>
+                  </div>
+                  <div className="text-right shrink-0 ml-4">
+                    <p className="text-xs text-slate-500">{agent.activeOrders} active orders</p>
+                    <p className="text-xs text-slate-400">{agent.totalDeliveries} deliveries</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            {reassignError && (
+              <p className="text-sm font-semibold text-red-600 mb-4">{reassignError}</p>
+            )}
+
+            <button
+              disabled={reassignBusy || !selectedAgentId}
+              onClick={handleReassign}
+              className="w-full bg-purple-600 text-white py-4 rounded-2xl text-[1rem] font-black hover:bg-purple-700 transition-all shadow-lg shadow-purple-100 flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              {reassignBusy ? "Reassigning…" : "Confirm Reassignment →"}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

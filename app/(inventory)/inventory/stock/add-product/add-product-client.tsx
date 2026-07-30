@@ -518,22 +518,14 @@ export function AddProductClient({
                 Low Stock Alert Quantity (Total)*
               </label>
               <p className={subClass}>Set Low Stock Quantity Alert</p>
-              <SelectWrapper>
-                <select
-                  id="lowStockTotal"
-                  name="lowStockTotal"
-                  className={selectClass}
-                  defaultValue={product?.lowStockAlertQtyTotal?.toString() || ""}
-                >
-                  <option value=""></option>
-                  <option value="10">10</option>
-                  <option value="20">20</option>
-                  <option value="50">50</option>
-                  <option value="100">100</option>
-                  <option value="200">200</option>
-                  <option value="500">500</option>
-                </select>
-              </SelectWrapper>
+              <input
+                id="lowStockTotal"
+                type="number"
+                name="lowStockTotal"
+                min="0"
+                className={inputClass}
+                defaultValue={product?.lowStockAlertQtyTotal?.toString() || ""}
+              />
             </div>
 
             <div>
@@ -551,27 +543,8 @@ export function AddProductClient({
             </div>
           </div>
 
-          {/* Cost Price | Selling Price | Unit */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-5">
-            <div>
-              <label className={labelClass} htmlFor="costPrice">
-                Cost Price (1 Unit)
-              </label>
-              <p className={subClass}>
-                How much are YOU buying this from your supplier/manufacturer/seller?
-              </p>
-              <input
-                id="costPrice"
-                name="costPrice"
-                type="number"
-                step="0.01"
-                min="0"
-                className={inputClass}
-                required
-                defaultValue={product?.costPrice?.toString() || ""}
-              />
-            </div>
-
+          {/* Selling Price | Unit */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-5">
             <div>
               <label className={labelClass} htmlFor="sellingPrice">
                 Selling Price (1 Unit)

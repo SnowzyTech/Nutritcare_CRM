@@ -2,7 +2,7 @@
 
 import React, { useState, useTransition, useRef, useEffect } from "react";
 import Link from "next/link";
-import { CalendarIcon, ArrowLeft, Building2, Search, CheckCircle2, Plus, Trash2 } from "lucide-react";
+import { CalendarIcon, ArrowLeft, Building2, Search, CheckCircle2, Plus, Trash2, FileText, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -27,6 +27,14 @@ type ShelfRow = {
 };
 
 type ProductAllocations = Record<string, ShelfRow[]>; // productId → rows
+
+type InvoiceAttachment = { file: File; preview: string };
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)}KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+}
 
 interface Props {
   recordedVouchers: RecordedVoucher[];
@@ -53,6 +61,46 @@ export default function AddIncomingGoodsClient({ recordedVouchers, warehouseName
   // Per-product shelf allocations: productId → [{locationId, quantity}]
   const [allocations, setAllocations] = useState<ProductAllocations>({});
 
+  // Per-product RAPS (Returned at Point of Supply) quantity — units rejected
+  // back to the supplier right now, excluded from shelving/stock entirely.
+  const [rapsQty, setRapsQty] = useState<Record<string, string>>({});
+
+  // Supplier invoice photo/scan attachments
+  const [invoiceFiles, setInvoiceFiles] = useState<InvoiceAttachment[]>([]);
+  const invoiceInputRef = useRef<HTMLInputElement>(null);
+
+  function handleInvoiceFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    if (e.target.files) {
+      const newItems: InvoiceAttachment[] = Array.from(e.target.files).map((file) => ({
+        file,
+        preview: file.type.startsWith("image/") ? URL.createObjectURL(file) : "",
+      }));
+      setInvoiceFiles((prev) => [...prev, ...newItems]);
+      e.target.value = "";
+    }
+  }
+
+  function removeInvoiceFile(idx: number) {
+    setInvoiceFiles((prev) => {
+      const item = prev[idx];
+      if (item.preview) URL.revokeObjectURL(item.preview);
+      return prev.filter((_, i) => i !== idx);
+    });
+  }
+
+  async function uploadInvoiceFiles(files: File[]): Promise<string[]> {
+    if (files.length === 0) return [];
+    const fd = new FormData();
+    files.forEach((f) => fd.append("files", f));
+    const res = await fetch("/api/upload/supplier-invoice", { method: "POST", body: fd });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error ?? "Invoice upload failed");
+    }
+    const { urls } = await res.json();
+    return urls as string[];
+  }
+
   const filteredVouchers = recordedVouchers.filter(
     (v) =>
       v.referenceNumber.toLowerCase().includes(siSearch.toLowerCase()) ||
@@ -72,17 +120,21 @@ export default function AddIncomingGoodsClient({ recordedVouchers, warehouseName
     setSiSearch(v.referenceNumber);
     setShowSiDropdown(false);
     setAllocations(buildInitialAllocations(v));
+    setRapsQty({});
   }
 
   function handleClearVoucher() {
     setSelectedVoucher(null);
     setSiSearch("");
     setAllocations({});
+    setRapsQty({});
     setIsReserved(false);
     setIsDamaged(false);
     setDate(undefined);
     setNotes("");
     setError(null);
+    invoiceFiles.forEach((a) => a.preview && URL.revokeObjectURL(a.preview));
+    setInvoiceFiles([]);
     siInputRef.current?.focus();
   }
 
@@ -130,9 +182,19 @@ export default function AddIncomingGoodsClient({ recordedVouchers, warehouseName
     return (allocations[productId] ?? []).reduce((s, r) => s + (parseInt(r.quantity) || 0), 0);
   }
 
+  function rapsQtyFor(productId: string): number {
+    return parseInt(rapsQty[productId]) || 0;
+  }
+
+  function updateRapsQty(productId: string, value: string) {
+    setRapsQty((prev) => ({ ...prev, [productId]: value }));
+  }
+
   function allProductsCovered(): boolean {
     if (!selectedVoucher) return false;
-    return selectedVoucher.items.every((item) => assignedQty(item.productId) === item.quantity);
+    return selectedVoucher.items.every(
+      (item) => assignedQty(item.productId) + rapsQtyFor(item.productId) === item.quantity,
+    );
   }
 
   // ── Submit ───────────────────────────────────────────────────────────────────
@@ -143,7 +205,7 @@ export default function AddIncomingGoodsClient({ recordedVouchers, warehouseName
 
     if (!selectedVoucher) return setError("Please select a voucher SI-ID first");
     if (!date) return setError("Date is required");
-    if (!allProductsCovered()) return setError("Shelf assignments must exactly match the voucher quantities for each product");
+    if (!allProductsCovered()) return setError("Shelf + RAPS quantities must exactly match the voucher quantities for each product");
 
     // Build flat list of assignments
     const shelfAssignments: { productId: string; locationId: string; quantity: number }[] = [];
@@ -156,15 +218,27 @@ export default function AddIncomingGoodsClient({ recordedVouchers, warehouseName
     }
     if (shelfAssignments.some((a) => !a.locationId)) return setError("All shelf rows must have a location selected");
 
+    const rapsAssignments = selectedVoucher.items
+      .map((item) => ({ productId: item.productId, quantity: rapsQtyFor(item.productId) }))
+      .filter((r) => r.quantity > 0);
+
     const fd = new FormData();
     fd.set("stockMovementId", selectedVoucher.id);
     fd.set("date", date.toISOString());
     fd.set("notes", notes);
     fd.set("shelfAssignments", JSON.stringify(shelfAssignments));
+    if (rapsAssignments.length > 0) fd.set("rapsAssignments", JSON.stringify(rapsAssignments));
     fd.set("isReserved", isReserved ? "true" : "false");
     fd.set("isDamaged", isDamaged ? "true" : "false");
 
     startTransition(async () => {
+      try {
+        const invoiceUrls = await uploadInvoiceFiles(invoiceFiles.map((a) => a.file));
+        if (invoiceUrls.length > 0) fd.set("supplierInvoiceUrls", JSON.stringify(invoiceUrls));
+      } catch (e) {
+        setError((e as Error).message);
+        return;
+      }
       const result = await confirmIncomingReceiptAction(null, fd);
       if (result?.error) setError(result.error);
     });
@@ -358,7 +432,9 @@ export default function AddIncomingGoodsClient({ recordedVouchers, warehouseName
               <span className="text-[12px] text-gray-500 font-medium">
                 Shelf Assignments · {selectedVoucher.referenceNumber}
               </span>
-              <span className="text-[11px] text-gray-400">Assign each product to one or more shelves</span>
+              <span className="text-[11px] text-gray-400">
+                Assign each product to one or more shelves — or mark units RAPS (Returned at Point of Supply) to send back to the supplier
+              </span>
             </div>
 
             <table className="w-full">
@@ -368,15 +444,17 @@ export default function AddIncomingGoodsClient({ recordedVouchers, warehouseName
                   <th className="px-4 py-2.5 text-[11px] font-medium text-left">Product</th>
                   <th className="px-4 py-2.5 text-[11px] font-medium text-center w-28">Required Qty</th>
                   <th className="px-4 py-2.5 text-[11px] font-medium text-left">Shelf Assignments</th>
-                  <th className="px-4 py-2.5 text-[11px] font-medium text-center w-24">Assigned</th>
+                  <th className="px-4 py-2.5 text-[11px] font-medium text-center w-24">Shelved</th>
+                  <th className="px-4 py-2.5 text-[11px] font-medium text-center w-28">RAPS Qty</th>
                 </tr>
               </thead>
               <tbody>
                 {selectedVoucher.items.map((item, i) => {
                   const rows = allocations[item.productId] ?? [];
                   const assigned = assignedQty(item.productId);
-                  const covered = assigned === item.quantity;
-                  const over = assigned > item.quantity;
+                  const raps = rapsQtyFor(item.productId);
+                  const covered = assigned + raps === item.quantity;
+                  const over = assigned + raps > item.quantity;
 
                   return (
                     <tr key={item.productId} className="border-b border-gray-100 bg-white last:border-0 align-top">
@@ -461,10 +539,22 @@ export default function AddIncomingGoodsClient({ recordedVouchers, warehouseName
                           {assigned}
                         </span>
                         {covered && <div className="text-[10px] text-emerald-500">✓ done</div>}
-                        {over && <div className="text-[10px] text-red-400">over by {assigned - item.quantity}</div>}
-                        {!covered && !over && assigned > 0 && (
-                          <div className="text-[10px] text-gray-400">need {item.quantity - assigned} more</div>
+                        {over && <div className="text-[10px] text-red-400">over by {assigned + raps - item.quantity}</div>}
+                        {!covered && !over && (assigned > 0 || raps > 0) && (
+                          <div className="text-[10px] text-gray-400">need {item.quantity - assigned - raps} more</div>
                         )}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <input
+                          type="number"
+                          min="0"
+                          max={item.quantity}
+                          value={rapsQty[item.productId] ?? ""}
+                          onChange={(e) => updateRapsQty(item.productId, e.target.value)}
+                          placeholder="0"
+                          className="w-[70px] h-[30px] border border-gray-200 rounded-md px-2 text-[12px] text-gray-700 text-center focus:outline-none focus:ring-1 focus:ring-amber-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        />
+                        {raps > 0 && <div className="text-[10px] text-amber-600 mt-1">→ supplier</div>}
                       </td>
                     </tr>
                   );
@@ -475,7 +565,7 @@ export default function AddIncomingGoodsClient({ recordedVouchers, warehouseName
             {/* Coverage summary */}
             <div className="px-4 py-2 bg-gray-50 border-t border-gray-100 flex items-center justify-between">
               <span className="text-[11px] text-gray-500">
-                {selectedVoucher.items.filter((it) => assignedQty(it.productId) === it.quantity).length} of{" "}
+                {selectedVoucher.items.filter((it) => assignedQty(it.productId) + rapsQtyFor(it.productId) === it.quantity).length} of{" "}
                 {selectedVoucher.items.length} products fully assigned
               </span>
               {allProductsCovered() && (
@@ -484,6 +574,58 @@ export default function AddIncomingGoodsClient({ recordedVouchers, warehouseName
             </div>
           </div>
         )}
+
+        {/* Supplier Invoice Upload */}
+        <div className="mt-8">
+          <label className="text-[12px] font-medium text-gray-600 block mb-2">
+            Supplier Invoice <span className="text-gray-400 font-normal">(photo or scanned copy)</span>
+          </label>
+          <div className="border border-dashed border-gray-300 rounded-lg bg-white p-3 space-y-2">
+            <input
+              type="file"
+              ref={invoiceInputRef}
+              onChange={handleInvoiceFileChange}
+              className="hidden"
+              multiple
+              accept="image/*,.pdf"
+            />
+            {invoiceFiles.length > 0 && (
+              <div className="space-y-1.5">
+                {invoiceFiles.map((item, idx) => (
+                  <div key={idx} className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg">
+                    {item.preview ? (
+                      <img src={item.preview} alt="" className="w-9 h-9 rounded object-cover flex-shrink-0" />
+                    ) : (
+                      <div className="w-9 h-9 bg-red-50 rounded flex items-center justify-center flex-shrink-0">
+                        <FileText className="w-4 h-4 text-red-400" />
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[11px] font-medium text-gray-700 truncate">{item.file.name}</p>
+                      <p className="text-[10px] text-gray-400">{formatFileSize(item.file.size)}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => removeInvoiceFile(idx)}
+                      className="text-gray-300 hover:text-red-400 transition-colors flex-shrink-0"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div
+              onClick={() => invoiceInputRef.current?.click()}
+              className="flex flex-col items-center justify-center gap-1 py-3 cursor-pointer hover:bg-gray-50 rounded-lg transition-all"
+            >
+              <p className="text-[11px] font-medium text-[#9747FF]">
+                {invoiceFiles.length > 0 ? "+ Add More Files" : "Upload Supplier Invoice"}
+              </p>
+              <p className="text-[10px] text-gray-400">Images or PDF · Max 20MB each</p>
+            </div>
+          </div>
+        </div>
 
         {/* Notes */}
         <div className="mt-8 mb-4">

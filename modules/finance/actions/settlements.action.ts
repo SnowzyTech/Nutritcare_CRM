@@ -4,6 +4,17 @@ import { auth } from "@/lib/auth/auth";
 import { prisma } from "@/lib/db/prisma";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { logActivity } from "@/modules/audit/services/audit-log.service";
+import { suppressCameraForRequest } from "@/lib/audit/context";
+import { formatCurrency } from "@/lib/utils";
+
+async function agentDisplayName(agentId: string): Promise<string> {
+  const a = await prisma.agent.findUnique({
+    where: { id: agentId },
+    select: { companyName: true },
+  });
+  return a?.companyName ?? agentId;
+}
 
 const remittanceSchema = z.object({
   agentId: z.string().min(1),
@@ -47,6 +58,7 @@ async function getRunningBalance(agentId: string): Promise<number> {
 export async function createRemittanceAction(input: z.infer<typeof remittanceSchema>) {
   const session = await auth();
   if (!session?.user?.id) return { error: "Unauthorized" };
+  suppressCameraForRequest();
   const parsed = remittanceSchema.safeParse(input);
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
 
@@ -103,6 +115,15 @@ export async function createRemittanceAction(input: z.infer<typeof remittanceSch
     return { settlementId: settlement.id, referenceId };
   });
 
+  await logActivity({
+    userId: session.user.id,
+    action: "Remittance",
+    entityType: "AgentSettlement",
+    entityId: result.settlementId,
+    description: `Remittance Entry for ${await agentDisplayName(data.agentId)} — ${formatCurrency(data.amountRemitted)}`,
+    details: { amount: data.amountRemitted },
+  });
+
   revalidatePath("/accounting/agent-settlement");
   revalidatePath("/accounting");
   return result;
@@ -122,6 +143,7 @@ const adjustmentSchema = z.object({
 export async function createSettlementAdjustmentAction(input: z.infer<typeof adjustmentSchema>) {
   const session = await auth();
   if (!session?.user?.id) return { error: "Unauthorized" };
+  suppressCameraForRequest();
 
   const dbUser = await prisma.user.findUnique({ where: { id: session.user.id }, select: { id: true } });
   if (!dbUser) return { error: "Your session is stale. Please sign out and sign back in." };
@@ -290,6 +312,15 @@ export async function createSettlementAdjustmentAction(input: z.infer<typeof adj
         }
       }
     }
+  });
+
+  await logActivity({
+    userId: session.user.id,
+    action: "Adjustment",
+    entityType: "SettlementAdjustment",
+    entityId: adjRefId,
+    description: `Settlement ${data.adjustmentType.toLowerCase()} of ${formatCurrency(data.amount)} for ${await agentDisplayName(data.agentId)}`,
+    details: { amount: data.amount, field: data.adjustmentType },
   });
 
   revalidatePath("/accounting/agent-settlement");

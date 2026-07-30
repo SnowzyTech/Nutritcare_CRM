@@ -3,7 +3,8 @@
 import React, { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { Search, SlidersHorizontal, ArrowUpDown, ChevronLeft, RotateCcw } from "lucide-react";
-import { formatDate } from "@/lib/utils";
+import { formatDate,formatCurrency } from "@/lib/utils";
+import { useBasePath } from "../../_lib/base-path";
 
 type OrderStatus = "PENDING" | "CONFIRMED" | "DELIVERED" | "CANCELLED" | "FAILED";
 
@@ -16,8 +17,10 @@ export type OrderListItem = {
   product: string;
   qty: number;
   isReorder: boolean;
-  itemNames: string[]; // all product names on the order (for the +N badge)
+  itemNames: string[]; // all product names on the order (tooltip for the +N badge)
+  extraCount: number; // extra products + merged upsells (drives the +N badge)
   date: string; // ISO date: YYYY-MM-DD
+  deliveryFee: number;
 };
 
 export type OrderCounts = {
@@ -64,6 +67,7 @@ const NIGERIAN_STATES = [
 
 export function OrdersClient({ repId, repName, orders, counts, products = [] }: OrdersClientProps) {
   const router = useRouter();
+  const base = useBasePath();
   const [activeTab, setActiveTab] = useState<OrderStatus | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [dateFilter, setDateFilter] = useState("");
@@ -226,7 +230,7 @@ export function OrdersClient({ repId, repName, orders, counts, products = [] }: 
               return (
                 <div
                   key={order.id}
-                  onClick={() => router.push(`/sales-rep-manager/${repId}/orders/${order.id}`)}
+                  onClick={() => router.push(`${base}/${repId}/orders/${order.id}`)}
                   className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm active:bg-gray-50 transition-colors cursor-pointer"
                 >
                   <div className="flex items-center justify-between gap-2 mb-2">
@@ -250,14 +254,15 @@ export function OrdersClient({ repId, repName, orders, counts, products = [] }: 
                     <div className="truncate flex items-center gap-1">
                       <span className="text-gray-400">Product:</span>{" "}
                       <span className="text-gray-700 font-medium truncate">{order.product}</span>
-                      {order.itemNames.length > 1 && (
+                      {order.extraCount > 0 && (
                         <span className="shrink-0 inline-flex items-center bg-purple-100 text-[#532194] text-[9px] font-bold px-1 py-0.5 rounded-full">
-                          +{order.itemNames.length - 1}
+                          +{order.extraCount}
                         </span>
                       )}
                     </div>
                     <div className="text-right"><span className="text-gray-400">Qty:</span> <span className="text-gray-700 font-medium">{order.qty}</span></div>
-                    <div className="text-right col-span-2"><span className="text-gray-400">Date:</span> {formatDate(order.date)}</div>
+                    <div className="truncate"><span className="text-gray-400">Delivery Fee:</span> {formatCurrency(order.deliveryFee)}</div>
+                    <div className="text-right"><span className="text-gray-400">Date:</span> {formatDate(order.date)}</div>
                     <div className="truncate col-span-2"><span className="text-gray-400">Agent:</span> {order.agent ? `${order.agent.name} (${order.agent.state})` : "—"}</div>
                   </div>
                 </div>
@@ -276,6 +281,7 @@ export function OrdersClient({ repId, repName, orders, counts, products = [] }: 
                 <th className="px-6 py-4 font-bold text-gray-500 uppercase tracking-wider text-[11px]">Product</th>
                 <th className="px-6 py-4 font-bold text-gray-500 uppercase tracking-wider text-[11px] text-center">Quantity</th>
                 <th className="px-6 py-4 font-bold text-gray-500 uppercase tracking-wider text-[11px] text-center">Status</th>
+                <th className="px-6 py-4 font-bold text-gray-500 uppercase tracking-wider text-[11px] text-right whitespace-nowrap">Delivery Fee</th>
                 <th className="px-6 py-4 font-bold text-gray-500 uppercase tracking-wider text-[11px] text-right">Date</th>
               </tr>
             </thead>
@@ -288,7 +294,7 @@ export function OrdersClient({ repId, repName, orders, counts, products = [] }: 
                     className={`group hover:bg-purple-50/50 transition-colors cursor-pointer border-b border-gray-50 last:border-0 ${
                       idx % 2 === 0 ? "bg-white" : "bg-gray-50/30"
                     }`}
-                    onClick={() => router.push(`/sales-rep-manager/${repId}/orders/${order.id}`)}
+                    onClick={() => router.push(`${base}/${repId}/orders/${order.id}`)}
                   >
                     <td className="pl-6 pr-6 py-4 relative">
                       <div className="flex items-center gap-3">
@@ -323,12 +329,12 @@ export function OrdersClient({ repId, repName, orders, counts, products = [] }: 
                     <td className="px-6 py-4 font-bold text-gray-700">
                       <div className="flex items-center gap-1.5">
                         <span className="truncate max-w-[160px]">{order.product}</span>
-                        {order.itemNames.length > 1 && (
+                        {order.extraCount > 0 && (
                           <span
                             title={order.itemNames.join(", ")}
                             className="shrink-0 inline-flex items-center bg-purple-100 text-[#532194] text-[10px] font-bold px-1.5 py-0.5 rounded-full"
                           >
-                            +{order.itemNames.length - 1}
+                            +{order.extraCount}
                           </span>
                         )}
                       </div>
@@ -340,6 +346,9 @@ export function OrdersClient({ repId, repName, orders, counts, products = [] }: 
                           {style.label}
                         </span>
                       )}
+                    </td>
+                    <td className="px-6 py-4 text-right font-medium text-gray-500 whitespace-nowrap">
+                      {formatCurrency(order.deliveryFee)}
                     </td>
                     <td className="px-6 py-4 text-right font-medium text-gray-500">
                       {formatDate(order.date)}
