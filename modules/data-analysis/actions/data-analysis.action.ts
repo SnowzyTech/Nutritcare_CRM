@@ -193,6 +193,7 @@ export async function markOrderDeliveredByAnalyst(
       to: waPhone,
       customerName: order.customer.name,
       orderNumber: order.orderNumber,
+      prescription: order.notes ?? "-",
     })
       .then((result) => console.log("[WhatsApp] delivery notification result:", JSON.stringify(result)))
       .catch((err) => console.error("[WhatsApp] markOrderDeliveredByAnalyst send error:", err));
