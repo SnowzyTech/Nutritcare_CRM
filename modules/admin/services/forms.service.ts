@@ -35,6 +35,45 @@ export async function softDeleteForm(id: string) {
   return prisma.form.update({ where: { id }, data: { deletedAt: new Date() } });
 }
 
+/**
+ * Counts a form's live linked orders: `total` and `blocking`, where blocking =
+ * orders carrying a financial/operational footprint (CONFIRMED or DELIVERED, or
+ * already invoiced) that must never be deleted. `total > 0 && blocking === 0` is
+ * the only case where an admin may delete the form together with its orders.
+ */
+export async function getFormOrderCounts(formId: string) {
+  const [total, blocking] = await Promise.all([
+    prisma.order.count({ where: { formId, deletedAt: null } }),
+    prisma.order.count({
+      where: {
+        formId,
+        deletedAt: null,
+        OR: [
+          { status: { in: ["CONFIRMED", "DELIVERED"] } },
+          { invoices: { some: {} } },
+        ],
+      },
+    }),
+  ]);
+  return { total, blocking };
+}
+
+/**
+ * Soft-deletes a form and its linked orders in one transaction. Caller must have
+ * verified via getFormOrderCounts that none of those orders are
+ * confirmed/delivered/invoiced, so no financial records are affected.
+ */
+export async function softDeleteFormWithOrders(id: string) {
+  const now = new Date();
+  return prisma.$transaction([
+    prisma.order.updateMany({
+      where: { formId: id, deletedAt: null },
+      data: { deletedAt: now },
+    }),
+    prisma.form.update({ where: { id }, data: { deletedAt: now } }),
+  ]);
+}
+
 /** Reversibly disable / re-enable a form (blocks new orders while disabled). */
 export async function setFormDisabled(id: string, disabled: boolean) {
   return prisma.form.update({
