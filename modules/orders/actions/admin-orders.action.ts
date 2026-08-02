@@ -5,9 +5,17 @@ import { prisma } from "@/lib/db/prisma";
 import { revalidatePath } from "next/cache";
 import { recordDeliveryFeeEntry } from "@/modules/finance/services/agent-settlement.service";
 import type { OrderStatus } from "@prisma/client";
-import { findEligibleAgentForOrder } from "@/modules/delivery/services/agents.service";
+import {
+  findEligibleAgentForOrder,
+  agentHasAvailableStock,
+  lockAgent,
+} from "@/modules/delivery/services/agents.service";
 import { logActivity } from "@/modules/audit/services/audit-log.service";
-import { formatCurrency } from "@/lib/utils";
+import {
+  sendOrderConfirmationTemplate,
+  sendDeliveryCodeTemplate,
+} from "@/lib/whatsapp/whatsapp";
+import { formatCurrency, formatDate } from "@/lib/utils";
 import { isAdmin } from "@/lib/auth/role-routes";
 import { suppressCameraForRequest } from "@/lib/audit/context";
 import { describeReassignment } from "@/modules/orders/services/reassign-description.service";
@@ -38,6 +46,13 @@ function revalidate(orderId: string) {
   revalidatePath(`/admin/orders/${orderId}`);
 }
 
+/** Generates a random 6-digit numeric delivery code (mirrors the sales-rep confirm). */
+function generateDeliveryCode(): string {
+  const min = 100_000;
+  const max = 999_999;
+  return String(Math.floor(min + Math.random() * (max - min + 1)));
+}
+
 export async function adminConfirmOrderAction(orderId: string, deliveryDate?: string): Promise<ActionResult> {
   await checkAdmin();
   suppressCameraForRequest();
@@ -47,8 +62,22 @@ export async function adminConfirmOrderAction(orderId: string, deliveryDate?: st
   const order = await prisma.order.findFirst({
     where: { id: orderId, deletedAt: null },
     include: {
-      customer: { select: { state: true } },
-      items: { select: { productId: true, quantity: true } },
+      customer: {
+        select: {
+          state: true,
+          name: true,
+          whatsappNumber: true,
+          phone: true,
+          deliveryAddress: true,
+        },
+      },
+      items: {
+        select: {
+          productId: true,
+          quantity: true,
+          product: { select: { name: true } },
+        },
+      },
     },
   });
   if (!order || order.status !== "PENDING") return { error: "Cannot confirm this order" };
@@ -62,20 +91,39 @@ export async function adminConfirmOrderAction(orderId: string, deliveryDate?: st
     };
   }
 
-  await prisma.$transaction([
-    prisma.order.update({
+  const deliveryCode = generateDeliveryCode();
+
+  // Assign under a per-agent lock and re-verify availability inside it, so two
+  // orders confirmed at the same instant can't both grab the same agent's stock.
+  let capacityHit = false;
+  await prisma.$transaction(async (tx) => {
+    await lockAgent(tx, agentId);
+    const ok = await agentHasAvailableStock(tx, agentId, order.items);
+    if (!ok) {
+      capacityHit = true;
+      return; // leave the order untouched
+    }
+    await tx.order.update({
       where: { id: orderId },
       data: { status: "CONFIRMED", agentId },
-    }),
-    prisma.delivery.create({
+    });
+    await tx.delivery.create({
       data: {
         orderId,
         agentId,
         scheduledTime: new Date(deliveryDate),
         status: "PENDING_DISPATCH",
+        deliveryCode,
       },
-    }),
-  ]);
+    });
+  });
+
+  if (capacityHit) {
+    return {
+      error:
+        "The selected delivery agent just reached capacity for one or more items. Please try again — another agent will be chosen.",
+    };
+  }
 
   await logActivity({
     userId: order.salesRepId,
@@ -84,6 +132,28 @@ export async function adminConfirmOrderAction(orderId: string, deliveryDate?: st
     entityId: orderId,
     description: `Order #${order.orderNumber} confirmed`,
   });
+
+  // Send WhatsApp confirmation + delivery code to customer (fire-and-forget — never throws)
+  const waPhone = order.customer.whatsappNumber || order.customer.phone;
+  if (waPhone) {
+    // Message 1: order confirmation (no delivery code)
+    sendOrderConfirmationTemplate({
+      to: waPhone,
+      customerName: order.customer.name,
+      orderNumber: order.orderNumber,
+      deliveryAddress: order.customer.deliveryAddress,
+      deliveryDate: formatDate(new Date(deliveryDate)),
+      items: order.items.map((i) => ({ name: i.product.name, quantity: i.quantity })),
+      totalAmount: formatCurrency(Number(order.netAmount)),
+    })
+      .then((result) => {
+        console.log("[WhatsApp] admin order confirmation result:", JSON.stringify(result));
+        // Message 2: delivery verification code (sent after confirmation)
+        return sendDeliveryCodeTemplate({ to: waPhone, deliveryCode });
+      })
+      .then((result) => console.log("[WhatsApp] admin delivery code result:", JSON.stringify(result)))
+      .catch((err) => console.error("[WhatsApp] adminConfirmOrder send error:", err));
+  }
 
   revalidate(orderId);
   return { success: true };

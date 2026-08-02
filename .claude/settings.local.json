@@ -114,6 +114,7 @@
       "PowerShell(npx eslint modules/finance/services/sales-record.service.ts \"app/\\(accounting\\)/accounting/_components/SalesRecordClient.tsx\" \"app/\\(accounting\\)/accounting/sales-record/[orderId]/OrderDetailsClient.tsx\" 2>&1 | Select-Object -First 20)",
       "PowerShell(npx eslint \"app/\\(admin\\)/admin/staff/teams/teams-client.tsx\" modules/users/services/users.service.ts 2>&1 | Select-Object -First 20)",
       "PowerShell(npx eslint \"app/\\(admin\\)/admin/staff/teams/teams-client.tsx\" 2>&1 | Select-Object -First 20)"
+      "PowerShell(npx tsx scripts/_verify-login.ts)"
     ]
   }
 }

@@ -19,6 +19,22 @@ function formatPhoneForWhatsApp(phone: string): string {
   return digits;
 }
 
+/**
+ * WhatsApp template variables cannot contain newlines, tabs, or runs of more than
+ * 4 spaces — Meta rejects the entire send with error #132000. This collapses a
+ * free-text value (e.g. a multi-line prescription) into a single safe line and
+ * falls back to "-" when empty, so a template send never fails on formatting.
+ */
+function sanitizeTemplateParam(value: string | null | undefined): string {
+  if (!value) return "-";
+  const cleaned = value
+    .replace(/[\r\n]+/g, " — ") // keep multi-line items visually separated
+    .replace(/\t+/g, " ")
+    .replace(/ {2,}/g, " ")
+    .trim();
+  return cleaned || "-";
+}
+
 async function postWhatsAppMessage(
   phoneNumberId: string,
   token: string,
@@ -64,7 +80,6 @@ export interface OrderConfirmationTemplateOpts {
   deliveryAddress: string;
   deliveryDate: string;
   items: { name: string; quantity: number }[];
-  productDetails: string;
   totalAmount: string;
 }
 
@@ -76,8 +91,11 @@ export interface OrderConfirmationTemplateOpts {
  *   {{3}} deliveryAddress
  *   {{4}} deliveryDate
  *   {{5}} itemsList        (bullet lines joined by \n)
- *   {{6}} productDetails   (order notes / dosage instructions)
- *   {{7}} totalAmount
+ *   {{6}} totalAmount
+ *
+ * The prescription (order notes) is intentionally NOT sent here — it is delivered
+ * to the customer only once the order is marked delivered (see
+ * sendOrderDeliveredTemplate).
  *
  * Fails silently so a WhatsApp hiccup never breaks the confirmation flow.
  */
@@ -118,7 +136,6 @@ export async function sendOrderConfirmationTemplate(
             { type: "text", text: opts.deliveryAddress },
             { type: "text", text: opts.deliveryDate },
             { type: "text", text: itemsList },
-            { type: "text", text: opts.productDetails },
             { type: "text", text: opts.totalAmount },
           ],
         },
@@ -131,6 +148,7 @@ export interface OrderDeliveredTemplateOpts {
   to: string;
   customerName: string;
   orderNumber: string;
+  prescription: string;
 }
 
 /**
@@ -138,6 +156,7 @@ export interface OrderDeliveredTemplateOpts {
  * Template variables (in order):
  *   {{1}} customerName
  *   {{2}} orderNumber
+ *   {{3}} prescription   (order notes / dosage instructions — sent only at delivery)
  *
  * Fails silently so a WhatsApp hiccup never breaks the delivery flow.
  */
@@ -173,6 +192,7 @@ export async function sendOrderDeliveredTemplate(
           parameters: [
             { type: "text", text: opts.customerName },
             { type: "text", text: opts.orderNumber },
+            { type: "text", text: sanitizeTemplateParam(opts.prescription) },
           ],
         },
       ],

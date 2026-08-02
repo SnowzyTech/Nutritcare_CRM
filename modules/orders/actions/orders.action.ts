@@ -202,7 +202,6 @@ export async function confirmOrderAction(
       deliveryAddress: order.customer.deliveryAddress,
       deliveryDate: formatDate(new Date(deliveryDate)),
       items: order.items.map((i) => ({ name: i.product.name, quantity: i.quantity })),
-      productDetails: notes || "-",
       totalAmount: formatCurrency(Number(order.netAmount)),
     })
       .then((result) => {
