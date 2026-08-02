@@ -27,8 +27,24 @@ export interface NamedAmount {
   prior: number;
 }
 
-// Treat these order statuses as "earned revenue" for accounting purposes.
-const REVENUE_STATUSES = ["DELIVERED", "CONFIRMED"] as const;
+// ─────────────────────────────────────────────────────────────────────────────
+// Revenue recognition policy — single definition for the whole system
+//
+// This is a cash-on-delivery business: control of the goods and the cash both
+// transfer at the same moment, on delivery. Revenue is therefore recognised on
+// DELIVERED only.
+//
+// CONFIRMED was previously included here. It is a sales order — nothing has
+// been handed over, and because payment is collected on delivery there is no
+// receivable to book against it. Counting it overstated income, and any
+// confirmed order that later went FAILED or CANCELLED had already been booked
+// as profit (see the delivered ÷ attempted "recoveryRate" in
+// modules/orders/services/analytics.service.ts — that fallout is not marginal).
+//
+// If a non-COD sales channel is ever added, revisit this: earned and collected
+// would stop coinciding and the two constants below would diverge again.
+// ─────────────────────────────────────────────────────────────────────────────
+export const REVENUE_STATUSES: OrderStatus[] = ["DELIVERED"];
 
 // Must match the value the Chart of Accounts seed writes onto
 // ExpenseCategory.financialStatement (see prisma/seed-coa.ts + chart-of-accounts.ts).
@@ -139,7 +155,7 @@ async function getProductPnL(period: Period) {
   const items = await prisma.orderItem.findMany({
     where: {
       order: {
-        status: { in: REVENUE_STATUSES as any },
+        status: { in: REVENUE_STATUSES },
         deletedAt: null,
         date: { gte: period.from, lte: period.to },
       },
@@ -266,10 +282,13 @@ export async function getTrialBalance(period: Period): Promise<TrialBalanceRow[]
 // balancing line is used instead of silently mismatching.
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Cash collected: in this COD business an order's cash is realised on delivery.
-const COLLECTED_ORDER_STATUSES: OrderStatus[] = ["DELIVERED"];
+// Cash collected and revenue earned coincide under COD — both happen at
+// delivery. They keep separate names because they are separate concepts; only
+// a non-COD channel would make them diverge. Both derive from the single
+// policy definition above so they cannot drift apart by accident.
+const COLLECTED_ORDER_STATUSES: OrderStatus[] = REVENUE_STATUSES;
 // Revenue earned (accrual) — used for retained earnings.
-const EARNED_ORDER_STATUSES: OrderStatus[] = ["DELIVERED", "CONFIRMED"];
+const EARNED_ORDER_STATUSES: OrderStatus[] = REVENUE_STATUSES;
 
 /** Σ cash & bank, derived: opening balances + collections − payments ≤ asOf. */
 async function cashAsOf(asOf: Date): Promise<number> {
@@ -865,7 +884,7 @@ export interface RevenueByProductRow {
 export async function getRevenueByProduct(period: Period): Promise<RevenueByProductRow[]> {
   const orders = await prisma.order.findMany({
     where: {
-      status: { in: REVENUE_STATUSES as any },
+      status: { in: REVENUE_STATUSES },
       deletedAt: null,
       date: { gte: period.from, lte: period.to },
     },
@@ -1089,7 +1108,7 @@ export interface DeliveryTrackerRow {
 export async function getDeliveryTrackerReport(period: Period): Promise<DeliveryTrackerRow[]> {
   const orders = await prisma.order.findMany({
     where: {
-      status: { in: REVENUE_STATUSES as any },
+      status: { in: REVENUE_STATUSES },
       deletedAt: null,
       agentId: { not: null },
       date: { gte: period.from, lte: period.to },

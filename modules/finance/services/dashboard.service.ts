@@ -3,6 +3,9 @@ import {
   getAgentStockMap,
   getWarehouseStockMap,
 } from "@/modules/inventory/services/stock-level.service";
+// Single source of truth for which orders count as revenue. Shared with the P&L
+// and Balance Sheet so this dashboard and the reports can never disagree.
+import { REVENUE_STATUSES } from "@/modules/finance/services/reports-accounting.service";
 
 const MONTH_LABELS = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
 const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -48,7 +51,7 @@ export async function getFinancialSummary(refDate: Date = new Date()) {
     prisma.order.aggregate({
       _sum: { netAmount: true },
       where: {
-        status: "DELIVERED",
+        status: { in: REVENUE_STATUSES },
         deletedAt: null,
         date: { gte: monthStart, lt: monthEnd },
       },
@@ -56,7 +59,7 @@ export async function getFinancialSummary(refDate: Date = new Date()) {
     prisma.order.aggregate({
       _sum: { netAmount: true },
       where: {
-        status: "DELIVERED",
+        status: { in: REVENUE_STATUSES },
         deletedAt: null,
         date: { gte: lastMonthStart, lt: lastMonthEnd },
       },
@@ -123,7 +126,7 @@ export async function getSalesTrends(now: Date = new Date()): Promise<SalesTrend
   );
 
   const orders = await prisma.order.findMany({
-    where: { status: "DELIVERED", deletedAt: null, date: { gte: earliest } },
+    where: { status: { in: REVENUE_STATUSES }, deletedAt: null, date: { gte: earliest } },
     select: { netAmount: true, date: true },
   });
 
@@ -194,14 +197,14 @@ export function resolvePeriodRange(period: DashboardPeriod, now: Date = new Date
 }
 
 export async function getSalesByProduct(range?: DateRange, limit = 8) {
-  // Sales = revenue from DELIVERED orders only (matches the revenue definition
-  // used everywhere else on this dashboard). An optional date range scopes it to
-  // the period selected on the dashboard (week / month).
+  // Sales uses REVENUE_STATUSES — the same definition as the P&L and Balance
+  // Sheet, not just the rest of this dashboard. An optional date range scopes it
+  // to the period selected on the dashboard (week / month).
   const items = await prisma.orderItem.groupBy({
     by: ["productId"],
     where: {
       order: {
-        status: "DELIVERED",
+        status: { in: REVENUE_STATUSES },
         deletedAt: null,
         ...(range ? { date: { gte: range.from, lt: range.to } } : {}),
       },
@@ -233,7 +236,7 @@ export async function getSalesByProduct(range?: DateRange, limit = 8) {
 export async function getSalesByState(range?: DateRange, limit = 12) {
   const orders = await prisma.order.findMany({
     where: {
-      status: "DELIVERED",
+      status: { in: REVENUE_STATUSES },
       deletedAt: null,
       ...(range ? { date: { gte: range.from, lt: range.to } } : {}),
     },

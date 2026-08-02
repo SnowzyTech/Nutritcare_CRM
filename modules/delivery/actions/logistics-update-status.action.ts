@@ -6,6 +6,10 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { logActivity } from "@/modules/audit/services/audit-log.service";
 import { suppressCameraForRequest } from "@/lib/audit/context";
+import {
+  creditWarehouse,
+  isTransferSourceDebited,
+} from "@/modules/inventory/services/stock-level.service";
 
 const schema = z.object({
   itemId: z.string().min(1),
@@ -56,23 +60,51 @@ export async function updateDeliveryStatusAction(
     }
     const transfer = await prisma.stockTransfer.findUnique({
       where: { id: itemId },
-      select: { id: true, status: true, referenceNumber: true },
+      select: {
+        id: true,
+        status: true,
+        referenceNumber: true,
+        sourceType: true,
+        sourceId: true,
+        items: { select: { productId: true, quantity: true } },
+      },
     });
     if (!transfer) return { success: false, error: "Stock transfer not found" };
     if (transfer.status !== "IN_TRANSIT")
       return { success: false, error: "Delivery is not in transit" };
 
-    await prisma.stockTransfer.update({
-      where: { id: itemId },
-      data: { status: "FAILED" },
-    });
+    // If the source was already debited at packing time, the goods are in
+    // flight and owned by nobody. Failing the delivery returns them to the
+    // source warehouse — without this the units would simply vanish.
+    const sourceDebited =
+      transfer.sourceType === "WAREHOUSE" &&
+      (await isTransferSourceDebited(prisma, itemId));
+
+    try {
+      await prisma.$transaction(async (tx) => {
+        const flipped = await tx.stockTransfer.updateMany({
+          where: { id: itemId, status: "IN_TRANSIT" },
+          data: { status: "FAILED" },
+        });
+        if (flipped.count === 0) {
+          throw new Error("Delivery is no longer in transit");
+        }
+        if (sourceDebited) {
+          await creditWarehouse(tx, transfer.sourceId, transfer.items);
+        }
+      });
+    } catch (e) {
+      return { success: false, error: (e as Error).message };
+    }
 
     await logActivity({
       userId: session.user.id,
       action: "Failed",
       entityType: "StockTransfer",
       entityId: itemId,
-      description: `Marked stock transfer ${transfer.referenceNumber} as failed`,
+      description: `Marked stock transfer ${transfer.referenceNumber} as failed${
+        sourceDebited ? " — packed stock returned to the source warehouse" : ""
+      }`,
     });
     label = `stock transfer ${transfer.referenceNumber}`;
   }

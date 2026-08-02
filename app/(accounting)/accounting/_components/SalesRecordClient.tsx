@@ -24,6 +24,10 @@ import { updateOrderDeliveryFeeAction } from '@/modules/finance/actions/sales-re
 type SalesRecordRow = Omit<SalesRecord, 'orderStatus' | 'remStatus'> & {
   orderStatus: string;
   remStatus: string;
+  // Supplied by getSalesRecords (the mock SalesRecord shape predates them):
+  // raw components behind the formatted Net Amount / Delivery Fee columns.
+  netBeforeDeliveryNum: number;
+  deliveryFeeNum: number;
 };
 
 interface SalesRecordClientProps {
@@ -72,8 +76,23 @@ export function SalesRecordClient({ initialRecords = [], products: productProp, 
 
   const resetPage = () => setPage(1);
 
+  // Net Amount is shown net of the delivery fee, so editing the fee has to
+  // recompute it — the two columns are adjacent and would otherwise disagree
+  // until the page reloads.
+  const fmtNaira = (n: number) =>
+    `₦${n.toLocaleString('en-NG', { maximumFractionDigits: 0 })}`;
+
   const updateDeliveryFee = (id: string, newNumber: string) => {
-    setRecords(prev => prev.map(r => r.id === id ? { ...r, deliveryFee: `₦${newNumber}` } : r));
+    setRecords(prev => prev.map(r => {
+      if (r.id !== id) return r;
+      const feeNum = parseFloat(newNumber.replace(/[^0-9.]/g, '')) || 0;
+      return {
+        ...r,
+        deliveryFee: `₦${newNumber}`,
+        deliveryFeeNum: feeNum,
+        netAmount: fmtNaira(r.netBeforeDeliveryNum - feeNum),
+      };
+    }));
   };
 
   const persistDeliveryFee = async (id: string, value: string) => {

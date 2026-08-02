@@ -480,6 +480,22 @@ export async function getTeamsWithMemberCount() {
       department: true,
       createdAt: true,
       _count: { select: { members: true } },
+      // Members are loaded up front rather than fetched per-team on expand:
+      // teams are few and each row is small, so one query beats N round-trips
+      // to Neon and keeps the dropdown instant.
+      members: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          avatarUrl: true,
+          isActive: true,
+          isTeamLead: true,
+        },
+        // Team leads first, then alphabetical.
+        orderBy: [{ isTeamLead: "desc" }, { name: "asc" }],
+      },
     },
     orderBy: { name: "asc" },
   });

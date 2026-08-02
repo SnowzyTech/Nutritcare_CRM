@@ -9,6 +9,7 @@ import { isAdmin } from "@/lib/auth/role-routes";
 import { logActivity } from "@/modules/audit/services/audit-log.service";
 import { suppressCameraForRequest } from "@/lib/audit/context";
 import {
+  creditWarehouse,
   debitWarehouse,
   transferAgentToAgent,
   reverseWarehouseToAgent,
@@ -18,6 +19,7 @@ import {
   reverseAdjustment,
   getWarehouseProductStock,
   getAgentProductStock,
+  isTransferSourceDebited,
 } from "@/modules/inventory/services/stock-level.service";
 // RAPS units are excluded from creditWarehouse at receipt time, so any later
 // debit (delete/reverse) must undo the same net amount, not the full item qty.
@@ -1021,20 +1023,28 @@ export async function reverseStockTransferAction(
   if (!transfer) return { error: "Transfer not found" };
   if (transfer.status === "REVERSED") return { error: "Transfer is already reversed" };
 
+  const isWarehouseToWarehouse =
+    transfer.sourceType === "WAREHOUSE" && transfer.targetType === "WAREHOUSE";
+  // COMPLETED: source debited AND target credited — unwind both legs.
   const wasApplied = transfer.status === "COMPLETED";
+  // IN_TRANSIT past packing: source debited, target never credited — the stock
+  // is in flight, so only the source leg needs undoing.
+  const sourceOnlyDebited =
+    !wasApplied &&
+    isWarehouseToWarehouse &&
+    transfer.status === "IN_TRANSIT" &&
+    (await isTransferSourceDebited(prisma, id));
 
   await prisma.$transaction(async (tx) => {
     await tx.stockTransfer.update({
       where: { id },
       data: { status: "REVERSED", notes: reason.trim() || null },
     });
-    if (
-      wasApplied &&
-      transfer.sourceType === "WAREHOUSE" &&
-      transfer.targetType === "WAREHOUSE"
-    ) {
+    if (wasApplied && isWarehouseToWarehouse) {
       // Reverse direction: target → source.
       await transferWarehouseToWarehouse(tx, transfer.targetId, transfer.sourceId, transfer.items);
+    } else if (sourceOnlyDebited) {
+      await creditWarehouse(tx, transfer.sourceId, transfer.items);
     }
   });
 
@@ -1063,13 +1073,20 @@ export async function deleteStockTransferAction(
   });
   if (!transfer) return { error: "Transfer not found" };
 
+  const deleteIsWtoW =
+    transfer.sourceType === "WAREHOUSE" && transfer.targetType === "WAREHOUSE";
+  // Same two cases as reversal: a COMPLETED transfer needs both legs undone, an
+  // IN_TRANSIT one past packing only needs the source credited back.
+  const deleteSourceOnlyDebited =
+    transfer.status === "IN_TRANSIT" &&
+    deleteIsWtoW &&
+    (await isTransferSourceDebited(prisma, id));
+
   await prisma.$transaction(async (tx) => {
-    if (
-      transfer.status === "COMPLETED" &&
-      transfer.sourceType === "WAREHOUSE" &&
-      transfer.targetType === "WAREHOUSE"
-    ) {
+    if (transfer.status === "COMPLETED" && deleteIsWtoW) {
       await transferWarehouseToWarehouse(tx, transfer.targetId, transfer.sourceId, transfer.items);
+    } else if (deleteSourceOnlyDebited) {
+      await creditWarehouse(tx, transfer.sourceId, transfer.items);
     }
     await tx.stockTransfer.delete({ where: { id } });
   });

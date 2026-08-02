@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db/prisma";
+import { PACKED_PICKPACK_STATUSES } from "@/modules/inventory/services/stock-level.service";
 
 // ── Shared form data types ────────────────────────────────────────────────────
 
@@ -286,7 +287,16 @@ export async function getInTransitTransfersForWarehouse(
   warehouseId: string,
 ): Promise<InTransitTransferRow[]> {
   const transfers = await prisma.stockTransfer.findMany({
-    where: { status: "IN_TRANSIT", targetType: "WAREHOUSE", targetId: warehouseId },
+    where: {
+      status: "IN_TRANSIT",
+      targetType: "WAREHOUSE",
+      targetId: warehouseId,
+      // Only surface transfers the source warehouse has actually packed. A
+      // transfer is IN_TRANSIT from dispatch onwards, but the source is not
+      // debited until PACKED — receiving before then would credit this
+      // warehouse for stock nobody has given up yet, inflating system totals.
+      pickPacks: { some: { status: { in: [...PACKED_PICKPACK_STATUSES] } } },
+    },
     include: {
       items: { include: { product: { select: { id: true, name: true, sku: true } } } },
     },

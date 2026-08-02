@@ -1,10 +1,11 @@
 "use client";
 
 import React, { useState, useTransition } from "react";
-import { Trash2, Plus, Users } from "lucide-react";
+import { Trash2, Plus, Users, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 import { createTeamAction, deleteTeamAction } from "@/modules/users/actions/users.action";
-import type { Department } from "@prisma/client";
+import { getInitials } from "@/lib/utils";
+import type { Department, UserRole } from "@prisma/client";
 
 const DEPT_LABELS: Record<Department, string> = {
   SALES: "Sales",
@@ -20,12 +21,37 @@ const DEPT_COLORS: Record<Department, string> = {
   DATA: "bg-blue-50 text-blue-700 border-blue-200",
 };
 
+const ROLE_LABELS: Record<UserRole, string> = {
+  SUPER_ADMIN: "Super Admin",
+  ADMIN: "Admin",
+  MEDIA_BUYER: "Media Buyer",
+  SALES_REP: "Sales Rep",
+  SALES_REP_MANAGER: "Sales Manager",
+  DELIVERY_AGENT: "Delivery Agent",
+  ACCOUNTANT: "Accountant",
+  INVENTORY_MANAGER: "Inventory Manager",
+  WAREHOUSE_MANAGER: "Warehouse Manager",
+  LOGISTICS_MANAGER: "Logistics Manager",
+  DATA_ANALYST: "Data Analyst",
+};
+
+type TeamMember = {
+  id: string;
+  name: string;
+  email: string;
+  role: UserRole;
+  avatarUrl: string | null;
+  isActive: boolean;
+  isTeamLead: boolean;
+};
+
 type Team = {
   id: string;
   name: string;
   department: Department;
   createdAt: Date;
   _count: { members: number };
+  members: TeamMember[];
 };
 
 interface Props {
@@ -40,6 +66,18 @@ export default function TeamsClient({ teams: initialTeams }: Props) {
   const [department, setDepartment] = useState<Department>("SALES");
   const [error, setError] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  // Several teams can be open at once — comparing rosters side by side is the
+  // main reason to expand them in the first place.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  function toggleExpanded(id: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   function handleCreate() {
     setError(null);
@@ -174,8 +212,11 @@ export default function TeamsClient({ teams: initialTeams }: Props) {
               </tr>
             </thead>
             <tbody>
-              {teams.map((team) => (
-                <tr key={team.id} className="border-t border-slate-100 hover:bg-slate-50/50 transition-colors">
+              {teams.map((team) => {
+                const isOpen = expanded.has(team.id);
+                return (
+                <React.Fragment key={team.id}>
+                <tr className="border-t border-slate-100 hover:bg-slate-50/50 transition-colors">
                   <td className="px-6 py-4">
                     <p className="font-bold text-sm text-slate-800">{team.name}</p>
                   </td>
@@ -187,10 +228,22 @@ export default function TeamsClient({ teams: initialTeams }: Props) {
                     </span>
                   </td>
                   <td className="px-6 py-4 text-center">
-                    <span className="inline-flex items-center gap-1 text-sm font-bold text-slate-600">
+                    <button
+                      onClick={() => toggleExpanded(team.id)}
+                      disabled={team.members.length === 0}
+                      aria-expanded={isOpen}
+                      aria-label={`${isOpen ? "Hide" : "Show"} members of ${team.name}`}
+                      className="inline-flex items-center gap-1.5 text-sm font-bold text-slate-600 rounded-lg px-2 py-1 -mx-2 hover:bg-slate-100 hover:text-purple-700 transition-colors disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-slate-600 disabled:cursor-default"
+                    >
                       <Users size={14} className="text-slate-400" />
                       {team._count.members}
-                    </span>
+                      {team.members.length > 0 && (
+                        <ChevronDown
+                          size={14}
+                          className={`text-slate-400 transition-transform ${isOpen ? "rotate-180" : ""}`}
+                        />
+                      )}
+                    </button>
                   </td>
                   <td className="px-6 py-4 text-sm text-slate-400">
                     {new Date(team.createdAt).toLocaleDateString("en-NG")}
@@ -223,7 +276,55 @@ export default function TeamsClient({ teams: initialTeams }: Props) {
                     )}
                   </td>
                 </tr>
-              ))}
+
+                {isOpen && (
+                  <tr className="border-t border-slate-100 bg-slate-50/60">
+                    <td colSpan={5} className="px-6 py-4">
+                      <ul className="divide-y divide-slate-200/70">
+                        {team.members.map((m) => (
+                          <li key={m.id} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
+                            {m.avatarUrl ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img
+                                src={m.avatarUrl}
+                                alt=""
+                                className="w-8 h-8 rounded-full object-cover shrink-0"
+                              />
+                            ) : (
+                              <span className="w-8 h-8 rounded-full bg-purple-100 text-purple-700 text-[11px] font-black flex items-center justify-center shrink-0">
+                                {getInitials(m.name)}
+                              </span>
+                            )}
+
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2">
+                                <p className="text-sm font-bold text-slate-800 truncate">{m.name}</p>
+                                {m.isTeamLead && (
+                                  <span className="shrink-0 px-1.5 py-0.5 rounded-md bg-purple-100 text-purple-700 text-[10px] font-black uppercase tracking-wide">
+                                    Lead
+                                  </span>
+                                )}
+                                {!m.isActive && (
+                                  <span className="shrink-0 px-1.5 py-0.5 rounded-md bg-slate-200 text-slate-500 text-[10px] font-black uppercase tracking-wide">
+                                    Inactive
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-xs text-slate-400 truncate">{m.email}</p>
+                            </div>
+
+                            <span className="shrink-0 text-xs font-bold text-slate-500">
+                              {ROLE_LABELS[m.role]}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </td>
+                  </tr>
+                )}
+                </React.Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>
