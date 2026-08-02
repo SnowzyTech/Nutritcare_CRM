@@ -482,6 +482,25 @@ export async function hardDeleteOrder(
       return { success: false, error: "Order not found" };
     }
 
+    // Only PENDING orders (which carry no delivery/financial records) may be
+    // permanently deleted. Everything else is blocked with a clear reason.
+    if (order.status !== "PENDING") {
+      const reasons: Record<string, string> = {
+        CONFIRMED:
+          "This order has been confirmed — a delivery agent and delivery record are attached, so it can't be deleted.",
+        DELIVERED:
+          "This order has been delivered — it has delivery, stock and financial records, so it can't be deleted.",
+        FAILED:
+          "This order has a failed delivery record attached, so it can't be deleted.",
+        CANCELLED:
+          "This order has been cancelled and may have delivery/agent records attached, so it can't be deleted.",
+      };
+      return {
+        success: false,
+        error: reasons[order.status] ?? "Only pending orders can be deleted.",
+      };
+    }
+
     // Delete in order to respect foreign key constraints
     // 1. Delete order items first
     await prisma.orderItem.deleteMany({
@@ -493,7 +512,12 @@ export async function hardDeleteOrder(
       where: { orderId: order.id },
     });
 
-    // 3. Delete the order itself
+    // 3. Remove chat/message references (a required FK) so they don't block the delete
+    await prisma.messageOrderRef.deleteMany({
+      where: { orderId: order.id },
+    });
+
+    // 4. Delete the order itself
     await prisma.order.delete({
       where: { id: order.id },
     });

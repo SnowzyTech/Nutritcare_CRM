@@ -18,23 +18,23 @@ const STEP_CONFIGS: Record<Status, Step[]> = {
   ],
   Confirmed: [
     { label: 'Order Processed', active: true, color: 'yellow' },
-    { label: 'Order is has been comfirmed', active: true, color: 'green' },
-    { label: 'Order is yet to Delivered', active: false, color: 'grey' },
+    { label: 'Order has been Confirmed', active: true, color: 'green' },
+    { label: 'Order is yet to be Delivered', active: false, color: 'grey' },
   ],
   Cancelled: [
     { label: 'Order Processed', active: true, color: 'yellow' },
-    { label: 'Order is has been Cancelled', active: true, color: 'orange' },
-    { label: 'Order is yet to Delivered', active: false, color: 'grey' },
+    { label: 'Order has been Cancelled', active: true, color: 'orange' },
+    { label: 'Order is yet to be Delivered', active: false, color: 'grey' },
   ],
   Failed: [
     { label: 'Order Processed', active: true, color: 'yellow' },
-    { label: 'Order is has been comfirmed', active: true, color: 'green' },
+    { label: 'Order has been Confirmed', active: true, color: 'green' },
     { label: 'Order Failed', active: true, color: 'red' },
   ],
   Delivered: [
     { label: 'Order is Pending', active: true, color: 'yellow' },
-    { label: 'Order is yet to be Confirmed', active: true, color: 'green' },
-    { label: 'Order is has been Delivered', active: true, color: 'green' },
+    { label: 'Order has been Confirmed', active: true, color: 'green' },
+    { label: 'Order has been Delivered', active: true, color: 'green' },
   ],
 };
 

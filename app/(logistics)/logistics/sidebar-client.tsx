@@ -36,12 +36,12 @@ export function LogisticsSidebarClient({ user, isHead }: SidebarProps) {
   const navItems = [
     { name: "Dashboard", href: "/logistics", icon: LayoutDashboard },
     { name: "Chat", href: "/chat", icon: MessageCircle },
-    { name: "Deliveries", href: "/logistics/deliveries", icon: Truck, badge: "9" },
+    { name: "Deliveries", href: "/logistics/deliveries", icon: Truck },
     { name: "Live Tracking", href: "/logistics/tracking", icon: MapPin },
     { name: "Route Planner", href: "/logistics/route-planner", icon: Map },
-    { name: "Returns", href: "/logistics/returns", icon: RotateCcw, badge: "5" },
+    { name: "Returns", href: "/logistics/returns", icon: RotateCcw },
     { name: "Agents/Drivers", href: "/logistics/agents", icon: Users },
-    { name: "Orders", href: "/logistics/orders", icon: ShoppingBag, badge: "3" },
+    { name: "Orders", href: "/logistics/orders", icon: ShoppingBag },
     ...(isHead ? [{ name: "Team", href: "/logistics/team", icon: UserCog }] : []),
   ];
 
@@ -88,14 +88,7 @@ export function LogisticsSidebarClient({ user, isHead }: SidebarProps) {
             >
               <item.icon className="w-5 h-5 flex-shrink-0" />
               {!isCollapsed && (
-                <>
-                  <span className="text-sm font-medium flex-1">{item.name}</span>
-                  {item.badge && (
-                    <span className="bg-[#facc15] text-[#4a0b79] text-[10px] font-bold px-2 py-0.5 rounded-full">
-                      {item.badge}
-                    </span>
-                  )}
-                </>
+                <span className="text-sm font-medium flex-1">{item.name}</span>
               )}
             </Link>
           );
