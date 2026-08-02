@@ -11,7 +11,13 @@ export interface SalesRecordRow {
   qty: string;
   total: string;
   discount: string;
+  /** Net of discount AND of the delivery fee the business pays the agent. */
   netAmount: string;
+  /** Raw components so the client can recompute `netAmount` when the delivery
+   *  fee is edited inline — the two columns sit side by side and would
+   *  otherwise disagree until the next page load. */
+  netBeforeDeliveryNum: number;
+  deliveryFeeNum: number;
   deliveryFee: string;
   remStatus: "Paid" | "Not Paid";
   agent: string;
@@ -70,6 +76,8 @@ export async function getSalesRecords(filters: {
     const discountNum = Number(o.discountAmount);
     const discountPct = Number(o.discountPercent);
     const remStatus: "Paid" | "Not Paid" = o.remittanceStatus === "REMITTED" ? "Paid" : "Not Paid";
+    const netBeforeDelivery = Number(o.netAmount);
+    const deliveryFeeNum = Number(o.deliveryFee);
 
     const qtyPerItem = o.items.map(it => it.quantity).join(", ");
 
@@ -83,8 +91,12 @@ export async function getSalesRecords(filters: {
       qty: qtyPerItem,
       total: fmt(totalNum),
       discount: discountNum > 0 ? `${fmt(discountNum)} (${discountPct}%)` : "—",
-      netAmount: fmt(Number(o.netAmount)),
-      deliveryFee: fmt(Number(o.deliveryFee)),
+      // The delivery fee is a cost the business pays the agent, not something
+      // the customer is billed for, so it comes off the net figure here.
+      netAmount: fmt(netBeforeDelivery - deliveryFeeNum),
+      netBeforeDeliveryNum: netBeforeDelivery,
+      deliveryFeeNum,
+      deliveryFee: fmt(deliveryFeeNum),
       remStatus,
       agent: o.agent?.companyName ?? "—",
       date: o.date.toISOString().slice(0, 10),
@@ -113,7 +125,11 @@ export interface OrderInvoiceDetail {
   totalAmount: number;
   discountAmount: number;
   discountPercent: number;
+  /** Goods net of discount. This is the invoice basis — delivery is excluded. */
   netAmount: number;
+  /** Internal margin view: netAmount minus the delivery fee paid to the agent.
+   *  Matches the Net Amount column on the sales-record list. Never billed. */
+  netAfterDelivery: number;
   deliveryFee: number;
   invoiceTotal: number;
   notes: string | null;
@@ -187,8 +203,11 @@ export async function getSalesRecordById(id: string): Promise<OrderInvoiceDetail
   const discountPercent = Number(order.discountPercent);
   const netAmount = Number(order.netAmount);
   const deliveryFee = Number(order.deliveryFee);
-  // What the customer owes: net of discount, plus delivery/shipping.
-  const invoiceTotal = netAmount + deliveryFee;
+  // What the customer owes: goods net of discount, and nothing else. Delivery is
+  // paid by the business to the agent, not billed to the customer, so it is
+  // deliberately NOT added here. `deliveryFee` is still returned separately for
+  // the internal margin view — it just never reaches the customer-facing total.
+  const invoiceTotal = netAmount;
 
   const delivery = order.deliveries[0];
   const existing = order.invoices[0];
@@ -227,7 +246,9 @@ export async function getSalesRecordById(id: string): Promise<OrderInvoiceDetail
         subtotal: totalAmount,
         discountPercent,
         discountAmount,
-        shipping: deliveryFee,
+        // Customer is not charged for delivery — the PDF omits the line
+        // entirely when shipping is 0 (lib/pdf/invoice-pdf.ts:141).
+        shipping: 0,
         invoiceTotal,
         items: orderLines,
       };
@@ -241,6 +262,7 @@ export async function getSalesRecordById(id: string): Promise<OrderInvoiceDetail
     discountAmount,
     discountPercent,
     netAmount,
+    netAfterDelivery: netAmount - deliveryFee,
     deliveryFee,
     invoiceTotal,
     notes: order.notes,

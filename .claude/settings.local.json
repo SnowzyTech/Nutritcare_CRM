@@ -105,7 +105,15 @@
       "Bash(ls .claude/skills/)",
       "Bash(node -e \"try{require.resolve\\('playwright'\\);console.log\\('playwright present'\\)}catch{try{require.resolve\\('@playwright/test'\\);console.log\\('@playwright/test present'\\)}catch{console.log\\('no playwright'\\)}}\")",
       "Bash(node -e \"console.log\\(Object.keys\\(require\\('./package.json'\\).scripts\\).join\\(', '\\)\\)\")",
-      "Bash(grep -rnE \"items.length > 1|items.length - 1|firstItem|product.name|\\\\+\\\\$\\\\{|items:.*map\" \"app/\\(delivery-agent\\)\" --include=\"*.tsx\")"
+      "Bash(grep -rnE \"items.length > 1|items.length - 1|firstItem|product.name|\\\\+\\\\$\\\\{|items:.*map\" \"app/\\(delivery-agent\\)\" --include=\"*.tsx\")",
+      "Bash(echo \"---exit $?\")",
+      "PowerShell(npx eslint modules/inventory/services/stock-level.service.ts modules/inventory/actions/stock.action.ts modules/warehouse/actions/receive-transfer.action.ts modules/warehouse/actions/pick-pack.action.ts modules/warehouse/services/warehouse.service.ts modules/delivery/actions/logistics-update-status.action.ts 2>&1 | Select-Object -First 30)",
+      "Bash(awk 'NR>=120 && NR<=150 || NR>=425 && NR<=450 || NR>=855 && NR<=875 || NR>=1080 && NR<=1100' modules/finance/services/reports-accounting.service.ts)",
+      "PowerShell(npx eslint modules/finance/services/reports-accounting.service.ts modules/finance/services/dashboard.service.ts 2>&1 | Select-Object -First 20)",
+      "PowerShell(npx tsc --noEmit 2>&1 | Select-Object -First 20)",
+      "PowerShell(npx eslint modules/finance/services/sales-record.service.ts \"app/\\(accounting\\)/accounting/_components/SalesRecordClient.tsx\" \"app/\\(accounting\\)/accounting/sales-record/[orderId]/OrderDetailsClient.tsx\" 2>&1 | Select-Object -First 20)",
+      "PowerShell(npx eslint \"app/\\(admin\\)/admin/staff/teams/teams-client.tsx\" modules/users/services/users.service.ts 2>&1 | Select-Object -First 20)",
+      "PowerShell(npx eslint \"app/\\(admin\\)/admin/staff/teams/teams-client.tsx\" 2>&1 | Select-Object -First 20)"
     ]
   }
 }

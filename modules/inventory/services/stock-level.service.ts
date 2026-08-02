@@ -377,6 +377,33 @@ export async function getAgentProductStock(
   return Math.max(0, row?.quantity ?? 0);
 }
 
+// ── Transfer settlement state ────────────────────────────────────────────────
+//
+// A warehouse→warehouse StockTransfer moves stock in two stages:
+//   1. Source is debited when its PickPack reaches PACKED (pick-pack.action).
+//   2. Target is credited when the receiving manager shelves it (receive-transfer.action).
+//
+// Between those two points the stock belongs to neither warehouse — it is "in
+// flight". Every path that ends a transfer early (FAILED, REVERSED, deleted)
+// must therefore ask whether stage 1 already ran, and credit the source back if
+// it did. Status alone cannot answer that: a transfer is IN_TRANSIT from the
+// moment logistics dispatches it, which is *before* packing.
+
+/** PickPack statuses that mean the source warehouse has already been debited. */
+export const PACKED_PICKPACK_STATUSES = ["PACKED", "DISPATCHED"] as const;
+
+/** True once the source warehouse has been debited for this transfer. */
+export async function isTransferSourceDebited(
+  tx: Tx | typeof prisma,
+  stockTransferId: string,
+): Promise<boolean> {
+  const packed = await tx.pickPack.findFirst({
+    where: { stockTransferId, status: { in: [...PACKED_PICKPACK_STATUSES] } },
+    select: { id: true },
+  });
+  return packed !== null;
+}
+
 // ── Rebuild / backfill ───────────────────────────────────────────────────────
 // Recomputes every StockLevel row from the existing StockMovement / StockTransfer
 // / StockAdjustment history. Use this once to populate balances from legacy data,
@@ -421,7 +448,7 @@ export async function rebuildStockLevels(): Promise<{ rows: number }> {
     }),
     // Packed W-W transfer PickPacks: source warehouse was debited when picker was assigned
     prisma.pickPack.findMany({
-      where: { stockTransferId: { not: null }, status: { in: ["PACKED", "DISPATCHED"] } },
+      where: { stockTransferId: { not: null }, status: { in: [...PACKED_PICKPACK_STATUSES] } },
       select: { stockTransferId: true },
     }),
     // Delivered orders reduce the assigned agent's stock balance
@@ -471,6 +498,9 @@ export async function rebuildStockLevels(): Promise<{ rows: number }> {
     // IN_TRANSIT W-W transfers with a packed PickPack: source was debited during picker assignment
     const isSourceDebited = t.status === "IN_TRANSIT" && packedTransferIds.has(t.id);
 
+    // DRAFT/SUBMITTED never touched stock. FAILED and REVERSED net to zero:
+    // the live paths credit the source back at the moment they set that status,
+    // so replaying them here would double-count. Skipping all four is correct.
     if (!isCompleted && !isSourceDebited) continue;
 
     // Debit source (applies for both IN_TRANSIT-packed and COMPLETED)

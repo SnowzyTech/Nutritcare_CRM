@@ -138,7 +138,7 @@ export default function OrderDetailsClient({ order }: OrderDetailsClientProps) {
                 ? `${formatCurrency(order.discountAmount)}${order.discountPercent > 0 ? ` (${order.discountPercent}%)` : ''}`
                 : '—',
             )}
-            {detailRow('Net Amount', formatCurrency(order.netAmount))}
+            {detailRow('Net Amount', formatCurrency(order.netAfterDelivery))}
           </div>
 
           <div className="mt-12 flex items-center justify-between text-[13px] text-gray-400 font-bold uppercase tracking-wider border-t border-gray-50 pt-8">

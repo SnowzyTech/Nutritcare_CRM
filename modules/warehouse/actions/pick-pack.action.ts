@@ -168,6 +168,8 @@ export async function assignPickerAction(
         stockTransfer: {
           select: {
             id: true,
+            status: true,
+            referenceNumber: true,
             sourceType: true,
             sourceId: true,
             targetType: true,
@@ -227,10 +229,19 @@ export async function assignPickerAction(
 
         // ── Warehouse → Warehouse (StockTransfer) ────────────────────────────
         if (pp.stockTransfer) {
-          const { sourceType, sourceId, targetType, items } = pp.stockTransfer;
+          const { status, referenceNumber, sourceType, sourceId, targetType, items } = pp.stockTransfer;
 
           if (sourceType !== "WAREHOUSE" || targetType !== "WAREHOUSE") {
             throw new Error("Stock transfers must be warehouse-to-warehouse");
+          }
+
+          // A QUEUED PickPack can outlive its transfer (received, failed or
+          // reversed while still queued). Packing it then would debit the
+          // source a second time for stock already settled elsewhere.
+          if (status !== "IN_TRANSIT") {
+            throw new Error(
+              `Stock transfer ${referenceNumber} is ${status.toLowerCase().replace("_", " ")} and can no longer be packed`,
+            );
           }
 
           // Validate per-product availability in materialized StockLevel
