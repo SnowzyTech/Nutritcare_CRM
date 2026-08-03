@@ -17,6 +17,7 @@ import {
   Menu,
   MessageCircle,
   UserCog,
+  FileBarChart,
 } from "lucide-react";
 import { getInitials } from "@/lib/utils";
 
@@ -42,6 +43,7 @@ export function LogisticsSidebarClient({ user, isHead }: SidebarProps) {
     { name: "Returns", href: "/logistics/returns", icon: RotateCcw },
     { name: "Agents/Drivers", href: "/logistics/agents", icon: Users },
     { name: "Orders", href: "/logistics/orders", icon: ShoppingBag },
+    { name: "Reports", href: "/logistics/reports/daily", icon: FileBarChart },
     ...(isHead ? [{ name: "Team", href: "/logistics/team", icon: UserCog }] : []),
   ];
 

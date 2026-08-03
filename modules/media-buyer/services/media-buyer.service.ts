@@ -453,3 +453,83 @@ export async function getMediaBuyerDashboard(
     forms: rows,
   };
 }
+
+// ── WhatsApp Ads report ─────────────────────────────────────────────────────
+
+export type WhatsappAdsRow = {
+  product: string;
+  totalLeads: number;
+  handled: number;
+  confirmed: number;
+  delivered: number;
+  revenue: number;
+  conversionPct: number; // delivered ÷ leads
+};
+
+/**
+ * The "WHATSAPP ADS REPORT" block in the sales daily and weekly reports:
+ * per product, leads → handled → confirmed → delivered, with revenue and a
+ * conversion rate.
+ *
+ * Caveat carried into the UI: the system only knows about a lead once it has
+ * become an `Order` (there is no pre-order Lead entity), so `totalLeads` and
+ * `handled` are the same figure here. The source documents distinguish them
+ * because they count raw inbound WhatsApp contacts upstream of the CRM.
+ *
+ * Scope is orders that originated from a media-buyer form (`Order.formId`), so
+ * organic and phone orders don't inflate the ad numbers.
+ */
+export async function getWhatsappAdsReport(range: {
+  from: Date;
+  to: Date;
+}): Promise<WhatsappAdsRow[]> {
+  const orders = await prisma.order.findMany({
+    where: {
+      deletedAt: null,
+      formId: { not: null },
+      date: { gte: range.from, lte: range.to },
+    },
+    select: {
+      status: true,
+      netAmount: true,
+      items: {
+        select: { quantity: true, product: { select: { id: true, name: true } } },
+      },
+    },
+  });
+
+  type Bucket = Omit<WhatsappAdsRow, "conversionPct">;
+  const buckets = new Map<string, Bucket>();
+
+  for (const order of orders) {
+    const confirmed =
+      order.status === "CONFIRMED" || order.status === "DELIVERED" || order.status === "FAILED";
+    const delivered = order.status === "DELIVERED";
+    const revenue = delivered ? Number(order.netAmount.toString()) : 0;
+
+    // Distinct products on the order, so a multi-line order counts once per product.
+    const products = new Map(order.items.map((i) => [i.product.id, i.product.name]));
+
+    for (const name of products.values()) {
+      const b =
+        buckets.get(name) ??
+        { product: name, totalLeads: 0, handled: 0, confirmed: 0, delivered: 0, revenue: 0 };
+      b.totalLeads += 1;
+      b.handled += 1;
+      if (confirmed) b.confirmed += 1;
+      if (delivered) {
+        b.delivered += 1;
+        // Split revenue across the products on the order so the column totals.
+        b.revenue += revenue / products.size;
+      }
+      buckets.set(name, b);
+    }
+  }
+
+  return [...buckets.values()]
+    .map((b) => ({
+      ...b,
+      conversionPct: b.totalLeads > 0 ? (b.delivered / b.totalLeads) * 100 : 0,
+    }))
+    .sort((a, b) => b.totalLeads - a.totalLeads);
+}
