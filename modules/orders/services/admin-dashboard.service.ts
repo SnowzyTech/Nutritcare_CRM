@@ -30,6 +30,8 @@ export type AdminDashboardData = {
   remainingStock: number;
   /** Total units sitting in negative (impossible) balances — a data-quality signal. */
   negativeStockUnits: number;
+  /** WhatsApp template sends that failed in the last 24h (billing block, #132000, etc.). */
+  recentWhatsAppFailures: number;
 };
 
 function emptyStats(): PeriodStats {
@@ -250,6 +252,19 @@ async function getNegativeStockUnits(): Promise<number> {
   return Math.abs(agg._sum.quantity ?? 0);
 }
 
+/**
+ * WhatsApp template sends that failed in the last 24 hours. Recorded in the audit
+ * log by `recordWhatsAppResult` (entityType "WhatsApp", action "Failed"), so a
+ * silent outage — e.g. a Meta billing block that stops every message — surfaces as
+ * a dashboard warning instead of only being noticed when customers complain.
+ */
+async function getRecentWhatsAppFailures(): Promise<number> {
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  return prisma.auditLog.count({
+    where: { entityType: "WhatsApp", action: "Failed", createdAt: { gte: since } },
+  });
+}
+
 export async function getAdminDashboardData(
   year: number,
   month: number
@@ -259,7 +274,7 @@ export async function getAdminDashboardData(
   const lastFrom = new Date(year, month - 2, 1);
   const lastTo = from;
 
-  const [current, last, monthlyRevenue, weeklyOrders, remainingStock, negativeStockUnits] =
+  const [current, last, monthlyRevenue, weeklyOrders, remainingStock, negativeStockUnits, recentWhatsAppFailures] =
     await Promise.all([
       computePeriodStats(from, to),
       computePeriodStats(lastFrom, lastTo),
@@ -267,7 +282,8 @@ export async function getAdminDashboardData(
       getWeeklyOrders(from, to),
       getRemainingStock(),
       getNegativeStockUnits(),
+      getRecentWhatsAppFailures(),
     ]);
 
-  return { current, last, monthlyRevenue, weeklyOrders, remainingStock, negativeStockUnits };
+  return { current, last, monthlyRevenue, weeklyOrders, remainingStock, negativeStockUnits, recentWhatsAppFailures };
 }

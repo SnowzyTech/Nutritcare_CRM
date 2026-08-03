@@ -7,6 +7,7 @@ import bcryptjs from "bcryptjs";
 import { getAgentIdByUserId } from "@/modules/delivery/services/delivery-agent-portal.service";
 import { recordDeliveryFeeEntry } from "@/modules/finance/services/agent-settlement.service";
 import { logActivity } from "@/modules/audit/services/audit-log.service";
+import { recordWhatsAppResult } from "@/modules/audit/services/whatsapp-audit.service";
 import { suppressCameraForRequest } from "@/lib/audit/context";
 import { sendOrderDeliveredTemplate } from "@/lib/whatsapp/whatsapp";
 
@@ -165,7 +166,15 @@ export async function markOrderDeliveredAction(orderId: string, deliveryCode: st
       orderNumber: order.orderNumber,
       prescription: order.notes ?? "-",
     })
-      .then((result) => console.log("[WhatsApp] delivery notification result:", JSON.stringify(result)))
+      .then((result) =>
+        recordWhatsAppResult({
+          userId: session.user.id,
+          orderId,
+          orderNumber: order.orderNumber,
+          channel: "delivered",
+          result,
+        }),
+      )
       .catch((err) => console.error("[WhatsApp] markOrderDelivered send error:", err));
   }
 

@@ -5,6 +5,7 @@ import { auth } from "@/lib/auth/auth";
 import { prisma } from "@/lib/db/prisma";
 import { recordDeliveryFeeEntry } from "@/modules/finance/services/agent-settlement.service";
 import { logActivity } from "@/modules/audit/services/audit-log.service";
+import { recordWhatsAppResult } from "@/modules/audit/services/whatsapp-audit.service";
 import { suppressCameraForRequest } from "@/lib/audit/context";
 import { sendOrderDeliveredTemplate } from "@/lib/whatsapp/whatsapp";
 import { reassignAgentForOrder } from "@/modules/orders/services/reassign-agent.service";
@@ -95,7 +96,15 @@ export async function markOrderDeliveredByManager(
       orderNumber: order.orderNumber,
       prescription: order.notes ?? "-",
     })
-      .then((result) => console.log("[WhatsApp] delivery notification result:", JSON.stringify(result)))
+      .then((result) =>
+        recordWhatsAppResult({
+          userId: session.user.id,
+          orderId,
+          orderNumber: order.orderNumber,
+          channel: "delivered",
+          result,
+        }),
+      )
       .catch((err) => console.error("[WhatsApp] markOrderDeliveredByManager send error:", err));
   }
 

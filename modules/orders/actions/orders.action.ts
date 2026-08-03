@@ -18,6 +18,7 @@ import { formatCurrency, formatDate } from "@/lib/utils";
 import { nextOrderNumber } from "@/modules/orders/services/order-number.service";
 import { describeReassignment } from "@/modules/orders/services/reassign-description.service";
 import { logActivity } from "@/modules/audit/services/audit-log.service";
+import { recordWhatsAppResult } from "@/modules/audit/services/whatsapp-audit.service";
 import { suppressCameraForRequest } from "@/lib/audit/context";
 import {
   applyUpsellItems,
@@ -205,11 +206,25 @@ export async function confirmOrderAction(
       totalAmount: formatCurrency(Number(order.netAmount)),
     })
       .then((result) => {
-        console.log("[WhatsApp] order confirmation result:", JSON.stringify(result));
+        recordWhatsAppResult({
+          userId: session.user.id,
+          orderId,
+          orderNumber: order.orderNumber,
+          channel: "confirmation",
+          result,
+        });
         // Message 2: delivery verification code (sent after confirmation)
         return sendDeliveryCodeTemplate({ to: waPhone, deliveryCode });
       })
-      .then((result) => console.log("[WhatsApp] delivery code result:", JSON.stringify(result)))
+      .then((result) =>
+        recordWhatsAppResult({
+          userId: session.user.id,
+          orderId,
+          orderNumber: order.orderNumber,
+          channel: "delivery code",
+          result,
+        }),
+      )
       .catch((err) => console.error("[WhatsApp] confirmOrder send error:", err));
   } else {
     console.warn("[WhatsApp] no phone available — skipping send");

@@ -193,6 +193,19 @@ export default async function AdminDashboardPage({
         <PeriodSelector currentMonth={month} currentYear={year} />
       </div>
 
+      {/* ── WhatsApp send failures (last 24h) ─────────────────────── */}
+      {data.recentWhatsAppFailures > 0 && (
+        <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">
+          <span aria-hidden>⚠️</span>
+          <span>
+            {data.recentWhatsAppFailures.toLocaleString("en-NG")} WhatsApp message
+            {data.recentWhatsAppFailures === 1 ? "" : "s"} failed to send in the last
+            24 hours — see the History page for details. Often a Meta billing/payment
+            issue.
+          </span>
+        </div>
+      )}
+
       {/* ── 1. Financial Overview ─────────────────────────────────── */}
       <section>
         <h2 className="text-sm font-bold text-gray-500 uppercase tracking-tight mb-4">
