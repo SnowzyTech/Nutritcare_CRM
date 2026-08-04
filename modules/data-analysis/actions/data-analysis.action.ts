@@ -5,6 +5,7 @@ import { auth } from "@/lib/auth/auth";
 import { prisma } from "@/lib/db/prisma";
 import { recordDeliveryFeeEntry } from "@/modules/finance/services/agent-settlement.service";
 import { logActivity } from "@/modules/audit/services/audit-log.service";
+import { recordWhatsAppResult } from "@/modules/audit/services/whatsapp-audit.service";
 import { suppressCameraForRequest } from "@/lib/audit/context";
 import { sendOrderDeliveredTemplate } from "@/lib/whatsapp/whatsapp";
 import {
@@ -84,7 +85,16 @@ export async function deleteOrderPermanently(
 ): Promise<{ success: boolean; error?: string }> {
   const session = await auth();
   suppressCameraForRequest();
-  const result = await hardDeleteOrder(orderNumber, session?.user?.id);
+
+  // Only the roles allowed into the data module (route-protected to DATA_ANALYST +
+  // SUPER_ADMIN) may permanently delete an order. Closes the gap where any signed-in
+  // role — or an unauthenticated direct call — could reach this action.
+  const role = session?.user?.role;
+  if (!session?.user?.id || (role !== "DATA_ANALYST" && role !== "SUPER_ADMIN")) {
+    return { success: false, error: "You are not authorized to delete orders." };
+  }
+
+  const result = await hardDeleteOrder(orderNumber, session.user.id);
 
   if (result.success) {
     if (session?.user?.id) {
@@ -195,7 +205,15 @@ export async function markOrderDeliveredByAnalyst(
       orderNumber: order.orderNumber,
       prescription: order.notes ?? "-",
     })
-      .then((result) => console.log("[WhatsApp] delivery notification result:", JSON.stringify(result)))
+      .then((result) =>
+        recordWhatsAppResult({
+          userId: session.user.id,
+          orderId,
+          orderNumber: order.orderNumber,
+          channel: "delivered",
+          result,
+        }),
+      )
       .catch((err) => console.error("[WhatsApp] markOrderDeliveredByAnalyst send error:", err));
   }
 

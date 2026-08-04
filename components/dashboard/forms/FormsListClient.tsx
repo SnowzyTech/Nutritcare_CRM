@@ -144,8 +144,19 @@ export default function FormsListClient({
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Delete this form? This cannot be undone.")) return;
-    const res = await deleteFormAction(id);
+    if (!confirm("Delete this form?")) return;
+    let res = await deleteFormAction(id);
+    if ("needsOrderConfirm" in res) {
+      const ok = confirm(
+        `⚠️ This form has ${res.orderCount} order(s) attached.\n\n` +
+          `Those orders have NO financial records (none are confirmed, delivered, or invoiced), so removing them is safe.\n\n` +
+          `Deleting this form will ALSO remove those ${res.orderCount} order(s) from the system. ` +
+          `Delivered sales, agent settlements, invoices and inventory are NOT affected.\n\n` +
+          `Proceed?`,
+      );
+      if (!ok) return;
+      res = await deleteFormAction(id, true);
+    }
     if ("error" in res) { alert(res.error); return; }
     router.refresh();
   };
@@ -159,10 +170,14 @@ export default function FormsListClient({
   const handleBulkAction = async () => {
     if (!selectAction || selectedForms.size === 0) return;
     if (selectAction === "delete") {
-      if (!confirm(`Delete ${selectedForms.size} form(s)?`)) return;
-      await Promise.all([...selectedForms].map((id) => deleteFormAction(id)));
+      if (!confirm(`Delete ${selectedForms.size} form(s)? Forms that have orders are skipped — delete those individually.`)) return;
+      const results = await Promise.all([...selectedForms].map((id) => deleteFormAction(id)));
+      const skipped = results.filter((r) => !("success" in r)).length;
       setSelectedForms(new Set());
       router.refresh();
+      if (skipped > 0) {
+        alert(`${skipped} form(s) were not deleted because they have orders. Delete those individually to review their orders.`);
+      }
     }
     setSelectAction("");
   };

@@ -16,6 +16,7 @@ import {
   MessageCircle,
   ArrowLeftRight,
   Building2,
+  FileBarChart,
 } from "lucide-react";
 import { logoutAction } from "@/modules/auth/actions/logout.action";
 import { useBasePath } from "./_lib/base-path";
@@ -141,8 +142,10 @@ export function SalesRepManagerSidebarClient({ userName, userRole, userAvatar }:
   const isAnalyticsActive = pathname === `${base}/analytics`;
   const isHistoryActive = pathname === `${base}/history`;
   const isTeamsActive = pathname.startsWith(`${base}/teams`);
+  const isReportsActive = pathname.startsWith(`${base}/reports`);
   // The dedicated Teams section is a company-manager-only power, so it only
-  // shows on the /sales-manager dashboard (not the team-lead's).
+  // shows on the /sales-manager dashboard (not the team-lead's). The executive
+  // reports are company-wide for the same reason.
   const isCompanyManager = base === "/sales-manager";
   const isRepsActive =
     pathname === base ||
@@ -151,6 +154,7 @@ export function SalesRepManagerSidebarClient({ userName, userRole, userAvatar }:
       !isAnalyticsActive &&
       !isHistoryActive &&
       !isTeamsActive &&
+      !isReportsActive &&
       !isOrderAssignmentActive);
 
   const [repsExpanded, setRepsExpanded] = useState(isRepsActive);
@@ -275,6 +279,16 @@ export function SalesRepManagerSidebarClient({ userName, userRole, userAvatar }:
             icon={Building2}
             label="Teams"
             isActive={isTeamsActive}
+            collapsed={isCollapsed}
+          />
+        )}
+
+        {isCompanyManager && (
+          <SidebarNavLink
+            href={`${base}/reports/daily`}
+            icon={FileBarChart}
+            label="Reports"
+            isActive={isReportsActive}
             collapsed={isCollapsed}
           />
         )}

@@ -11,6 +11,7 @@ import {
   lockAgent,
 } from "@/modules/delivery/services/agents.service";
 import { logActivity } from "@/modules/audit/services/audit-log.service";
+import { recordWhatsAppResult } from "@/modules/audit/services/whatsapp-audit.service";
 import {
   sendOrderConfirmationTemplate,
   sendDeliveryCodeTemplate,
@@ -147,11 +148,25 @@ export async function adminConfirmOrderAction(orderId: string, deliveryDate?: st
       totalAmount: formatCurrency(Number(order.netAmount)),
     })
       .then((result) => {
-        console.log("[WhatsApp] admin order confirmation result:", JSON.stringify(result));
+        recordWhatsAppResult({
+          userId: order.salesRepId,
+          orderId,
+          orderNumber: order.orderNumber,
+          channel: "confirmation",
+          result,
+        });
         // Message 2: delivery verification code (sent after confirmation)
         return sendDeliveryCodeTemplate({ to: waPhone, deliveryCode });
       })
-      .then((result) => console.log("[WhatsApp] admin delivery code result:", JSON.stringify(result)))
+      .then((result) =>
+        recordWhatsAppResult({
+          userId: order.salesRepId,
+          orderId,
+          orderNumber: order.orderNumber,
+          channel: "delivery code",
+          result,
+        }),
+      )
       .catch((err) => console.error("[WhatsApp] adminConfirmOrder send error:", err));
   }
 

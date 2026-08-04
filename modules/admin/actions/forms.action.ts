@@ -6,6 +6,8 @@ import {
   createForm,
   updateForm,
   softDeleteForm,
+  softDeleteFormWithOrders,
+  getFormOrderCounts,
   duplicateForm,
   getFormById,
   setFormDisabled,
@@ -86,19 +88,57 @@ export async function updateFormAction(
   }
 }
 
-export async function deleteFormAction(id: string): Promise<ActionResult> {
+type DeleteFormResult =
+  | { success: true }
+  | { error: string }
+  | { needsOrderConfirm: true; orderCount: number };
+
+export async function deleteFormAction(
+  id: string,
+  confirmOrders = false,
+): Promise<DeleteFormResult> {
   try {
     const actor = await requireFormActor();
     suppressCameraForRequest();
     await assertCanMutate(id, actor);
+
     const form = await getFormById(id);
-    await softDeleteForm(id);
+    if (!form) return { error: "Form not found" };
+
+    const { total, blocking } = await getFormOrderCounts(id);
+
+    if (total === 0) {
+      // No orders — plain soft delete (unchanged behaviour).
+      await softDeleteForm(id);
+    } else if (!isAdmin(actor.role)) {
+      // A form with orders can't be deleted by media buyers — disable instead.
+      return {
+        error:
+          "This form has orders, so it can't be deleted. Disable it instead to stop new orders.",
+      };
+    } else if (blocking > 0) {
+      // Admin override is only safe when no order carries financial records.
+      return {
+        error: `This form has ${blocking} confirmed/delivered or invoiced order(s) with financial records, so it can't be deleted. Disable it instead.`,
+      };
+    } else if (!confirmOrders) {
+      // Safe to delete, but the admin must acknowledge that the linked orders go too.
+      return { needsOrderConfirm: true, orderCount: total };
+    } else {
+      // Admin confirmed — soft-delete the form and its non-financial orders together.
+      await softDeleteFormWithOrders(id);
+    }
+
     await logActivity({
       userId: actor.userId, actorRole: actor.role,
       action: "Deleted", entityType: "Form", entityId: id,
-      description: `Form ${form?.name ?? ""} deleted`,
+      description:
+        total > 0
+          ? `Form ${form.name} deleted with ${total} order(s)`
+          : `Form ${form.name} deleted`,
     });
     revalidateForms();
+    revalidatePath("/admin/orders");
     return { success: true };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Failed to delete form" };

@@ -30,10 +30,10 @@ interface SidebarProps {
 const navItems = [
   { name: "Dashboard",        href: "/warehouse",                     icon: LayoutDashboard },
   { name: "Chat",             href: "/chat",                           icon: MessageCircle },
-  { name: "Pick & Pack",      href: "/warehouse/pick-and-pack",       icon: Package,    badge: "5" },
+  { name: "Pick & Pack",      href: "/warehouse/pick-and-pack",       icon: Package     },
   { name: "Location Mgmt",   href: "/warehouse/location-management",  icon: MapPin      },
   { name: "Incoming Goods",  href: "/warehouse/incoming-goods",        icon: PackageOpen },
-  { name: "Returns",          href: "/warehouse/returns",              icon: RotateCcw,  badge: "5" },
+  { name: "Returns",          href: "/warehouse/returns",              icon: RotateCcw  },
   { name: "Outgoing",         href: "/warehouse/outgoing",             icon: Send        },
 ];
 
@@ -94,17 +94,6 @@ export function WarehouseSidebarClient({ user }: SidebarProps) {
             >
               <item.icon className="w-[18px] h-[18px] flex-shrink-0" />
               {!isCollapsed && <span className="text-[13px] flex-1">{item.name}</span>}
-              {!isCollapsed && item.badge && (
-                <span
-                  className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
-                    active
-                      ? "bg-[#FBBF24] text-[#4a0b79]"
-                      : "bg-[#FBBF24] text-[#4a0b79]"
-                  }`}
-                >
-                  {item.badge}
-                </span>
-              )}
             </Link>
           );
         })}
