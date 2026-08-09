@@ -7,8 +7,6 @@ import { signOut } from "next-auth/react";
 import {
   LayoutDashboard,
   Truck,
-  MapPin,
-  Map,
   RotateCcw,
   Users,
   ShoppingBag,
@@ -18,6 +16,8 @@ import {
   MessageCircle,
   UserCog,
   FileBarChart,
+  Warehouse,
+  PackageCheck,
 } from "lucide-react";
 import { getInitials } from "@/lib/utils";
 
@@ -38,11 +38,11 @@ export function LogisticsSidebarClient({ user, isHead }: SidebarProps) {
     { name: "Dashboard", href: "/logistics", icon: LayoutDashboard },
     { name: "Chat", href: "/chat", icon: MessageCircle },
     { name: "Deliveries", href: "/logistics/deliveries", icon: Truck },
-    { name: "Live Tracking", href: "/logistics/tracking", icon: MapPin },
-    { name: "Route Planner", href: "/logistics/route-planner", icon: Map },
     { name: "Returns", href: "/logistics/returns", icon: RotateCcw },
     { name: "Agents/Drivers", href: "/logistics/agents", icon: Users },
     { name: "Orders", href: "/logistics/orders", icon: ShoppingBag },
+    { name: "Stock in Warehouse", href: "/logistics/stock-in-warehouse", icon: Warehouse },
+    { name: "Stock with Agent", href: "/logistics/stock-with-agent", icon: PackageCheck },
     { name: "Reports", href: "/logistics/reports/daily", icon: FileBarChart },
     ...(isHead ? [{ name: "Team", href: "/logistics/team", icon: UserCog }] : []),
   ];

@@ -5,8 +5,8 @@ import { Search, Package, Warehouse as WarehouseIcon, Truck } from "lucide-react
 
 // Master/detail balance browser shared by "Stock in Warehouse" and "Stock Left
 // with Agent" — same interaction as the inventory module's
-// stock-in-warehouse-client / left-with-agent-client, restyled to the analyst
-// theme and generalized over the two shapes.
+// stock-in-warehouse-client / left-with-agent-client, generalized over the two
+// shapes. Used by both the data-analyst and logistics-manager dashboards.
 //
 // These are BALANCES: read from StockLevel, not derived from movement history.
 
@@ -27,6 +27,12 @@ type Props = {
   subtitle: string;
   metaLabel: string;
   emptyMessage: string;
+  /**
+   * Root classes. Defaults to self-padding for layouts whose <main> has none
+   * (data-analyst); layouts that already pad their main (logistics) pass a
+   * variant without `p-8`.
+   */
+  className?: string;
 };
 
 export function StockBalanceExplorer({
@@ -36,6 +42,7 @@ export function StockBalanceExplorer({
   subtitle,
   metaLabel,
   emptyMessage,
+  className = "p-8 max-w-[1400px] mx-auto pb-16",
 }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(nodes[0]?.id ?? null);
   const [nodeSearch, setNodeSearch] = useState("");
@@ -61,7 +68,7 @@ export function StockBalanceExplorer({
   const grandTotal = nodes.reduce((s, n) => s + n.totalQty, 0);
 
   return (
-    <div className="p-8 max-w-[1400px] mx-auto pb-16">
+    <div className={className}>
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900">{title}</h1>
         <p className="text-sm text-gray-400 mt-0.5">{subtitle}</p>

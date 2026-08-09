@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { getWarehousesWithStock } from "@/modules/data-analysis/services/stock-analysis.service";
+import { getWarehousesWithStock } from "@/modules/inventory/services/inventory.service";
 import {
   StockBalanceExplorer,
   type BalanceNode,
@@ -7,7 +7,7 @@ import {
 
 export const metadata: Metadata = { title: "Stock in Warehouse" };
 
-export default async function StockInWarehousePage() {
+export default async function LogisticsStockInWarehousePage() {
   const warehouses = await getWarehousesWithStock();
 
   const nodes: BalanceNode[] = warehouses.map((w) => ({
@@ -31,6 +31,7 @@ export default async function StockInWarehousePage() {
       subtitle="Current stock balance held at each warehouse"
       metaLabel="Manager"
       emptyMessage="No warehouse is currently holding stock."
+      className="max-w-[1400px] mx-auto pb-16"
     />
   );
 }

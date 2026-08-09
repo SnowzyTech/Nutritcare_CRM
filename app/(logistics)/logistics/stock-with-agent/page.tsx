@@ -1,13 +1,13 @@
 import type { Metadata } from "next";
-import { getAgentsWithStock } from "@/modules/data-analysis/services/stock-analysis.service";
+import { getAgentsWithStock } from "@/modules/inventory/services/inventory.service";
 import {
   StockBalanceExplorer,
   type BalanceNode,
 } from "@/components/stock/stock-balance-explorer";
 
-export const metadata: Metadata = { title: "Stock Left with Agent" };
+export const metadata: Metadata = { title: "Stock with Agent" };
 
-export default async function StockLeftWithAgentPage() {
+export default async function LogisticsStockWithAgentPage() {
   const agents = await getAgentsWithStock();
 
   const nodes: BalanceNode[] = agents.map((a) => ({
@@ -27,10 +27,11 @@ export default async function StockLeftWithAgentPage() {
     <StockBalanceExplorer
       nodes={nodes}
       kind="agent"
-      title="Stock Left with Agent"
+      title="Stock with Agent"
       subtitle="Current stock balance still held by each delivery agent"
       metaLabel="State"
       emptyMessage="No agent is currently holding stock."
+      className="max-w-[1400px] mx-auto pb-16"
     />
   );
 }
