@@ -1102,6 +1102,232 @@ export async function getWarehouseDashboard(
 
 // ── Outgoing movements scoped to a warehouse ──────────────────────────────────
 
+// ── Stock snapshot ────────────────────────────────────────────────────────────
+//
+// Two sources describe a warehouse's stock and they answer different questions:
+//
+//   • StockLevel (locationKind WAREHOUSE) — the book balance for the warehouse
+//     as a whole. Every receipt/dispatch/return/adjustment moves it.
+//   • ShelfProductStock — where those units physically sit, bin by bin.
+//
+// Both are written in the same transaction by the paths in stock-level.service,
+// but goods can be received (book balance up) before anyone shelves them, so the
+// shelf total legitimately trails the book balance. The difference is surfaced
+// as `unshelvedQty` rather than hidden, because a manager counting shelves needs
+// to know what he won't find on one.
+
+export type SnapshotShelfRef = {
+  locationId: string;
+  locationCode: string;
+  zone: string;
+  qty: number;
+};
+
+export type SnapshotProductRow = {
+  productId: string;
+  name: string;
+  sku: string;
+  unit: string | null;
+  category: string;
+  /** Book balance for the whole warehouse (StockLevel). */
+  totalQty: number;
+  /** Sum of this product across all shelves (ShelfProductStock). */
+  shelvedQty: number;
+  /** totalQty - shelvedQty, floored at 0: received but not yet put away. */
+  unshelvedQty: number;
+  /** Product-level reorder threshold, when configured. */
+  lowStockThreshold: number | null;
+  isLow: boolean;
+  shelves: SnapshotShelfRef[];
+};
+
+export type SnapshotShelfRow = {
+  locationId: string;
+  locationCode: string;
+  zone: string;
+  occupancyStatus: string;
+  totalQty: number;
+  maxCapacity: number | null;
+  items: { productId: string; name: string; sku: string; qty: number }[];
+};
+
+export type WarehouseStockSnapshot = {
+  warehouseName: string;
+  totals: {
+    distinctProducts: number;
+    totalUnits: number;
+    shelvedUnits: number;
+    unshelvedUnits: number;
+    shelvesInUse: number;
+    totalShelves: number;
+    lowStockCount: number;
+  };
+  products: SnapshotProductRow[];
+  shelves: SnapshotShelfRow[];
+};
+
+export async function getWarehouseStockSnapshot(
+  warehouseId: string,
+): Promise<WarehouseStockSnapshot> {
+  const [warehouse, locations, shelfStocks, stockLevels] = await Promise.all([
+    prisma.warehouse.findUnique({
+      where: { id: warehouseId },
+      select: { name: true },
+    }),
+    prisma.warehouseLocation.findMany({
+      where: { warehouseId },
+      orderBy: [{ zone: "asc" }, { locationCode: "asc" }],
+    }),
+    prisma.shelfProductStock.findMany({
+      where: { quantity: { gt: 0 }, location: { warehouseId } },
+      include: {
+        product: {
+          select: {
+            id: true,
+            name: true,
+            sku: true,
+            unit: true,
+            lowStockAlertQtyTotal: true,
+            category: { select: { categoryName: true } },
+          },
+        },
+        location: { select: { id: true, locationCode: true, zone: true } },
+      },
+    }),
+    prisma.stockLevel.findMany({
+      where: { locationKind: "WAREHOUSE", locationId: warehouseId, quantity: { gt: 0 } },
+      select: {
+        productId: true,
+        quantity: true,
+        product: {
+          select: {
+            id: true,
+            name: true,
+            sku: true,
+            unit: true,
+            lowStockAlertQtyTotal: true,
+            category: { select: { categoryName: true } },
+          },
+        },
+      },
+    }),
+  ]);
+
+  // Product rows are keyed off the union of both sources: a product can have a
+  // book balance with nothing shelved yet, or (after drift) sit on a shelf with
+  // no StockLevel row. Dropping either would under-report the warehouse.
+  type Meta = {
+    name: string;
+    sku: string;
+    unit: string | null;
+    category: string;
+    lowStockThreshold: number | null;
+  };
+  const meta = new Map<string, Meta>();
+  const bookQty = new Map<string, number>();
+  const shelvedQty = new Map<string, number>();
+  const shelvesByProduct = new Map<string, SnapshotShelfRef[]>();
+
+  for (const row of stockLevels) {
+    const p = row.product;
+    meta.set(p.id, {
+      name: p.name,
+      sku: p.sku,
+      unit: p.unit,
+      category: p.category.categoryName,
+      lowStockThreshold: p.lowStockAlertQtyTotal,
+    });
+    bookQty.set(p.id, Math.max(0, row.quantity));
+  }
+
+  for (const s of shelfStocks) {
+    const p = s.product;
+    if (!meta.has(p.id)) {
+      meta.set(p.id, {
+        name: p.name,
+        sku: p.sku,
+        unit: p.unit,
+        category: p.category.categoryName,
+        lowStockThreshold: p.lowStockAlertQtyTotal,
+      });
+    }
+    shelvedQty.set(p.id, (shelvedQty.get(p.id) ?? 0) + s.quantity);
+    const list = shelvesByProduct.get(p.id) ?? [];
+    list.push({
+      locationId: s.location.id,
+      locationCode: s.location.locationCode,
+      zone: s.location.zone ?? s.location.locationCode.charAt(0),
+      qty: s.quantity,
+    });
+    shelvesByProduct.set(p.id, list);
+  }
+
+  const products: SnapshotProductRow[] = Array.from(meta.entries())
+    .map(([productId, m]) => {
+      const shelved = shelvedQty.get(productId) ?? 0;
+      // Where the two sources disagree, trust whichever is higher: a physical
+      // count on a shelf is real stock even if the book balance missed it.
+      const total = Math.max(bookQty.get(productId) ?? 0, shelved);
+      return {
+        productId,
+        name: m.name,
+        sku: m.sku,
+        unit: m.unit,
+        category: m.category,
+        totalQty: total,
+        shelvedQty: shelved,
+        unshelvedQty: Math.max(0, total - shelved),
+        lowStockThreshold: m.lowStockThreshold,
+        isLow: m.lowStockThreshold != null && total <= m.lowStockThreshold,
+        shelves: (shelvesByProduct.get(productId) ?? []).sort((a, b) => b.qty - a.qty),
+      };
+    })
+    .filter((p) => p.totalQty > 0)
+    .sort((a, b) => b.totalQty - a.totalQty || a.name.localeCompare(b.name));
+
+  const itemsByLocation = new Map<string, SnapshotShelfRow["items"]>();
+  for (const s of shelfStocks) {
+    const list = itemsByLocation.get(s.location.id) ?? [];
+    list.push({ productId: s.product.id, name: s.product.name, sku: s.product.sku, qty: s.quantity });
+    itemsByLocation.set(s.location.id, list);
+  }
+
+  const shelves: SnapshotShelfRow[] = locations.map((loc) => {
+    const items = (itemsByLocation.get(loc.id) ?? []).sort((a, b) => b.qty - a.qty);
+    const totalQty = items.reduce((sum, i) => sum + i.qty, 0);
+    return {
+      locationId: loc.id,
+      locationCode: loc.locationCode,
+      zone: loc.zone ?? loc.locationCode.charAt(0),
+      occupancyStatus: deriveOccupancyStatus(loc.occupancyStatus, loc.currentStock, {
+        fullThreshold: loc.fullThreshold,
+        partialThreshold: loc.partialThreshold,
+      }),
+      totalQty,
+      maxCapacity: loc.maxCapacity ?? null,
+      items,
+    };
+  });
+
+  const totalUnits = products.reduce((s, p) => s + p.totalQty, 0);
+  const shelvedUnits = products.reduce((s, p) => s + p.shelvedQty, 0);
+
+  return {
+    warehouseName: warehouse?.name ?? "Warehouse",
+    totals: {
+      distinctProducts: products.length,
+      totalUnits,
+      shelvedUnits,
+      unshelvedUnits: Math.max(0, totalUnits - shelvedUnits),
+      shelvesInUse: shelves.filter((s) => s.totalQty > 0).length,
+      totalShelves: shelves.length,
+      lowStockCount: products.filter((p) => p.isLow).length,
+    },
+    products,
+    shelves,
+  };
+}
+
 export type WarehouseOutgoingRow = {
   id: string;
   date: string;

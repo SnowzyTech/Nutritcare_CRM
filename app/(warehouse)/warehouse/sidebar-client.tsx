@@ -7,6 +7,7 @@ import { signOut } from "next-auth/react";
 import {
   LayoutDashboard,
   Package,
+  Boxes,
   MapPin,
   PackageOpen,
   RotateCcw,
@@ -30,6 +31,7 @@ interface SidebarProps {
 const navItems = [
   { name: "Dashboard",        href: "/warehouse",                     icon: LayoutDashboard },
   { name: "Chat",             href: "/chat",                           icon: MessageCircle },
+  { name: "Stock Snapshot",  href: "/warehouse/stock-snapshot",       icon: Boxes       },
   { name: "Pick & Pack",      href: "/warehouse/pick-and-pack",       icon: Package     },
   { name: "Location Mgmt",   href: "/warehouse/location-management",  icon: MapPin      },
   { name: "Incoming Goods",  href: "/warehouse/incoming-goods",        icon: PackageOpen },
