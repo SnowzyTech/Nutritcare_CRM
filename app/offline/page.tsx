@@ -35,7 +35,7 @@ export default function OfflinePage() {
 
         <h1 className="text-xl font-bold text-gray-900">You&apos;re offline</h1>
         <p className="text-sm text-gray-500 mt-2 leading-relaxed">
-          Nutricare needs a connection to load your work. Check your mobile data or Wi-Fi, then try
+          Nucle needs a connection to load your work. Check your mobile data or Wi-Fi, then try
           again — nothing you had open has been lost.
         </p>
 

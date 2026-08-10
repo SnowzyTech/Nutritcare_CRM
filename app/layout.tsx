@@ -13,17 +13,17 @@ const poppins = Poppins({
 
 export const metadata: Metadata = {
   title: {
-    default: "Nutricare CRM",
-    template: "%s | Nutricare CRM",
+    default: "Nucle CRM",
+    template: "%s | Nucle CRM",
   },
   description:
-    "Production-grade logistics, finance, and inventory management system for Nutricare.",
-  applicationName: "Nutricare CRM",
+    "Production-grade logistics, finance, and inventory management system for Nucle.",
+  applicationName: "Nucle CRM",
   // Next serves the manifest from app/manifest.ts; this is the explicit link.
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
-    title: "Nutricare",
+    title: "Nucle CRM",
     // Matches the app background so the iOS status bar doesn't sit on a black
     // strip when launched from the home screen.
     statusBarStyle: "default",

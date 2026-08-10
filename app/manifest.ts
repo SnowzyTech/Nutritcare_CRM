@@ -10,10 +10,10 @@ import type { MetadataRoute } from "next";
 export default function manifest(): MetadataRoute.Manifest {
   return {
     id: "/",
-    name: "Nutricare CRM",
-    short_name: "Nutricare",
+    name: "Nucle CRM",
+    short_name: "Nucle CRM",
     description:
-      "Orders, deliveries, inventory and finance for Nutricare staff — installable on your phone.",
+      "Orders, deliveries, inventory and finance for Nucle staff — installable on your phone.",
     start_url: "/",
     scope: "/",
     display: "standalone",

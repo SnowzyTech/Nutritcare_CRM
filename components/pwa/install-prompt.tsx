@@ -138,7 +138,7 @@ export function InstallPrompt() {
             className="w-10 h-10 rounded-xl border border-gray-100 shrink-0"
           />
           <div className="min-w-0 flex-1">
-            <p className="text-[13px] font-bold text-gray-900">Install Nutricare</p>
+            <p className="text-[13px] font-bold text-gray-900">Install Nucle CRM</p>
             <p className="text-[11px] text-gray-500 mt-0.5 leading-relaxed">
               {isIOS
                 ? "Add it to your home screen to open it like an app — no typing the address each time."
