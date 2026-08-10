@@ -99,6 +99,14 @@ export default async function StaffDetailPage({ id, roleLabel, basePath, extra }
                 <p className="text-[0.75rem] text-slate-400 font-semibold mb-1">Member Since</p>
                 <p className="text-[1.1rem] font-bold text-slate-600">{formatDate(member.createdAt)}</p>
               </div>
+              {member.role === "WAREHOUSE_MANAGER" && (
+                <div className="border-l border-slate-100 pl-12">
+                  <p className="text-[0.75rem] text-slate-400 font-semibold mb-1">Assigned Warehouse</p>
+                  <p className={`text-[1.1rem] font-bold ${member.warehouse ? "text-purple-900" : "text-slate-400"}`}>
+                    {member.warehouse?.name ?? "Not assigned yet"}
+                  </p>
+                </div>
+              )}
             </div>
 
             <Link

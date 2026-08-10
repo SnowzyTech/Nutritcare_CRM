@@ -25,6 +25,7 @@ interface SidebarProps {
     name?: string | null;
     email?: string | null;
     image?: string | null;
+    warehouseName?: string | null;
   };
 }
 
@@ -75,6 +76,12 @@ export function WarehouseSidebarClient({ user }: SidebarProps) {
               {user?.name ?? "Felix Adeyemo"}
             </span>
             <span className="text-[11px] text-[#FBBF24] mt-0.5">Warehouse Manager</span>
+            {user?.warehouseName && (
+              <span className="flex items-center gap-1 text-[11px] text-gray-200 mt-0.5 truncate">
+                <MapPin className="w-3 h-3 flex-shrink-0" />
+                <span className="truncate">{user.warehouseName}</span>
+              </span>
+            )}
           </div>
         )}
       </div>

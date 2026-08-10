@@ -97,6 +97,7 @@ export async function getSelfProfile(userId: string) {
       avatarUrl: true,
       revokedAdminPages: true,
       team: { select: { name: true } },
+      warehouse: { select: { name: true } },
     },
   });
 }
