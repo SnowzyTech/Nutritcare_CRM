@@ -33,7 +33,7 @@ for exact versions and the full integration list (WhatsApp, Cloudinary, external
 │   ├── (data-analysis)/          # /data                          — DATA_ANALYST
 │   ├── (media-buyer)/            # /media-buyer                   — MEDIA_BUYER
 │   ├── chat/                     # /chat                          — any authenticated role
-│   ├── place_order/              # public order-capture page (media-buyer form embeds)
+│   ├── order-form/[id]/          # public order-capture page (media-buyer form embeds) → POST /api/orders/form-submit
 │   ├── offline/                  # PWA offline fallback page
 │   ├── api/                      # route handlers (auth, orders/form-submit, uploads, chat token, forms, teams, warehouses)
 │   ├── manifest.ts               # PWA web manifest → /manifest.webmanifest

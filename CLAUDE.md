@@ -139,7 +139,7 @@ Session shape (`types/next-auth.d.ts`): `{ id, name, email, role: UserRole, ware
 | `(auth)` | `/login`, `/signup` | public |
 | `(admin-auth)` | `/admin/login` | public |
 
-Public order intake: `app/place_order/` + `POST /api/orders/form-submit` receive submissions from media-buyer form embeds. Root `app/page.tsx` redirects to the signed-in user's role home (or `/login`).
+Public order intake: `app/order-form/[id]/` + `POST /api/orders/form-submit` receive submissions from media-buyer form embeds. Root `app/page.tsx` redirects to the signed-in user's role home (or `/login`).
 
 ### Database
 
