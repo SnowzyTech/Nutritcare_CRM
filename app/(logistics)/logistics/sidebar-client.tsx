@@ -62,7 +62,9 @@ export function LogisticsSidebarClient({ user, isHead }: SidebarProps) {
             </div>
             <div className="flex flex-col">
               <span className="font-semibold text-sm truncate w-24">{user?.name ?? "Logistics Manager"}</span>
-              <span className="text-xs text-[#d28bfa]">Logistics Manager</span>
+              <span className={`text-xs ${isHead ? "text-amber-300 font-semibold" : "text-[#d28bfa]"}`}>
+                {isHead ? "Head Logistics Manager" : "Logistics Manager"}
+              </span>
             </div>
           </div>
         )}

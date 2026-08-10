@@ -849,7 +849,18 @@ export async function getWarehousesWithStock(): Promise<WarehouseSummary[]> {
     getWarehouseStockMap(),
     prisma.warehouse.findMany({
       where: { deletedAt: null },
-      select: { id: true, name: true, managerName: true },
+      select: {
+        id: true,
+        name: true,
+        managerName: true,
+        // Real assigned warehouse manager(s) via User.warehouseId, not the
+        // legacy free-text managerName field (which is usually blank).
+        managers: {
+          where: { role: "WAREHOUSE_MANAGER", isActive: true },
+          select: { name: true },
+          orderBy: { name: "asc" },
+        },
+      },
       orderBy: { name: "asc" },
     }),
     prisma.product.findMany({
@@ -872,10 +883,12 @@ export async function getWarehousesWithStock(): Promise<WarehouseSummary[]> {
       .filter((i) => i.qtyLeft > 0)
       .sort((a, b) => a.productName.localeCompare(b.productName));
 
+    const assignedManagers = w.managers.map((m) => m.name).filter(Boolean).join(", ");
+
     return {
       id: w.id,
       name: w.name,
-      managerName: w.managerName ?? "—",
+      managerName: assignedManagers || w.managerName || "—",
       totalProducts: stockItems.length,
       totalQty: stockItems.reduce((s, i) => s + i.qtyLeft, 0),
       items: stockItems,
