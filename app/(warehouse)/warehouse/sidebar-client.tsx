@@ -7,6 +7,7 @@ import { signOut } from "next-auth/react";
 import {
   LayoutDashboard,
   Package,
+  Boxes,
   MapPin,
   PackageOpen,
   RotateCcw,
@@ -24,12 +25,14 @@ interface SidebarProps {
     name?: string | null;
     email?: string | null;
     image?: string | null;
+    warehouseName?: string | null;
   };
 }
 
 const navItems = [
   { name: "Dashboard",        href: "/warehouse",                     icon: LayoutDashboard },
   { name: "Chat",             href: "/chat",                           icon: MessageCircle },
+  { name: "Stock Snapshot",  href: "/warehouse/stock-snapshot",       icon: Boxes       },
   { name: "Pick & Pack",      href: "/warehouse/pick-and-pack",       icon: Package     },
   { name: "Location Mgmt",   href: "/warehouse/location-management",  icon: MapPin      },
   { name: "Incoming Goods",  href: "/warehouse/incoming-goods",        icon: PackageOpen },
@@ -73,6 +76,12 @@ export function WarehouseSidebarClient({ user }: SidebarProps) {
               {user?.name ?? "Felix Adeyemo"}
             </span>
             <span className="text-[11px] text-[#FBBF24] mt-0.5">Warehouse Manager</span>
+            {user?.warehouseName && (
+              <span className="flex items-center gap-1 text-[11px] text-gray-200 mt-0.5 truncate">
+                <MapPin className="w-3 h-3 flex-shrink-0" />
+                <span className="truncate">{user.warehouseName}</span>
+              </span>
+            )}
           </div>
         )}
       </div>

@@ -27,6 +27,7 @@ export default async function WarehouseLayout({
           name: session?.user?.name,
           email: session?.user?.email,
           image: profile?.avatarUrl ?? null,
+          warehouseName: profile?.warehouse?.name ?? null,
         }}
       />
 
