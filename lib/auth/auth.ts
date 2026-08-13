@@ -34,6 +34,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             id: true, name: true, email: true, role: true,
             password: true, accountActivationStatus: true,
             warehouseId: true,
+            agent: { select: { status: true, deletedAt: true } },
           },
         });
         if (!user) return null;
@@ -45,7 +46,15 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         // 4. Block unapproved accounts
         if (user.accountActivationStatus !== "APPROVED") return null;
 
-        // 5. Return user object — this gets persisted into the JWT
+        // 5. Block suspended / removed delivery agents from signing back in.
+        // (A hard-deleted agent has no user row, so it's already rejected above.)
+        // Scoped to DELIVERY_AGENT so other staff logins are unaffected.
+        if (user.role === "DELIVERY_AGENT") {
+          const agent = user.agent;
+          if (!agent || agent.deletedAt !== null || agent.status !== "ACTIVE") return null;
+        }
+
+        // 6. Return user object — this gets persisted into the JWT
         return {
           id: user.id,
           name: user.name,

@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createDeliveryAgentWithUser } from "../services/create-delivery-agent.service";
 import { createDriver, softDeleteDriver } from "../services/create-driver.service";
-import { softDeleteAgent } from "../services/agents.service";
+import { deleteAgentCompletely } from "../services/agents.service";
 import { isUserTeamLead } from "@/modules/users/services/users.service";
 import { isAdmin } from "@/lib/auth/role-routes";
 import { logActivity } from "@/modules/audit/services/audit-log.service";
@@ -70,15 +70,25 @@ export async function createAgentAction(input: {
   }
 }
 
-export async function deleteAgentLogisticsAction(agentId: string): Promise<{ error: string } | never> {
+export async function deleteAgentLogisticsAction(agentId: string): Promise<{ success: true } | { error: string }> {
   try {
-    await requireHeadLogisticsAuth();
-    await softDeleteAgent(agentId);
+    const user = await requireHeadLogisticsAuth();
+    // The hard delete touches Agent + User + Conversation; suppress the auto
+    // camera and write one clean audit entry instead of several.
+    suppressCameraForRequest();
+    const { name } = await deleteAgentCompletely(agentId);
+    await logActivity({
+      userId: user.id, actorName: user.name, actorRole: user.role,
+      action: "Deleted", entityType: "Agent", entityId: agentId,
+      description: `Permanently deleted delivery agent ${name}`,
+    });
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Failed to delete agent" };
   }
+  // Return a result (don't server-redirect) so the client can show a success
+  // toast before navigating back to the list.
   revalidatePath("/logistics/agents");
-  redirect("/logistics/agents");
+  return { success: true };
 }
 
 export async function createDriverAction(input: {

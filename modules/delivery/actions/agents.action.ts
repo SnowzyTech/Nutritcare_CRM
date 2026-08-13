@@ -2,7 +2,7 @@
 
 import { auth } from "@/lib/auth/auth";
 import { revalidatePath } from "next/cache";
-import { updateAgentStatus, softDeleteAgent } from "../services/agents.service";
+import { updateAgentStatus, deleteAgentCompletely } from "../services/agents.service";
 import { isAdmin } from "@/lib/auth/role-routes";
 import { logActivity } from "@/modules/audit/services/audit-log.service";
 import { suppressCameraForRequest } from "@/lib/audit/context";
@@ -69,11 +69,11 @@ export async function deleteAgentAction(agentId: string): Promise<ActionResult> 
     const actor = await requireAdmin();
     suppressCameraForRequest();
     const name = await agentName(agentId);
-    await softDeleteAgent(agentId);
+    await deleteAgentCompletely(agentId);
     await logActivity({
       userId: actor.id, actorName: actor.name, actorRole: actor.role,
       action: "Deleted", entityType: "Agent", entityId: agentId,
-      description: `Deleted delivery agent ${name}`,
+      description: `Permanently deleted delivery agent ${name}`,
     });
     revalidatePath("/admin/staff/delivery-agent");
     return { success: true };

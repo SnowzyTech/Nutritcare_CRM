@@ -425,8 +425,73 @@ export async function updateAgentStatus(id: string, status: "ACTIVE" | "INACTIVE
   return prisma.agent.update({ where: { id }, data: { status } });
 }
 
-export async function softDeleteAgent(id: string) {
-  return prisma.agent.update({ where: { id }, data: { deletedAt: new Date() } });
+/**
+ * True if the agent has any business records that must be preserved — orders,
+ * deliveries, stock movements/transfers, or accounting settlements/ledger/
+ * adjustments. Such an agent cannot be fully deleted. The auto-created login
+ * account and group chat are NOT records (they are cleaned up on delete).
+ */
+export async function agentHasRecords(tx: Tx, agentId: string): Promise<boolean> {
+  const [orders, deliveries, movements, transfers, settlements, ledger, adjustments] =
+    await Promise.all([
+      tx.order.count({ where: { agentId } }),
+      tx.delivery.count({ where: { agentId } }),
+      tx.stockMovement.count({
+        where: { OR: [{ agentId }, { driverAgentId: agentId }, { toAgentId: agentId }] },
+      }),
+      tx.stockTransfer.count({ where: { driverAgentId: agentId } }),
+      tx.agentSettlement.count({ where: { agentId } }),
+      tx.agentLedgerEntry.count({ where: { agentId } }),
+      tx.settlementAdjustment.count({ where: { agentId } }),
+    ]);
+  return orders + deliveries + movements + transfers + settlements + ledger + adjustments > 0;
+}
+
+/**
+ * Hard-removes an agent and everything auto-created with it: the agent's group
+ * chat (cascades its members/messages/mentions) and the agent's login account
+ * (cascades notifications/memberships/mentions). This frees the globally-unique
+ * email + phone1 for reuse. The CALLER must have verified the agent has no
+ * business records first (see {@link agentHasRecords}) — this does not re-check.
+ */
+export async function purgeAgentCompletely(tx: Tx, agentId: string): Promise<void> {
+  // Group chat first — its members, messages and mentions cascade away with it.
+  await tx.conversation.deleteMany({ where: { agentId } });
+  // Detach any stray messages this agent's login sent elsewhere (e.g. DMs) so
+  // the RESTRICT FK on Message.sender can't block the user delete (null = system).
+  const users = await tx.user.findMany({ where: { agentId }, select: { id: true } });
+  const userIds = users.map((u) => u.id);
+  if (userIds.length > 0) {
+    await tx.message.updateMany({
+      where: { senderId: { in: userIds } },
+      data: { senderId: null },
+    });
+    // The agent's own login/logout audit rows (a RESTRICT FK) would otherwise
+    // block the user delete. Their lifecycle audit ("Created/Deleted agent …")
+    // is logged under the manager who acted, so dropping just this account's
+    // entries loses nothing meaningful.
+    await tx.auditLog.deleteMany({ where: { userId: { in: userIds } } });
+  }
+  await tx.user.deleteMany({ where: { agentId } });
+  await tx.agent.delete({ where: { id: agentId } });
+}
+
+/**
+ * Deletes an agent only when they have no business records: a records-free agent
+ * is fully removed (freeing their email/phone for reuse), while an agent with
+ * history is refused with a message the caller surfaces. Replaces the old
+ * soft-delete (which hid the agent but left its unique email/phone claimed).
+ */
+export async function deleteAgentCompletely(id: string): Promise<{ name: string }> {
+  return prisma.$transaction(async (tx) => {
+    const agent = await tx.agent.findUnique({ where: { id }, select: { companyName: true } });
+    if (!agent) throw new Error("Agent not found.");
+    if (await agentHasRecords(tx, id)) {
+      throw new Error("This agent has order history and can't be deleted.");
+    }
+    await purgeAgentCompletely(tx, id);
+    return { name: agent.companyName };
+  });
 }
 
 export async function getDeliveryAgentAnalytics(agentId: string, period?: MonthPeriod | DatePeriod) {

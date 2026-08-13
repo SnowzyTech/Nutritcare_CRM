@@ -37,7 +37,7 @@ export default function DeliveryAgentDetailClient({ agentName, agentId, agentSta
         setError(result.error);
         toast.error(result.error);
       } else {
-        toast.success("Delivery agent deleted");
+        toast.success("Delivery agent deleted successfully");
         router.push("/admin/staff/delivery-agent");
       }
     });
