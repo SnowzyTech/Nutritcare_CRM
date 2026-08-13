@@ -9,6 +9,24 @@ export async function getAgentIdByUserId(userId: string) {
   return user?.agentId ?? null;
 }
 
+/**
+ * Live access check for the delivery-agent portal. Sessions are JWTs (no
+ * per-request DB lookup at the auth layer), so the portal re-checks the agent's
+ * current state on every navigation: a suspended (INACTIVE), removed, or
+ * hard-deleted agent is signed out on their next interaction. Non-agent roles
+ * (e.g. super-admin oversight) are not gated here.
+ */
+export async function isAgentPortalAccessAllowed(userId: string): Promise<boolean> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { role: true, agent: { select: { status: true, deletedAt: true } } },
+  });
+  if (!user) return false; // account removed (e.g. agent hard-deleted)
+  if (user.role !== "DELIVERY_AGENT") return true;
+  const agent = user.agent;
+  return agent != null && agent.deletedAt === null && agent.status === "ACTIVE";
+}
+
 export async function getAgentOrders(agentId: string) {
   const orders = await prisma.order.findMany({
     where: { agentId, deletedAt: null },

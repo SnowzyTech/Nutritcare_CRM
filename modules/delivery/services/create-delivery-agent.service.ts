@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db/prisma";
 import bcrypt from "bcryptjs";
 import { createAgentGroup } from "@/modules/chat/services/conversations.service";
+import { agentHasRecords, purgeAgentCompletely } from "./agents.service";
 
 function generateTempPassword(): string {
   const chars = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789@#!";
@@ -27,18 +28,46 @@ export interface CreateDeliveryAgentInput {
 }
 
 export async function createDeliveryAgentWithUser(input: CreateDeliveryAgentInput) {
-  const [existingEmail, existingPhone] = await Promise.all([
-    prisma.user.findUnique({ where: { email: input.email }, select: { id: true } }),
-    prisma.agent.findUnique({ where: { phone1: input.phone }, select: { id: true } }),
-  ]);
-
-  if (existingEmail) throw new Error("A user with this email already exists.");
-  if (existingPhone) throw new Error("An agent with this phone number already exists.");
-
   const tempPassword = generateTempPassword();
   const hashedPassword = await bcrypt.hash(tempPassword, 10);
 
   const { user, agent } = await prisma.$transaction(async (tx) => {
+    // Resolve collisions on the globally-unique email / phone1 inside the
+    // transaction so release-then-create is atomic. A leftover of a previously
+    // removed agent (soft-deleted with no records) is purged to free its slot;
+    // any active conflict is refused.
+    const emailUser = await tx.user.findUnique({
+      where: { email: input.email },
+      select: { role: true, agent: { select: { id: true, deletedAt: true } } },
+    });
+    if (emailUser) {
+      const conflictAgent = emailUser.agent;
+      const isPurgeableLeftover =
+        emailUser.role === "DELIVERY_AGENT" &&
+        conflictAgent !== null &&
+        conflictAgent.deletedAt !== null &&
+        !(await agentHasRecords(tx, conflictAgent.id));
+      if (isPurgeableLeftover && conflictAgent) {
+        await purgeAgentCompletely(tx, conflictAgent.id);
+      } else {
+        throw new Error("A user with this email already exists.");
+      }
+    }
+
+    const phoneAgent = await tx.agent.findUnique({
+      where: { phone1: input.phone },
+      select: { id: true, deletedAt: true },
+    });
+    if (phoneAgent) {
+      const isPurgeableLeftover =
+        phoneAgent.deletedAt !== null && !(await agentHasRecords(tx, phoneAgent.id));
+      if (isPurgeableLeftover) {
+        await purgeAgentCompletely(tx, phoneAgent.id);
+      } else {
+        throw new Error("An agent with this phone number already exists.");
+      }
+    }
+
     const agent = await tx.agent.create({
       data: {
         companyName: input.name,
