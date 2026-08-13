@@ -12,6 +12,15 @@ function generateTempPassword(): string {
   return password;
 }
 
+/** "INVENTORY_MANAGER" -> "Inventory Manager" for human-readable error text. */
+function roleLabel(role: string): string {
+  return role
+    .toLowerCase()
+    .split("_")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
 export interface CreateDeliveryAgentInput {
   name: string;
   email: string;
@@ -50,13 +59,15 @@ export async function createDeliveryAgentWithUser(input: CreateDeliveryAgentInpu
       if (isPurgeableLeftover && conflictAgent) {
         await purgeAgentCompletely(tx, conflictAgent.id);
       } else {
-        throw new Error("A user with this email already exists.");
+        throw new Error(
+          `This email is already used by another account (${roleLabel(emailUser.role)}).`,
+        );
       }
     }
 
     const phoneAgent = await tx.agent.findUnique({
       where: { phone1: input.phone },
-      select: { id: true, deletedAt: true },
+      select: { id: true, deletedAt: true, companyName: true },
     });
     if (phoneAgent) {
       const isPurgeableLeftover =
@@ -64,7 +75,9 @@ export async function createDeliveryAgentWithUser(input: CreateDeliveryAgentInpu
       if (isPurgeableLeftover) {
         await purgeAgentCompletely(tx, phoneAgent.id);
       } else {
-        throw new Error("An agent with this phone number already exists.");
+        throw new Error(
+          `This phone number is already used by another delivery agent (${phoneAgent.companyName}).`,
+        );
       }
     }
 
