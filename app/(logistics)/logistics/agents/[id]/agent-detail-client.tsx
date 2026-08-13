@@ -2,6 +2,7 @@
 
 import React, { useState, useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ArrowLeft, Search, Trash2, Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -19,6 +20,7 @@ type Agent = {
 };
 
 export default function AgentDetailClient({ agent, canManageStaff }: { agent: Agent; canManageStaff?: boolean }) {
+  const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -38,7 +40,8 @@ export default function AgentDetailClient({ agent, canManageStaff }: { agent: Ag
         toast.error(result.error);
         setShowDeleteDialog(false);
       } else {
-        toast.success("Agent deleted");
+        toast.success("Delivery agent deleted successfully");
+        router.push("/logistics/agents");
       }
     });
   };
@@ -125,7 +128,7 @@ export default function AgentDetailClient({ agent, canManageStaff }: { agent: Ag
               <span className="font-semibold">{agent.companyName}</span>?
             </p>
             <p className="text-[13px] text-red-500 font-medium mb-6">
-              This will soft-delete the agent and hide them from all lists.
+              This permanently deletes the agent and cannot be undone. Agents with order history can&apos;t be deleted.
             </p>
             {error && (
               <p className="text-red-500 text-[13px] font-medium mb-4">{error}</p>

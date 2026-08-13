@@ -70,7 +70,7 @@ export async function createAgentAction(input: {
   }
 }
 
-export async function deleteAgentLogisticsAction(agentId: string): Promise<{ error: string } | never> {
+export async function deleteAgentLogisticsAction(agentId: string): Promise<{ success: true } | { error: string }> {
   try {
     const user = await requireHeadLogisticsAuth();
     // The hard delete touches Agent + User + Conversation; suppress the auto
@@ -85,8 +85,10 @@ export async function deleteAgentLogisticsAction(agentId: string): Promise<{ err
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Failed to delete agent" };
   }
+  // Return a result (don't server-redirect) so the client can show a success
+  // toast before navigating back to the list.
   revalidatePath("/logistics/agents");
-  redirect("/logistics/agents");
+  return { success: true };
 }
 
 export async function createDriverAction(input: {
