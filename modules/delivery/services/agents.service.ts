@@ -466,6 +466,11 @@ export async function purgeAgentCompletely(tx: Tx, agentId: string): Promise<voi
       where: { senderId: { in: userIds } },
       data: { senderId: null },
     });
+    // The agent's own login/logout audit rows (a RESTRICT FK) would otherwise
+    // block the user delete. Their lifecycle audit ("Created/Deleted agent …")
+    // is logged under the manager who acted, so dropping just this account's
+    // entries loses nothing meaningful.
+    await tx.auditLog.deleteMany({ where: { userId: { in: userIds } } });
   }
   await tx.user.deleteMany({ where: { agentId } });
   await tx.agent.delete({ where: { id: agentId } });
