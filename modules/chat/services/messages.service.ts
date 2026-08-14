@@ -9,7 +9,11 @@ import {
 const PAGE_SIZE = 30;
 const AROUND_RADIUS = 15; // messages fetched on each side when flying to an anchor
 
-const messageSelect = {
+/**
+ * The one message projection. Exported so read-only surfaces outside the chat
+ * itself (super-admin oversight) render from the exact same shape.
+ */
+export const messageSelect = {
   id: true,
   conversationId: true,
   senderId: true,
@@ -42,7 +46,7 @@ export type ChatMessage = {
   createdAt: Date;
 };
 
-type RawMessage = {
+export type RawMessage = {
   id: string;
   conversationId: string;
   senderId: string | null;
@@ -58,7 +62,7 @@ type RawMessage = {
   sender: { id: string; name: string; avatarUrl: string | null } | null;
 };
 
-function toChatMessage(m: RawMessage): ChatMessage {
+export function toChatMessage(m: RawMessage): ChatMessage {
   return {
     id: m.id,
     conversationId: m.conversationId,
@@ -86,8 +90,12 @@ async function assertMember(conversationId: string, userId: string) {
   return member;
 }
 
-/** Unguarded page fetch — callers MUST have already proven membership. */
-async function fetchMessagesPage(
+/**
+ * Unguarded page fetch — callers MUST have already proven the caller is allowed
+ * to read this conversation (membership for `/chat`, super-admin oversight for
+ * the admin transcript view). Never expose this straight to a route handler.
+ */
+export async function fetchMessagesPageUnguarded(
   conversationId: string,
   cursor?: string
 ): Promise<{ messages: ChatMessage[]; nextCursor: string | null }> {
@@ -120,7 +128,7 @@ export async function getMessages(
   cursor?: string
 ): Promise<{ messages: ChatMessage[]; nextCursor: string | null }> {
   await assertMember(conversationId, userId);
-  return fetchMessagesPage(conversationId, cursor);
+  return fetchMessagesPageUnguarded(conversationId, cursor);
 }
 
 export type ChatThread = {
@@ -173,7 +181,7 @@ export async function getThreadForUser(
         },
       },
     }),
-    fetchMessagesPage(conversationId),
+    fetchMessagesPageUnguarded(conversationId),
     // Runs in the same parallel batch, so this costs no extra wall time.
     prisma.conversationMember.findMany({
       where: { conversationId },

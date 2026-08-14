@@ -3,7 +3,7 @@ import type { Prisma, UserRole } from "@prisma/client";
 import {
   ROLE_TO_UI_DEPT,
   UI_DEPT_LABELS,
-  UI_DEPARTMENTS,
+  rolesForDepartment,
 } from "@/lib/staff-departments";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -19,14 +19,6 @@ export type AuditEntry = {
 };
 
 export type AuditGroup = { label: string; date: string; entries: AuditEntry[] };
-
-/** Department filter values used by the History page dropdown. */
-export const DEPARTMENT_FILTERS: { value: string; label: string }[] = [
-  { value: "ALL", label: "All Departments" },
-  ...UI_DEPARTMENTS,
-  { value: "MEDIA", label: "Media Buyer" },
-  { value: "ADMIN", label: "Admin" },
-];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function fmtDateTime(date: Date): string {
@@ -46,15 +38,6 @@ export function departmentLabel(role: string | null | undefined): string {
   if (role === "MEDIA_BUYER") return "Media Buyer";
   const dept = ROLE_TO_UI_DEPT[role];
   return dept ? UI_DEPT_LABELS[dept] : role;
-}
-
-/** Which actor roles belong to a department filter value. */
-function rolesForDepartment(dept: string): string[] {
-  if (dept === "ADMIN") return ["ADMIN", "SUPER_ADMIN"];
-  if (dept === "MEDIA") return ["MEDIA_BUYER"];
-  return Object.entries(ROLE_TO_UI_DEPT)
-    .filter(([, d]) => d === dept)
-    .map(([role]) => role);
 }
 
 function str(v: unknown): string | null {

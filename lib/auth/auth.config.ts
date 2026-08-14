@@ -12,6 +12,10 @@ const ADMIN_ROUTE_ROLES: { prefix: string; roles: string[] }[] = [
   // prefix of the former, and the first match wins.
   { prefix: "/admin/accounting", roles: ["ADMIN", "SUPER_ADMIN"] },
   { prefix: "/admin/account", roles: ["SUPER_ADMIN"] },
+  // Staff chat oversight — SUPER_ADMIN only, and not revocable (absent from
+  // ADMIN_PAGES), so this prefix is the coarse gate and the section layout
+  // repeats the check.
+  { prefix: "/admin/chat-oversight", roles: ["SUPER_ADMIN"] },
   { prefix: "/admin/orders", roles: ["ADMIN", "SUPER_ADMIN"] },
   { prefix: "/admin/delivery", roles: ["ADMIN", "SUPER_ADMIN"] },
   { prefix: "/admin/inventory", roles: ["ADMIN", "SUPER_ADMIN"] },

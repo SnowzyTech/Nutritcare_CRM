@@ -11,6 +11,7 @@ export const allNavItems: NavItem[] = [
   { label: "Dashboard", href: "/admin", icon: "dashboard" },
   { label: "Chat", href: "/chat", icon: "chat" },
   { label: "Admin Overview", href: "/admin/account", icon: "account" },
+  { label: "Chat Oversight", href: "/admin/chat-oversight", icon: "chat-oversight" },
   {
     label: "Order",
     icon: "order",
