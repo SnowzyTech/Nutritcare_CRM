@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   Search,
   SlidersHorizontal,
@@ -177,6 +177,21 @@ export function AdminOrdersClient({
     selectedTeam,
     selectedDate,
   ]);
+
+  // Pagination: show 10 orders per page over the current (filtered) result set.
+  const PAGE_SIZE = 10;
+  const [page, setPage] = useState(1);
+  const totalPages = Math.max(1, Math.ceil(filteredOrders.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const pageOrders = filteredOrders.slice(
+    (currentPage - 1) * PAGE_SIZE,
+    currentPage * PAGE_SIZE,
+  );
+
+  // Jump back to the first page whenever a filter changes the result set.
+  useEffect(() => {
+    setPage(1);
+  }, [activeTab, searchQuery, selectedProduct, selectedState, selectedTeam, selectedDate]);
 
   function formatDate(iso: string) {
     const d = new Date(iso);
@@ -388,7 +403,7 @@ export function AdminOrdersClient({
           </div>
         ) : (
           <div>
-            {filteredOrders.map((order, index) => {
+            {pageOrders.map((order, index) => {
               const firstItem = order.items[0];
               const totalQty = order.items.reduce(
                 (sum, i) => sum + i.quantity,
@@ -487,6 +502,29 @@ export function AdminOrdersClient({
                 </Link>
               );
             })}
+          </div>
+        )}
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-center gap-3 py-4 bg-white border-t border-gray-100">
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={currentPage === 1}
+              className="px-4 py-1.5 text-xs font-bold rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+            >
+              Prev
+            </button>
+            <span className="text-xs font-semibold text-gray-500">
+              Page {currentPage} of {totalPages} · {filteredOrders.length} orders
+            </span>
+            <button
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={currentPage === totalPages}
+              className="px-4 py-1.5 text-xs font-bold rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+            >
+              Next
+            </button>
           </div>
         )}
       </div>
