@@ -2,19 +2,30 @@ import { prisma } from "@/lib/db/prisma";
 import type { Prisma } from "@prisma/client";
 
 export async function getAllForms() {
-  return prisma.form.findMany({
+  const forms = await prisma.form.findMany({
     where: { deletedAt: null },
     orderBy: { createdAt: "desc" },
     select: {
       id: true,
       name: true,
       hits: true,
-      orders: true,
       data: true,
       createdAt: true,
       createdBy: { select: { name: true, role: true } },
     },
   });
+
+  // Order count is derived LIVE from the orders table rather than read from the
+  // denormalised Form.orders counter (which only counts up on submit and drifts
+  // when orders are deleted). formId is indexed, so this group-count is cheap.
+  const counts = await prisma.order.groupBy({
+    by: ["formId"],
+    where: { deletedAt: null, formId: { in: forms.map((f) => f.id) } },
+    _count: { _all: true },
+  });
+  const liveOrders = new Map(counts.map((c) => [c.formId as string, c._count._all]));
+
+  return forms.map((f) => ({ ...f, orders: liveOrders.get(f.id) ?? 0 }));
 }
 
 export async function getFormById(id: string) {
