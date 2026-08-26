@@ -120,14 +120,25 @@ function seedPackagesFromProduct(product: ProductWithOffers): FormPackage[] {
 // When the product has a unit set (e.g. "packs") it reads "2 packs of Prosxact".
 // When it has no unit, the unit word and the "of" are both dropped — no generic
 // "units" fallback — giving "2 Prosxact".
-// Pluralise a unit word for quantities ≠ 1 using basic English rules
-// (pack→packs, box→boxes, sachet→sachets, berry→berries). Assumes the unit was
-// entered in its singular form in inventory.
-function pluralizeUnit(unit: string, qty: number): string {
-  if (qty === 1) return unit;
-  if (/(s|x|z|ch|sh)$/i.test(unit)) return `${unit}es`;
-  if (/[^aeiou]y$/i.test(unit)) return `${unit.slice(0, -1)}ies`;
-  return `${unit}s`;
+// Reduce a unit to its singular form so we can re-pluralise reliably whether the
+// admin typed "pack" or an already-plural "pieces"/"packs" in inventory. Without
+// this, "pieces" would wrongly become "pieceses" at quantity 2+.
+function singularizeUnit(w: string): string {
+  if (/ies$/i.test(w) && w.length > 3) return `${w.slice(0, -3)}y`; // berries → berry
+  if (/(ses|xes|zes|ches|shes)$/i.test(w)) return w.slice(0, -2); // boxes → box, glasses → glass
+  if (/s$/i.test(w) && !/ss$/i.test(w)) return w.slice(0, -1); // packs/pieces → pack/piece
+  return w; // already singular
+}
+
+// The unit word matched to the quantity: "1 pack", "2 packs", "2 pieces" (never
+// "pieceses"), "2 boxes". Normalises to singular first so a plural typed in
+// inventory isn't double-pluralised.
+function unitForQty(unit: string, qty: number): string {
+  const s = singularizeUnit(unit);
+  if (qty === 1) return s;
+  if (/(s|x|z|ch|sh)$/i.test(s)) return `${s}es`;
+  if (/[^aeiou]y$/i.test(s)) return `${s.slice(0, -1)}ies`;
+  return `${s}s`;
 }
 
 function qtyUnitOfProduct(
@@ -136,7 +147,7 @@ function qtyUnitOfProduct(
   productName: string,
 ): string {
   const u = unit?.trim();
-  return u ? `${qty} ${pluralizeUnit(u, qty)} of ${productName}` : `${qty} ${productName}`;
+  return u ? `${qty} ${unitForQty(u, qty)} of ${productName}` : `${qty} ${productName}`;
 }
 
 // Turn the per-form packages into the priceVariations consumed downstream.

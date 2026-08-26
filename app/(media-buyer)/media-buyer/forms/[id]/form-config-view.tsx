@@ -98,9 +98,11 @@ export function FormConfigView({
                 >
                   <span className="font-semibold text-slate-700">
                     {String(p.name ?? `Package ${i + 1}`)}
+                    {p.suffix ? ` ${String(p.suffix)}` : ""}
                   </span>
                   <span className="font-bold text-purple-700">
                     {String(p.formattedPrice ?? p.price ?? "")}
+                    {p.note ? ` ${String(p.note)}` : ""}
                   </span>
                 </div>
               ))}
