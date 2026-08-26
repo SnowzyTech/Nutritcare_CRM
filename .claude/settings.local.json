@@ -114,7 +114,19 @@
       "PowerShell(npx eslint modules/finance/services/sales-record.service.ts \"app/\\(accounting\\)/accounting/_components/SalesRecordClient.tsx\" \"app/\\(accounting\\)/accounting/sales-record/[orderId]/OrderDetailsClient.tsx\" 2>&1 | Select-Object -First 20)",
       "PowerShell(npx eslint \"app/\\(admin\\)/admin/staff/teams/teams-client.tsx\" modules/users/services/users.service.ts 2>&1 | Select-Object -First 20)",
       "PowerShell(npx eslint \"app/\\(admin\\)/admin/staff/teams/teams-client.tsx\" 2>&1 | Select-Object -First 20)",
-      "PowerShell(npx tsx scripts/_verify-login.ts)"
+      "PowerShell(npx tsx scripts/_verify-login.ts)",
+      "PowerShell(node --env-file=.env --import tsx scripts/cleanup-test-data.ts)",
+      "PowerShell(node --env-file=.env --import tsx scripts/inspect-orders.ts)",
+      "PowerShell($pg = Get-Command pg_dump -ErrorAction SilentlyContinue; if \\($pg\\) { \"pg_dump FOUND: $\\($pg.Source\\)\" } else { \"pg_dump NOT found on PATH\" }; $nb = Get-Command neonctl -ErrorAction SilentlyContinue; if \\($nb\\) { \"neonctl FOUND\" } else { \"neonctl NOT found\" })",
+      "PowerShell($env:CLEANUP_ACK=\"I_UNDERSTAND\"; node --env-file=.env --import tsx scripts/cleanup-test-data.ts --confirm)",
+      "PowerShell(node --env-file=.env --import tsx scripts/inspect-expenses.ts)",
+      "PowerShell(node --env-file=.env --import tsx scripts/inspect-demo-finance.ts)",
+      "PowerShell(node --env-file=.env --import tsx scripts/cleanup-demo-finance.ts)",
+      "PowerShell($env:CLEANUP_ACK=\"I_UNDERSTAND\"; node --env-file=.env --import tsx scripts/cleanup-demo-finance.ts --confirm)",
+      "PowerShell(node --env-file=.env --import tsx scripts/inspect-accounts.ts)",
+      "PowerShell(node --env-file=.env --import tsx scripts/cleanup-demo-accounts.ts)",
+      "PowerShell($env:CLEANUP_ACK=\"I_UNDERSTAND\"; node --env-file=.env --import tsx scripts/cleanup-demo-accounts.ts --confirm)",
+      "PowerShell(node --env-file=.env --import tsx scripts/inspect-inventory-value.ts)"
     ]
   }
 }

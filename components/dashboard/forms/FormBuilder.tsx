@@ -39,6 +39,8 @@ export type PriceVariation = {
   formattedPrice: string;
   productId: string; // which product this variation belongs to
   quantity: number; // package quantity (units in this package)
+  suffix?: string; // optional text shown after the product name (left side)
+  note?: string; // optional text shown after the price (right side)
 };
 
 // Per-form editable package — values kept as strings while editing (mirrors the
@@ -49,6 +51,8 @@ export type FormPackage = {
   name: string;
   quantity: string;
   price: string;
+  suffix: string; // optional text after the product name (display-only)
+  note: string; // optional text after the price (display-only)
 };
 
 // Combo / free-gift line: a product reference + quantity (mirrors add-product).
@@ -100,13 +104,15 @@ function genComboId() {
 // starting template that the admin can then edit/add/remove for this form).
 function seedPackagesFromProduct(product: ProductWithOffers): FormPackage[] {
   if (product.packages.length === 0) {
-    return [{ id: genPkgId(), name: "", quantity: "", price: "" }];
+    return [{ id: genPkgId(), name: "", quantity: "", price: "", suffix: "", note: "" }];
   }
   return product.packages.map((pkg) => ({
     id: pkg.id,
     name: pkg.name,
     quantity: pkg.quantity > 0 ? String(pkg.quantity) : "",
     price: pkg.price > 0 ? String(pkg.price) : "",
+    suffix: "",
+    note: "",
   }));
 }
 
@@ -114,13 +120,34 @@ function seedPackagesFromProduct(product: ProductWithOffers): FormPackage[] {
 // When the product has a unit set (e.g. "packs") it reads "2 packs of Prosxact".
 // When it has no unit, the unit word and the "of" are both dropped — no generic
 // "units" fallback — giving "2 Prosxact".
+// Reduce a unit to its singular form so we can re-pluralise reliably whether the
+// admin typed "pack" or an already-plural "pieces"/"packs" in inventory. Without
+// this, "pieces" would wrongly become "pieceses" at quantity 2+.
+function singularizeUnit(w: string): string {
+  if (/ies$/i.test(w) && w.length > 3) return `${w.slice(0, -3)}y`; // berries → berry
+  if (/(ses|xes|zes|ches|shes)$/i.test(w)) return w.slice(0, -2); // boxes → box, glasses → glass
+  if (/s$/i.test(w) && !/ss$/i.test(w)) return w.slice(0, -1); // packs/pieces → pack/piece
+  return w; // already singular
+}
+
+// The unit word matched to the quantity: "1 pack", "2 packs", "2 pieces" (never
+// "pieceses"), "2 boxes". Normalises to singular first so a plural typed in
+// inventory isn't double-pluralised.
+function unitForQty(unit: string, qty: number): string {
+  const s = singularizeUnit(unit);
+  if (qty === 1) return s;
+  if (/(s|x|z|ch|sh)$/i.test(s)) return `${s}es`;
+  if (/[^aeiou]y$/i.test(s)) return `${s.slice(0, -1)}ies`;
+  return `${s}s`;
+}
+
 function qtyUnitOfProduct(
   qty: number,
   unit: string | null | undefined,
   productName: string,
 ): string {
   const u = unit?.trim();
-  return u ? `${qty} ${u} of ${productName}` : `${qty} ${productName}`;
+  return u ? `${qty} ${unitForQty(u, qty)} of ${productName}` : `${qty} ${productName}`;
 }
 
 // Turn the per-form packages into the priceVariations consumed downstream.
@@ -147,6 +174,9 @@ function variationsFromPackages(
             : baseName,
         price,
         formattedPrice: formatNaira(price),
+        // Display-only extras (not part of the saved package name / order record).
+        suffix: p.suffix?.trim() || undefined,
+        note: p.note?.trim() || undefined,
       };
     });
 }
@@ -695,7 +725,7 @@ export function FormBuilder({
             ? prev.productPackages
             : product
               ? seedPackagesFromProduct(product)
-              : [{ id: genPkgId(), name: "", quantity: "", price: "" }]
+              : [{ id: genPkgId(), name: "", quantity: "", price: "", suffix: "", note: "" }]
           : [];
       return withVariations({ ...prev, usePriceVariation: val, productPackages: packages });
     });
@@ -723,7 +753,7 @@ export function FormBuilder({
         ...prev,
         productPackages: [
           ...prev.productPackages,
-          { id: genPkgId(), name: "", quantity: "", price: "" },
+          { id: genPkgId(), name: "", quantity: "", price: "", suffix: "", note: "" },
         ],
       }),
     );
@@ -1185,6 +1215,34 @@ export function FormBuilder({
                                   onChange={(e) =>
                                     handlePackageChange(pkg.id, "price", e.target.value)
                                   }
+                                  className="w-full px-2.5 py-1.5 border border-gray-200 rounded-md text-xs outline-none focus:border-purple-300"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[11px] font-medium text-gray-500 mb-0.5">
+                                  Text After Product Name (optional)
+                                </label>
+                                <input
+                                  type="text"
+                                  value={pkg.suffix ?? ""}
+                                  onChange={(e) =>
+                                    handlePackageChange(pkg.id, "suffix", e.target.value)
+                                  }
+                                  placeholder="e.g. Discounted Price"
+                                  className="w-full px-2.5 py-1.5 border border-gray-200 rounded-md text-xs outline-none focus:border-purple-300"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[11px] font-medium text-gray-500 mb-0.5">
+                                  Text After Price (optional)
+                                </label>
+                                <input
+                                  type="text"
+                                  value={pkg.note ?? ""}
+                                  onChange={(e) =>
+                                    handlePackageChange(pkg.id, "note", e.target.value)
+                                  }
+                                  placeholder="e.g. (Buying this saves you ₦5,000)"
                                   className="w-full px-2.5 py-1.5 border border-gray-200 rounded-md text-xs outline-none focus:border-purple-300"
                                 />
                               </div>

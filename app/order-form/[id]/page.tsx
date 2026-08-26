@@ -328,7 +328,7 @@ function FormField({
   );
 }
 
-type PriceVariation = { id: string; name: string; price: number; formattedPrice: string; productId?: string; quantity?: number; };
+type PriceVariation = { id: string; name: string; price: number; formattedPrice: string; productId?: string; quantity?: number; suffix?: string; note?: string; };
 
 export default function OrderFormPreview() {
   const params = useParams();
@@ -790,28 +790,25 @@ export default function OrderFormPreview() {
                 <div
                   key={pkg.name}
                   onClick={() => setSelectedPackage(pkg.name)}
-                  className={`flex items-center justify-between py-3.5 cursor-pointer group transition-all ${
+                  className={`flex items-start gap-3.5 py-3.5 cursor-pointer group transition-all ${
                     active ? "bg-purple-50/20" : "hover:bg-gray-50/40"
                   }`}
                 >
-                  <div className="flex items-center gap-3.5">
-                    <div
-                      className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${
-                        active
-                          ? "border-purple-600 bg-purple-50"
-                          : "border-gray-300 group-hover:border-gray-400 bg-white"
-                      }`}
-                    >
-                      {active && (
-                        <div className="w-2.5 h-2.5 rounded-full bg-purple-600 animate-scaleIn" />
-                      )}
-                    </div>
-                    <span className={`text-sm font-bold transition-colors ${active ? "text-purple-900 font-extrabold" : "text-gray-800"}`}>
-                      {pkg.name}
-                    </span>
+                  <div
+                    className={`mt-0.5 flex-shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${
+                      active
+                        ? "border-purple-600 bg-purple-50"
+                        : "border-gray-300 group-hover:border-gray-400 bg-white"
+                    }`}
+                  >
+                    {active && (
+                      <div className="w-2.5 h-2.5 rounded-full bg-purple-600 animate-scaleIn" />
+                    )}
                   </div>
-                  <span className={`text-sm font-extrabold transition-colors ${active ? "text-purple-900" : "text-gray-800"}`}>
-                    {pkg.formattedPrice}
+                  <span className={`text-sm transition-colors ${active ? "text-purple-900" : "text-gray-800"}`}>
+                    <span className="font-bold">{pkg.name}{pkg.suffix ? ` ${pkg.suffix}` : ""}</span>
+                    {" = "}
+                    <span className="font-extrabold">{pkg.formattedPrice}{pkg.note ? ` ${pkg.note}` : ""}</span>
                   </span>
                 </div>
               );
@@ -834,7 +831,7 @@ export default function OrderFormPreview() {
             >
               {packages.map((pkg) => (
                 <option key={pkg.name} value={pkg.name} className="font-semibold text-gray-800">
-                  {pkg.name} ({pkg.formattedPrice})
+                  {pkg.name}{pkg.suffix ? ` ${pkg.suffix}` : ""} = {pkg.formattedPrice}{pkg.note ? ` ${pkg.note}` : ""}
                 </option>
               ))}
             </select>
@@ -872,28 +869,25 @@ export default function OrderFormPreview() {
                 <div
                   key={pkg.name}
                   onClick={() => setSelectedUpsellPackage(pkg.name)}
-                  className={`flex items-center justify-between py-3.5 cursor-pointer group transition-all ${
+                  className={`flex items-start gap-3.5 py-3.5 cursor-pointer group transition-all ${
                     active ? "bg-purple-50/20" : "hover:bg-gray-50/40"
                   }`}
                 >
-                  <div className="flex items-center gap-3.5">
-                    <div
-                      className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${
-                        active
-                          ? "border-purple-600 bg-purple-50"
-                          : "border-gray-300 group-hover:border-gray-400 bg-white"
-                      }`}
-                    >
-                      {active && (
-                        <div className="w-2.5 h-2.5 rounded-full bg-purple-600 animate-scaleIn" />
-                      )}
-                    </div>
-                    <span className={`text-sm font-bold transition-colors ${active ? "text-purple-900 font-extrabold" : "text-gray-800"}`}>
-                      {pkg.name}
-                    </span>
+                  <div
+                    className={`mt-0.5 flex-shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${
+                      active
+                        ? "border-purple-600 bg-purple-50"
+                        : "border-gray-300 group-hover:border-gray-400 bg-white"
+                    }`}
+                  >
+                    {active && (
+                      <div className="w-2.5 h-2.5 rounded-full bg-purple-600 animate-scaleIn" />
+                    )}
                   </div>
-                  <span className={`text-sm font-extrabold transition-colors ${active ? "text-purple-900" : "text-gray-800"}`}>
-                    {pkg.formattedPrice}
+                  <span className={`text-sm transition-colors ${active ? "text-purple-900" : "text-gray-800"}`}>
+                    <span className="font-bold">{pkg.name}{pkg.suffix ? ` ${pkg.suffix}` : ""}</span>
+                    {" = "}
+                    <span className="font-extrabold">{pkg.formattedPrice}{pkg.note ? ` ${pkg.note}` : ""}</span>
                   </span>
                 </div>
               );
@@ -916,7 +910,7 @@ export default function OrderFormPreview() {
             >
               {packages.map((pkg) => (
                 <option key={pkg.name} value={pkg.name} className="font-semibold text-gray-800">
-                  {pkg.name} ({pkg.formattedPrice})
+                  {pkg.name}{pkg.suffix ? ` ${pkg.suffix}` : ""} = {pkg.formattedPrice}{pkg.note ? ` ${pkg.note}` : ""}
                 </option>
               ))}
             </select>
