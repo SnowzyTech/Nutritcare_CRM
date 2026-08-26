@@ -551,20 +551,26 @@ export async function rebuildStockLevels(): Promise<{ rows: number }> {
     totals.set(key, cur);
   }
 
-  await prisma.$transaction(async (tx) => {
-    await tx.stockLevel.deleteMany({});
-    for (const v of totals.values()) {
-      if (v.quantity === 0) continue;
-      await tx.stockLevel.create({
-        data: {
-          productId: v.productId,
-          locationKind: v.locationKind,
-          locationId: v.locationId,
-          quantity: Math.max(0, v.quantity),
-        },
-      });
-    }
-  });
+  const rows = Array.from(totals.values())
+    .filter((v) => v.quantity !== 0)
+    .map((v) => ({
+      productId: v.productId,
+      locationKind: v.locationKind,
+      locationId: v.locationId,
+      quantity: Math.max(0, v.quantity),
+    }));
 
-  return { rows: Array.from(totals.values()).filter(v => v.quantity !== 0).length };
+  // Batch the rebuild into two statements (deleteMany + a single createMany).
+  // A per-row create loop issues one WebSocket round-trip per StockLevel, which
+  // on a large set overruns Neon's interactive-transaction window and fails with
+  // P2028 ("Transaction not found"). Two round-trips stay well inside it.
+  await prisma.$transaction(
+    async (tx) => {
+      await tx.stockLevel.deleteMany({});
+      if (rows.length > 0) await tx.stockLevel.createMany({ data: rows });
+    },
+    { timeout: 20_000, maxWait: 10_000 }
+  );
+
+  return { rows: rows.length };
 }
