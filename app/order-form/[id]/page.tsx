@@ -328,7 +328,7 @@ function FormField({
   );
 }
 
-type PriceVariation = { id: string; name: string; price: number; formattedPrice: string; productId?: string; quantity?: number; };
+type PriceVariation = { id: string; name: string; price: number; formattedPrice: string; productId?: string; quantity?: number; suffix?: string; note?: string; };
 
 export default function OrderFormPreview() {
   const params = useParams();
@@ -807,11 +807,11 @@ export default function OrderFormPreview() {
                       )}
                     </div>
                     <span className={`text-sm font-bold transition-colors ${active ? "text-purple-900 font-extrabold" : "text-gray-800"}`}>
-                      {pkg.name}
+                      {pkg.name}{pkg.suffix ? ` ${pkg.suffix}` : ""}
                     </span>
                   </div>
                   <span className={`text-sm font-extrabold transition-colors ${active ? "text-purple-900" : "text-gray-800"}`}>
-                    {pkg.formattedPrice}
+                    {pkg.formattedPrice}{pkg.note ? ` ${pkg.note}` : ""}
                   </span>
                 </div>
               );
@@ -834,7 +834,7 @@ export default function OrderFormPreview() {
             >
               {packages.map((pkg) => (
                 <option key={pkg.name} value={pkg.name} className="font-semibold text-gray-800">
-                  {pkg.name} ({pkg.formattedPrice})
+                  {pkg.name}{pkg.suffix ? ` ${pkg.suffix}` : ""} ({pkg.formattedPrice}){pkg.note ? ` ${pkg.note}` : ""}
                 </option>
               ))}
             </select>
@@ -889,11 +889,11 @@ export default function OrderFormPreview() {
                       )}
                     </div>
                     <span className={`text-sm font-bold transition-colors ${active ? "text-purple-900 font-extrabold" : "text-gray-800"}`}>
-                      {pkg.name}
+                      {pkg.name}{pkg.suffix ? ` ${pkg.suffix}` : ""}
                     </span>
                   </div>
                   <span className={`text-sm font-extrabold transition-colors ${active ? "text-purple-900" : "text-gray-800"}`}>
-                    {pkg.formattedPrice}
+                    {pkg.formattedPrice}{pkg.note ? ` ${pkg.note}` : ""}
                   </span>
                 </div>
               );
@@ -916,7 +916,7 @@ export default function OrderFormPreview() {
             >
               {packages.map((pkg) => (
                 <option key={pkg.name} value={pkg.name} className="font-semibold text-gray-800">
-                  {pkg.name} ({pkg.formattedPrice})
+                  {pkg.name}{pkg.suffix ? ` ${pkg.suffix}` : ""} ({pkg.formattedPrice}){pkg.note ? ` ${pkg.note}` : ""}
                 </option>
               ))}
             </select>
