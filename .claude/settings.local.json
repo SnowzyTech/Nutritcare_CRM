@@ -126,7 +126,10 @@
       "PowerShell(node --env-file=.env --import tsx scripts/inspect-accounts.ts)",
       "PowerShell(node --env-file=.env --import tsx scripts/cleanup-demo-accounts.ts)",
       "PowerShell($env:CLEANUP_ACK=\"I_UNDERSTAND\"; node --env-file=.env --import tsx scripts/cleanup-demo-accounts.ts --confirm)",
-      "PowerShell(node --env-file=.env --import tsx scripts/inspect-inventory-value.ts)"
+      "PowerShell(node --env-file=.env --import tsx scripts/inspect-inventory-value.ts)",
+      "Bash(node --env-file=.env --import tsx scripts/inspect-form-counts.ts)",
+      "Bash(node --env-file=.env --import tsx scripts/reconcile-form-order-counts.ts)",
+      "Bash(CLEANUP_ACK=I_UNDERSTAND node --env-file=.env --import tsx scripts/reconcile-form-order-counts.ts --confirm)"
     ]
   }
 }
