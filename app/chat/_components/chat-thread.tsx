@@ -18,26 +18,12 @@ import { OrderTagModal } from "./order-tag-modal";
 import { useChatStore } from "./chat-store";
 import { ChatAvatar } from "./chat-people";
 import { UserProfilePopover, type ProfileTarget } from "./user-profile-popover";
+import { dayKey, dayLabel } from "@/lib/chat/day-label";
 
 /** Don't re-announce "typing" more often than this while someone types on. */
 const TYPING_PING_MS = 2000;
 /** Announce "stopped" after this much keyboard silence. */
 const TYPING_IDLE_MS = 3000;
-
-function dayKey(d: Date | string): string {
-  const date = typeof d === "string" ? new Date(d) : d;
-  return date.toDateString();
-}
-
-function dayLabel(d: Date | string): string {
-  const date = typeof d === "string" ? new Date(d) : d;
-  const now = new Date();
-  if (date.toDateString() === now.toDateString()) return "Today";
-  const yesterday = new Date(now);
-  yesterday.setDate(now.getDate() - 1);
-  if (date.toDateString() === yesterday.toDateString()) return "Yesterday";
-  return date.toLocaleDateString("en-NG", { day: "2-digit", month: "long", year: "numeric" });
-}
 
 export function ChatThread({
   conversationId,

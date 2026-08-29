@@ -9,11 +9,15 @@ import type { ProfileTarget } from "./user-profile-popover";
 function MessageBody({
   body,
   onOpenOrder,
+  readOnly,
 }: {
   body: string;
-  onOpenOrder: (orderId: string) => void;
+  onOpenOrder?: (orderId: string) => void;
+  readOnly?: boolean;
 }) {
   const segments = parseTokens(body);
+  const tagClass =
+    "mx-0.5 inline-flex items-center gap-1 rounded-md bg-purple-100 px-1.5 py-0.5 align-baseline text-xs font-semibold text-purple-700";
   return (
     <span className="whitespace-pre-wrap break-words">
       {segments.map((seg, i) => {
@@ -25,12 +29,22 @@ function MessageBody({
             </span>
           );
         }
+        // Read-only transcripts render the tag as a static pill — there is no
+        // order drawer to open from an oversight view.
+        if (readOnly || !onOpenOrder) {
+          return (
+            <span key={i} className={tagClass}>
+              <Tag className="h-3 w-3" />
+              {seg.label}
+            </span>
+          );
+        }
         return (
           <button
             key={i}
             type="button"
             onClick={() => onOpenOrder(seg.orderId)}
-            className="mx-0.5 inline-flex items-center gap-1 rounded-md bg-purple-100 px-1.5 py-0.5 align-baseline text-xs font-semibold text-purple-700 hover:bg-purple-200"
+            className={`${tagClass} hover:bg-purple-200`}
           >
             <Tag className="h-3 w-3" />
             {seg.label}
@@ -58,17 +72,24 @@ export function MessageBubble({
   onOpenOrder,
   onOpenProfile,
   showSenderAvatar = false,
+  readOnly = false,
 }: {
   message: ChatMessage;
   isMine: boolean;
   highlighted: boolean;
   registerRef: (id: string, el: HTMLDivElement | null) => void;
-  onReply: (m: ChatMessage) => void;
-  onJumpTo: (messageId: string) => void;
-  onOpenOrder: (orderId: string) => void;
-  onOpenProfile: (user: ProfileTarget) => void;
+  onReply?: (m: ChatMessage) => void;
+  onJumpTo?: (messageId: string) => void;
+  onOpenOrder?: (orderId: string) => void;
+  onOpenProfile?: (user: ProfileTarget) => void;
   /** Group threads show who said what; a DM has only one other person. */
   showSenderAvatar?: boolean;
+  /**
+   * Transcript mode (super-admin oversight): render the same bubble with every
+   * affordance that would act on the conversation stripped out — no reply, no
+   * jump-to, no profile card, no order drawer.
+   */
+  readOnly?: boolean;
 }) {
   if (message.type === "SYSTEM") {
     return (
@@ -96,45 +117,68 @@ export function MessageBubble({
     >
       <div className={`flex max-w-[78%] items-end gap-2 ${isMine ? "flex-row-reverse" : ""}`}>
         {showSenderAvatar && !isMine && profile && (
-          <button
-            type="button"
-            onClick={() => onOpenProfile(profile)}
-            aria-label={`View ${profile.name}`}
-            className="mb-1 rounded-full"
-          >
-            <ChatAvatar name={profile.name} avatarUrl={profile.avatarUrl} size="sm" />
-          </button>
+          readOnly || !onOpenProfile ? (
+            <span className="mb-1">
+              <ChatAvatar name={profile.name} avatarUrl={profile.avatarUrl} size="sm" />
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={() => onOpenProfile(profile)}
+              aria-label={`View ${profile.name}`}
+              className="mb-1 rounded-full"
+            >
+              <ChatAvatar name={profile.name} avatarUrl={profile.avatarUrl} size="sm" />
+            </button>
+          )
         )}
         <div
           className={`relative rounded-2xl px-3 py-2 text-sm transition-colors ${
             isMine ? "bg-purple-100" : "bg-gray-100"
           } ${highlighted ? "ring-2 ring-purple-400" : ""}`}
         >
-          {!isMine && message.senderName && (
-            <button
-              type="button"
-              onClick={() => profile && onOpenProfile(profile)}
-              disabled={!profile}
-              className="mb-0.5 block text-xs font-semibold text-gray-700 hover:text-purple-600 hover:underline disabled:no-underline"
-            >
-              {message.senderName}
-            </button>
-          )}
+          {!isMine &&
+            message.senderName &&
+            (readOnly || !onOpenProfile ? (
+              <span className="mb-0.5 block text-xs font-semibold text-gray-700">
+                {message.senderName}
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => profile && onOpenProfile(profile)}
+                disabled={!profile}
+                className="mb-0.5 block text-xs font-semibold text-gray-700 hover:text-purple-600 hover:underline disabled:no-underline"
+              >
+                {message.senderName}
+              </button>
+            ))}
 
-          {message.replyToId && (message.replyPreview || message.replySender) && (
-            <button
-              type="button"
-              onClick={() => onJumpTo(message.replyToId!)}
-              className="mb-1 flex w-full flex-col items-start rounded-lg border-l-2 border-purple-400 bg-black/5 px-2 py-1 text-left"
-            >
-              <span className="text-[11px] font-semibold text-purple-600">
-                {message.replySender ?? "Message"}
-              </span>
-              <span className="line-clamp-2 text-[11px] text-gray-600">
-                {message.replyPreview}
-              </span>
-            </button>
-          )}
+          {message.replyToId &&
+            (message.replyPreview || message.replySender) &&
+            (readOnly || !onJumpTo ? (
+              <div className="mb-1 flex w-full flex-col items-start rounded-lg border-l-2 border-purple-400 bg-black/5 px-2 py-1 text-left">
+                <span className="text-[11px] font-semibold text-purple-600">
+                  {message.replySender ?? "Message"}
+                </span>
+                <span className="line-clamp-2 text-[11px] text-gray-600">
+                  {message.replyPreview}
+                </span>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => onJumpTo(message.replyToId!)}
+                className="mb-1 flex w-full flex-col items-start rounded-lg border-l-2 border-purple-400 bg-black/5 px-2 py-1 text-left"
+              >
+                <span className="text-[11px] font-semibold text-purple-600">
+                  {message.replySender ?? "Message"}
+                </span>
+                <span className="line-clamp-2 text-[11px] text-gray-600">
+                  {message.replyPreview}
+                </span>
+              </button>
+            ))}
 
           {message.deletedAt ? (
             <span className="text-gray-400 italic">This message was deleted</span>
@@ -149,7 +193,11 @@ export function MessageBubble({
                 />
               )}
               {message.body && (
-                <MessageBody body={message.body} onOpenOrder={onOpenOrder} />
+                <MessageBody
+                  body={message.body}
+                  onOpenOrder={onOpenOrder}
+                  readOnly={readOnly}
+                />
               )}
             </>
           )}
@@ -159,7 +207,7 @@ export function MessageBubble({
           </div>
         </div>
 
-        {!message.deletedAt && (
+        {!message.deletedAt && !readOnly && onReply && (
           <button
             type="button"
             onClick={() => onReply(message)}

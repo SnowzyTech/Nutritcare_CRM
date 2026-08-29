@@ -52,3 +52,24 @@ export const UI_DEPT_LABELS: Record<UiDepartment, string> = Object.fromEntries(
 ) as Record<UiDepartment, string>;
 
 export const UI_DEPT_ORDER: UiDepartment[] = UI_DEPARTMENTS.map((d) => d.value);
+
+/**
+ * Department dropdown values shared by every "filter staff by department"
+ * surface (History, chat oversight). `MEDIA` and `ADMIN` sit outside
+ * `UI_DEPARTMENTS` because their roles have no granular department.
+ */
+export const DEPARTMENT_FILTERS: { value: string; label: string }[] = [
+  { value: "ALL", label: "All Departments" },
+  ...UI_DEPARTMENTS,
+  { value: "MEDIA", label: "Media Buyer" },
+  { value: "ADMIN", label: "Admin" },
+];
+
+/** Which user roles belong to a `DEPARTMENT_FILTERS` value. */
+export function rolesForDepartment(dept: string): string[] {
+  if (dept === "ADMIN") return ["ADMIN", "SUPER_ADMIN"];
+  if (dept === "MEDIA") return ["MEDIA_BUYER"];
+  return Object.entries(ROLE_TO_UI_DEPT)
+    .filter(([, d]) => d === dept)
+    .map(([role]) => role);
+}

@@ -15,6 +15,7 @@ import {
   LogOut,
   ChevronDown,
   MessageCircle,
+  MessagesSquare,
   BarChart3,
 } from "lucide-react";
 
@@ -32,6 +33,7 @@ const IconMap: Record<string, React.ElementType> = {
   history: Clock,
   settings: Settings,
   chat: MessageCircle,
+  "chat-oversight": MessagesSquare,
 };
 
 function IconLookup({ name, size = 18, style }: { name: string; size?: number; style?: React.CSSProperties }) {

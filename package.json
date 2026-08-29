@@ -9,6 +9,7 @@
     "lint": "eslint",
     "db:seed": "tsx prisma/seed.ts",
     "db:seed:coa": "tsx prisma/seed-coa.ts",
+    "db:seed:accounting-demo": "tsx prisma/seed-accounting-demo.ts",
     "db:seed:chat": "tsx prisma/seed-chat.ts",
     "db:seed:superadmin": "tsx scripts/seed-admin.ts",
     "db:seed:admin": "tsx scripts/seed-limited-admin.ts",

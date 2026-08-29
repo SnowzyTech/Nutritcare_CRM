@@ -24,6 +24,10 @@ export async function Sidebar() {
     // Account oversight is SUPER_ADMIN only.
     if (item.href === "/admin/account") return superAdmin;
 
+    // Staff chat oversight is SUPER_ADMIN only and not revocable — it is
+    // deliberately absent from ADMIN_PAGES, so it must be gated by hand here.
+    if (item.href === "/admin/chat-oversight") return superAdmin;
+
     // Revocable admin sections (Staff, Order, Inventory, Forms, History, Chat).
     const pageKey = getAdminPageKeyForNavLabel(item.label);
     if (pageKey) {

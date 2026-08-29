@@ -14,23 +14,10 @@ import { useChatStore } from "./chat-store";
  * wherever it's triggered from.
  */
 
-const ROLE_LABELS: Record<string, string> = {
-  ADMIN: "Administrator",
-  SALES_REP: "Sales Representative",
-  SALES_REP_MANAGER: "Sales Rep Manager",
-  DELIVERY_AGENT: "Delivery Agent",
-  DATA_ANALYST: "Data Analyst",
-  ACCOUNTANT: "Accountant",
-  INVENTORY_MANAGER: "Inventory Manager",
-  WAREHOUSE_MANAGER: "Warehouse Manager",
-  LOGISTICS_MANAGER: "Logistics Manager",
-  MEDIA_BUYER: "Media Buyer",
-};
-
-export function roleLabel(role: string | null | undefined): string {
-  if (!role) return "";
-  return ROLE_LABELS[role] ?? role.replaceAll("_", " ").toLowerCase();
-}
+// Re-exported for the existing client callers. Server components must import it
+// from `@/lib/chat/role-label` directly — a function exported from a "use client"
+// module cannot be called on the server.
+export { roleLabel } from "@/lib/chat/role-label";
 
 const SIZES = {
   sm: "h-9 w-9 text-xs",

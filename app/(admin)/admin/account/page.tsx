@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db/prisma";
 import { auth } from "@/lib/auth/auth";
 import { isSuperAdmin } from "@/lib/auth/role-routes";
+import { getFinancialSummary } from "@/modules/finance/services/dashboard.service";
 
 export const metadata: Metadata = { title: "Admin Overview" };
 
@@ -13,7 +14,6 @@ async function getAccountPageData() {
 
   const [
     paidInvoiceCount,
-    paidInvoiceSum,
     expenseSum,
     expenseCount,
     productStats,
@@ -25,14 +25,10 @@ async function getAccountPageData() {
     orderStats,
     activeSalesReps,
     salesTeams,
+    financeSummary,
   ] = await Promise.all([
     // Finance: count of paid invoices this month
     prisma.invoice.count({ where: { status: "PAID", createdAt: { gte: monthStart } } }),
-    // Finance: sum of paid invoice totals this month
-    prisma.invoice.aggregate({
-      where: { status: "PAID", createdAt: { gte: monthStart } },
-      _sum: { invoiceTotal: true },
-    }),
     // Finance: expense totals this month
     prisma.expense.aggregate({
       where: { date: { gte: monthStart } },
@@ -70,6 +66,9 @@ async function getAccountPageData() {
     prisma.user.count({ where: { role: "SALES_REP", isActive: true } }),
     // Sales: sales teams
     prisma.team.count({ where: { department: "SALES" } }),
+    // Finance: revenue/expenses from the SAME delivered-order source the accountant
+    // dashboard uses (getFinancialSummary), so the two views can never disagree.
+    getFinancialSummary(),
   ]);
 
   const deliveryMap = Object.fromEntries(
@@ -86,7 +85,8 @@ async function getAccountPageData() {
   return {
     finance: {
       paidInvoices: paidInvoiceCount,
-      revenue: Number(paidInvoiceSum._sum.invoiceTotal ?? 0),
+      // Delivered-order revenue — matches the accountant dashboard (Total Revenue).
+      revenue: financeSummary.totalRevenue,
       expenses: Number(expenseSum._sum.amount ?? 0),
       expenseCount,
     },

@@ -6,9 +6,9 @@ import {
   getPersonalActivity,
   getActivitySummary,
   getStaffByDepartment,
-  DEPARTMENT_FILTERS,
   type ActivityFilters,
 } from "@/modules/audit/services/audit-query.service";
+import { DEPARTMENT_FILTERS } from "@/lib/staff-departments";
 import { HistoryClient } from "./history-client";
 
 export const metadata: Metadata = { title: "History" };
