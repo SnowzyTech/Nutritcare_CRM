@@ -135,7 +135,8 @@
       "PowerShell($env:IMPORT_ACK = \"I_UNDERSTAND\"; node --env-file=.env --import tsx scripts/import-august-orders.ts --commit 2>&1 | Select-String -Pattern \"DONE|Orders in DB|IMPORTING|to import\")",
       "Bash(python *)",
       "PowerShell(node --env-file=.env --import tsx scripts/backfill-august-deliveries.ts)",
-      "PowerShell($env:BACKFILL_ACK = \"I_UNDERSTAND\"; node --env-file=.env --import tsx scripts/backfill-august-deliveries.ts --commit)"
+      "PowerShell($env:BACKFILL_ACK = \"I_UNDERSTAND\"; node --env-file=.env --import tsx scripts/backfill-august-deliveries.ts --commit)",
+      "Read(//c/c/Users/user/Desktop/Nutritcare_CRM/app/**)"
     ]
   }
 }
