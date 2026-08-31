@@ -21,7 +21,11 @@ export interface SalesRecordRow {
   deliveryFee: string;
   remStatus: "Paid" | "Not Paid";
   agent: string;
+  /** Date the order came into the system (order date). */
   date: string;
+  /** Date the order's status last changed (delivered/cancelled/failed/confirmed
+   *  day). `null` while still PENDING — no status change has happened yet. */
+  statusDate: string | null;
 }
 
 const fmt = (n: number) =>
@@ -100,6 +104,8 @@ export async function getSalesRecords(filters: {
       remStatus,
       agent: o.agent?.companyName ?? "—",
       date: o.date.toISOString().slice(0, 10),
+      statusDate:
+        o.status === "PENDING" ? null : o.updatedAt.toISOString().slice(0, 10),
     };
   });
 }

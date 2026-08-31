@@ -80,6 +80,11 @@ export default function AddAgentClient() {
       submittingRef.current = false;
       return;
     }
+    if (!state.trim()) {
+      setError("Main State is required — the agent won't be matched to orders without it.");
+      submittingRef.current = false;
+      return;
+    }
 
     setLoading(true);
     try {
@@ -289,7 +294,7 @@ export default function AddAgentClient() {
           </div>
           <div className="space-y-2">
             <label className="text-[10px] font-bold text-gray-700 uppercase">
-              Main State
+              Main State <span className="text-red-500">*</span>
             </label>
             <Select value={state} onValueChange={(v) => setState(v ?? "")}>
               <SelectTrigger className="h-11 text-xs text-gray-400 border-gray-200">

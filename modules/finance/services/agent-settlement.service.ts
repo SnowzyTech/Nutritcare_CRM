@@ -35,6 +35,8 @@ async function getRunningBalance(agentId: string): Promise<number> {
  * Called when an order is marked DELIVERED. Creates a DELIVERY_FEE debit entry
  * on the agent's ledger — recording that the agent collected netAmount from the
  * customer and now owes that amount to the company.
+ * `date` is the DELIVERY date (the day the cash was collected), not the order's
+ * original date — so the ledger reflects when money actually moved.
  * Idempotent: skips silently if an entry for this order already exists.
  */
 export async function recordDeliveryFeeEntry(order: {

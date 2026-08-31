@@ -181,7 +181,8 @@ export async function markOrderDeliveredByAnalyst(
       agentId: order.agentId,
       netAmount: Number(order.netAmount),
       orderNumber: order.orderNumber,
-      date: order.date,
+      // Date the funding on the delivery day, not the order's original date.
+      date: now,
     });
   }
 

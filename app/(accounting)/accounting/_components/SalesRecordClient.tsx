@@ -28,6 +28,8 @@ type SalesRecordRow = Omit<SalesRecord, 'orderStatus' | 'remStatus'> & {
   // raw components behind the formatted Net Amount / Delivery Fee columns.
   netBeforeDeliveryNum: number;
   deliveryFeeNum: number;
+  // Status-change date (delivered/cancelled/failed/confirmed day); null while PENDING.
+  statusDate: string | null;
 };
 
 interface SalesRecordClientProps {
@@ -404,7 +406,8 @@ export function SalesRecordClient({ initialRecords = [], products: productProp, 
                 <th className="px-5 py-4 text-[12px] font-bold text-gray-600 whitespace-nowrap">Delivery Fee</th>
                 <th className="px-5 py-4 text-[12px] font-bold text-gray-600 whitespace-nowrap">Rem. Status</th>
                 <th className="px-5 py-4 text-[12px] font-bold text-gray-600 whitespace-nowrap">Agent</th>
-                <th className="px-5 py-4 text-[12px] font-bold text-gray-600 whitespace-nowrap">Date</th>
+                <th className="px-5 py-4 text-[12px] font-bold text-gray-600 whitespace-nowrap">Order Date</th>
+                <th className="px-5 py-4 text-[12px] font-bold text-gray-600 whitespace-nowrap">Status Date</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
@@ -478,11 +481,12 @@ export function SalesRecordClient({ initialRecords = [], products: productProp, 
                     <div className="text-[13px] text-gray-700 leading-[1.3] font-medium whitespace-pre-line">{r.agent}</div>
                   </td>
                   <td className="px-5 py-6 text-[13px] text-gray-500 font-medium whitespace-nowrap">{r.date}</td>
+                  <td className="px-5 py-6 text-[13px] text-gray-700 font-medium whitespace-nowrap">{r.statusDate ?? '—'}</td>
                 </tr>
               ))}
               {paginated.length === 0 && (
                 <tr>
-                  <td colSpan={12} className="px-5 py-16 text-center text-[14px] text-gray-400 font-medium">
+                  <td colSpan={13} className="px-5 py-16 text-center text-[14px] text-gray-400 font-medium">
                     No records found
                   </td>
                 </tr>
