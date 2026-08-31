@@ -136,7 +136,13 @@
       "Bash(python *)",
       "PowerShell(node --env-file=.env --import tsx scripts/backfill-august-deliveries.ts)",
       "PowerShell($env:BACKFILL_ACK = \"I_UNDERSTAND\"; node --env-file=.env --import tsx scripts/backfill-august-deliveries.ts --commit)",
-      "Read(//c/c/Users/user/Desktop/Nutritcare_CRM/app/**)"
+      "Read(//c/c/Users/user/Desktop/Nutritcare_CRM/app/**)",
+      "Bash(node *)",
+      "Bash(FIX_ACK=I_UNDERSTAND node *)",
+      "Bash(git log *)",
+      "Bash(REDATE_ACK=I_UNDERSTAND node *)",
+      "Bash(DELIV_ACK=I_UNDERSTAND node *)",
+      "Bash(STATE2_ACK=I_UNDERSTAND node --env-file=.env --import tsx scripts/fix-imported-order-states.ts --commit)"
     ]
   }
 }

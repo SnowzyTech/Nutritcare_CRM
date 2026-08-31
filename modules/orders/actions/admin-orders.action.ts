@@ -250,9 +250,33 @@ export async function adminReviveOrderAction(orderId: string): Promise<ActionRes
 export async function adminDeliverOrderAction(orderId: string): Promise<ActionResult> {
   await checkAdmin();
   suppressCameraForRequest();
-  const order = await getOrder(orderId);
+  const order = await prisma.order.findFirst({
+    where: { id: orderId, deletedAt: null },
+    include: { items: { select: { productId: true, quantity: true } } },
+  });
   if (!order || order.status !== "CONFIRMED") return { error: "Cannot mark order as delivered" };
-  await prisma.order.update({ where: { id: orderId }, data: { status: "DELIVERED" } });
+
+  const now = new Date();
+  // Deduct the delivered units from the agent's on-hand stock, mirroring the
+  // delivery-agent/sales-manager/data-analyst paths — otherwise the goods stay
+  // on the agent's StockLevel as phantom stock after delivery.
+  const stockDeductions = order.agentId
+    ? order.items.map((item) =>
+        prisma.stockLevel.updateMany({
+          where: { productId: item.productId, locationKind: "AGENT", locationId: order.agentId! },
+          data: { quantity: { decrement: item.quantity } },
+        }),
+      )
+    : [];
+
+  await prisma.$transaction([
+    prisma.order.update({ where: { id: orderId }, data: { status: "DELIVERED" } }),
+    prisma.delivery.updateMany({
+      where: { orderId },
+      data: { status: "DELIVERED", deliveredTime: now },
+    }),
+    ...stockDeductions,
+  ]);
 
   await logActivity({
     userId: order.salesRepId,
@@ -267,7 +291,8 @@ export async function adminDeliverOrderAction(orderId: string): Promise<ActionRe
       agentId: order.agentId,
       netAmount: Number(order.netAmount),
       orderNumber: order.orderNumber,
-      date: order.date,
+      // Date the funding on the delivery day, not the order's original date.
+      date: now,
     });
   }
 
