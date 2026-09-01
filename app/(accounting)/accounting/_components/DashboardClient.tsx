@@ -6,7 +6,7 @@ import {
   Tooltip, ResponsiveContainer, Cell,
 } from 'recharts';
 import {
-  Plus, MessageCircle, ChevronLeft, ChevronRight, RotateCcw, ChevronDown, X,
+  Plus, MessageCircle, ChevronLeft, ChevronRight, RotateCcw, ChevronDown, X, Eye, EyeOff,
 } from 'lucide-react';
 import Link from 'next/link';
 import { getFinancialSummaryForMonthAction, getSalesBreakdownForPeriodAction } from '@/modules/finance/actions/dashboard.action';
@@ -305,6 +305,11 @@ export function DashboardClient({
   const [activeRange, setActiveRange] = useState<'Daily' | 'Weekly' | 'Monthly'>('Monthly');
   const [selectedMonth, setSelectedMonth] = useState('This Month');
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  // Financial Summary figures are hidden by default (bank-app style); the eye
+  // toggle reveals/re-hides them. Resets to hidden on every load (no persistence).
+  const [showFigures, setShowFigures] = useState(false);
+  // Inventory Snapshot figures follow the same hide-by-default pattern.
+  const [showInventory, setShowInventory] = useState(false);
   // Financial Summary data — starts from the server-rendered current month, then
   // refetches when a specific month is chosen from the picker.
   const [liveSummary, setLiveSummary] = useState(summary);
@@ -481,7 +486,17 @@ export function DashboardClient({
       {/* Financial Summary */}
       {can.FINANCIAL_SUMMARY && (
       <div className="bg-white  p-6">
-        <h2 className="text-[17px] font-bold text-gray-900 mb-5 tracking-tight">Financial Summary</h2>
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="text-[17px] font-bold text-gray-900 tracking-tight">Financial Summary</h2>
+          <button
+            onClick={() => setShowFigures((v) => !v)}
+            aria-label={showFigures ? 'Hide figures' : 'Show figures'}
+            className="flex items-center gap-1.5 text-[10px] font-bold text-gray-500 hover:text-gray-800 bg-[#F9FAFB] border border-gray-100 rounded-md px-2.5 py-1 transition-colors"
+          >
+            {showFigures ? <EyeOff size={12} /> : <Eye size={12} />}
+            {showFigures ? 'Hide' : 'Show'}
+          </button>
+        </div>
         <div className="grid grid-cols-5 gap-3">
           {financialSummary.map((item, i) => (
             <div
@@ -504,9 +519,9 @@ export function DashboardClient({
                 )}
               </div>
               <p className={`text-[20px] font-black tracking-tight ${item.highlight === 'purple' ? 'text-white' : 'text-gray-600'}`}>
-                {item.value}
+                {showFigures ? item.value : '••••••'}
               </p>
-              {item.change && (
+              {showFigures && item.change && (
                 <p className={`text-[10px] font-bold mt-1.5 flex items-center gap-1 ${item.isPositive ? 'text-[#10B981]' : 'text-red-500'
                   }`}>
                   {item.change} <span className={`font-medium ${item.highlight === 'purple' ? 'text-[#A78BFA]' : 'text-gray-400'}`}>{item.subText}</span>
@@ -521,15 +536,25 @@ export function DashboardClient({
       {/* Inventory Snapshot */}
       {can.INVENTORY_SNAPSHOT && (
       <div className="bg-white  p-6  mt-6">
-        <h2 className="text-[17px] font-bold text-gray-900 mb-5 tracking-tight">Inventory Snapshot</h2>
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="text-[17px] font-bold text-gray-900 tracking-tight">Inventory Snapshot</h2>
+          <button
+            onClick={() => setShowInventory((v) => !v)}
+            aria-label={showInventory ? 'Hide figures' : 'Show figures'}
+            className="flex items-center gap-1.5 text-[10px] font-bold text-gray-500 hover:text-gray-800 bg-[#F9FAFB] border border-gray-100 rounded-md px-2.5 py-1 transition-colors"
+          >
+            {showInventory ? <EyeOff size={12} /> : <Eye size={12} />}
+            {showInventory ? 'Hide' : 'Show'}
+          </button>
+        </div>
 
         {/* Row 1 */}
         <div className="grid grid-cols-6 gap-3 mb-3">
           {inventorySnapshot1Data.map((item: any, i: number) => (
             <div key={i} className={`rounded-xl border border-gray-100 p-3.5 shadow-sm hover:border-gray-200 transition-colors ${item.bg}`}>
               <span className="text-[9px] font-bold text-gray-800 tracking-wide block mb-2">{item.label}</span>
-              <p className="text-[17px] font-black text-gray-600 tracking-tight mb-1">{item.value}</p>
-              <span className="text-[10px] font-bold" style={{ color: item.color }}>{item.subLabel}</span>
+              <p className="text-[17px] font-black text-gray-600 tracking-tight mb-1">{showInventory ? item.value : '••••••'}</p>
+              <span className="text-[10px] font-bold" style={{ color: item.color }}>{showInventory ? item.subLabel : '••••'}</span>
             </div>
           ))}
         </div>
@@ -553,14 +578,14 @@ export function DashboardClient({
                 // Figure on top, supporting text stacked directly beneath it —
                 // keeps the card compact instead of stretching it out sideways.
                 <>
-                  <p className="text-[20px] font-black text-gray-600 tracking-tight leading-none mb-1">{item.value}</p>
-                  <span className="text-[9px] font-bold leading-tight block" style={{ color: item.color }}>{item.subLabel}</span>
-                  <span className="text-[9px] font-bold leading-tight block" style={{ color: item.color }}>{item.subDetail}</span>
+                  <p className="text-[20px] font-black text-gray-600 tracking-tight leading-none mb-1">{showInventory ? item.value : '••••••'}</p>
+                  <span className="text-[9px] font-bold leading-tight block" style={{ color: item.color }}>{showInventory ? item.subLabel : '••••'}</span>
+                  <span className="text-[9px] font-bold leading-tight block" style={{ color: item.color }}>{showInventory ? item.subDetail : ''}</span>
                 </>
               ) : (
                 <>
-                  <p className="text-[17px] font-black text-gray-600 tracking-tight mb-1">{item.value}</p>
-                  <span className="text-[10px] font-bold" style={{ color: item.color }}>{item.subLabel}</span>
+                  <p className="text-[17px] font-black text-gray-600 tracking-tight mb-1">{showInventory ? item.value : '••••••'}</p>
+                  <span className="text-[10px] font-bold" style={{ color: item.color }}>{showInventory ? item.subLabel : '••••'}</span>
                 </>
               )}
             </div>
