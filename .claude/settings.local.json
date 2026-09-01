@@ -142,7 +142,11 @@
       "Bash(git log *)",
       "Bash(REDATE_ACK=I_UNDERSTAND node *)",
       "Bash(DELIV_ACK=I_UNDERSTAND node *)",
-      "Bash(STATE2_ACK=I_UNDERSTAND node --env-file=.env --import tsx scripts/fix-imported-order-states.ts --commit)"
+      "Bash(STATE2_ACK=I_UNDERSTAND node --env-file=.env --import tsx scripts/fix-imported-order-states.ts --commit)",
+      "Bash(grep -iE \"\\\\.\\(xlsx|xls|csv\\)$\")",
+      "Bash(git rm *)",
+      "Bash(git commit *)",
+      "Bash(git add *)"
     ]
   }
 }
