@@ -6,6 +6,7 @@
  * at runtime ("Attempted to call roleLabel() from the server").
  */
 const ROLE_LABELS: Record<string, string> = {
+  SUPER_ADMIN: "Super Admin",
   ADMIN: "Administrator",
   SALES_REP: "Sales Representative",
   SALES_REP_MANAGER: "Sales Rep Manager",
