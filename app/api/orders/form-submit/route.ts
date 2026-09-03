@@ -86,13 +86,42 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    const cleanPhone = (customerPhone ?? "").replace(/\s+/g, "");
+    const cleanWhatsapp = (customerWhatsapp ?? "").replace(/\s+/g, "");
+
+    // ── Duplicate guard ─────────────────────────────────────────────────────
+    // A customer whose confirmation is slow (or a browser/proxy that silently
+    // retries the POST) can send the *same* order twice within seconds. With no
+    // guard the server would happily create two identical orders. So, before we
+    // write anything, we look for an order that already came in for this exact
+    // phone + product + form in the last 2 minutes. If we find one, we treat this
+    // submission as the same order and return the existing number as success —
+    // the second tap looks like it worked, and no duplicate is created. Genuine
+    // repeat orders (more than 2 minutes apart, or a different product/phone) are
+    // never blocked.
+    const DEDUP_WINDOW_MS = 2 * 60 * 1000;
+    const recentDuplicate = await prisma.order.findFirst({
+      where: {
+        createdAt: { gte: new Date(Date.now() - DEDUP_WINDOW_MS) },
+        deletedAt: null,
+        ...(formId ? { formId } : {}),
+        customer: { phone: cleanPhone },
+        items: { some: { productId } },
+      },
+      orderBy: { createdAt: "desc" },
+      select: { orderNumber: true },
+    });
+    if (recentDuplicate) {
+      return NextResponse.json(
+        { success: true, orderNumber: recentDuplicate.orderNumber, duplicate: true },
+        { headers: CORS_HEADERS }
+      );
+    }
+
     // ── 1. Create Customer ──────────────────────────────────────────────────
     // Every order is a novel entity: we ALWAYS create a fresh customer record
     // with this submission's own details. We never look up or update an existing
     // customer, so one order can never overwrite the details of another.
-    const cleanPhone = (customerPhone ?? "").replace(/\s+/g, "");
-    const cleanWhatsapp = (customerWhatsapp ?? "").replace(/\s+/g, "");
-
     const customer = await prisma.customer.create({
       data: {
         name: customerName.trim(),

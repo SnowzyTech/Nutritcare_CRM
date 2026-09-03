@@ -129,7 +129,24 @@
       "PowerShell(node --env-file=.env --import tsx scripts/inspect-inventory-value.ts)",
       "Bash(node --env-file=.env --import tsx scripts/inspect-form-counts.ts)",
       "Bash(node --env-file=.env --import tsx scripts/reconcile-form-order-counts.ts)",
-      "Bash(CLEANUP_ACK=I_UNDERSTAND node --env-file=.env --import tsx scripts/reconcile-form-order-counts.ts --confirm)"
+      "Bash(CLEANUP_ACK=I_UNDERSTAND node --env-file=.env --import tsx scripts/reconcile-form-order-counts.ts --confirm)",
+      "PowerShell(node --env-file=.env --import tsx scripts/import-august-orders.ts)",
+      "PowerShell($env:IMPORT_ACK = \"I_UNDERSTAND\"; node --env-file=.env --import tsx scripts/import-august-orders.ts --commit)",
+      "PowerShell($env:IMPORT_ACK = \"I_UNDERSTAND\"; node --env-file=.env --import tsx scripts/import-august-orders.ts --commit 2>&1 | Select-String -Pattern \"DONE|Orders in DB|IMPORTING|to import\")",
+      "Bash(python *)",
+      "PowerShell(node --env-file=.env --import tsx scripts/backfill-august-deliveries.ts)",
+      "PowerShell($env:BACKFILL_ACK = \"I_UNDERSTAND\"; node --env-file=.env --import tsx scripts/backfill-august-deliveries.ts --commit)",
+      "Read(//c/c/Users/user/Desktop/Nutritcare_CRM/app/**)",
+      "Bash(node *)",
+      "Bash(FIX_ACK=I_UNDERSTAND node *)",
+      "Bash(git log *)",
+      "Bash(REDATE_ACK=I_UNDERSTAND node *)",
+      "Bash(DELIV_ACK=I_UNDERSTAND node *)",
+      "Bash(STATE2_ACK=I_UNDERSTAND node --env-file=.env --import tsx scripts/fix-imported-order-states.ts --commit)",
+      "Bash(grep -iE \"\\\\.\\(xlsx|xls|csv\\)$\")",
+      "Bash(git rm *)",
+      "Bash(git commit *)",
+      "Bash(git add *)"
     ]
   }
 }

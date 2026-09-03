@@ -56,6 +56,11 @@ export async function createAgentAction(input: {
 }): Promise<AgentResult> {
   try {
     const user = await requireHeadLogisticsAuth()
+    // State is mandatory: agent-to-order matching keys on it, so an agent with no
+    // state would never be matched to any order (see findEligibleAgentForOrder).
+    if (!input.state?.trim()) {
+      return { error: "Main State is required for a delivery agent." };
+    }
     suppressCameraForRequest();
     const result = await createDeliveryAgentWithUser({ ...input, addedById: user.id });
     await logActivity({

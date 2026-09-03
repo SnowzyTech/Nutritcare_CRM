@@ -142,7 +142,9 @@ export async function markOrderDeliveredAction(orderId: string, deliveryCode: st
     agentId,
     netAmount: Number(order.netAmount),
     orderNumber: order.orderNumber,
-    date: order.date,
+    // Date the funding on the delivery day (when the agent collected the cash),
+    // not the order's original date.
+    date: now,
   });
 
   // Log against the order's sales rep so it surfaces in their History page, but
