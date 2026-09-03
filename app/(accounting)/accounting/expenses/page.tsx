@@ -31,7 +31,7 @@ export default async function ExpensesPage() {
     tax: fmt(Number(e.tax)),
     val1: fmt(Number(e.amount)),
     val2: fmt(Number(e.tax)),
-    date: e.date.toISOString().slice(0, 10),
+    date: e.date.toLocaleDateString('en-CA', { timeZone: 'Africa/Lagos' }),
     supplier: e.supplier?.name ?? "",
     lineItems: e.lineItems.map(l => ({
       product: l.product ?? "",
