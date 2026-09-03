@@ -146,7 +146,9 @@
       "Bash(grep -iE \"\\\\.\\(xlsx|xls|csv\\)$\")",
       "Bash(git rm *)",
       "Bash(git commit *)",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "PowerShell(npx eslint \"app/\\(sales-rep\\)/sales-rep/orders/orders-client.tsx\" \"app/\\(sales-rep\\)/sales-rep/orders/page.tsx\" \"modules/orders/actions/orders.action.ts\" \"modules/orders/services/form-packages.service.ts\" \"modules/orders/services/tier-pricing.service.ts\")",
+      "PowerShell(npx eslint \"app/\\(sales-rep\\)/sales-rep/orders/orders-client.tsx\" \"modules/orders/services/form-packages.service.ts\" \"lib/chat/role-label.ts\")"
     ]
   }
 }
