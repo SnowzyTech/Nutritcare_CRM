@@ -1125,6 +1125,46 @@ model StockAdjustmentItem {
   @@map("stock_adjustment_items")
 }
 
+// Agent-side stock corrections (reconcile an agent's on-hand count to reality —
+// e.g. CRM-transition opening-balance fixes). Maker–checker: an inventory
+// manager's correction is PENDING_APPROVAL until an admin approves; an admin's
+// own applies immediately. Kept separate from the warehouse-only StockAdjustment.
+// Scalar FK ids (no cross-model relations) to keep this feature self-contained.
+model AgentStockAdjustment {
+  id              String                     @id @default(cuid())
+  referenceNumber String                     @unique
+  agentId         String
+  reason          String
+  notes           String?
+  status          StockAdjustmentStatus      @default(PENDING_APPROVAL)
+  date            DateTime
+  createdById     String
+  approvedById    String?
+  createdAt       DateTime                   @default(now())
+  updatedAt       DateTime                   @updatedAt
+  items           AgentStockAdjustmentItem[]
+
+  @@index([agentId])
+  @@index([status])
+  @@index([createdById])
+  @@map("agent_stock_adjustments")
+}
+
+model AgentStockAdjustmentItem {
+  id                     String               @id @default(cuid())
+  agentStockAdjustmentId String
+  productId              String
+  quantityBefore         Int
+  quantityAfter          Int
+  createdAt              DateTime             @default(now())
+  updatedAt              DateTime             @updatedAt
+  adjustment             AgentStockAdjustment @relation(fields: [agentStockAdjustmentId], references: [id], onDelete: Cascade)
+
+  @@index([agentStockAdjustmentId])
+  @@index([productId])
+  @@map("agent_stock_adjustment_items")
+}
+
 model JournalEntry {
   id             String            @id @default(cuid())
   journalNo      String            @unique

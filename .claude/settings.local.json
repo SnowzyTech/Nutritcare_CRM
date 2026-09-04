@@ -148,7 +148,9 @@
       "Bash(git commit *)",
       "Bash(git add *)",
       "PowerShell(npx eslint \"app/\\(sales-rep\\)/sales-rep/orders/orders-client.tsx\" \"app/\\(sales-rep\\)/sales-rep/orders/page.tsx\" \"modules/orders/actions/orders.action.ts\" \"modules/orders/services/form-packages.service.ts\" \"modules/orders/services/tier-pricing.service.ts\")",
-      "PowerShell(npx eslint \"app/\\(sales-rep\\)/sales-rep/orders/orders-client.tsx\" \"modules/orders/services/form-packages.service.ts\" \"lib/chat/role-label.ts\")"
+      "PowerShell(npx eslint \"app/\\(sales-rep\\)/sales-rep/orders/orders-client.tsx\" \"modules/orders/services/form-packages.service.ts\" \"lib/chat/role-label.ts\")",
+      "Bash(Select-Object -Last 5)",
+      "PowerShell(npx eslint \"modules/inventory/services/agent-stock-adjustment.service.ts\" \"modules/inventory/actions/agent-stock.action.ts\" \"components/inventory/agent-stock-client.tsx\" \"app/\\(inventory\\)/inventory/agent-stock/page.tsx\" \"app/\\(admin\\)/admin/inventory/agent-stock/page.tsx\" \"components/layout/inventory-sidebar-client.tsx\" \"components/layout/nav-config.ts\" \"scripts/create-agent-stock-tables.ts\")"
     ]
   }
 }
