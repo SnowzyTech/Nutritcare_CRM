@@ -161,11 +161,13 @@ export function OrderDetailClient({ repName, order, agents }: OrderDetailClientP
   const [selectedAgentId, setSelectedAgentId] = useState("");
   const [reassignBusy, setReassignBusy] = useState(false);
   const [reassignError, setReassignError] = useState<string | null>(null);
+  // Actual delivery date used when marking delivered (defaults today).
+  const [deliveredOn, setDeliveredOn] = useState(() => new Date().toISOString().split("T")[0]);
 
   async function handleDelivered() {
     setBusy("delivered");
     setError(null);
-    const res = await markOrderDeliveredByManager(order.orderId);
+    const res = await markOrderDeliveredByManager(order.orderId, deliveredOn || undefined);
     setBusy(null);
     if (res.success) {
       router.refresh();
@@ -479,6 +481,21 @@ export function OrderDetailClient({ repName, order, agents }: OrderDetailClientP
                   {error}
                 </p>
               )}
+              <div>
+                <label className="text-xs font-bold text-gray-500 uppercase tracking-wide">
+                  Delivery Date
+                </label>
+                <input
+                  type="date"
+                  value={deliveredOn}
+                  max={new Date().toISOString().split("T")[0]}
+                  onChange={(e) => setDeliveredOn(e.target.value)}
+                  className="w-full mt-1 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-700 outline-none focus:border-purple-400"
+                />
+                <p className="text-[10px] text-gray-400 mt-1">
+                  The actual date the order was delivered (defaults to today).
+                </p>
+              </div>
               <div className="grid grid-cols-2 gap-4">
                 <button
                   onClick={() => { setError(null); setFailReason(""); setCustomFailReason(""); setShowFailModal(true); }}

@@ -182,6 +182,8 @@ export function AdminOrderDetailClient({
   const [discountReason, setDiscountReason] = useState(order.discountReason ?? "");
   const [prescription, setPrescription] = useState(order.notes ?? "");
   const [deliveryDate, setDeliveryDate] = useState("");
+  // Actual delivery date used when marking a confirmed order delivered (defaults today).
+  const [deliveredOn, setDeliveredOn] = useState(() => new Date().toISOString().split("T")[0]);
   const rowIdRef = useRef(1);
   const [productRows, setProductRows] = useState([
     { id: 0, productId: products[0]?.id ?? "", qty: "1", unitPrice: "" },
@@ -766,21 +768,43 @@ export function AdminOrderDetailClient({
             </div>
 
             {order.status === "CONFIRMED" && (
-              <div className="grid grid-cols-2 gap-3 mt-4">
-                <button
-                  disabled={isPending}
-                  onClick={() => handleAction(() => adminFailOrderAction(order.id), "Order marked as failed")}
-                  className="bg-red-50 border border-red-200 px-4 py-3 rounded-xl text-red-600 font-bold text-sm hover:bg-red-100 transition disabled:opacity-50"
-                >
-                  ✕ Fail
-                </button>
-                <button
-                  disabled={isPending}
-                  onClick={() => handleAction(() => adminDeliverOrderAction(order.id), "Order marked as delivered")}
-                  className="bg-emerald-600 text-white px-4 py-3 rounded-xl font-bold text-sm hover:bg-emerald-700 transition disabled:opacity-50"
-                >
-                  ✓ Delivered
-                </button>
+              <div className="mt-4 space-y-3">
+                <div>
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">
+                    Delivery Date
+                  </label>
+                  <input
+                    type="date"
+                    value={deliveredOn}
+                    max={new Date().toISOString().split("T")[0]}
+                    onChange={(e) => setDeliveredOn(e.target.value)}
+                    className="w-full mt-1 border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-700 outline-none focus:border-purple-400"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    The actual date the order was delivered (defaults to today).
+                  </p>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    disabled={isPending}
+                    onClick={() => handleAction(() => adminFailOrderAction(order.id), "Order marked as failed")}
+                    className="bg-red-50 border border-red-200 px-4 py-3 rounded-xl text-red-600 font-bold text-sm hover:bg-red-100 transition disabled:opacity-50"
+                  >
+                    ✕ Fail
+                  </button>
+                  <button
+                    disabled={isPending}
+                    onClick={() =>
+                      handleAction(
+                        () => adminDeliverOrderAction(order.id, deliveredOn || undefined),
+                        "Order marked as delivered",
+                      )
+                    }
+                    className="bg-emerald-600 text-white px-4 py-3 rounded-xl font-bold text-sm hover:bg-emerald-700 transition disabled:opacity-50"
+                  >
+                    ✓ Delivered
+                  </button>
+                </div>
               </div>
             )}
 

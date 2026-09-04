@@ -44,6 +44,18 @@ export default async function ExpensesPage() {
     attachmentUrl: e.attachmentUrl ?? null,
     attachmentUrls: e.attachmentUrls ?? [],
     createdBy: e.createdBy?.name ?? "",
+    // Raw ids + numeric line items so the Edit form can prefill reliably.
+    categoryId: e.expenseCategoryId,
+    expenseNameId: e.expenseNameId ?? "",
+    accountId: e.paidFromAccountId,
+    supplierId: e.supplierId ?? "",
+    lineItemsRaw: e.lineItems.map(l => ({
+      product: l.product ?? "",
+      description: l.description ?? "",
+      quantity: l.quantity,
+      amount: Number(l.amount),
+      tax: Number(l.tax),
+    })),
   }));
 
   const initialSuppliers = suppliers.map(s => ({

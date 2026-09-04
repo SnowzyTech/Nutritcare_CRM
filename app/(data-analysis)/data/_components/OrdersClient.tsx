@@ -6,6 +6,8 @@ import {
   SlidersHorizontal,
   ArrowUpDown,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   MessageCircle,
   X,
   Trash2,
@@ -28,6 +30,9 @@ const STATUS_STYLES: Record<string, { dot: string; bg: string; text: string; lab
 };
 
 const TABS = ['All', 'Pending', 'Confirmed', 'Delivered', 'Cancelled', 'Failed'];
+
+// Orders shown per page in the list.
+const PAGE_SIZE = 15;
 
 const NIGERIAN_STATES = [
   'Abia', 'Adamawa', 'Akwa Ibom', 'Anambra', 'Bauchi', 'Bayelsa', 'Benue', 'Borno',
@@ -67,8 +72,13 @@ interface OrdersClientProps {
 export function OrdersClient({ initialOrders = [], deliveryAgents = [], salesReps = [], teams = [], products = [], userName = null }: OrdersClientProps) {
   const firstName = userName?.trim().split(/\s+/)[0] ?? "";
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState('All');
+  // Multi-select status filter — drives BOTH the tabs and the Status dropdown.
+  // [] means "All" (no status restriction).
+  const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
+  const [pendingStatuses, setPendingStatuses] = useState<string[]>([]);
+  const [isStatusOpen, setIsStatusOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
 
   // Multi-select delete state
   const [selectedOrders, setSelectedOrders] = useState<Set<string>>(new Set());
@@ -111,6 +121,7 @@ export function OrdersClient({ initialOrders = [], deliveryAgents = [], salesRep
     setIsTeamOpen(false);
     setIsDateOpen(false);
     setIsCSAgentOpen(false);
+    setIsStatusOpen(false);
   };
 
   // Toggle single order selection
@@ -180,7 +191,7 @@ export function OrdersClient({ initialOrders = [], deliveryAgents = [], salesRep
 
   const filteredOrders = useMemo(() => {
     return initialOrders.filter(o => {
-      const matchesTab = activeTab === 'All' || o.status === activeTab;
+      const matchesStatus = selectedStatuses.length === 0 || selectedStatuses.includes(o.status);
       const matchesSearch = o.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
                            o.gmail.toLowerCase().includes(searchQuery.toLowerCase()) ||
                            o.salesRep.toLowerCase().includes(searchQuery.toLowerCase());
@@ -191,7 +202,9 @@ export function OrdersClient({ initialOrders = [], deliveryAgents = [], salesRep
       const matchesCSAgent = selectedCSAgents.length === 0 || selectedCSAgents.includes(o.salesRepId);
       let matchesDate = true;
       if (startDate || endDate) {
-        const od = parseRowDate(o.date);
+        // Filter by the date the order reached its current status (delivered/confirmed/…);
+        // pending orders have no status date, so fall back to the placed date.
+        const od = parseRowDate(o.statusDate ?? o.date);
         if (!od) {
           matchesDate = false;
         } else {
@@ -207,9 +220,36 @@ export function OrdersClient({ initialOrders = [], deliveryAgents = [], salesRep
           }
         }
       }
-      return matchesTab && matchesSearch && matchesProduct && matchesState && matchesTeam && matchesDelAgent && matchesCSAgent && matchesDate;
+      return matchesStatus && matchesSearch && matchesProduct && matchesState && matchesTeam && matchesDelAgent && matchesCSAgent && matchesDate;
     });
-  }, [initialOrders, activeTab, searchQuery, selectedProducts, selectedStates, selectedTeams, selectedDelAgents, selectedCSAgents, startDate, endDate]);
+  }, [initialOrders, selectedStatuses, searchQuery, selectedProducts, selectedStates, selectedTeams, selectedDelAgents, selectedCSAgents, startDate, endDate]);
+
+  // ── Pagination (15 per page) ──────────────────────────────────────────────
+  const totalPages = Math.max(1, Math.ceil(filteredOrders.length / PAGE_SIZE));
+
+  // Reset to page 1 whenever the filters/search change — adjusted during render
+  // (not in an effect) per React's "you might not need an effect" guidance.
+  const filterKey = JSON.stringify([
+    selectedStatuses, searchQuery, selectedProducts, selectedStates,
+    selectedTeams, selectedDelAgents, selectedCSAgents,
+    startDate?.getTime() ?? null, endDate?.getTime() ?? null,
+  ]);
+  const [prevFilterKey, setPrevFilterKey] = useState(filterKey);
+  if (filterKey !== prevFilterKey) {
+    setPrevFilterKey(filterKey);
+    setCurrentPage(1);
+  }
+
+  // Effective page, clamped so a shrinking list (e.g. after a delete refresh)
+  // never leaves us on an out-of-range page.
+  const page = Math.min(Math.max(1, currentPage), totalPages);
+  const paginatedOrders = filteredOrders.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  // Compact window of page numbers around the current page.
+  const pageWindow: number[] = [];
+  for (let i = Math.max(1, page - 2); i <= Math.min(totalPages, page + 2); i++) {
+    pageWindow.push(i);
+  }
 
   // Full catalog when provided; otherwise fall back to products seen in the orders.
   const uniqueProducts = useMemo(() => {
@@ -249,12 +289,16 @@ export function OrdersClient({ initialOrders = [], deliveryAgents = [], salesRep
       {/* Status Tabs */}
       <div className="flex items-center justify-between mb-6 bg-white rounded-xl shadow-sm p-1.5 overflow-x-auto no-scrollbar gap-2 w-full">
         {TABS.map((tab) => {
-          const isActive = activeTab === tab;
+          // Tabs stay in sync with the multi-select: "All" is active when nothing is
+          // selected; a status tab is active only when it's the sole selection.
+          const isActive = tab === 'All'
+            ? selectedStatuses.length === 0
+            : (selectedStatuses.length === 1 && selectedStatuses[0] === tab);
           const count = (counts as any)[tab];
           return (
             <button
               key={tab}
-              onClick={() => setActiveTab(tab)}
+              onClick={() => setSelectedStatuses(tab === 'All' ? [] : [tab])}
               className={`relative px-6 py-2.5 rounded-lg transition-all duration-200 flex items-center justify-center gap-1.5 whitespace-nowrap flex-1 hover:cursor-pointer ${
                 isActive ? 'bg-[#F9F5FF] text-[#6941C6]' : 'text-gray-500 hover:bg-gray-50'
               }`}
@@ -335,9 +379,73 @@ export function OrdersClient({ initialOrders = [], deliveryAgents = [], salesRep
           )}
         </div>
 
+        {/* ── Status Filter (Multi-Select) ── */}
+        <div className="relative">
+          <button
+            onClick={() => {
+              const wasOpen = isStatusOpen;
+              closeAllDropdowns();
+              if (!wasOpen) setPendingStatuses([...selectedStatuses]);
+              setIsStatusOpen(!wasOpen);
+            }}
+            className="flex items-center gap-2 px-3 py-1.5 bg-black text-white rounded-lg text-xs font-medium"
+          >
+            <span>{selectedStatuses.length > 0 ? `Status (${selectedStatuses.length})` : 'Status'}</span>
+            <ChevronDown size={14} className={`transition-transform duration-200 ${isStatusOpen ? 'rotate-180' : ''}`} />
+          </button>
+          {isStatusOpen && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setIsStatusOpen(false)} />
+              <div className="absolute left-0 top-full mt-1 bg-white border border-gray-100 rounded-xl shadow-xl z-50 py-2 min-w-[220px] max-h-[350px] flex flex-col">
+                <div className="flex items-center justify-between px-4 pb-2 border-b border-gray-100">
+                  <span className="text-xs font-bold text-gray-700">Select Status</span>
+                  <button
+                    onClick={() => setPendingStatuses([])}
+                    className="text-[10px] font-medium text-[#A020F0] hover:text-purple-700"
+                  >
+                    Clear All
+                  </button>
+                </div>
+                <div className="flex-1 overflow-y-auto py-1">
+                  {TABS.filter((t) => t !== 'All').map((s) => (
+                    <label
+                      key={s}
+                      className="flex items-center gap-3 px-4 py-2 hover:bg-purple-50 cursor-pointer transition-colors"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={pendingStatuses.includes(s)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setPendingStatuses(prev => [...prev, s]);
+                          } else {
+                            setPendingStatuses(prev => prev.filter(x => x !== s));
+                          }
+                        }}
+                        className="w-4 h-4 rounded border-gray-300 text-[#A020F0] accent-[#A020F0]"
+                      />
+                      <span className={`text-xs font-medium ${pendingStatuses.includes(s) ? 'text-[#A020F0]' : 'text-gray-600'}`}>
+                        {s}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+                <div className="px-4 pt-2 border-t border-gray-100">
+                  <button
+                    onClick={() => { setSelectedStatuses(pendingStatuses); setIsStatusOpen(false); }}
+                    className="w-full py-2 bg-[#A020F0] text-white rounded-lg text-xs font-bold hover:bg-purple-700 transition-colors"
+                  >
+                    Apply
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+
         {/* ── Product Filter (Multi-Select) ── */}
         <div className="relative">
-          <button 
+          <button
             onClick={() => {
               const wasOpen = isProductOpen;
               closeAllDropdowns();
@@ -853,7 +961,7 @@ export function OrdersClient({ initialOrders = [], deliveryAgents = [], salesRep
             </tr>
           </thead>
           <tbody className="bg-white">
-            {filteredOrders.map((order) => {
+            {paginatedOrders.map((order) => {
               const style = STATUS_STYLES[order.status];
               return (
                 <tr
@@ -940,6 +1048,60 @@ export function OrdersClient({ initialOrders = [], deliveryAgents = [], salesRep
           </tbody>
         </table>
       </div>
+
+      {/* Pagination */}
+      {filteredOrders.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 mt-4 px-1">
+          <p className="text-xs text-gray-400">
+            Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filteredOrders.length)} of {filteredOrders.length}
+          </p>
+          {totalPages > 1 && (
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setCurrentPage(Math.max(1, page - 1))}
+                disabled={page === 1}
+                className="flex items-center justify-center w-8 h-8 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                aria-label="Previous page"
+              >
+                <ChevronLeft size={16} />
+              </button>
+              {pageWindow[0] > 1 && (
+                <>
+                  <button onClick={() => setCurrentPage(1)} className="w-8 h-8 rounded-lg border border-gray-200 text-xs font-medium text-gray-500 hover:bg-gray-50 transition-colors">1</button>
+                  {pageWindow[0] > 2 && <span className="px-1 text-gray-300">…</span>}
+                </>
+              )}
+              {pageWindow.map((p) => (
+                <button
+                  key={p}
+                  onClick={() => setCurrentPage(p)}
+                  className={`w-8 h-8 rounded-lg border text-xs font-bold transition-colors ${
+                    p === page
+                      ? 'bg-[#A020F0] border-[#A020F0] text-white'
+                      : 'border-gray-200 text-gray-500 hover:bg-gray-50'
+                  }`}
+                >
+                  {p}
+                </button>
+              ))}
+              {pageWindow[pageWindow.length - 1] < totalPages && (
+                <>
+                  {pageWindow[pageWindow.length - 1] < totalPages - 1 && <span className="px-1 text-gray-300">…</span>}
+                  <button onClick={() => setCurrentPage(totalPages)} className="w-8 h-8 rounded-lg border border-gray-200 text-xs font-medium text-gray-500 hover:bg-gray-50 transition-colors">{totalPages}</button>
+                </>
+              )}
+              <button
+                onClick={() => setCurrentPage(Math.min(totalPages, page + 1))}
+                disabled={page === totalPages}
+                className="flex items-center justify-center w-8 h-8 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                aria-label="Next page"
+              >
+                <ChevronRight size={16} />
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Delete Confirmation Modal */}
       {isDeleteModalOpen && (
