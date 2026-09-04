@@ -16,6 +16,7 @@ import {
 } from "@/modules/data-analysis/services/data-analysis.service";
 import { isUserTeamLead } from "@/modules/users/services/users.service";
 import { reassignAgentForOrder } from "@/modules/orders/services/reassign-agent.service";
+import { resolveDeliveredDate } from "@/lib/orders/delivered-date";
 import type {
   RepAnalyticsData,
   TeamAnalyticsEntry,
@@ -159,31 +160,10 @@ export async function markOrderDeliveredByAnalyst(
     return { success: false, error: "Only confirmed orders can be marked as delivered" };
   }
 
-  const now = new Date();
-
-  // Resolve the delivery timestamp from the picked date (validated by calendar day).
-  let deliveredAt = now;
-  if (deliveredDate) {
-    const parsed = new Date(`${deliveredDate}T12:00:00`);
-    if (Number.isNaN(parsed.getTime())) {
-      return { success: false, error: "Invalid delivery date." };
-    }
-    const startOfToday = new Date(now);
-    startOfToday.setHours(0, 0, 0, 0);
-    const pickedDay = new Date(parsed);
-    pickedDay.setHours(0, 0, 0, 0);
-    if (pickedDay.getTime() > startOfToday.getTime()) {
-      return { success: false, error: "Delivery date can't be in the future." };
-    }
-    const confirmedAt = order.deliveries[0]?.createdAt ?? order.createdAt;
-    const confirmDay = new Date(confirmedAt);
-    confirmDay.setHours(0, 0, 0, 0);
-    if (pickedDay.getTime() < confirmDay.getTime()) {
-      return { success: false, error: "Delivery date can't be before the order was confirmed." };
-    }
-    // Keep the exact time when it's today; otherwise sit at noon of the chosen day.
-    deliveredAt = pickedDay.getTime() === startOfToday.getTime() ? now : parsed;
-  }
+  const confirmedAt = order.deliveries[0]?.createdAt ?? order.createdAt;
+  const resolved = resolveDeliveredDate(deliveredDate, confirmedAt);
+  if ("error" in resolved) return { success: false, error: resolved.error };
+  const deliveredAt = resolved.deliveredAt;
 
   const stockDeductions = order.agentId
     ? order.items.map((item) =>
