@@ -15,6 +15,7 @@ import {
   reassignOrderAgentByAnalyst,
 } from '@/modules/data-analysis/actions/data-analysis.action';
 import { toast } from 'sonner';
+import { Calendar } from '@/components/ui/calendar';
 
 type AgentReassignOption = {
   id: string;
@@ -53,6 +54,8 @@ export function OrderDetailClient({ order, canReassign, agents }: OrderDetailCli
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [isDelivering, setIsDelivering] = useState(false);
+  const [isDeliverOpen, setIsDeliverOpen] = useState(false);
+  const [deliverDate, setDeliverDate] = useState<Date>(() => new Date());
   const [isFailOpen, setIsFailOpen] = useState(false);
   const [failReason, setFailReason] = useState(''); // a preset reason, or ''
   const [customFailReason, setCustomFailReason] = useState('');
@@ -82,10 +85,12 @@ export function OrderDetailClient({ order, canReassign, agents }: OrderDetailCli
 
   const handleMarkDelivered = async () => {
     setIsDelivering(true);
-    const result = await markOrderDeliveredByAnalyst(order.id);
+    const ymd = `${deliverDate.getFullYear()}-${String(deliverDate.getMonth() + 1).padStart(2, '0')}-${String(deliverDate.getDate()).padStart(2, '0')}`;
+    const result = await markOrderDeliveredByAnalyst(order.id, ymd);
 
     if (result.success) {
       toast.success('Order marked as delivered');
+      setIsDeliverOpen(false);
       router.refresh();
     } else {
       toast.error(result.error || 'Failed to mark order as delivered');
@@ -415,19 +420,12 @@ export function OrderDetailClient({ order, canReassign, agents }: OrderDetailCli
                   ✕ Fail
                 </button>
                 <button
-                  onClick={handleMarkDelivered}
+                  onClick={() => { setDeliverDate(new Date()); setIsDeliverOpen(true); }}
                   disabled={isDelivering || isFailing}
                   type="button"
                   className="bg-[#198754] text-white px-4 py-3 rounded-xl font-bold text-sm hover:bg-[#157347] transition disabled:opacity-50 flex items-center justify-center gap-2"
                 >
-                  {isDelivering ? (
-                    <>
-                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                      Marking...
-                    </>
-                  ) : (
-                    '✓ Delivered'
-                  )}
+                  ✓ Delivered
                 </button>
               </div>
             )}
@@ -502,6 +500,50 @@ export function OrderDetailClient({ order, canReassign, agents }: OrderDetailCli
               className="w-full bg-purple-600 text-white py-4 rounded-2xl text-[1rem] font-black hover:bg-purple-700 transition-all shadow-lg shadow-purple-100 flex items-center justify-center gap-2 disabled:opacity-50"
             >
               {isReassigning ? 'Reassigning…' : 'Confirm Reassignment →'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Mark as Delivered — pick the actual delivery date */}
+      {isDeliverOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            onClick={() => !isDelivering && setIsDeliverOpen(false)}
+          />
+          <div className="relative bg-white rounded-[40px] shadow-2xl w-full max-w-[420px] p-8 animate-in fade-in zoom-in duration-300">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-2xl font-black text-slate-800">Mark as Delivered</h2>
+              <button
+                onClick={() => !isDelivering && setIsDeliverOpen(false)}
+                className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-200 transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <p className="text-sm text-gray-500 mb-4">
+              When was this order delivered? This date is used across the data view and the
+              agent&apos;s accounting — pick the real delivery date (defaults to today).
+            </p>
+
+            <div className="flex justify-center mb-6">
+              <Calendar
+                mode="single"
+                selected={deliverDate}
+                onSelect={(d) => d && setDeliverDate(d)}
+                disabled={{ after: new Date() }}
+                className="rounded-2xl border border-gray-200"
+              />
+            </div>
+
+            <button
+              disabled={isDelivering}
+              onClick={handleMarkDelivered}
+              className="w-full bg-[#198754] text-white py-4 rounded-2xl text-[1rem] font-black hover:bg-[#157347] transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              {isDelivering ? 'Marking…' : '✓ Confirm Delivery'}
             </button>
           </div>
         </div>
