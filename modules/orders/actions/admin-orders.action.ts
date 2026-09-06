@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth/auth";
 import { prisma } from "@/lib/db/prisma";
 import { revalidatePath } from "next/cache";
 import { recordDeliveryFeeEntry } from "@/modules/finance/services/agent-settlement.service";
+import { resolveDeliveredDate } from "@/lib/orders/delivered-date";
 import type { OrderStatus } from "@prisma/client";
 import {
   findEligibleAgentForOrder,
@@ -246,16 +247,25 @@ export async function adminReviveOrderAction(orderId: string): Promise<ActionRes
   return { success: true };
 }
 
-export async function adminDeliverOrderAction(orderId: string): Promise<ActionResult> {
+export async function adminDeliverOrderAction(
+  orderId: string,
+  deliveredDate?: string,
+): Promise<ActionResult> {
   await checkAdmin();
   suppressCameraForRequest();
   const order = await prisma.order.findFirst({
     where: { id: orderId, deletedAt: null },
-    include: { items: { select: { productId: true, quantity: true } } },
+    include: {
+      items: { select: { productId: true, quantity: true } },
+      deliveries: { select: { createdAt: true }, orderBy: { createdAt: "asc" }, take: 1 },
+    },
   });
   if (!order || order.status !== "CONFIRMED") return { error: "Cannot mark order as delivered" };
 
-  const now = new Date();
+  const confirmedAt = order.deliveries[0]?.createdAt ?? order.createdAt;
+  const resolved = resolveDeliveredDate(deliveredDate, confirmedAt);
+  if ("error" in resolved) return { error: resolved.error };
+  const deliveredAt = resolved.deliveredAt;
   // Deduct the delivered units from the agent's on-hand stock, mirroring the
   // delivery-agent/sales-manager/data-analyst paths — otherwise the goods stay
   // on the agent's StockLevel as phantom stock after delivery.
@@ -272,7 +282,7 @@ export async function adminDeliverOrderAction(orderId: string): Promise<ActionRe
     prisma.order.update({ where: { id: orderId }, data: { status: "DELIVERED" } }),
     prisma.delivery.updateMany({
       where: { orderId },
-      data: { status: "DELIVERED", deliveredTime: now },
+      data: { status: "DELIVERED", deliveredTime: deliveredAt },
     }),
     ...stockDeductions,
   ]);
@@ -290,8 +300,8 @@ export async function adminDeliverOrderAction(orderId: string): Promise<ActionRe
       agentId: order.agentId,
       netAmount: Number(order.netAmount),
       orderNumber: order.orderNumber,
-      // Date the funding on the delivery day, not the order's original date.
-      date: now,
+      // Date the funding on the chosen delivery day so the ledger matches the data view.
+      date: deliveredAt,
     });
   }
 

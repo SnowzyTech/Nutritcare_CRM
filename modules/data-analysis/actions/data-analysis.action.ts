@@ -16,6 +16,7 @@ import {
 } from "@/modules/data-analysis/services/data-analysis.service";
 import { isUserTeamLead } from "@/modules/users/services/users.service";
 import { reassignAgentForOrder } from "@/modules/orders/services/reassign-agent.service";
+import { resolveDeliveredDate } from "@/lib/orders/delivered-date";
 import type {
   RepAnalyticsData,
   TeamAnalyticsEntry,
@@ -131,7 +132,11 @@ export async function deleteOrderPermanently(
  * mark-delivered: whoever marks first wins; the other is rejected.
  */
 export async function markOrderDeliveredByAnalyst(
-  orderId: string
+  orderId: string,
+  // Optional actual delivery date (yyyy-mm-dd) the analyst picks on the calendar.
+  // Omitted → today. Used for BOTH Delivery.deliveredTime and the agent ledger date
+  // so data and accounting stay in lockstep.
+  deliveredDate?: string,
 ): Promise<{ success: boolean; error?: string }> {
   const session = await auth();
   if (!session?.user?.id) return { success: false, error: "Unauthorized" };
@@ -146,6 +151,8 @@ export async function markOrderDeliveredByAnalyst(
     include: {
       items: { select: { productId: true, quantity: true } },
       customer: { select: { name: true, whatsappNumber: true, phone: true } },
+      // Earliest delivery row = created at confirmation; its date is the lower bound.
+      deliveries: { select: { createdAt: true }, orderBy: { createdAt: "asc" }, take: 1 },
     },
   });
   if (!order) return { success: false, error: "Order not found" };
@@ -153,7 +160,11 @@ export async function markOrderDeliveredByAnalyst(
     return { success: false, error: "Only confirmed orders can be marked as delivered" };
   }
 
-  const now = new Date();
+  const confirmedAt = order.deliveries[0]?.createdAt ?? order.createdAt;
+  const resolved = resolveDeliveredDate(deliveredDate, confirmedAt);
+  if ("error" in resolved) return { success: false, error: resolved.error };
+  const deliveredAt = resolved.deliveredAt;
+
   const stockDeductions = order.agentId
     ? order.items.map((item) =>
         prisma.stockLevel.updateMany({
@@ -171,7 +182,7 @@ export async function markOrderDeliveredByAnalyst(
     prisma.order.update({ where: { id: orderId }, data: { status: "DELIVERED" } }),
     prisma.delivery.updateMany({
       where: { orderId },
-      data: { status: "DELIVERED", deliveredTime: now },
+      data: { status: "DELIVERED", deliveredTime: deliveredAt },
     }),
     ...stockDeductions,
   ]);
@@ -181,8 +192,8 @@ export async function markOrderDeliveredByAnalyst(
       agentId: order.agentId,
       netAmount: Number(order.netAmount),
       orderNumber: order.orderNumber,
-      // Date the funding on the delivery day, not the order's original date.
-      date: now,
+      // Date the funding on the chosen delivery day so the ledger matches the data view.
+      date: deliveredAt,
     });
   }
 

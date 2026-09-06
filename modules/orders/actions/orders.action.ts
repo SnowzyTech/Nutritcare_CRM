@@ -26,6 +26,8 @@ import {
   previewUpsellPrice,
   upsellOrderSelect,
 } from "@/modules/orders/services/upsell-apply.service";
+import { resolveUpsellPrice } from "@/modules/orders/services/tier-pricing.service";
+import { z } from "zod";
 
 /** Generates a cryptographically random 6-digit numeric delivery code. */
 function generateDeliveryCode(): string {
@@ -467,24 +469,48 @@ export async function applyOrderDiscountAction(
   return { discountAmount, discountPercent, netAmount: negotiatedPrice, totalAmount: gross };
 }
 
-export async function createOrderAction(input: {
-  customerName: string;
-  phone: string;
-  whatsappNumber: string;
-  email?: string;
-  deliveryAddress: string;
-  state: string;
-  landmark?: string;
-  isReorder?: boolean;
-  products: Array<{ productId: string; quantity: number }>;
-}): Promise<{ orderId: string; orderNumber: string } | { error: string }> {
+// Manual order creation input. Each line carries the FORM the rep chose to price
+// from (a product can have many forms) plus the quantity; `unitPrice` is the
+// price-of-one the rep types and is only needed when the quantity has no exact
+// package in that form (surplus units) — same meaning as `addOrderItemsAction`.
+const createOrderSchema = z.object({
+  customerName: z.string().trim().min(1, "Customer name is required."),
+  phone: z.string().trim().min(1, "Phone number is required."),
+  whatsappNumber: z.string().trim().optional(),
+  email: z.string().trim().optional(),
+  deliveryAddress: z.string().trim().min(1, "Delivery address is required."),
+  state: z.string().trim().min(1, "State is required."),
+  landmark: z.string().trim().optional(),
+  isReorder: z.boolean().optional(),
+  products: z
+    .array(
+      z.object({
+        productId: z.string().min(1),
+        formId: z.string().min(1, "Choose a form for pricing."),
+        quantity: z.number().int().positive(),
+        unitPrice: z.number().positive().optional(),
+      }),
+    )
+    .min(1, "At least one product is required."),
+});
+
+export type CreateOrderInput = z.input<typeof createOrderSchema>;
+
+export async function createOrderAction(
+  input: CreateOrderInput,
+): Promise<{ orderId: string; orderNumber: string } | { error: string }> {
   const session = await auth();
   suppressCameraForRequest();
   if (!session?.user?.id) return { error: "Unauthorized" };
 
-  const { customerName, phone, whatsappNumber, email, deliveryAddress, state, landmark, isReorder, products } = input;
-
-  if (!products.length) return { error: "At least one product is required." };
+  const parsed = createOrderSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid order details." };
+  }
+  const {
+    customerName, phone, whatsappNumber, email, deliveryAddress,
+    state, landmark, isReorder, products,
+  } = parsed.data;
 
   const cleanPhone = phone.replace(/\s+/g, "");
 
@@ -493,55 +519,110 @@ export async function createOrderAction(input: {
     customer = await prisma.customer.update({
       where: { id: customer.id },
       data: {
-        name: customerName.trim(),
-        whatsappNumber: whatsappNumber?.trim() || null,
-        email: email?.trim() || null,
-        deliveryAddress: deliveryAddress.trim(),
-        state: state.trim(),
-        landmark: landmark?.trim() || null,
+        name: customerName,
+        whatsappNumber: whatsappNumber || null,
+        email: email || null,
+        deliveryAddress,
+        state,
+        landmark: landmark || null,
       },
     });
   } else {
     customer = await prisma.customer.create({
       data: {
-        name: customerName.trim(),
+        name: customerName,
         phone: cleanPhone,
-        whatsappNumber: whatsappNumber?.trim() || null,
-        email: email?.trim() || null,
-        deliveryAddress: deliveryAddress.trim(),
-        state: state.trim(),
+        whatsappNumber: whatsappNumber || null,
+        email: email || null,
+        deliveryAddress,
+        state,
         lga: "",
-        landmark: landmark?.trim() || null,
+        landmark: landmark || null,
       },
     });
   }
 
   const dbProducts = await prisma.product.findMany({
     where: { id: { in: products.map((p) => p.productId) }, deletedAt: null },
-    select: { id: true, name: true, sellingPrice: true, costPrice: true },
+    select: { id: true, name: true, costPrice: true },
   });
   const productMap = new Map(dbProducts.map((p) => [p.id, p]));
   // Order code prefix comes from the main (first-selected) product.
   const mainProductName = productMap.get(products[0]?.productId)?.name;
 
+  // Validate the chosen forms are active and belong to each line's product — we
+  // price ONLY from the rep's chosen form and never silently fall back to another
+  // form if it was disabled since the page loaded.
+  const formIds = [...new Set(products.map((p) => p.formId))];
+  const forms = await prisma.form.findMany({
+    where: { id: { in: formIds }, disabledAt: null, deletedAt: null },
+    select: { id: true, data: true },
+  });
+  const formMap = new Map(forms.map((f) => [f.id, f]));
+
+  const orderItemsData: Array<{
+    productId: string;
+    quantity: number;
+    unitPrice: number;
+    lineTotal: number;
+    costPriceAtSale: number;
+  }> = [];
+  // Manually-priced (surplus) lines to audit after the write.
+  const surplusLines: Array<{
+    productId: string;
+    productName: string;
+    quantity: number;
+    unitPrice: number;
+    lineTotal: number;
+  }> = [];
+
   for (const item of products) {
-    if (!productMap.has(item.productId)) {
+    const product = productMap.get(item.productId);
+    if (!product) {
       return { error: "One or more selected products are unavailable." };
     }
-  }
 
-  const orderItemsData = products.map((item) => {
-    const product = productMap.get(item.productId)!;
-    const unitPrice = Number(product.sellingPrice);
-    const lineTotal = unitPrice * item.quantity;
-    return {
+    const form = formMap.get(item.formId);
+    const selectedProduct = (form?.data as { selectedProduct?: unknown } | undefined)
+      ?.selectedProduct;
+    if (!form || selectedProduct !== item.productId) {
+      return {
+        error: `Pricing for ${product.name} could not be resolved — its form may have been disabled. Please contact the admin.`,
+      };
+    }
+
+    // Reuse the shared upsell pricing engine: exact package → package price;
+    // between/below packages → nearest lower + surplus × typed unit price.
+    const priced = await resolveUpsellPrice(
+      item.productId,
+      item.quantity,
+      item.unitPrice ?? 0,
+      item.formId,
+    );
+    if (priced.requiresUnitPrice && (!item.unitPrice || item.unitPrice <= 0)) {
+      return {
+        error: `Enter a unit price for the extra units of ${product.name}.`,
+      };
+    }
+
+    orderItemsData.push({
       productId: item.productId,
       quantity: item.quantity,
-      unitPrice,
-      lineTotal,
+      unitPrice: priced.unitPrice,
+      lineTotal: priced.lineTotal,
       costPriceAtSale: Number(product.costPrice),
-    };
-  });
+    });
+
+    if (priced.source === "surplus") {
+      surplusLines.push({
+        productId: item.productId,
+        productName: product.name,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice ?? 0,
+        lineTotal: priced.lineTotal,
+      });
+    }
+  }
 
   const totalAmount = orderItemsData.reduce((sum, i) => sum + i.lineTotal, 0);
 
@@ -555,6 +636,9 @@ export async function createOrderAction(input: {
           salesRepId: session.user.id,
           totalAmount,
           netAmount: totalAmount,
+          // Order.formId intentionally left null: a manual order can mix lines
+          // from different forms; the chosen form only prices at creation time,
+          // and we don't attribute manual orders to media-buyer form analytics.
           status: "PENDING",
           isReorder: isReorder ?? false,
           items: { create: orderItemsData },
@@ -567,9 +651,29 @@ export async function createOrderAction(input: {
       action: "Created",
       entityType: "Order",
       entityId: order.id,
-      description: `Order #${order.orderNumber} created for ${customerName.trim()}`,
+      description: `Order #${order.orderNumber} created for ${customerName}`,
       details: { amount: totalAmount },
     });
+
+    // Audit every manually-priced (surplus) line so finance can review rep-typed
+    // unit prices — same guardrail as the upsell flow.
+    for (const s of surplusLines) {
+      await logActivity({
+        userId: session.user.id,
+        action: "Created",
+        entityType: "OrderItem",
+        entityId: order.id,
+        description: `Manual unit price ${formatCurrency(
+          s.unitPrice,
+        )} used for ${s.productName} (qty ${s.quantity}) on Order #${order.orderNumber}`,
+        details: {
+          field: "unitPrice",
+          amount: s.lineTotal,
+          productId: s.productId,
+          typedUnitPrice: s.unitPrice,
+        },
+      });
+    }
 
     revalidatePath("/sales-rep/orders");
     return { orderId: order.id, orderNumber: order.orderNumber };
@@ -577,6 +681,48 @@ export async function createOrderAction(input: {
     console.error("[createOrderAction] Error:", err);
     return { error: "Failed to create order. Please try again." };
   }
+}
+
+/**
+ * Live price preview for the sales-rep MANUAL "Add Order" form (no order exists
+ * yet). Validates the chosen form is active and is this product's form, then
+ * prices the quantity via the shared resolver — so the rep sees the exact charge
+ * (and whether a manual unit price is needed) before submitting. Read-only.
+ */
+export async function resolveManualOrderPriceAction(
+  productId: string,
+  formId: string,
+  quantity: number,
+  typedUnitPrice?: number,
+): Promise<
+  | {
+      lineTotal: number;
+      unitPrice: number;
+      source: "package" | "surplus";
+      requiresUnitPrice: boolean;
+    }
+  | { error: string }
+> {
+  const session = await auth();
+  if (!session?.user?.id) return { error: "Not signed in." };
+  if (!productId || !formId) return { error: "Choose a product and form." };
+
+  const form = await prisma.form.findFirst({
+    where: { id: formId, disabledAt: null, deletedAt: null },
+    select: { data: true },
+  });
+  const selectedProduct = (form?.data as { selectedProduct?: unknown } | undefined)
+    ?.selectedProduct;
+  if (!form || selectedProduct !== productId) {
+    return { error: "This form is no longer available. Please contact the admin." };
+  }
+
+  return resolveUpsellPrice(
+    productId,
+    Math.max(1, Math.floor(quantity)),
+    typedUnitPrice ?? 0,
+    formId,
+  );
 }
 
 export async function addOrderItemsAction(

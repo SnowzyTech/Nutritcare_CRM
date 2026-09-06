@@ -2,6 +2,7 @@ import { auth } from "@/lib/auth/auth";
 import { redirect } from "next/navigation";
 import { getSalesRepOrders } from "@/modules/orders/services/orders.service";
 import { getActiveProducts } from "@/modules/orders/services/products.service";
+import { getManualOrderProductForms } from "@/modules/orders/services/form-packages.service";
 import { OrdersClient } from "./orders-client";
 import type { Metadata } from "next";
 
@@ -11,9 +12,10 @@ export default async function OrdersPage() {
   const session = await auth();
   if (!session?.user?.id) redirect("/login");
 
-  const [rawOrders, rawProducts] = await Promise.all([
+  const [rawOrders, rawProducts, productForms] = await Promise.all([
     getSalesRepOrders(session.user.id),
     getActiveProducts(),
+    getManualOrderProductForms(),
   ]);
 
   const products = rawProducts.map((p) => ({
@@ -60,6 +62,7 @@ export default async function OrdersPage() {
       counts={counts}
       userName={session.user.name ?? ""}
       products={products}
+      productForms={productForms}
     />
   );
 }

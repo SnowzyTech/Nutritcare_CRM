@@ -89,6 +89,121 @@ export async function createExpenseAction(input: z.infer<typeof createExpenseSch
   return { id: expense.id, referenceNumber };
 }
 
+/**
+ * Edit an existing expense (corrections). Same validation as create; totals are
+ * recomputed from the edited line items, which are fully replaced. Accounting
+ * reports read expenses live, so the change is reflected everywhere automatically.
+ */
+export async function updateExpenseAction(
+  id: string,
+  input: z.infer<typeof createExpenseSchema>,
+) {
+  const session = await auth();
+  suppressCameraForRequest();
+  if (!session?.user?.id) return { error: "Unauthorized" };
+  const parsed = createExpenseSchema.safeParse(input);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
+
+  const existing = await prisma.expense.findUnique({
+    where: { id },
+    select: { id: true, referenceNumber: true, amount: true },
+  });
+  if (!existing) return { error: "Expense not found" };
+
+  const data = parsed.data;
+  const totalAmount = data.lineItems.reduce((s, i) => s + i.amount * (i.quantity || 1), 0);
+  const totalTax = data.lineItems.reduce((s, i) => s + i.tax, 0);
+
+  await prisma.$transaction([
+    prisma.expenseLineItem.deleteMany({ where: { expenseId: id } }),
+    prisma.expense.update({
+      where: { id },
+      data: {
+        expenseCategoryId: data.expenseCategoryId,
+        expenseNameId: data.expenseNameId || null,
+        supplierId: data.supplierId || null,
+        paidFromAccountId: data.paidFromAccountId,
+        date: data.date,
+        amount: totalAmount,
+        tax: totalTax,
+        notes: data.notes,
+        attachmentUrl: data.attachmentUrl,
+        attachmentUrls: data.attachmentUrls ?? [],
+        lineItems: {
+          createMany: {
+            data: data.lineItems.map(i => ({
+              product: i.product || null,
+              description: i.description || null,
+              quantity: i.quantity || 1,
+              amount: i.amount,
+              tax: i.tax || 0,
+            })),
+          },
+        },
+      },
+    }),
+  ]);
+
+  await logActivity({
+    userId: session.user.id,
+    action: "Updated",
+    entityType: "Expense",
+    entityId: id,
+    description: `Expense ${existing.referenceNumber} updated`,
+    details: {
+      field: "amount",
+      before: `₦${Number(existing.amount).toLocaleString("en-NG")}`,
+      after: `₦${totalAmount.toLocaleString("en-NG")}`,
+      amount: totalAmount,
+    },
+  });
+
+  revalidatePath("/accounting/expenses");
+  revalidatePath("/accounting");
+  return { id, referenceNumber: existing.referenceNumber };
+}
+
+/**
+ * Permanently delete an expense (hard delete — line items cascade). Audited with
+ * the reference + amount so the correction still leaves a trail. Reports read
+ * expenses live, so totals self-correct.
+ */
+export async function deleteExpenseAction(id: string) {
+  const session = await auth();
+  suppressCameraForRequest();
+  if (!session?.user?.id) return { error: "Unauthorized" };
+
+  const existing = await prisma.expense.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      referenceNumber: true,
+      amount: true,
+      expenseCategory: { select: { name: true } },
+    },
+  });
+  if (!existing) return { error: "Expense not found" };
+
+  await prisma.expense.delete({ where: { id } });
+
+  await logActivity({
+    userId: session.user.id,
+    action: "Deleted",
+    entityType: "Expense",
+    entityId: id,
+    description: `Expense ${existing.referenceNumber} deleted (${existing.expenseCategory?.name ?? "—"})`,
+    details: {
+      field: "amount",
+      amount: Number(existing.amount),
+      before: `₦${Number(existing.amount).toLocaleString("en-NG")}`,
+    },
+  });
+
+  revalidatePath("/accounting/expenses");
+  revalidatePath("/accounting");
+  return { success: true };
+}
+
 // An account the accountant is adding to the chart: a display name plus an
 // optional account code (e.g. "6201"). The class (1-8) is derived from the code.
 export interface AccountInput {

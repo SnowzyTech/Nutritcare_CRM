@@ -50,7 +50,7 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
  * combo/free-gift variations (which carry other productIds and ₦0 prices) from
  * contaminating the package set. See docs contamination caveat.
  */
-function packagesFromForm(
+export function packagesFromForm(
   data: unknown,
   productId: string,
 ): { quantity: number; price: number }[] {

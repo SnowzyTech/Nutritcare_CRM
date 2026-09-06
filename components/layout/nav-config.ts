@@ -46,7 +46,14 @@ export const allNavItems: NavItem[] = [
       { label: "Delivery Agents", href: "/admin/overview/delivery-agent" },
     ],
   },
-  { label: "Inventory", href: "/admin/inventory", icon: "inventory" },
+  {
+    label: "Inventory",
+    icon: "inventory",
+    children: [
+      { label: "Approvals", href: "/admin/inventory" },
+      { label: "Agent Stock Correction", href: "/admin/inventory/agent-stock" },
+    ],
+  },
   { label: "Forms", href: "/admin/forms", icon: "forms" },
   { label: "History", href: "/admin/history", icon: "history" },
 ];

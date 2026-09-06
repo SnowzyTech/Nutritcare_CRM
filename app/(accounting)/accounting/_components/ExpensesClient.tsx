@@ -27,6 +27,8 @@ import {
 } from "@/components/ui/popover";
 import {
   createExpenseAction,
+  updateExpenseAction,
+  deleteExpenseAction,
   createExpenseCategoryAction,
   addExpenseNamesToCategoryAction,
   createPaymentAccountAction,
@@ -68,6 +70,12 @@ interface ExpenseHistoryRow {
   attachmentUrl?: string | null;
   attachmentUrls?: string[];
   createdBy?: string;
+  // Raw ids + numeric line items for the Edit form prefill.
+  categoryId?: string;
+  expenseNameId?: string;
+  accountId?: string;
+  supplierId?: string;
+  lineItemsRaw?: { product: string; description: string; quantity: number; amount: number; tax: number }[];
 }
 
 interface CategoryItem {
@@ -206,6 +214,11 @@ export function ExpensesClient({
   const [supplierDropdownOpen, setSupplierDropdownOpen] = useState(false);
   const [notesText, setNotesText] = useState('');
   const [savingExpense, setSavingExpense] = useState(false);
+  // Edit mode: the expense being edited (null = creating a new one) + its already-
+  // uploaded attachment URLs (kept unless the user removes them).
+  const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
+  const [existingAttachmentUrls, setExistingAttachmentUrls] = useState<string[]>([]);
+  const [deletingExpenseId, setDeletingExpenseId] = useState<string | null>(null);
 
   type LineRow = { id: number; product: string; description: string; qty: string; amount: string; tax: string };
   const [lineItems, setLineItems] = useState<LineRow[]>([
@@ -478,23 +491,31 @@ export function ExpensesClient({
       alert(err.message ?? 'File upload failed');
       return;
     }
-    const res = await createExpenseAction({
+    const payload = {
       expenseCategoryId: selectedCategoryId,
       expenseNameId: selectedExpenseNameId || undefined,
       supplierId: selectedSupplierId || undefined,
       paidFromAccountId: selectedAccountId,
       date: date ?? new Date(),
       notes: notesText,
-      attachmentUrls: uploadedUrls,
+      // In edit mode, keep the surviving existing attachments plus any new uploads.
+      attachmentUrls: editingExpenseId ? [...existingAttachmentUrls, ...uploadedUrls] : uploadedUrls,
       lineItems: items,
-    });
+    };
+    const res = editingExpenseId
+      ? await updateExpenseAction(editingExpenseId, payload)
+      : await createExpenseAction(payload);
     setSavingExpense(false);
     if ('error' in res) { alert(res.error); return; }
+    toast.success(editingExpenseId ? 'Expense updated' : 'Expense recorded');
+    resetForm();
     router.refresh();
     setActiveTab('history');
   };
 
   const resetForm = () => {
+    setEditingExpenseId(null);
+    setExistingAttachmentUrls([]);
     setSelectedCategoryId('');
     setSelectedExpenseNameId('');
     setSelectedAccountId('');
@@ -508,6 +529,49 @@ export function ExpensesClient({
       { id: 2, product: '', description: '', qty: '1', amount: '', tax: '' },
       { id: 3, product: '', description: '', qty: '1', amount: '', tax: '' },
     ]);
+  };
+
+  // Prefill the form from a history row and switch to the entry tab for editing.
+  const openEditExpense = (row: ExpenseHistoryRow) => {
+    if (!row.id) return;
+    setEditingExpenseId(row.id);
+    setSelectedCategoryId(row.categoryId ?? '');
+    setSelectedExpenseNameId(row.expenseNameId ?? '');
+    setSelectedAccountId(row.accountId ?? '');
+    setSelectedSupplierId(row.supplierId ?? '');
+    setSupplierSearch('');
+    setNotesText(row.notes ?? '');
+    setDate(row.date ? new Date(row.date) : new Date());
+    setExistingAttachmentUrls(row.attachmentUrls ?? []);
+    setAttachments(prev => { prev.forEach(a => { if (a.preview) URL.revokeObjectURL(a.preview); }); return []; });
+    const raw = row.lineItemsRaw ?? [];
+    setLineItems(
+      raw.length > 0
+        ? raw.map((l, i) => ({
+            id: i + 1,
+            product: l.product,
+            description: l.description,
+            qty: String(l.quantity),
+            amount: String(l.amount),
+            tax: String(l.tax),
+          }))
+        : [{ id: 1, product: '', description: '', qty: '1', amount: '', tax: '' }],
+    );
+    setSelectedExpense(null);
+    setActiveTab('new');
+  };
+
+  const handleDeleteExpense = async (row: ExpenseHistoryRow) => {
+    if (!row.id) return;
+    if (!confirm(`Delete expense ${row.ref}? This permanently removes it and cannot be undone.`)) return;
+    setDeletingExpenseId(row.id);
+    const res = await deleteExpenseAction(row.id);
+    setDeletingExpenseId(null);
+    if ('error' in res) { toast.error(res.error); return; }
+    toast.success(`Expense ${row.ref} deleted`);
+    setSelectedExpense(null);
+    if (editingExpenseId === row.id) resetForm();
+    router.refresh();
   };
 
   const handleSaveAndAddAnother = async () => {
@@ -1047,6 +1111,30 @@ export function ExpensesClient({
                     multiple
                     accept="image/*,.pdf,.doc,.docx,.xls,.xlsx"
                   />
+                  {editingExpenseId && existingAttachmentUrls.length > 0 && (
+                    <div className="space-y-1.5">
+                      {existingAttachmentUrls.map((url, idx) => (
+                        <div key={url} className="flex items-center gap-2 p-2 bg-purple-50/60 rounded-lg border border-purple-100">
+                          <div className="w-9 h-9 bg-white rounded flex items-center justify-center flex-shrink-0 border border-purple-100">
+                            <FileText size={16} className="text-[#AE00FF]" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[11px] font-bold text-gray-700 truncate">Attachment {idx + 1}</p>
+                            <a href={url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-blue-500 hover:underline">
+                              View existing file
+                            </a>
+                          </div>
+                          <button
+                            onClick={() => setExistingAttachmentUrls(prev => prev.filter(u => u !== url))}
+                            className="text-gray-300 hover:text-red-400 transition-colors flex-shrink-0"
+                            title="Remove attachment"
+                          >
+                            <X size={13} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   {attachments.length > 0 && (
                     <div className="space-y-1.5">
                       {attachments.map((item, idx) => (
@@ -1080,25 +1168,40 @@ export function ExpensesClient({
                   </div>
                 </div>
 
+                {editingExpenseId && (
+                  <div className="mt-2 text-[12px] font-semibold text-[#AE00FF] bg-[#F9F0FF] border border-purple-100 rounded-lg px-3 py-2">
+                    You are editing an existing expense — saving will overwrite it.
+                  </div>
+                )}
+
                 {/* Actions */}
                 <div className="flex items-center justify-between pt-4">
-                  <button className="px-8 py-2.5 border border-[#AE00FF] text-[#AE00FF] rounded-lg text-[13px] font-bold hover:bg-purple-50 transition-colors">
-                    Cancel
+                  <button
+                    onClick={() => {
+                      const wasEditing = !!editingExpenseId;
+                      resetForm();
+                      if (wasEditing) setActiveTab('history');
+                    }}
+                    className="px-8 py-2.5 border border-[#AE00FF] text-[#AE00FF] rounded-lg text-[13px] font-bold hover:bg-purple-50 transition-colors"
+                  >
+                    {editingExpenseId ? 'Cancel Edit' : 'Cancel'}
                   </button>
                   <div className="flex gap-4">
-                    <button
-                      disabled={savingExpense}
-                      onClick={handleSaveAndAddAnother}
-                      className="px-6 py-2.5 border border-gray-300 text-gray-600 rounded-lg text-[13px] font-bold hover:bg-gray-50 transition-colors bg-white shadow-sm disabled:opacity-50"
-                    >
-                      Save & Add Another
-                    </button>
+                    {!editingExpenseId && (
+                      <button
+                        disabled={savingExpense}
+                        onClick={handleSaveAndAddAnother}
+                        className="px-6 py-2.5 border border-gray-300 text-gray-600 rounded-lg text-[13px] font-bold hover:bg-gray-50 transition-colors bg-white shadow-sm disabled:opacity-50"
+                      >
+                        Save & Add Another
+                      </button>
+                    )}
                     <button
                       disabled={savingExpense}
                       onClick={handleSaveEntry}
                       className="px-8 py-2.5 bg-[#AE00FF] text-white rounded-lg text-[13px] font-bold hover:bg-[#9900E6] transition-colors shadow-sm disabled:opacity-50"
                     >
-                      {savingExpense ? 'Saving…' : 'Save Expense Entry'}
+                      {savingExpense ? 'Saving…' : editingExpenseId ? 'Update Expense' : 'Save Expense Entry'}
                     </button>
                   </div>
                 </div>
@@ -1259,14 +1362,31 @@ export function ExpensesClient({
           {/* --- EXPENSE DETAILS --- */}
           {activeTab === 'details' && selectedExpense && (
             <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
-              <div className="mb-8 flex items-center gap-3">
-                <button 
-                  onClick={() => setActiveTab('history')}
-                  className="w-10 h-10 flex items-center justify-center text-gray-600 bg-gray-100 rounded-full hover:bg-gray-200 transition-colors"
-                >
-                  <ChevronLeft size={20} strokeWidth={2.5} />
-                </button>
-                <span className="text-[16px] font-bold text-gray-600">Back to History</span>
+              <div className="mb-8 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => setActiveTab('history')}
+                    className="w-10 h-10 flex items-center justify-center text-gray-600 bg-gray-100 rounded-full hover:bg-gray-200 transition-colors"
+                  >
+                    <ChevronLeft size={20} strokeWidth={2.5} />
+                  </button>
+                  <span className="text-[16px] font-bold text-gray-600">Back to History</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => openEditExpense(selectedExpense)}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-[13px] font-bold text-[#AE00FF] bg-[#F3E8FF] hover:bg-purple-200 transition-colors"
+                  >
+                    <Pencil size={14} /> Edit
+                  </button>
+                  <button
+                    onClick={() => handleDeleteExpense(selectedExpense)}
+                    disabled={deletingExpenseId === selectedExpense.id}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-[13px] font-bold text-red-600 bg-red-50 hover:bg-red-100 transition-colors disabled:opacity-50"
+                  >
+                    <Trash2 size={14} /> {deletingExpenseId === selectedExpense.id ? 'Deleting…' : 'Delete'}
+                  </button>
+                </div>
               </div>
 
               <div className="mb-10">

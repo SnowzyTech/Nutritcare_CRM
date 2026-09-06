@@ -693,29 +693,48 @@ export async function getOrderRows(
         orderBy: { createdAt: "asc" },
         take: 2,
       },
+      // Latest delivery — its dates drive the accurate per-status date below.
+      deliveries: {
+        select: { deliveredTime: true, createdAt: true, updatedAt: true },
+        orderBy: { createdAt: "desc" },
+        take: 1,
+      },
     },
   });
 
-  return orders.map((o) => ({
-    id: o.orderNumber,
-    gmail: o.customer.email ?? "",
-    name: o.customer.name,
-    agent: o.agent ? { id: o.agent.id, name: o.agent.companyName, state: o.agent.state ?? "" } : null,
-    state: o.customer.state,
-    salesRep: o.salesRep.name,
-    salesRepId: o.salesRep.id,
-    teamId: o.salesRep.team?.id ?? null,
-    teamName: o.salesRep.team?.name ?? null,
-    product: o.items[0]?.product.name ?? "—",
-    itemCount: o._count.items,
-    isReorder: o.isReorder,
-    quantity: o.items[0]?.quantity ?? 0,
-    date: fmtDate(o.createdAt),
-    status: STATUS_MAP[o.status] ?? "Pending",
-    statusDate: o.status === "PENDING" ? null : fmtDate(o.updatedAt),
-    formId: o.formId,
-    formName: o.form?.name ?? null,
-  }));
+  return orders.map((o) => {
+    const latest = o.deliveries[0];
+    // The date the order reached its CURRENT status, from the most accurate source:
+    // delivered → deliveredTime; confirmed → the delivery row's createdAt (created at
+    // confirmation); failed → the delivery's updatedAt; cancelled → order.updatedAt;
+    // pending → null (the "Date"/placed column represents it).
+    const statusSrc =
+      o.status === "DELIVERED" ? latest?.deliveredTime ?? o.updatedAt :
+      o.status === "CONFIRMED" ? latest?.createdAt ?? o.updatedAt :
+      o.status === "FAILED" ? latest?.updatedAt ?? o.updatedAt :
+      o.status === "CANCELLED" ? o.updatedAt :
+      null;
+    return {
+      id: o.orderNumber,
+      gmail: o.customer.email ?? "",
+      name: o.customer.name,
+      agent: o.agent ? { id: o.agent.id, name: o.agent.companyName, state: o.agent.state ?? "" } : null,
+      state: o.customer.state,
+      salesRep: o.salesRep.name,
+      salesRepId: o.salesRep.id,
+      teamId: o.salesRep.team?.id ?? null,
+      teamName: o.salesRep.team?.name ?? null,
+      product: o.items[0]?.product.name ?? "—",
+      itemCount: o._count.items,
+      isReorder: o.isReorder,
+      quantity: o.items[0]?.quantity ?? 0,
+      date: fmtDate(o.createdAt),
+      status: STATUS_MAP[o.status] ?? "Pending",
+      statusDate: statusSrc ? fmtDate(statusSrc) : null,
+      formId: o.formId,
+      formName: o.form?.name ?? null,
+    };
+  });
 }
 
 export async function getAllOrders(): Promise<OrderRow[]> {
@@ -795,7 +814,8 @@ export async function getOrderByOrderNumber(orderNumber: string): Promise<OrderD
     if (d.status === "DELIVERED") {
       history.push({
         event: "Order Delivered",
-        date: fmtDateTime(d.updatedAt),
+        // Actual delivery date (the canonical field), not when the row was last touched.
+        date: fmtDateTime(d.deliveredTime ?? d.updatedAt),
         agentName: order.agent?.companyName,
       });
     }

@@ -13,6 +13,7 @@ import {
   Building2,
   UserSquare,
   Sliders,
+  ClipboardCheck,
   Settings,
   LogOut,
   Menu,
@@ -31,6 +32,7 @@ const menuItems = [
   { label: "Stock in Warehouse", href: "/inventory/stock-in-warehouse", icon: Building2 },
   { label: "Stock Left with Agent", href: "/inventory/left-with-agent", icon: UserSquare },
   { label: "Stock Adjustment", href: "/inventory/adjustment", icon: Sliders },
+  { label: "Agent Stock Correction", href: "/inventory/agent-stock", icon: ClipboardCheck },
 ];
 
 const bottomItems = [
