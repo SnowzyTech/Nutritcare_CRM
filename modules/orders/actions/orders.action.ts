@@ -7,6 +7,7 @@ import { getSalesRepWeeklyAnalytics } from "@/modules/orders/services/analytics.
 import type { MonthMetrics } from "@/modules/orders/services/analytics.service";
 import {
   findEligibleAgentForOrder,
+  formatAgentUnavailableMessage,
   agentHasAvailableStock,
   lockAgent,
 } from "@/modules/delivery/services/agents.service";
@@ -131,14 +132,12 @@ export async function confirmOrderAction(
     return { error: "This order can no longer be confirmed." };
   }
 
-  const agentId = await findEligibleAgentForOrder(order.customer.state, order.items);
+  const selection = await findEligibleAgentForOrder(order.customer.state, order.items);
 
-  if (!agentId) {
-    return {
-      error:
-        "No delivery agent is currently available in this area with the required stock. Please try again later or contact your manager.",
-    };
+  if (!selection.ok) {
+    return { error: formatAgentUnavailableMessage(selection, order.customer.state) };
   }
+  const agentId = selection.agentId;
 
   const deliveryCode = generateDeliveryCode();
 

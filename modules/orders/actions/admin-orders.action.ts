@@ -7,6 +7,7 @@ import { recordDeliveryFeeEntry } from "@/modules/finance/services/agent-settlem
 import type { OrderStatus } from "@prisma/client";
 import {
   findEligibleAgentForOrder,
+  formatAgentUnavailableMessage,
   agentHasAvailableStock,
   lockAgent,
 } from "@/modules/delivery/services/agents.service";
@@ -83,14 +84,12 @@ export async function adminConfirmOrderAction(orderId: string, deliveryDate?: st
   });
   if (!order || order.status !== "PENDING") return { error: "Cannot confirm this order" };
 
-  const agentId = await findEligibleAgentForOrder(order.customer.state, order.items);
+  const selection = await findEligibleAgentForOrder(order.customer.state, order.items);
 
-  if (!agentId) {
-    return {
-      error:
-        "No delivery agent is currently available in this area with the required stock. Please try again later.",
-    };
+  if (!selection.ok) {
+    return { error: formatAgentUnavailableMessage(selection, order.customer.state) };
   }
+  const agentId = selection.agentId;
 
   const deliveryCode = generateDeliveryCode();
 

@@ -73,16 +73,43 @@ export async function agentHasAvailableStock(
 }
 
 /**
+ * Outcome of picking a delivery agent for an order.
+ *
+ * A bare `string | null` couldn't tell the failure modes apart, so every caller
+ * showed one catch-all message ("no agent available in this area with the
+ * required stock") for two very different problems with two very different
+ * fixes. The reasons below let `formatAgentUnavailableMessage()` say which one
+ * actually happened.
+ */
+export type AgentSelectionResult =
+  | { ok: true; agentId: string }
+  | { ok: false; reason: "no_agent_in_state" }
+  | {
+      ok: false;
+      reason: "insufficient_stock";
+      shortfalls: { productName: string; needed: number; bestAvailable: number }[];
+    }
+  | { ok: false; reason: "no_single_agent_covers_all_items" };
+
+/** An order line as the confirm paths select it (product name is used for messaging only). */
+type OrderLine = {
+  productId: string;
+  quantity: number;
+  product?: { name: string } | null;
+};
+
+/**
  * Finds the best available delivery agent for an order using:
  *  1. State match (agent.state or statesCovered must include customerState)
- *  2. Agent must hold sufficient stock for every order item
+ *  2. Agent must hold sufficient AVAILABLE stock (on-hand − committed) for every item
  *  3. Tie-break: fewest active CONFIRMED orders (load balancing)
- * Returns the agent ID or null if none qualify.
+ *
+ * One agent must cover the WHOLE order - orders are never split across agents.
  */
 export async function findEligibleAgentForOrder(
   customerState: string,
-  orderItems: { productId: string; quantity: number }[],
-): Promise<string | null> {
+  orderItems: OrderLine[],
+): Promise<AgentSelectionResult> {
   const agents = await prisma.agent.findMany({
     where: { status: "ACTIVE", deletedAt: null },
     select: { id: true, state: true, statesCovered: true },
@@ -100,17 +127,17 @@ export async function findEligibleAgentForOrder(
     return false;
   });
 
-  if (stateMatched.length === 0) return null;
+  if (stateMatched.length === 0) return { ok: false, reason: "no_agent_in_state" };
 
   const agentIds = stateMatched.map((a) => a.id);
-  const productIds = orderItems.map((i) => i.productId);
+  const productIds = [...new Set(orderItems.map((i) => i.productId))];
 
   const stockRows = await prisma.stockLevel.findMany({
     where: { locationKind: "AGENT", locationId: { in: agentIds }, productId: { in: productIds } },
     select: { locationId: true, productId: true, quantity: true },
   });
 
-  // agentId → productId → qty
+  // agentId -> productId -> qty
   const stockMap: Record<string, Record<string, number>> = {};
   for (const row of stockRows) {
     stockMap[row.locationId] ??= {};
@@ -134,16 +161,41 @@ export async function findEligibleAgentForOrder(
     committedMap[aId][it.productId] = (committedMap[aId][it.productId] ?? 0) + it.quantity;
   }
 
-  const stockEligible = agentIds.filter((agentId) => {
-    const agentStock = stockMap[agentId] ?? {};
-    const agentCommitted = committedMap[agentId] ?? {};
-    return orderItems.every(
-      (item) =>
-        (agentStock[item.productId] ?? 0) - (agentCommitted[item.productId] ?? 0) >= item.quantity,
-    );
-  });
+  const availableFor = (agentId: string, productId: string) =>
+    (stockMap[agentId]?.[productId] ?? 0) - (committedMap[agentId]?.[productId] ?? 0);
 
-  if (stockEligible.length === 0) return null;
+  // Aggregate the request per product (handles duplicate product lines) so this
+  // check matches the authoritative one in `agentHasAvailableStock`, which also
+  // aggregates - otherwise a split line could pass here and then be rejected
+  // under the lock with a misleading "agent just reached capacity" message.
+  const needed: Record<string, number> = {};
+  for (const it of orderItems) needed[it.productId] = (needed[it.productId] ?? 0) + it.quantity;
+
+  const stockEligible = agentIds.filter((agentId) =>
+    Object.entries(needed).every(([pid, qty]) => availableFor(agentId, pid) >= qty),
+  );
+
+  if (stockEligible.length === 0) {
+    const nameOf: Record<string, string> = {};
+    for (const it of orderItems) {
+      if (it.product?.name) nameOf[it.productId] = it.product.name;
+    }
+
+    const shortfalls = Object.entries(needed)
+      .map(([productId, qty]) => ({
+        productName: nameOf[productId] ?? "this product",
+        needed: qty,
+        bestAvailable: Math.max(0, ...agentIds.map((id) => availableFor(id, productId))),
+      }))
+      .filter((s) => s.bestAvailable < s.needed);
+
+    // Every line is individually available somewhere, but no single agent holds
+    // them all together - reporting a per-product shortfall here would be a lie.
+    if (shortfalls.length === 0) {
+      return { ok: false, reason: "no_single_agent_covers_all_items" };
+    }
+    return { ok: false, reason: "insufficient_stock", shortfalls };
+  }
 
   const orderCounts = await prisma.order.groupBy({
     by: ["agentId"],
@@ -156,7 +208,38 @@ export async function findEligibleAgentForOrder(
     if (row.agentId) countMap[row.agentId] = row._count.id;
   }
 
-  return stockEligible.sort((a, b) => (countMap[a] ?? 0) - (countMap[b] ?? 0))[0];
+  const agentId = stockEligible.sort((a, b) => (countMap[a] ?? 0) - (countMap[b] ?? 0))[0];
+  return { ok: true, agentId };
+}
+
+/**
+ * The message shown when no agent could be assigned. Shared by every confirm
+ * path so rep and admin see the same diagnosis for the same underlying state.
+ *
+ * Deliberately does NOT say "try again later" for a stock shortage: retrying
+ * cannot fix it, because the stock is held by other confirmed orders until
+ * someone dispatches, fails or cancels them.
+ */
+export function formatAgentUnavailableMessage(
+  result: Extract<AgentSelectionResult, { ok: false }>,
+  customerState: string,
+): string {
+  const state = customerState.trim() || "this area";
+
+  switch (result.reason) {
+    case "no_agent_in_state":
+      return `No delivery agent covers ${state}. Please contact your manager to assign an agent to this area.`;
+
+    case "insufficient_stock": {
+      const detail = result.shortfalls
+        .map((s) => `${s.productName} (need ${s.needed}, best agent has ${s.bestAvailable} available)`)
+        .join("; ");
+      return `No delivery agent in ${state} has enough stock for this order: ${detail}. Retrying won’t help — please contact your manager to restock or free up reserved stock.`;
+    }
+
+    case "no_single_agent_covers_all_items":
+      return `No single delivery agent in ${state} has every item on this order in stock at once. Please contact your manager to restock, or place the items as separate orders.`;
+  }
 }
 
 function trendLabel(current: number, previous: number): string {
