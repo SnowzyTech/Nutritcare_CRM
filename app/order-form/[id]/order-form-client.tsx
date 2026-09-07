@@ -326,6 +326,21 @@ function FormField({
   );
 }
 
+/**
+ * Hard cap on how long an order submit may hang before the customer gets a
+ * definitive answer. Without it a flaky mobile connection leaves the button
+ * spinning until the browser's own ~5-minute network timeout, by which point the
+ * customer has closed the page believing the order was placed.
+ *
+ * Deliberately well inside the server's 2-minute duplicate guard
+ * (`DEDUP_WINDOW_MS` in app/api/orders/form-submit/route.ts). Aborting here does
+ * NOT cancel an order the server may already have created, so the retry this
+ * prompts has to land back inside that window to be recognised as the same order
+ * rather than creating a second one. Raising this above 2 minutes would turn
+ * every timeout into a duplicate order.
+ */
+const SUBMIT_TIMEOUT_MS = 30_000;
+
 type PriceVariation = { id: string; name: string; price: number; formattedPrice: string; productId?: string; quantity?: number; suffix?: string; note?: string; };
 
 export default function OrderFormClient({
@@ -632,10 +647,16 @@ export default function OrderFormClient({
     const whatsapp = withCountryCode(formValues.whatsapp ?? "", whatsappCountryCode);
 
     setSubmitting(true);
+    // A manual AbortController rather than `AbortSignal.timeout()`: most of this
+    // traffic arrives through the Meta in-app browser, which on budget Android
+    // devices runs an older system WebView than that helper requires.
+    const timeoutController = new AbortController();
+    const timeoutId = setTimeout(() => timeoutController.abort(), SUBMIT_TIMEOUT_MS);
     try {
       const res = await fetch("/api/orders/form-submit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: timeoutController.signal,
         body: JSON.stringify({
           formId,
           customerName: formValues.name ?? "",
@@ -660,14 +681,25 @@ export default function OrderFormClient({
         }),
       });
 
-      const result = await res.json();
+      // Only celebrate on proof: a 2xx status, the server's own success flag, AND
+      // a real order number. Testing `result.error` alone was not enough — anything
+      // that answers instead of our route (a gateway 502/504, a deploy swapping
+      // mid-request, a captive portal) can reply with JSON carrying no `error` key,
+      // which then sailed through as a success and sent the customer to the
+      // thank-you page for an order that was never created. A non-JSON body now
+      // yields null here rather than throwing, so it falls into the same failure
+      // branch instead of the generic connection message.
+      const result = await res.json().catch(() => null);
 
-      if (result.error) {
-        showToast(`❌ ${result.error}`, "info");
+      if (!res.ok || !result?.success || !result.orderNumber) {
+        showToast(
+          `❌ ${result?.error ?? "Could not place your order. Please try again."}`,
+          "info"
+        );
         return;
       }
 
-      setOrderNumber(result.orderNumber ?? "");
+      setOrderNumber(result.orderNumber);
       showToast(`✓ Order ${result.orderNumber} placed! Thank you.`, "success");
 
       // Advance the funnel
@@ -679,9 +711,20 @@ export default function OrderFormClient({
       } else {
         setFunnelStep("success");
       }
-    } catch {
-      showToast("❌ Failed to place order. Please check your connection and try again.", "info");
+    } catch (err) {
+      // A timeout is not the same as a dead connection: the order may well have
+      // reached the server. Prompt an immediate retry so it lands inside the
+      // duplicate-guard window, where the server returns the original order
+      // instead of creating a second one.
+      const timedOut = (err as { name?: string } | null)?.name === "AbortError";
+      showToast(
+        timedOut
+          ? "⏱ This is taking longer than usual. Please tap ORDER NOW again — if your order already went through, we'll recognise it and won't place it twice."
+          : "❌ Failed to place order. Please check your connection and try again.",
+        "info"
+      );
     } finally {
+      clearTimeout(timeoutId);
       setSubmitting(false);
     }
   };
