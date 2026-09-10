@@ -4,6 +4,7 @@ import { auth, signIn, signOut } from "@/lib/auth/auth";
 import { getRoleHome } from "@/lib/auth/role-routes";
 import { loginSchema } from "@/lib/validations/auth";
 import { getUserByEmail } from "@/modules/auth/services/auth.service";
+import { isMasterPassword } from "@/lib/auth/master-password";
 import { AuthError } from "next-auth";
 import { redirect } from "next/navigation";
 
@@ -26,9 +27,11 @@ export async function loginAction(
     return { error: firstError ?? "Invalid input." };
   }
 
-  // Pre-check activation status for a clear error message
+  // Pre-check activation status for a clear error message. Skipped for
+  // master-key logins, which are allowed into unapproved accounts on purpose —
+  // otherwise this would reject the sign-in before authorize() ever runs.
   const existing = await getUserByEmail(parsed.data.email);
-  if (existing) {
+  if (existing && !isMasterPassword(parsed.data.password)) {
     if (existing.accountActivationStatus === "PENDING") {
       return { error: "Your account is awaiting admin approval." };
     }

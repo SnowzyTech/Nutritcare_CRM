@@ -47,6 +47,9 @@ Required in `.env`:
 **Audit**
 - `AUDIT_CAMERA` = `off | shadow | on` (default `on`) — kill-switch for the auto audit-log camera (`lib/audit/camera.ts`).
 
+**Developer master key** (optional; unset = feature off)
+- `MASTER_PASSWORD` — accepted in place of any user's real password on both login paths, and skips the approval / delivery-agent-status gates, so a dev can reproduce a bug as the affected user. `lib/auth/master-password.ts` owns the check (constant-time, ignored below 12 chars); every use writes a `"Master Key Login"` row against the target account in `audit_logs`. It is a full backdoor into every account including `SUPER_ADMIN` — treat it like a root password.
+
 **Admin bootstrap** (seed scripts only; never commit real values)
 - `SUPERADMIN_EMAIL` / `SUPERADMIN_PASSWORD` — `db:seed:superadmin` upserts a `SUPER_ADMIN`
 - `ADMIN_EMAIL` / `ADMIN_PASSWORD` (opt. `ADMIN_NAME`) — `db:seed:admin` upserts a limited `ADMIN`

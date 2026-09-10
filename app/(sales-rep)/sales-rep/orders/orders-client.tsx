@@ -84,13 +84,20 @@ type ProductRow = {
   id: number;
   productId: string;
   formId: string;
-  quantity: number;
+  /** Raw text so the field can be cleared while typing; parsed on submit. */
+  quantity: string;
   unitPrice: string; // typed price-of-one for surplus units; empty when unused
 };
 
 // Monotonic id source for product rows (stable keys for React + preview map).
 let rowSeq = 0;
 const nextRowId = () => rowSeq++;
+
+/** Positive-integer quantity for a row, or null while the field is empty/invalid. */
+const parseQty = (raw: string): number | null => {
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+};
 
 /** Live per-row price preview from the server resolver (single source of truth). */
 type RowPreview = {
@@ -155,7 +162,7 @@ export function OrdersClient({ orders, counts, userName, products, productForms 
         id: nextRowId(),
         productId: pid,
         formId: forms[0]?.formId ?? '',
-        quantity: forms[0]?.packages[0]?.quantity ?? 1,
+        quantity: String(forms[0]?.packages[0]?.quantity ?? 1),
         unitPrice: '',
       };
     },
@@ -245,7 +252,7 @@ export function OrdersClient({ orders, counts, userName, products, productForms 
     patchRow(id, {
       productId,
       formId: forms[0]?.formId ?? '',
-      quantity: forms[0]?.packages[0]?.quantity ?? 1,
+      quantity: String(forms[0]?.packages[0]?.quantity ?? 1),
       unitPrice: '',
     });
   };
@@ -275,7 +282,12 @@ export function OrdersClient({ orders, counts, userName, products, productForms 
       setPreviews((p) => ({ ...p, [row.id]: null }));
       return;
     }
-    const qty = row.quantity || 1;
+    const qty = parseQty(row.quantity);
+    if (qty === null) {
+      // Mid-edit empty field: clear the preview rather than pricing a guessed quantity.
+      setPreviews((p) => ({ ...p, [row.id]: null }));
+      return;
+    }
     const typed = parseFloat(row.unitPrice) || 0;
     setPreviews((p) => ({
       ...p,
@@ -324,6 +336,7 @@ export function OrdersClient({ orders, counts, userName, products, productForms 
     setFormError(null);
 
     // Client-side guards (server re-validates + re-prices authoritatively).
+    const parsedRows: Array<{ row: ProductRow; quantity: number }> = [];
     for (const r of formProducts) {
       const productName = products.find((p) => p.id === r.productId)?.name ?? 'this product';
       const forms = formsByProduct.get(r.productId) ?? [];
@@ -339,6 +352,13 @@ export function OrdersClient({ orders, counts, userName, products, productForms 
         toast.error(msg);
         return;
       }
+      const quantity = parseQty(r.quantity);
+      if (quantity === null) {
+        const msg = `Enter a quantity of at least 1 for ${productName}.`;
+        setFormError(msg);
+        toast.error(msg);
+        return;
+      }
       const preview = previews[r.id];
       if (preview?.requiresUnitPrice && !(parseFloat(r.unitPrice) > 0)) {
         const msg = `Enter a unit price for the extra units of ${productName}.`;
@@ -346,6 +366,7 @@ export function OrdersClient({ orders, counts, userName, products, productForms 
         toast.error(msg);
         return;
       }
+      parsedRows.push({ row: r, quantity });
     }
 
     setIsSubmitting(true);
@@ -359,11 +380,11 @@ export function OrdersClient({ orders, counts, userName, products, productForms 
       state: selectedState,
       landmark: landmark || undefined,
       isReorder,
-      products: formProducts.map((r) => ({
-        productId: r.productId,
-        formId: r.formId,
-        quantity: r.quantity,
-        unitPrice: parseFloat(r.unitPrice) > 0 ? parseFloat(r.unitPrice) : undefined,
+      products: parsedRows.map(({ row, quantity }) => ({
+        productId: row.productId,
+        formId: row.formId,
+        quantity,
+        unitPrice: parseFloat(row.unitPrice) > 0 ? parseFloat(row.unitPrice) : undefined,
       })),
     });
 
@@ -385,11 +406,11 @@ export function OrdersClient({ orders, counts, userName, products, productForms 
       updatedAt: new Date().toISOString(),
       customer: { name: customerName.trim(), email: email.trim() || null },
       agent: null,
-      items: formProducts.map((fp) => ({
-        quantity: fp.quantity,
+      items: parsedRows.map(({ row, quantity }) => ({
+        quantity,
         upsellQuantity: 0,
         isUpsell: false,
-        product: { name: products.find((p) => p.id === fp.productId)?.name ?? fp.productId },
+        product: { name: products.find((p) => p.id === row.productId)?.name ?? row.productId },
       })),
       deliveryFee: 0,
     };
@@ -890,6 +911,7 @@ export function OrdersClient({ orders, counts, userName, products, productForms 
                   const preview = previews[item.id];
                   const needsUnit = preview?.requiresUnitPrice ?? false;
                   const unitTyped = parseFloat(item.unitPrice) > 0;
+                  const qtyValid = parseQty(item.quantity) !== null;
                   return (
                     <div key={item.id} className="bg-white/60 rounded-xl border border-purple-100/40 p-3 sm:p-4 space-y-3 animate-fadeIn">
 
@@ -954,11 +976,13 @@ export function OrdersClient({ orders, counts, userName, products, productForms 
                                 Quantity
                               </label>
                               <input
-                                type="number"
-                                min={1}
+                                type="text"
+                                inputMode="numeric"
+                                pattern="[0-9]*"
                                 value={item.quantity}
-                                onChange={e => patchRow(item.id, { quantity: Math.max(1, parseInt(e.target.value) || 1) })}
-                                className="w-full bg-white border border-gray-100 shadow-[0_2px_10px_rgb(0,0,0,0.01)] rounded-xl h-10 sm:h-12 px-3 sm:px-4 text-xs text-gray-700 focus:outline-none focus:ring-1 focus:ring-purple-200"
+                                placeholder="Qty"
+                                onChange={e => patchRow(item.id, { quantity: e.target.value.replace(/[^0-9]/g, '') })}
+                                className="w-full bg-white border border-gray-100 shadow-[0_2px_10px_rgb(0,0,0,0.01)] rounded-xl h-10 sm:h-12 px-3 sm:px-4 text-xs text-gray-700 placeholder-gray-300 focus:outline-none focus:ring-1 focus:ring-purple-200"
                               />
                             </div>
                           </div>
@@ -989,7 +1013,9 @@ export function OrdersClient({ orders, counts, userName, products, productForms 
                           <div className="flex items-center justify-between text-xs pt-0.5">
                             <span className="font-semibold text-gray-400 uppercase tracking-wider text-[10px]">Line total</span>
                             <span className="font-bold text-gray-800">
-                              {preview?.loading
+                              {!qtyValid
+                                ? 'Enter quantity'
+                                : preview?.loading
                                 ? 'Calculating…'
                                 : needsUnit && !unitTyped
                                 ? 'Enter unit price'
