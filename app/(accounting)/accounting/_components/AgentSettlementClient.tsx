@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState } from 'react';
-import { useRouter, usePathname, useSearchParams } from 'next/navigation';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Search,
   ChevronLeft,
@@ -51,6 +51,24 @@ interface AgentSettlementClientProps {
 
 type DateRangeFilter = { from: string; to: string };
 
+interface AgentListViewProps {
+  search: string;
+  setSearch: React.Dispatch<React.SetStateAction<string>>;
+  openDropdown: string | null;
+  toggleDropdown: (name: string) => void;
+  stateFilter: string;
+  setStateFilter: (value: string) => void;
+  agentTypeFilter: string;
+  setAgentTypeFilter: (value: string) => void;
+  statusFilter: string;
+  setStatusFilter: (value: string) => void;
+  dateRange: DateRangeFilter;
+  setDateRange: (value: DateRangeFilter) => void;
+  setOpenDropdown: React.Dispatch<React.SetStateAction<string | null>>;
+  router: ReturnType<typeof useRouter>;
+  initialAgents?: DeliveryAgentRow[];
+}
+
 interface AgentLedgerViewProps {
   search: string;
   setSearch: React.Dispatch<React.SetStateAction<string>>;
@@ -58,9 +76,9 @@ interface AgentLedgerViewProps {
   toggleDropdown: (name: string) => void;
   initialLedger?: AnyLedgerEntry[];
   referenceTypeFilter: string;
-  setReferenceTypeFilter: React.Dispatch<React.SetStateAction<string>>;
+  setReferenceTypeFilter: (value: string) => void;
   dateRange: DateRangeFilter;
-  setDateRange: React.Dispatch<React.SetStateAction<DateRangeFilter>>;
+  setDateRange: (value: DateRangeFilter) => void;
   setOpenDropdown: React.Dispatch<React.SetStateAction<string | null>>;
 }
 
@@ -74,41 +92,105 @@ interface FilterButtonProps {
 const TAB_IDS = ['list', 'ledger', 'remittance', 'adjustment'] as const;
 type TabId = (typeof TAB_IDS)[number];
 
+/** Query-string keys this page reads and writes. The active tab, every filter
+ *  and the search box live in the URL so they survive back/forward navigation
+ *  — most notably drilling into an agent and coming back to the list.
+ *  `agentId` / `orderId` are prefill params for the Remittance tab and are
+ *  carried along untouched. */
+const PARAM = {
+  tab: 'tab',
+  search: 'q',
+  state: 'state',
+  agentType: 'type',
+  status: 'status',
+  from: 'from',
+  to: 'to',
+  ledgerType: 'ledgerType',
+  ledgerFrom: 'ledgerFrom',
+  ledgerTo: 'ledgerTo',
+} as const;
+
+const ALL = 'All';
+
 export function AgentSettlementClient({ initialAgents, initialLedger, agentOptions }: AgentSettlementClientProps = {}) {
   const router = useRouter();
-  const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  const tabParam = searchParams.get('tab');
-  const initialTab: TabId = (TAB_IDS as readonly string[]).includes(tabParam ?? '')
+  const tabParam = searchParams.get(PARAM.tab);
+  const activeTab: TabId = (TAB_IDS as readonly string[]).includes(tabParam ?? '')
     ? (tabParam as TabId)
     : 'list';
-  const [activeTab, setActiveTab] = useState<TabId>(initialTab);
   const prefillAgentId = searchParams.get('agentId') ?? undefined;
   const prefillOrderId = searchParams.get('orderId') ?? undefined;
 
-  // Keep the active tab in sync with the ?tab= query param (back/forward, deep links).
-  React.useEffect(() => {
-    setActiveTab(initialTab);
-  }, [initialTab]);
+  /** Writes tab/filter changes into the URL via the native History API, which
+   *  Next syncs into `useSearchParams` without re-running the server component
+   *  — so switching tabs no longer refetches all three settlement queries.
+   *  `replace` is for high-frequency updates that shouldn't flood history. */
+  const updateParams = useCallback(
+    (updates: Record<string, string | null>, { replace = false }: { replace?: boolean } = {}) => {
+      const params = new URLSearchParams(window.location.search);
+      for (const [key, value] of Object.entries(updates)) {
+        if (value === null || value === '' || value === ALL) params.delete(key);
+        else params.set(key, value);
+      }
+      const qs = params.toString();
+      const url = `${window.location.pathname}${qs ? `?${qs}` : ''}`;
+      if (replace) window.history.replaceState(null, '', url);
+      else window.history.pushState(null, '', url);
+    },
+    [],
+  );
 
-  // Reflect the active tab in the URL without adding a history entry per switch.
-  const selectTab = (tab: TabId) => {
-    setActiveTab(tab);
-    const params = new URLSearchParams(searchParams.toString());
-    params.set('tab', tab);
-    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+  // 'list' is the fallback tab, so it stays out of the URL.
+  const selectTab = (tab: TabId) => updateParams({ [PARAM.tab]: tab === 'list' ? null : tab });
+
+  // Filters are read straight off the URL rather than mirrored into component
+  // state, so a back/forward navigation restores them with no extra wiring.
+  const stateFilter = searchParams.get(PARAM.state) ?? ALL;
+  const agentTypeFilter = searchParams.get(PARAM.agentType) ?? ALL;
+  const statusFilter = searchParams.get(PARAM.status) ?? ALL;
+  const dateRange: DateRangeFilter = {
+    from: searchParams.get(PARAM.from) ?? '',
+    to: searchParams.get(PARAM.to) ?? '',
+  };
+  // The two tabs keep independent date ranges, so they get their own params.
+  const ledgerReferenceTypeFilter = searchParams.get(PARAM.ledgerType) ?? ALL;
+  const ledgerDateRange: DateRangeFilter = {
+    from: searchParams.get(PARAM.ledgerFrom) ?? '',
+    to: searchParams.get(PARAM.ledgerTo) ?? '',
   };
 
-  const [search, setSearch] = useState('');
+  const setStateFilter = (value: string) => updateParams({ [PARAM.state]: value });
+  const setAgentTypeFilter = (value: string) => updateParams({ [PARAM.agentType]: value });
+  const setStatusFilter = (value: string) => updateParams({ [PARAM.status]: value });
+  const setDateRange = (next: DateRangeFilter) =>
+    updateParams({ [PARAM.from]: next.from || null, [PARAM.to]: next.to || null });
+  const setLedgerReferenceTypeFilter = (value: string) => updateParams({ [PARAM.ledgerType]: value });
+  const setLedgerDateRange = (next: DateRangeFilter) =>
+    updateParams({ [PARAM.ledgerFrom]: next.from || null, [PARAM.ledgerTo]: next.to || null });
 
-  // Filter States
-  const [stateFilter, setStateFilter] = useState('All');
-  const [agentTypeFilter, setAgentTypeFilter] = useState('All');
-  const [statusFilter, setStatusFilter] = useState('All');
-  const [dateRange, setDateRange] = useState({ from: '', to: '' });
-  const [ledgerReferenceTypeFilter, setLedgerReferenceTypeFilter] = useState('All');
-  const [ledgerDateRange, setLedgerDateRange] = useState({ from: '', to: '' });
+  // The search box (shared by the List and Ledger tabs) keeps local state for
+  // instant typing feedback and is debounced into the URL; `popstate` pulls it
+  // back in line on back/forward.
+  const [search, setSearch] = useState(() => searchParams.get(PARAM.search) ?? '');
+
+  useEffect(() => {
+    const current = new URLSearchParams(window.location.search).get(PARAM.search) ?? '';
+    if (search === current) return;
+    const timer = setTimeout(
+      () => updateParams({ [PARAM.search]: search || null }, { replace: true }),
+      300,
+    );
+    return () => clearTimeout(timer);
+  }, [search, updateParams]);
+
+  useEffect(() => {
+    const syncSearchFromUrl = () =>
+      setSearch(new URLSearchParams(window.location.search).get(PARAM.search) ?? '');
+    window.addEventListener('popstate', syncSearchFromUrl);
+    return () => window.removeEventListener('popstate', syncSearchFromUrl);
+  }, []);
 
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
 
@@ -1178,7 +1260,7 @@ function AgentListView({
   setOpenDropdown,
   router,
   initialAgents,
-}: any) {
+}: AgentListViewProps) {
   const nigerianStates = [
     "Abia", "Adamawa", "Akwa Ibom", "Anambra", "Bauchi", "Bayelsa", "Benue", "Borno",
     "Cross River", "Delta", "Ebonyi", "Edo", "Ekiti", "Enugu", "FCT", "Gombe", "Imo",
@@ -1190,8 +1272,8 @@ function AgentListView({
   const agentTypes = ["Independent", "Logistics Partner", "In-house"];
   const statuses = ["Paid", "Underpayment", "Overpayment", "Pending"];
 
-  const agentsSource: any[] = initialAgents ?? [];
-  const filtered = agentsSource.filter((a: any) => {
+  const agentsSource: DeliveryAgentRow[] = initialAgents ?? [];
+  const filtered = agentsSource.filter((a) => {
     const matchSearch = a.agentName.toLowerCase().includes(search.toLowerCase());
     const matchState = stateFilter === 'All' || a.state === stateFilter;
     const matchStatus = statusFilter === 'All' ||
@@ -1308,7 +1390,7 @@ function AgentListView({
                   <input
                     type="date"
                     value={dateRange.from}
-                    onChange={(e) => setDateRange((prev: any) => ({ ...prev, from: e.target.value }))}
+                    onChange={(e) => setDateRange({ ...dateRange, from: e.target.value })}
                     className="w-full h-10 border border-gray-200 rounded-lg px-3 text-sm focus:outline-none focus:border-purple-300"
                   />
                 </div>
@@ -1317,7 +1399,7 @@ function AgentListView({
                   <input
                     type="date"
                     value={dateRange.to}
-                    onChange={(e) => setDateRange((prev: any) => ({ ...prev, to: e.target.value }))}
+                    onChange={(e) => setDateRange({ ...dateRange, to: e.target.value })}
                     className="w-full h-10 border border-gray-200 rounded-lg px-3 text-sm focus:outline-none focus:border-purple-300"
                   />
                 </div>
@@ -1469,7 +1551,7 @@ function AgentLedgerView({
                   <input
                     type="date"
                     value={dateRange.from}
-                    onChange={(e) => setDateRange((prev) => ({ ...prev, from: e.target.value }))}
+                    onChange={(e) => setDateRange({ ...dateRange, from: e.target.value })}
                     className="w-full h-10 border border-gray-200 rounded-lg px-3 text-sm focus:outline-none focus:border-purple-300"
                   />
                 </div>
@@ -1478,7 +1560,7 @@ function AgentLedgerView({
                   <input
                     type="date"
                     value={dateRange.to}
-                    onChange={(e) => setDateRange((prev) => ({ ...prev, to: e.target.value }))}
+                    onChange={(e) => setDateRange({ ...dateRange, to: e.target.value })}
                     className="w-full h-10 border border-gray-200 rounded-lg px-3 text-sm focus:outline-none focus:border-purple-300"
                   />
                 </div>

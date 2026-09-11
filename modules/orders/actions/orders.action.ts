@@ -16,7 +16,6 @@ import {
   sendDeliveryCodeTemplate,
 } from "@/lib/whatsapp/whatsapp";
 import { formatCurrency, formatDate } from "@/lib/utils";
-import { nextOrderNumber } from "@/modules/orders/services/order-number.service";
 import { describeReassignment } from "@/modules/orders/services/reassign-description.service";
 import { logActivity } from "@/modules/audit/services/audit-log.service";
 import { recordWhatsAppResult } from "@/modules/audit/services/whatsapp-audit.service";
@@ -27,6 +26,11 @@ import {
   upsellOrderSelect,
 } from "@/modules/orders/services/upsell-apply.service";
 import { resolveUpsellPrice } from "@/modules/orders/services/tier-pricing.service";
+import {
+  createManualOrder,
+  logManualOrderCreated,
+  manualOrderSchema,
+} from "@/modules/orders/services/manual-order.service";
 import { z } from "zod";
 
 /** Generates a cryptographically random 6-digit numeric delivery code. */
@@ -469,32 +473,11 @@ export async function applyOrderDiscountAction(
   return { discountAmount, discountPercent, netAmount: negotiatedPrice, totalAmount: gross };
 }
 
-// Manual order creation input. Each line carries the FORM the rep chose to price
-// from (a product can have many forms) plus the quantity; `unitPrice` is the
-// price-of-one the rep types and is only needed when the quantity has no exact
-// package in that form (surplus units) — same meaning as `addOrderItemsAction`.
-const createOrderSchema = z.object({
-  customerName: z.string().trim().min(1, "Customer name is required."),
-  phone: z.string().trim().min(1, "Phone number is required."),
-  whatsappNumber: z.string().trim().optional(),
-  email: z.string().trim().optional(),
-  deliveryAddress: z.string().trim().min(1, "Delivery address is required."),
-  state: z.string().trim().min(1, "State is required."),
-  landmark: z.string().trim().optional(),
-  isReorder: z.boolean().optional(),
-  products: z
-    .array(
-      z.object({
-        productId: z.string().min(1),
-        formId: z.string().min(1, "Choose a form for pricing."),
-        quantity: z.number().int().positive(),
-        unitPrice: z.number().positive().optional(),
-      }),
-    )
-    .min(1, "At least one product is required."),
-});
-
-export type CreateOrderInput = z.input<typeof createOrderSchema>;
+// Manual order creation. The customer upsert, per-line form pricing and order
+// write live in `manual-order.service.ts` — shared with the data analyst's
+// on-behalf-of flow (`createOrderByAnalystAction`) so the money math is never
+// duplicated. This action owns only auth, role gating and revalidation.
+export type CreateOrderInput = z.input<typeof manualOrderSchema>;
 
 export async function createOrderAction(
   input: CreateOrderInput,
@@ -503,184 +486,34 @@ export async function createOrderAction(
   suppressCameraForRequest();
   if (!session?.user?.id) return { error: "Unauthorized" };
 
-  const parsed = createOrderSchema.safeParse(input);
+  // The order is attributed to the caller, so only roles that own a sales book
+  // may create one through this path. Every other role that needs to key an
+  // order in must name the rep it belongs to (see the analyst action), which
+  // keeps rep analytics and commission honest.
+  const role = session.user.role;
+  if (role !== "SALES_REP" && role !== "SUPER_ADMIN") {
+    return { error: "You are not authorized to create orders." };
+  }
+
+  const parsed = manualOrderSchema.safeParse(input);
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Invalid order details." };
   }
-  const {
-    customerName, phone, whatsappNumber, email, deliveryAddress,
-    state, landmark, isReorder, products,
-  } = parsed.data;
 
-  const cleanPhone = phone.replace(/\s+/g, "");
+  const result = await createManualOrder(parsed.data, session.user.id);
+  if ("error" in result) return { error: result.error };
 
-  let customer = await prisma.customer.findFirst({ where: { phone: cleanPhone } });
-  if (customer) {
-    customer = await prisma.customer.update({
-      where: { id: customer.id },
-      data: {
-        name: customerName,
-        whatsappNumber: whatsappNumber || null,
-        email: email || null,
-        deliveryAddress,
-        state,
-        landmark: landmark || null,
-      },
-    });
-  } else {
-    customer = await prisma.customer.create({
-      data: {
-        name: customerName,
-        phone: cleanPhone,
-        whatsappNumber: whatsappNumber || null,
-        email: email || null,
-        deliveryAddress,
-        state,
-        lga: "",
-        landmark: landmark || null,
-      },
-    });
-  }
-
-  const dbProducts = await prisma.product.findMany({
-    where: { id: { in: products.map((p) => p.productId) }, deletedAt: null },
-    select: { id: true, name: true, costPrice: true },
+  await logManualOrderCreated({
+    salesRepId: session.user.id,
+    orderId: result.orderId,
+    orderNumber: result.orderNumber,
+    customerName: parsed.data.customerName,
+    totalAmount: result.totalAmount,
+    surplusLines: result.surplusLines,
   });
-  const productMap = new Map(dbProducts.map((p) => [p.id, p]));
-  // Order code prefix comes from the main (first-selected) product.
-  const mainProductName = productMap.get(products[0]?.productId)?.name;
 
-  // Validate the chosen forms are active and belong to each line's product — we
-  // price ONLY from the rep's chosen form and never silently fall back to another
-  // form if it was disabled since the page loaded.
-  const formIds = [...new Set(products.map((p) => p.formId))];
-  const forms = await prisma.form.findMany({
-    where: { id: { in: formIds }, disabledAt: null, deletedAt: null },
-    select: { id: true, data: true },
-  });
-  const formMap = new Map(forms.map((f) => [f.id, f]));
-
-  const orderItemsData: Array<{
-    productId: string;
-    quantity: number;
-    unitPrice: number;
-    lineTotal: number;
-    costPriceAtSale: number;
-  }> = [];
-  // Manually-priced (surplus) lines to audit after the write.
-  const surplusLines: Array<{
-    productId: string;
-    productName: string;
-    quantity: number;
-    unitPrice: number;
-    lineTotal: number;
-  }> = [];
-
-  for (const item of products) {
-    const product = productMap.get(item.productId);
-    if (!product) {
-      return { error: "One or more selected products are unavailable." };
-    }
-
-    const form = formMap.get(item.formId);
-    const selectedProduct = (form?.data as { selectedProduct?: unknown } | undefined)
-      ?.selectedProduct;
-    if (!form || selectedProduct !== item.productId) {
-      return {
-        error: `Pricing for ${product.name} could not be resolved — its form may have been disabled. Please contact the admin.`,
-      };
-    }
-
-    // Reuse the shared upsell pricing engine: exact package → package price;
-    // between/below packages → nearest lower + surplus × typed unit price.
-    const priced = await resolveUpsellPrice(
-      item.productId,
-      item.quantity,
-      item.unitPrice ?? 0,
-      item.formId,
-    );
-    if (priced.requiresUnitPrice && (!item.unitPrice || item.unitPrice <= 0)) {
-      return {
-        error: `Enter a unit price for the extra units of ${product.name}.`,
-      };
-    }
-
-    orderItemsData.push({
-      productId: item.productId,
-      quantity: item.quantity,
-      unitPrice: priced.unitPrice,
-      lineTotal: priced.lineTotal,
-      costPriceAtSale: Number(product.costPrice),
-    });
-
-    if (priced.source === "surplus") {
-      surplusLines.push({
-        productId: item.productId,
-        productName: product.name,
-        quantity: item.quantity,
-        unitPrice: item.unitPrice ?? 0,
-        lineTotal: priced.lineTotal,
-      });
-    }
-  }
-
-  const totalAmount = orderItemsData.reduce((sum, i) => sum + i.lineTotal, 0);
-
-  try {
-    const order = await prisma.$transaction(async (tx) => {
-      const orderNumber = await nextOrderNumber(tx, mainProductName);
-      return tx.order.create({
-        data: {
-          orderNumber,
-          customerId: customer.id,
-          salesRepId: session.user.id,
-          totalAmount,
-          netAmount: totalAmount,
-          // Order.formId intentionally left null: a manual order can mix lines
-          // from different forms; the chosen form only prices at creation time,
-          // and we don't attribute manual orders to media-buyer form analytics.
-          status: "PENDING",
-          isReorder: isReorder ?? false,
-          items: { create: orderItemsData },
-        },
-      });
-    });
-
-    await logActivity({
-      userId: session.user.id,
-      action: "Created",
-      entityType: "Order",
-      entityId: order.id,
-      description: `Order #${order.orderNumber} created for ${customerName}`,
-      details: { amount: totalAmount },
-    });
-
-    // Audit every manually-priced (surplus) line so finance can review rep-typed
-    // unit prices — same guardrail as the upsell flow.
-    for (const s of surplusLines) {
-      await logActivity({
-        userId: session.user.id,
-        action: "Created",
-        entityType: "OrderItem",
-        entityId: order.id,
-        description: `Manual unit price ${formatCurrency(
-          s.unitPrice,
-        )} used for ${s.productName} (qty ${s.quantity}) on Order #${order.orderNumber}`,
-        details: {
-          field: "unitPrice",
-          amount: s.lineTotal,
-          productId: s.productId,
-          typedUnitPrice: s.unitPrice,
-        },
-      });
-    }
-
-    revalidatePath("/sales-rep/orders");
-    return { orderId: order.id, orderNumber: order.orderNumber };
-  } catch (err) {
-    console.error("[createOrderAction] Error:", err);
-    return { error: "Failed to create order. Please try again." };
-  }
+  revalidatePath("/sales-rep/orders");
+  return { orderId: result.orderId, orderNumber: result.orderNumber };
 }
 
 /**

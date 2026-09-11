@@ -12,13 +12,20 @@ import {
   X,
   Trash2,
   AlertTriangle,
-  RotateCcw
+  RotateCcw,
+  Plus
 } from 'lucide-react';
 import { OrderRow } from '@/modules/data-analysis/services/data-analysis.service';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { Calendar } from '@/components/ui/calendar';
-import { deleteOrderPermanently } from '@/modules/data-analysis/actions/data-analysis.action';
+import {
+  deleteOrderPermanently,
+  createOrderByAnalystAction,
+} from '@/modules/data-analysis/actions/data-analysis.action';
+import { AddOrderModal } from '@/components/orders/add-order-modal';
+import type { AddOrderProduct, AddOrderPayload } from '@/components/orders/add-order-modal';
+import type { ProductForms } from '@/modules/orders/services/form-packages.service';
 import { toast } from 'sonner';
 
 const STATUS_STYLES: Record<string, { dot: string; bg: string; text: string; label: string }> = {
@@ -65,11 +72,16 @@ interface OrdersClientProps {
   deliveryAgents?: AgentItem[];
   salesReps?: AgentItem[];
   teams?: TeamItem[];
+  /** Product NAMES, for the product filter chips. */
   products?: string[];
+  /** Full product catalog (id + name) for the manual "Add Order" modal. */
+  catalogProducts?: AddOrderProduct[];
+  /** Active forms + package tiers that price each product in that modal. */
+  productForms?: ProductForms[];
   userName?: string | null;
 }
 
-export function OrdersClient({ initialOrders = [], deliveryAgents = [], salesReps = [], teams = [], products = [], userName = null }: OrdersClientProps) {
+export function OrdersClient({ initialOrders = [], deliveryAgents = [], salesReps = [], teams = [], products = [], catalogProducts = [], productForms = [], userName = null }: OrdersClientProps) {
   const firstName = userName?.trim().split(/\s+/)[0] ?? "";
   const router = useRouter();
   // Multi-select status filter — drives BOTH the tabs and the Status dropdown.
@@ -79,6 +91,9 @@ export function OrdersClient({ initialOrders = [], deliveryAgents = [], salesRep
   const [isStatusOpen, setIsStatusOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+
+  // Manual "Add Order" modal — the analyst keys in an order on a rep's behalf.
+  const [isAddOrderOpen, setIsAddOrderOpen] = useState(false);
 
   // Multi-select delete state
   const [selectedOrders, setSelectedOrders] = useState<Set<string>>(new Set());
@@ -281,8 +296,18 @@ export function OrdersClient({ initialOrders = [], deliveryAgents = [], salesRep
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <h1 className="text-2xl font-bold text-gray-700">{firstName ? `Welcome Back, ${firstName}` : "Welcome Back"}</h1>
-        <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center text-purple-600 cursor-pointer shadow-sm hover:bg-purple-200 transition-colors">
-          <MessageCircle size={22} fill="currentColor" />
+        <div className="flex items-center gap-3">
+          {/* Add Order — opens the same manual order form the sales reps use. */}
+          <button
+            onClick={() => setIsAddOrderOpen(true)}
+            title="Add Order"
+            className="w-12 h-12 bg-[#A020F0] rounded-full flex items-center justify-center text-white cursor-pointer shadow-sm hover:bg-[#8B1ED2] active:scale-95 transition-all"
+          >
+            <Plus size={22} className="stroke-[2.5]" />
+          </button>
+          <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center text-purple-600 cursor-pointer shadow-sm hover:bg-purple-200 transition-colors">
+            <MessageCircle size={22} fill="currentColor" />
+          </div>
         </div>
       </div>
 
@@ -1163,6 +1188,25 @@ export function OrdersClient({ initialOrders = [], deliveryAgents = [], salesRep
           </div>
         </div>
       )}
+
+      {/* Manual "Add Order" — the same modal the sales reps use, plus a required
+          rep picker: Order.salesRepId drives every rep analytics/commission
+          report, so an analyst-keyed order is credited to the rep, never to the
+          analyst (who is recorded as the actor on the audit row). */}
+      <AddOrderModal
+        open={isAddOrderOpen}
+        onClose={() => setIsAddOrderOpen(false)}
+        products={catalogProducts}
+        productForms={productForms}
+        salesReps={salesReps.map((rep) => ({ id: rep.id, name: rep.name }))}
+        onSubmit={async (payload: AddOrderPayload) => {
+          if (!payload.salesRepId) {
+            return { error: 'Choose the sales rep this order belongs to.' };
+          }
+          return createOrderByAnalystAction({ ...payload, salesRepId: payload.salesRepId });
+        }}
+        onCreated={() => router.refresh()}
+      />
     </div>
   );
 }

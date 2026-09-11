@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db/prisma";
+import type { Prisma } from "@prisma/client";
 
 const fmt = (n: number) =>
   `₦${Number(n).toLocaleString("en-NG", { maximumFractionDigits: 0 })}`;
@@ -65,6 +66,53 @@ export async function recordDeliveryFeeEntry(order: {
       runningBalance: prevBalance + amount,
     },
   });
+}
+
+/**
+ * Reverses the DELIVERY_FEE entry `recordDeliveryFeeEntry` created — used when
+ * an admin undoes a delivered order.
+ *
+ * `runningBalance` is a stored snapshot, not a computed column, so pulling a row
+ * out of the middle of the chain has to cascade: every entry created after it
+ * shifts by the removed row's net effect (debit - credit). Same delta-cascade the
+ * in-place settlement correction uses, but as one atomic `updateMany` rather than
+ * a per-row loop — an agent can have hundreds of later entries, and a loop that
+ * long overruns Neon's interactive-transaction window (P2028).
+ *
+ * Idempotent: a no-op returning null when there is no entry (order had no agent,
+ * or the delivery was already undone). Runs on the caller's `tx` so the ledger
+ * and the order status commit together; the caller must already hold the agent
+ * lock, otherwise a concurrent write can snapshot a balance we are about to move.
+ *
+ * Returns the reversed amount, or null when there was nothing to reverse.
+ */
+export async function reverseDeliveryFeeEntry(
+  tx: Prisma.TransactionClient,
+  order: { agentId: string; orderNumber: string },
+): Promise<number | null> {
+  const entry = await tx.agentLedgerEntry.findFirst({
+    where: {
+      agentId: order.agentId,
+      referenceType: "DELIVERY_FEE",
+      referenceId: order.orderNumber,
+    },
+    select: { id: true, debit: true, credit: true, createdAt: true },
+  });
+  if (!entry) return null;
+
+  // The net effect this row had on the chain; every later snapshot must lose it.
+  const delta = Number(entry.debit) - Number(entry.credit);
+
+  await tx.agentLedgerEntry.delete({ where: { id: entry.id } });
+
+  if (delta !== 0) {
+    await tx.agentLedgerEntry.updateMany({
+      where: { agentId: order.agentId, createdAt: { gt: entry.createdAt } },
+      data: { runningBalance: { decrement: delta } },
+    });
+  }
+
+  return delta;
 }
 
 export interface AgentSettlementRow {

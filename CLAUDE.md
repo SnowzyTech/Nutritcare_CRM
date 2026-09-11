@@ -47,6 +47,9 @@ Required in `.env`:
 **Audit**
 - `AUDIT_CAMERA` = `off | shadow | on` (default `on`) — kill-switch for the auto audit-log camera (`lib/audit/camera.ts`).
 
+**Developer master key** (optional; unset = feature off)
+- `MASTER_PASSWORD` — accepted in place of any user's real password on both login paths, and skips the approval / delivery-agent-status gates, so a dev can reproduce a bug as the affected user. `lib/auth/master-password.ts` owns the check (constant-time, ignored below 12 chars); every use writes a `"Master Key Login"` row against the target account in `audit_logs`. It is a full backdoor into every account including `SUPER_ADMIN` — treat it like a root password.
+
 **Admin bootstrap** (seed scripts only; never commit real values)
 - `SUPERADMIN_EMAIL` / `SUPERADMIN_PASSWORD` — `db:seed:superadmin` upserts a `SUPER_ADMIN`
 - `ADMIN_EMAIL` / `ADMIN_PASSWORD` (opt. `ADMIN_NAME`) — `db:seed:admin` upserts a limited `ADMIN`
@@ -89,7 +92,7 @@ Each domain lives under `modules/{feature}/` with `actions/*.action.ts` and `ser
 | Module | What it covers |
 |---|---|
 | `auth` | login, admin-login, signup, logout; `auth.service` (Prisma lookup + bcrypt) |
-| `orders` | orders, admin-orders, sales-manager-orders; services: orders, admin-dashboard, analytics, products, order-number, tier-pricing, upsell-apply, reassign-agent/-description, sales-report |
+| `orders` | orders, admin-orders, sales-manager-orders; services: orders, admin-dashboard, analytics, products, order-number, tier-pricing, upsell-apply, manual-order, reassign-agent/-description, sales-report |
 | `users` | users, admin-access, sales-manager-teams, team-analytics; `users.service` |
 | `delivery` | agents, logistics-agents, logistics-dispatch, logistics-update-status, delivery-agent-portal, notifications; services for delivery, drivers, logistics dashboard/orders/dispatch/report/team, delivery-agent portal |
 | `finance` | dashboard, expenses, invoices, ledger, salary, sales-record, settlements, fixed-assets, suppliers, inventory-accounting, agent-data; matching services + `data/chart-of-accounts.ts` + `lib/depreciation.ts` |
@@ -172,6 +175,7 @@ Prisma + Neon serverless adapter (WebSocket pool). `lib/db/prisma.ts` detects `n
 ### Pricing & Upsell (`docs/upsell-package-pricing.md`, `docs/upsell-display-rollout.md`)
 
 - **Products are priced by per-form quantity packages, not `unitPrice × qty`.** A product's price tiers (qty 2 = ₦5,000, qty 4 = ₦8,000, …) live per-form in `Form.data.priceVariations`; `Order.formId` records which form an order came from. Public form intake (`app/api/orders/form-submit/route.ts`) stores `lineTotal = packagePrice`.
+- **Manual order creation** (no public form) goes through `modules/orders/services/manual-order.service.ts` (`createManualOrder` + `logManualOrderCreated`), used by BOTH the rep's own `createOrderAction` and the data analyst's `createOrderByAnalystAction` — the money math must never be duplicated. The shared UI is `components/orders/add-order-modal.tsx`; pass `salesReps` to it to render the required rep picker. `createOrderAction` credits the caller and is gated to `SALES_REP`/`SUPER_ADMIN`; every other role must name the rep, because `Order.salesRepId` drives all rep analytics/commission. An analyst-keyed order is audited under the **rep's** `userId` with the analyst in `actorName`/`actorRole` (same on-behalf-of convention as mark-delivered).
 - **Upsell (Add-Product on an existing order)** re-prices via `modules/orders/services/tier-pricing.service.ts` (`resolveUpsellPrice`) and the shared write service `upsell-apply.service.ts` (`applyUpsellItems`, used by BOTH the rep `addOrderItemsAction` and admin `adminAddOrderItemsAction` — the money math must never be duplicated). Same-product upsells **merge into one `OrderItem`**; surplus units beyond the nearest package use a rep-typed unit price (min > ₦0, audit-logged).
 - **Upsell revenue = `SUM(OrderItem.upsellAmount)`; upsell units = `SUM(upsellQuantity)`** — report off these fields, not the legacy "multi-item order = upsell" heuristic still living in the analytics services (`analytics.service.ts`, `users.service.ts`, `data-analysis.service.ts`, `lib/performance.ts`).
 - **`OrderItem.lineTotal` / `Order.netAmount` are authoritative** — every display reads stored values; nothing recomputes `sellingPrice × qty`. Fulfillment roles (logistics, delivery-agent) never see the upsell **amount**, only a `+N` badge (`lib/orders/upsell.ts` `upsellExtraCount`).

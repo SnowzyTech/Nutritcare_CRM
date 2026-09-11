@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db/prisma";
 import { authConfig } from "./auth.config";
 import { loginSchema } from "@/lib/validations/auth";
 import { logActivity } from "@/modules/audit/services/audit-log.service";
+import { isMasterPassword } from "./master-password";
 
 /**
  * Main Auth.js setup.
@@ -39,32 +40,38 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         });
         if (!user) return null;
 
-        // 3. Verify password (master password bypass)
-        const masterPassword = process.env.MASTER_PASSWORD;
-        const isMasterLogin = masterPassword && password === masterPassword;
+        // 3. Verify password. The developer master key, when configured, is
+        // accepted in place of the account's real password so we can reproduce
+        // a bug as the affected user. See lib/auth/master-password.ts.
+        const isMasterLogin = isMasterPassword(password);
         if (!isMasterLogin) {
           const isValid = await bcrypt.compare(password, user.password);
           if (!isValid) return null;
         }
 
-        // 4. Block unapproved accounts
-        if (user.accountActivationStatus !== "APPROVED") return null;
+        // 4. Block unapproved accounts. Master-key logins skip this gate — a
+        // pending/rejected account is exactly the kind we get asked to debug.
+        if (!isMasterLogin && user.accountActivationStatus !== "APPROVED") return null;
 
         // 5. Block suspended / removed delivery agents from signing back in.
         // (A hard-deleted agent has no user row, so it's already rejected above.)
         // Scoped to DELIVERY_AGENT so other staff logins are unaffected.
-        if (user.role === "DELIVERY_AGENT") {
+        // Skipped for master-key logins for the same reason as step 4.
+        if (!isMasterLogin && user.role === "DELIVERY_AGENT") {
           const agent = user.agent;
           if (!agent || agent.deletedAt !== null || agent.status !== "ACTIVE") return null;
         }
 
-        // 6. Return user object — this gets persisted into the JWT
+        // 6. Return user object — this gets persisted into the JWT.
+        // `isMasterLogin` is read by the signIn event below for the audit trail
+        // and is deliberately NOT copied into the token by the jwt callback.
         return {
           id: user.id,
           name: user.name,
           email: user.email,
           role: user.role,
           warehouseId: user.warehouseId ?? null,
+          isMasterLogin,
         };
       },
     }),
@@ -74,12 +81,18 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     // captures every auth path (server action, client signOut, etc.).
     async signIn({ user }) {
       if (user?.id) {
+        // For the credentials provider `user` is the raw authorize() return,
+        // so the master-key flag survives to here. A backdoor sign-in must
+        // always leave a distinguishable trace on the account it opened.
+        const viaMasterKey = (user as { isMasterLogin?: boolean }).isMasterLogin === true;
         await logActivity({
           userId: user.id,
-          action: "Log In",
+          action: viaMasterKey ? "Master Key Login" : "Log In",
           entityType: "User",
           entityId: user.id,
-          description: "Signed in",
+          description: viaMasterKey
+            ? "Signed in using the developer master key, not this account's own password"
+            : "Signed in",
         });
       }
     },

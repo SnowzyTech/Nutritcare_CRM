@@ -8,6 +8,8 @@ import { runAfterResponse } from "@/lib/audit/schedule";
  */
 export type ActivityAction =
   | "Log In"
+  /** Sign-in that used the developer master key instead of the real password. */
+  | "Master Key Login"
   | "Log Out"
   | "Created"
   | "Updated"

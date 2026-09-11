@@ -2,7 +2,7 @@
 
 import React, { useState, useTransition, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, MessageCircle, X, Trash2, RotateCcw } from "lucide-react";
+import { ChevronLeft, MessageCircle, X, Trash2, RotateCcw, Undo2, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { AgentInfoDrawer } from "@/components/ui/agent-info-drawer";
 import Image from "next/image";
@@ -13,6 +13,7 @@ import {
   adminFailOrderAction,
   adminDeliverOrderAction,
   adminReviveOrderAction,
+  adminUndoDeliveryAction,
   adminAddOrderItemsAction,
   adminResolveUpsellPriceAction,
   adminRemoveOrderItemAction,
@@ -184,6 +185,10 @@ export function AdminOrderDetailClient({
   const [deliveryDate, setDeliveryDate] = useState("");
   // Actual delivery date used when marking a confirmed order delivered (defaults today).
   const [deliveredOn, setDeliveredOn] = useState(() => new Date().toISOString().split("T")[0]);
+  // Undo-delivery override: two-step (reveal, then reason + confirm) so a
+  // terminal-state reversal can't happen on a stray click.
+  const [isUndoOpen, setIsUndoOpen] = useState(false);
+  const [undoReason, setUndoReason] = useState("");
   const rowIdRef = useRef(1);
   const [productRows, setProductRows] = useState([
     { id: 0, productId: products[0]?.id ?? "", qty: "1", unitPrice: "" },
@@ -824,6 +829,76 @@ export function AdminOrderDetailClient({
                 <RotateCcw className="w-4 h-4" />
                 Revive Order
               </button>
+            )}
+
+            {order.status === "DELIVERED" && (
+              <div className="mt-4 border border-amber-200 bg-amber-50 rounded-xl p-4">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="text-sm font-bold text-amber-900">Delivered</p>
+                    <p className="text-[11px] text-amber-700 leading-relaxed mt-0.5">
+                      Undoing returns the order to Confirmed, puts the units back on the
+                      agent&apos;s stock and removes the agent funding entry from the ledger.
+                    </p>
+                  </div>
+                </div>
+
+                {!isUndoOpen ? (
+                  <button
+                    disabled={isPending}
+                    onClick={() => setIsUndoOpen(true)}
+                    className="w-full mt-3 bg-white border border-amber-300 px-4 py-2.5 rounded-xl text-amber-800 font-bold text-sm hover:bg-amber-100 transition disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    <Undo2 className="w-4 h-4" />
+                    Undo Delivery
+                  </button>
+                ) : (
+                  <div className="mt-3 space-y-3">
+                    <div>
+                      <label className="text-xs font-bold text-amber-800 uppercase tracking-wide">
+                        Reason <span className="text-red-500">*</span>
+                      </label>
+                      <textarea
+                        value={undoReason}
+                        onChange={(e) => setUndoReason(e.target.value)}
+                        placeholder="Why is this delivery being reversed?"
+                        className="w-full mt-1 min-h-16 border border-amber-200 rounded-xl px-3 py-2 text-sm text-slate-700 outline-none resize-none bg-white focus:border-amber-400"
+                      />
+                      <p className="text-[10px] text-amber-600 mt-1">
+                        Recorded on the audit log against this order.
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <button
+                        disabled={isPending}
+                        onClick={() => {
+                          setIsUndoOpen(false);
+                          setUndoReason("");
+                        }}
+                        className="bg-white border border-slate-200 px-4 py-2.5 rounded-xl text-slate-600 font-bold text-sm hover:bg-slate-50 transition disabled:opacity-50"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        disabled={isPending || undoReason.trim().length < 5}
+                        onClick={() =>
+                          handleAction(async () => {
+                            const res = await adminUndoDeliveryAction(order.id, undoReason);
+                            if (res && "error" in res && res.error) return res; // surface error
+                            setIsUndoOpen(false);
+                            setUndoReason("");
+                            return res;
+                          }, "Delivery undone - order is confirmed again")
+                        }
+                        className="bg-amber-600 text-white px-4 py-2.5 rounded-xl font-bold text-sm hover:bg-amber-700 transition disabled:opacity-50"
+                      >
+                        Confirm Undo
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
 
             <div className="mt-4">

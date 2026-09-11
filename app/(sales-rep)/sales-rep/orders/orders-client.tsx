@@ -1,11 +1,10 @@
 'use client';
 
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { toast } from 'sonner';
-import { createOrderAction, resolveManualOrderPriceAction } from '@/modules/orders/actions/orders.action';
-import type { ProductForms, ManualForm } from '@/modules/orders/services/form-packages.service';
-import { roleLabel } from '@/lib/chat/role-label';
+import { createOrderAction } from '@/modules/orders/actions/orders.action';
+import type { ProductForms } from '@/modules/orders/services/form-packages.service';
+import { AddOrderModal } from '@/components/orders/add-order-modal';
 import { upsellExtraCount } from '@/lib/orders/upsell';
 import { format } from 'date-fns';
 import { Calendar } from '@/components/ui/calendar';
@@ -20,8 +19,6 @@ import {
   Plus,
   MessageSquare,
   X,
-  ChevronDown,
-  Trash2,
   Calendar as CalendarIcon,
   CalendarClock,
 } from 'lucide-react';
@@ -79,27 +76,6 @@ interface OrdersClientProps {
   productForms: ProductForms[];
 }
 
-/** One product line in the "Add Order" form: which form prices it + quantity. */
-type ProductRow = {
-  id: number;
-  productId: string;
-  formId: string;
-  quantity: number;
-  unitPrice: string; // typed price-of-one for surplus units; empty when unused
-};
-
-// Monotonic id source for product rows (stable keys for React + preview map).
-let rowSeq = 0;
-const nextRowId = () => rowSeq++;
-
-/** Live per-row price preview from the server resolver (single source of truth). */
-type RowPreview = {
-  loading: boolean;
-  lineTotal: number;
-  source: 'package' | 'surplus';
-  requiresUnitPrice: boolean;
-} | null;
-
 const STATUS_STYLES: Record<OrderStatus, { dot: string; bg: string; text: string; label: string }> = {
   PENDING:   { dot: 'bg-orange-400', bg: 'bg-[#FFF3CD]',  text: 'text-[#856404]',  label: 'Pending' },
   CONFIRMED: { dot: 'bg-green-400',  bg: 'bg-[#D1E7DD]',  text: 'text-[#0F5132]',  label: 'Confirmed' },
@@ -117,51 +93,9 @@ const TABS: Array<{ label: string; key: OrderStatus | null; countKey: keyof Orde
   { label: 'Failed',    key: 'FAILED',    countKey: 'failed' },
 ];
 
-// All 36 Nigerian states + FCT, each with " State" suffix to match delivery agent registration format
-const NIGERIAN_STATES = [
-  "Abia State", "Adamawa State", "Akwa Ibom State", "Anambra State", "Bauchi State",
-  "Bayelsa State", "Benue State", "Borno State", "Cross River State", "Delta State",
-  "Ebonyi State", "Edo State", "Ekiti State", "Enugu State", "Gombe State", "Imo State",
-  "Jigawa State", "Kaduna State", "Kano State", "Katsina State", "Kebbi State", "Kogi State",
-  "Kwara State", "Lagos State", "Nasarawa State", "Niger State", "Ogun State", "Ondo State",
-  "Osun State", "Oyo State", "Plateau State", "Rivers State", "Sokoto State", "Taraba State",
-  "Yobe State", "Zamfara State", "Federal Capital Territory (FCT)",
-];
-
 export function OrdersClient({ orders, counts, userName, products, productForms }: OrdersClientProps) {
   const router = useRouter();
 
-  // Active forms available to price each product (product → its forms).
-  const formsByProduct = useMemo(() => {
-    const m = new Map<string, ManualForm[]>();
-    for (const pf of productForms) m.set(pf.productId, pf.forms);
-    return m;
-  }, [productForms]);
-
-  // Prefer defaulting a new row to a product that actually has a form set up.
-  const firstProductWithForms = useMemo(
-    () =>
-      products.find((p) => (formsByProduct.get(p.id)?.length ?? 0) > 0)?.id ??
-      products[0]?.id ??
-      '',
-    [products, formsByProduct],
-  );
-
-  const makeRow = useCallback(
-    (productId?: string): ProductRow => {
-      const pid = productId ?? firstProductWithForms;
-      const forms = formsByProduct.get(pid) ?? [];
-      return {
-        id: nextRowId(),
-        productId: pid,
-        formId: forms[0]?.formId ?? '',
-        quantity: forms[0]?.packages[0]?.quantity ?? 1,
-        unitPrice: '',
-      };
-    },
-    [firstProductWithForms, formsByProduct],
-  );
-  
   // Interactive Local Orders state
   const [localOrders, setLocalOrders] = useState<OrderListItem[]>(orders);
   
@@ -169,26 +103,8 @@ export function OrdersClient({ orders, counts, userName, products, productForms 
   const [searchQuery, setSearchQuery] = useState('');
   const [filterDate, setFilterDate] = useState<Date | undefined>(undefined);
 
-  // Add Order Form Modal States
+  // Manual "Add Order" modal — the form itself lives in <AddOrderModal/>.
   const [isAddOrderOpen, setIsAddOrderOpen] = useState(false);
-  const [customerName, setCustomerName] = useState('');
-  const [phoneNumber, setPhoneNumber] = useState('');
-  const [whatsappNumber, setWhatsappNumber] = useState('');
-  const [email, setEmail] = useState('');
-  const [address, setAddress] = useState('');
-  const [selectedState, setSelectedState] = useState('Lagos State');
-  const [landmark, setLandmark] = useState('');
-  const [isReorder, setIsReorder] = useState(false);
-
-  // Multi-product fields inside Add Order
-  const [formProducts, setFormProducts] = useState<ProductRow[]>(() => [makeRow()]);
-
-  // Live per-row price previews, keyed by row id (server is the price authority).
-  const [previews, setPreviews] = useState<Record<number, RowPreview>>({});
-
-  // Form submission state
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [formError, setFormError] = useState<string | null>(null);
 
   // Dynamic counts derived from state
   const dynamicCounts = useMemo(() => {
@@ -225,181 +141,6 @@ export function OrdersClient({ orders, counts, userName, products, productForms 
     }
     return result;
   }, [localOrders, activeTab, searchQuery, filterDate]);
-
-  // Product Row helpers
-  const addProductRow = () => {
-    setFormProducts((rows) => [...rows, makeRow()]);
-  };
-
-  const removeProductRow = (id: number) => {
-    setFormProducts((rows) => (rows.length === 1 ? rows : rows.filter((r) => r.id !== id)));
-  };
-
-  const patchRow = (id: number, patch: Partial<ProductRow>) => {
-    setFormProducts((rows) => rows.map((r) => (r.id === id ? { ...r, ...patch } : r)));
-  };
-
-  // Switching product resets the form + quantity to that product's first package.
-  const changeProduct = (id: number, productId: string) => {
-    const forms = formsByProduct.get(productId) ?? [];
-    patchRow(id, {
-      productId,
-      formId: forms[0]?.formId ?? '',
-      quantity: forms[0]?.packages[0]?.quantity ?? 1,
-      unitPrice: '',
-    });
-  };
-
-  // Switching form clears the typed unit price (a different form's packages).
-  const changeForm = (id: number, formId: string) => {
-    patchRow(id, { formId, unitPrice: '' });
-  };
-
-  const resetForm = () => {
-    setCustomerName('');
-    setPhoneNumber('');
-    setWhatsappNumber('');
-    setEmail('');
-    setAddress('');
-    setSelectedState('Lagos State');
-    setLandmark('');
-    setIsReorder(false);
-    setFormProducts([makeRow()]);
-    setPreviews({});
-    setFormError(null);
-  };
-
-  // Debounced live price preview for every row (server resolver = price authority).
-  const fetchRowPreview = useCallback(async (row: ProductRow) => {
-    if (!row.productId || !row.formId) {
-      setPreviews((p) => ({ ...p, [row.id]: null }));
-      return;
-    }
-    const qty = row.quantity || 1;
-    const typed = parseFloat(row.unitPrice) || 0;
-    setPreviews((p) => ({
-      ...p,
-      [row.id]: {
-        loading: true,
-        lineTotal: p[row.id]?.lineTotal ?? 0,
-        source: p[row.id]?.source ?? 'package',
-        requiresUnitPrice: p[row.id]?.requiresUnitPrice ?? false,
-      },
-    }));
-    const res = await resolveManualOrderPriceAction(row.productId, row.formId, qty, typed);
-    setPreviews((p) => ({
-      ...p,
-      [row.id]:
-        'error' in res
-          ? null
-          : {
-              loading: false,
-              lineTotal: res.lineTotal,
-              source: res.source,
-              requiresUnitPrice: res.requiresUnitPrice,
-            },
-    }));
-  }, []);
-
-  useEffect(() => {
-    if (!isAddOrderOpen) return;
-    const t = setTimeout(() => {
-      formProducts.forEach((r) => void fetchRowPreview(r));
-    }, 300);
-    return () => clearTimeout(t);
-  }, [isAddOrderOpen, formProducts, fetchRowPreview]);
-
-  // Running order total from the resolved line previews.
-  const orderTotal = useMemo(
-    () =>
-      formProducts.reduce((sum, r) => {
-        const p = previews[r.id];
-        return sum + (p && !p.loading ? p.lineTotal : 0);
-      }, 0),
-    [formProducts, previews],
-  );
-
-  const handleAddOrderSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setFormError(null);
-
-    // Client-side guards (server re-validates + re-prices authoritatively).
-    for (const r of formProducts) {
-      const productName = products.find((p) => p.id === r.productId)?.name ?? 'this product';
-      const forms = formsByProduct.get(r.productId) ?? [];
-      if (forms.length === 0) {
-        const msg = `No form has been created for ${productName}. Please contact the admin to set up its pricing.`;
-        setFormError(msg);
-        toast.error(msg);
-        return;
-      }
-      if (!r.formId) {
-        const msg = `Choose a form to price ${productName}.`;
-        setFormError(msg);
-        toast.error(msg);
-        return;
-      }
-      const preview = previews[r.id];
-      if (preview?.requiresUnitPrice && !(parseFloat(r.unitPrice) > 0)) {
-        const msg = `Enter a unit price for the extra units of ${productName}.`;
-        setFormError(msg);
-        toast.error(msg);
-        return;
-      }
-    }
-
-    setIsSubmitting(true);
-
-    const result = await createOrderAction({
-      customerName,
-      phone: phoneNumber,
-      whatsappNumber,
-      email: email || undefined,
-      deliveryAddress: address,
-      state: selectedState,
-      landmark: landmark || undefined,
-      isReorder,
-      products: formProducts.map((r) => ({
-        productId: r.productId,
-        formId: r.formId,
-        quantity: r.quantity,
-        unitPrice: parseFloat(r.unitPrice) > 0 ? parseFloat(r.unitPrice) : undefined,
-      })),
-    });
-
-    setIsSubmitting(false);
-
-    if ('error' in result) {
-      setFormError(result.error);
-      toast.error(result.error);
-      return;
-    }
-
-    const newOrder: OrderListItem = {
-      id: result.orderId,
-      orderNumber: result.orderNumber,
-      status: 'PENDING',
-      isReorder,
-      isRescheduled: false,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      customer: { name: customerName.trim(), email: email.trim() || null },
-      agent: null,
-      items: formProducts.map((fp) => ({
-        quantity: fp.quantity,
-        upsellQuantity: 0,
-        isUpsell: false,
-        product: { name: products.find((p) => p.id === fp.productId)?.name ?? fp.productId },
-      })),
-      deliveryFee: 0,
-    };
-
-    setLocalOrders([newOrder, ...localOrders]);
-    setIsAddOrderOpen(false);
-    resetForm();
-
-    toast.success(`Order ${result.orderNumber} added successfully!`);
-  };
 
   return (
     <div className="max-w-[1200px] mx-auto space-y-4 sm:space-y-6">
@@ -717,336 +458,44 @@ export function OrdersClient({ orders, counts, userName, products, productForms 
         )}
       </div>
 
-      {/* Add Order Popup Modal Dialog */}
-      {isAddOrderOpen && (
-        <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-3 sm:p-4 overflow-y-auto">
-          {/* Backdrop blur & fade */}
-          <div
-            className="fixed inset-0 bg-gray-900/50 backdrop-blur-sm transition-opacity duration-300"
-            onClick={() => { setIsAddOrderOpen(false); setFormError(null); }}
-          ></div>
-
-          {/* Modal Container Card (Responsive wide size) */}
-          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-4xl p-4 sm:p-6 md:p-8 overflow-hidden border border-gray-100 animate-in fade-in zoom-in-95 duration-200 my-4 sm:my-8">
-            
-            {/* Header circular X button */}
-            <button
-              onClick={() => { setIsAddOrderOpen(false); setFormError(null); }}
-              className="absolute top-3 sm:top-6 right-3 sm:right-6 w-8 h-8 rounded-full border border-gray-200 flex items-center justify-center text-gray-400 hover:bg-gray-50 hover:text-gray-600 active:scale-95 transition-all duration-150"
-            >
-              <X className="w-4 h-4 stroke-[2.5]" />
-            </button>
-
-            {/* Modal Title */}
-            <h2 className="text-xl sm:text-2xl md:text-3xl font-extrabold text-gray-900 tracking-tight text-left mb-4 sm:mb-6 pr-10">
-              Add Order
-            </h2>
-
-            {/* Form */}
-            <form onSubmit={handleAddOrderSubmit} className="space-y-4 sm:space-y-6">
-              
-              {/* Form Grid Rows */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-4 sm:gap-x-6 gap-y-3 sm:gap-y-5">
-                
-                {/* Customer name */}
-                <div className="space-y-1 sm:space-y-1.5 text-left">
-                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
-                    Customer name
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={customerName}
-                    onChange={e => setCustomerName(e.target.value)}
-                    placeholder="Adebayo Oluwaseun"
-                    className="w-full bg-white border border-gray-100 shadow-[0_2px_10px_rgb(0,0,0,0.01)] rounded-xl h-10 sm:h-12 px-3 sm:px-4 text-xs text-gray-700 placeholder-gray-300 focus:outline-none focus:ring-1 focus:ring-purple-200"
-                  />
-                </div>
-
-                {/* Phone number */}
-                <div className="space-y-1 sm:space-y-1.5 text-left">
-                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
-                    Phone number
-                  </label>
-                  <input
-                    type="tel"
-                    required
-                    value={phoneNumber}
-                    onChange={e => setPhoneNumber(e.target.value)}
-                    placeholder="0706 281 5934"
-                    className="w-full bg-white border border-gray-100 shadow-[0_2px_10px_rgb(0,0,0,0.01)] rounded-xl h-10 sm:h-12 px-3 sm:px-4 text-xs text-gray-700 placeholder-gray-300 focus:outline-none focus:ring-1 focus:ring-purple-200"
-                  />
-                </div>
-
-                {/* WhatsApp number */}
-                <div className="space-y-1 sm:space-y-1.5 text-left">
-                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
-                    WhatsApp number
-                  </label>
-                  <input
-                    type="tel"
-                    required
-                    value={whatsappNumber}
-                    onChange={e => setWhatsappNumber(e.target.value)}
-                    placeholder="0905 118 6427"
-                    className="w-full bg-white border border-gray-100 shadow-[0_2px_10px_rgb(0,0,0,0.01)] rounded-xl h-10 sm:h-12 px-3 sm:px-4 text-xs text-gray-700 placeholder-gray-300 focus:outline-none focus:ring-1 focus:ring-purple-200"
-                  />
-                </div>
-
-                {/* Email (optional) */}
-                <div className="space-y-1 sm:space-y-1.5 text-left">
-                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
-                    Email (optional)
-                  </label>
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={e => setEmail(e.target.value)}
-                    placeholder="adebayo.seun84@yahoo.com"
-                    className="w-full bg-white border border-gray-100 shadow-[0_2px_10px_rgb(0,0,0,0.01)] rounded-xl h-10 sm:h-12 px-3 sm:px-4 text-xs text-gray-700 placeholder-gray-300 focus:outline-none focus:ring-1 focus:ring-purple-200"
-                  />
-                </div>
-
-                {/* State (Dropdown listing every Nigerian State + FCT) */}
-                <div className="space-y-1 sm:space-y-1.5 text-left">
-                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
-                    State
-                  </label>
-                  <div className="relative">
-                    <select
-                      value={selectedState}
-                      onChange={e => setSelectedState(e.target.value)}
-                      className="w-full bg-white border border-gray-100 shadow-[0_2px_10px_rgb(0,0,0,0.01)] rounded-xl h-10 sm:h-12 px-3 sm:px-4 pr-10 text-xs text-gray-700 appearance-none focus:outline-none focus:ring-1 focus:ring-purple-200 cursor-pointer"
-                    >
-                      {NIGERIAN_STATES.map(st => (
-                        <option key={st} value={st}>{st}</option>
-                      ))}
-                    </select>
-                    <ChevronDown className="absolute right-3 sm:right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-                  </div>
-                </div>
-
-                {/* Landmark */}
-                <div className="space-y-1 sm:space-y-1.5 text-left">
-                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
-                    Landmark
-                  </label>
-                  <input
-                    type="text"
-                    value={landmark}
-                    onChange={e => setLandmark(e.target.value)}
-                    placeholder="Close to UNILAG Second Gate"
-                    className="w-full bg-white border border-gray-100 shadow-[0_2px_10px_rgb(0,0,0,0.01)] rounded-xl h-10 sm:h-12 px-3 sm:px-4 text-xs text-gray-700 placeholder-gray-300 focus:outline-none focus:ring-1 focus:ring-purple-200"
-                  />
-                </div>
-
-                {/* Full delivery address (Beautiful full-width column span across Row 3) */}
-                <div className="space-y-1 sm:space-y-1.5 text-left sm:col-span-2 md:col-span-3">
-                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
-                    Full delivery address
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={address}
-                    onChange={e => setAddress(e.target.value)}
-                    placeholder="22 Akinyemi Street, Akoka"
-                    className="w-full bg-white border border-gray-100 shadow-[0_2px_10px_rgb(0,0,0,0.01)] rounded-xl h-10 sm:h-12 px-3 sm:px-4 text-xs text-gray-700 placeholder-gray-300 focus:outline-none focus:ring-1 focus:ring-purple-200"
-                  />
-                </div>
-
-              </div>
-
-              {/* Reorder toggle */}
-              <div className="flex items-center justify-between bg-[#FAF8FF] border border-purple-100/40 rounded-xl sm:rounded-2xl px-4 sm:px-6 py-3 sm:py-4">
-                <div className="text-left pr-2">
-                  <p className="text-xs sm:text-sm font-bold text-gray-800">Mark as Reorder</p>
-                  <p className="text-[10px] sm:text-[11px] text-gray-400 mt-0.5 hidden sm:block">
-                    Turn on if the customer sent this order in manually (e.g. via WhatsApp).
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={isReorder}
-                  onClick={() => setIsReorder((v) => !v)}
-                  className={`relative inline-flex h-6 sm:h-7 w-10 sm:w-12 shrink-0 items-center rounded-full transition-colors duration-200 ${
-                    isReorder ? 'bg-[#A020F0]' : 'bg-gray-200'
-                  }`}
-                >
-                  <span
-                    className={`inline-block h-4 sm:h-5 w-4 sm:w-5 transform rounded-full bg-white shadow transition-transform duration-200 ${
-                      isReorder ? 'translate-x-5 sm:translate-x-6' : 'translate-x-1'
-                    }`}
-                  />
-                </button>
-              </div>
-
-              {/* Products Sub-Form Section */}
-              <div className="bg-[#FAF8FF] p-3 sm:p-4 md:p-6 rounded-xl sm:rounded-[24px] border border-purple-100/30 space-y-3 sm:space-y-5">
-                {formProducts.map((item) => {
-                  const rowForms = formsByProduct.get(item.productId) ?? [];
-                  const hasForms = rowForms.length > 0;
-                  const preview = previews[item.id];
-                  const needsUnit = preview?.requiresUnitPrice ?? false;
-                  const unitTyped = parseFloat(item.unitPrice) > 0;
-                  return (
-                    <div key={item.id} className="bg-white/60 rounded-xl border border-purple-100/40 p-3 sm:p-4 space-y-3 animate-fadeIn">
-
-                      {/* Product + delete */}
-                      <div className="flex gap-3 items-end">
-                        <div className="flex-1 space-y-1 sm:space-y-1.5 text-left">
-                          <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
-                            Product
-                          </label>
-                          <div className="relative">
-                            <select
-                              value={item.productId}
-                              onChange={e => changeProduct(item.id, e.target.value)}
-                              className="w-full bg-white border border-gray-100 shadow-[0_2px_10px_rgb(0,0,0,0.01)] rounded-xl h-10 sm:h-12 px-3 sm:px-4 pr-10 text-xs text-gray-700 appearance-none focus:outline-none focus:ring-1 focus:ring-purple-200 cursor-pointer"
-                            >
-                              {products.map((p) => (
-                                <option key={p.id} value={p.id}>{p.name}</option>
-                              ))}
-                            </select>
-                            <ChevronDown className="absolute right-3 sm:right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-                          </div>
-                        </div>
-
-                        {formProducts.length > 1 && (
-                          <button
-                            type="button"
-                            onClick={() => removeProductRow(item.id)}
-                            className="mb-0.5 w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-white border border-gray-100 flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 hover:border-red-100 transition active:scale-95 duration-150 shadow-sm shrink-0"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        )}
-                      </div>
-
-                      {hasForms ? (
-                        <>
-                          <div className="flex flex-col sm:flex-row gap-3">
-                            {/* Form (pricing source) */}
-                            <div className="flex-1 space-y-1 sm:space-y-1.5 text-left">
-                              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
-                                Form (pricing)
-                              </label>
-                              <div className="relative">
-                                <select
-                                  value={item.formId}
-                                  onChange={e => changeForm(item.id, e.target.value)}
-                                  className="w-full bg-white border border-gray-100 shadow-[0_2px_10px_rgb(0,0,0,0.01)] rounded-xl h-10 sm:h-12 px-3 sm:px-4 pr-10 text-xs text-gray-700 appearance-none focus:outline-none focus:ring-1 focus:ring-purple-200 cursor-pointer"
-                                >
-                                  {rowForms.map((f) => (
-                                    <option key={f.formId} value={f.formId}>
-                                      {f.formName} — by {roleLabel(f.createdByRole)} ({f.createdByName})
-                                    </option>
-                                  ))}
-                                </select>
-                                <ChevronDown className="absolute right-3 sm:right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-                              </div>
-                            </div>
-
-                            {/* Quantity */}
-                            <div className="w-full sm:w-28 space-y-1 sm:space-y-1.5 text-left">
-                              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
-                                Quantity
-                              </label>
-                              <input
-                                type="number"
-                                min={1}
-                                value={item.quantity}
-                                onChange={e => patchRow(item.id, { quantity: Math.max(1, parseInt(e.target.value) || 1) })}
-                                className="w-full bg-white border border-gray-100 shadow-[0_2px_10px_rgb(0,0,0,0.01)] rounded-xl h-10 sm:h-12 px-3 sm:px-4 text-xs text-gray-700 focus:outline-none focus:ring-1 focus:ring-purple-200"
-                              />
-                            </div>
-                          </div>
-
-                          {/* Unit price for surplus units — shown only when the
-                              quantity has no exact package in the chosen form. */}
-                          {needsUnit && (
-                            <div className="space-y-1 sm:space-y-1.5 text-left">
-                              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
-                                Unit price for extra units (₦)
-                              </label>
-                              <input
-                                type="number"
-                                min={0}
-                                step="any"
-                                value={item.unitPrice}
-                                placeholder="e.g. 2500"
-                                onChange={e => patchRow(item.id, { unitPrice: e.target.value })}
-                                className="w-full bg-white border border-amber-200 shadow-[0_2px_10px_rgb(0,0,0,0.01)] rounded-xl h-10 sm:h-12 px-3 sm:px-4 text-xs text-gray-700 placeholder-gray-300 focus:outline-none focus:ring-1 focus:ring-amber-300"
-                              />
-                              <p className="text-[10px] text-amber-600">
-                                This quantity has no matching package — enter the price of one unit for the extra units.
-                              </p>
-                            </div>
-                          )}
-
-                          {/* Line total */}
-                          <div className="flex items-center justify-between text-xs pt-0.5">
-                            <span className="font-semibold text-gray-400 uppercase tracking-wider text-[10px]">Line total</span>
-                            <span className="font-bold text-gray-800">
-                              {preview?.loading
-                                ? 'Calculating…'
-                                : needsUnit && !unitTyped
-                                ? 'Enter unit price'
-                                : preview
-                                ? formatCurrency(preview.lineTotal)
-                                : '—'}
-                            </span>
-                          </div>
-                        </>
-                      ) : (
-                        <p className="text-[11px] font-semibold text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2.5">
-                          No form has been created for this product yet. Please contact the admin to set up its pricing.
-                        </p>
-                      )}
-                    </div>
-                  );
-                })}
-
-                {/* Add Product Button */}
-                <button
-                  type="button"
-                  onClick={addProductRow}
-                  className="w-full border-2 border-dashed border-[#A020F0]/20 hover:border-[#A020F0] text-[#A020F0] font-bold py-3 sm:py-3.5 rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all duration-200 hover:bg-purple-50/50 active:scale-[0.99] bg-white cursor-pointer"
-                >
-                  <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
-                  Add Product
-                </button>
-
-                {/* Order total from resolved line prices */}
-                <div className="flex items-center justify-between pt-1 border-t border-purple-100/50">
-                  <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Order Total</span>
-                  <span className="text-base font-extrabold text-[#A020F0]">{formatCurrency(orderTotal)}</span>
-                </div>
-              </div>
-
-              {/* Error message */}
-              {formError && (
-                <p className="text-xs font-semibold text-red-600 bg-red-50 border border-red-100 rounded-xl px-4 py-3">
-                  {formError}
-                </p>
-              )}
-
-              {/* Submit Main Button */}
-              <div className="pt-1 sm:pt-2">
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="w-full bg-[#A020F0] hover:bg-[#8B1ED2] active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed text-white font-extrabold py-3 sm:py-4 rounded-xl text-xs tracking-wider uppercase transition-all duration-200 shadow-lg shadow-purple-100 cursor-pointer"
-                >
-                  {isSubmitting ? 'Adding Order…' : 'Add Order'}
-                </button>
-              </div>
-
-            </form>
-          </div>
-        </div>
-      )}
+      {/* Manual "Add Order" modal — shared with the data-analyst flow so the
+          pricing rules and fields can never drift apart. */}
+      <AddOrderModal
+        open={isAddOrderOpen}
+        onClose={() => setIsAddOrderOpen(false)}
+        products={products}
+        productForms={productForms}
+        onSubmit={createOrderAction}
+        onCreated={(created, payload) => {
+          // Optimistic row so the new order appears without a refetch.
+          setLocalOrders((prev) => [
+            {
+              id: created.orderId,
+              orderNumber: created.orderNumber,
+              status: 'PENDING',
+              isReorder: payload.isReorder,
+              isRescheduled: false,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+              customer: {
+                name: payload.customerName.trim(),
+                email: payload.email?.trim() || null,
+              },
+              agent: null,
+              items: payload.products.map((line) => ({
+                quantity: line.quantity,
+                upsellQuantity: 0,
+                isUpsell: false,
+                product: {
+                  name: products.find((p) => p.id === line.productId)?.name ?? line.productId,
+                },
+              })),
+              deliveryFee: 0,
+            },
+            ...prev,
+          ]);
+        }}
+      />
 
     </div>
   );

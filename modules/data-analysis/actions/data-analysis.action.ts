@@ -15,6 +15,11 @@ import {
   hardDeleteOrder,
 } from "@/modules/data-analysis/services/data-analysis.service";
 import { isUserTeamLead } from "@/modules/users/services/users.service";
+import {
+  createManualOrder,
+  logManualOrderCreated,
+  manualOrderSchema,
+} from "@/modules/orders/services/manual-order.service";
 import { reassignAgentForOrder } from "@/modules/orders/services/reassign-agent.service";
 import { resolveDeliveredDate } from "@/lib/orders/delivered-date";
 import type {
@@ -24,6 +29,7 @@ import type {
 } from "@/modules/data-analysis/services/data-analysis.service";
 import { getSalesRepWeeklyAnalytics } from "@/modules/orders/services/analytics.service";
 import type { MonthMetrics } from "@/modules/orders/services/analytics.service";
+import { z } from "zod";
 
 export async function fetchAnalyticsForMonth(
   salesRepId: string,
@@ -335,4 +341,75 @@ export async function reassignOrderAgentByAnalyst(
   revalidatePath(`/data/order/${result.order.orderNumber}`);
   revalidatePath("/data");
   return { success: true };
+}
+
+/**
+ * The analyst must name the SALES_REP an order belongs to. `Order.salesRepId` is
+ * required and drives every rep analytics/commission report, so an analyst-keyed
+ * order is credited to the rep who owns the customer — never to the analyst.
+ */
+const analystOrderSchema = manualOrderSchema.extend({
+  salesRepId: z.string().min(1, "Choose the sales rep this order belongs to."),
+});
+
+export type CreateOrderByAnalystInput = z.input<typeof analystOrderSchema>;
+
+/**
+ * Data analyst keys in an order on behalf of a sales rep (e.g. one phoned or
+ * WhatsApped in that never went through a form).
+ *
+ * Uses the exact same pricing + write core as the rep's own "Add Order" modal
+ * (`createManualOrder`), so package pricing and surplus-unit rules stay
+ * identical. The audit row is filed under the rep with the analyst recorded as
+ * the real actor — the same on-behalf-of convention as
+ * `markOrderDeliveredByAnalyst`.
+ */
+export async function createOrderByAnalystAction(
+  input: CreateOrderByAnalystInput,
+): Promise<{ orderId: string; orderNumber: string } | { error: string }> {
+  const session = await auth();
+  // Called in the action body (never inside an awaited guard) so the suppression
+  // actually reaches the writes below and the camera does not double-log.
+  suppressCameraForRequest();
+
+  // Route-protected to DATA_ANALYST + SUPER_ADMIN; re-checked here because a
+  // server action is reachable directly, not only from the page that renders it.
+  const role = session?.user?.role;
+  if (!session?.user?.id || (role !== "DATA_ANALYST" && role !== "SUPER_ADMIN")) {
+    return { error: "You are not authorized to create orders." };
+  }
+
+  const parsed = analystOrderSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid order details." };
+  }
+  const { salesRepId, ...orderInput } = parsed.data;
+
+  const rep = await prisma.user.findFirst({
+    where: { id: salesRepId, role: "SALES_REP", isActive: true },
+    select: { id: true, name: true },
+  });
+  if (!rep) {
+    return { error: "That sales rep is no longer active. Pick another rep." };
+  }
+
+  const result = await createManualOrder(orderInput, rep.id);
+  if ("error" in result) return { error: result.error };
+
+  await logManualOrderCreated({
+    salesRepId: rep.id,
+    orderId: result.orderId,
+    orderNumber: result.orderNumber,
+    customerName: orderInput.customerName,
+    totalAmount: result.totalAmount,
+    surplusLines: result.surplusLines,
+    actor: { name: session.user.name, role: session.user.role },
+    onBehalfOfName: rep.name,
+  });
+
+  revalidatePath("/data/order");
+  revalidatePath("/data");
+  // The order lands on the rep's own list too.
+  revalidatePath("/sales-rep/orders");
+  return { orderId: result.orderId, orderNumber: result.orderNumber };
 }

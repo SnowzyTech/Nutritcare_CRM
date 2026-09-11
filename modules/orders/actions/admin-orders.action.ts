@@ -27,6 +27,7 @@ import {
   previewUpsellPrice,
   upsellOrderSelect,
 } from "@/modules/orders/services/upsell-apply.service";
+import { undoOrderDelivery } from "@/modules/orders/services/undo-delivery.service";
 
 // Returned (not thrown) so the message survives production builds, where Next.js
 // strips messages from thrown server-action errors.
@@ -244,6 +245,52 @@ export async function adminReviveOrderAction(orderId: string): Promise<ActionRes
     description: `Order #${order.orderNumber} revived`,
   });
   revalidate(orderId);
+  return { success: true };
+}
+
+/**
+ * Admin override: walks a DELIVERED order back to CONFIRMED, reversing the stock
+ * deduction and the agent ledger entry the delivery created. DELIVERED is
+ * terminal for every other role and every other action, so a reason is required
+ * and recorded on the audit row.
+ *
+ * See `undo-delivery.service.ts` for what is reversed and the settlement guards.
+ */
+export async function adminUndoDeliveryAction(
+  orderId: string,
+  reason: string,
+): Promise<ActionResult> {
+  const session = await checkAdmin();
+  suppressCameraForRequest();
+
+  const trimmed = reason.trim();
+  if (trimmed.length < 5) {
+    return { error: "Please give a reason (at least 5 characters) for undoing this delivery." };
+  }
+
+  const result = await undoOrderDelivery(orderId);
+  if (!result.ok) return { error: result.error };
+
+  await logActivity({
+    userId: result.salesRepId,
+    actorName: session.user.name,
+    actorRole: session.user.role,
+    action: "Revived",
+    entityType: "Order",
+    entityId: orderId,
+    description: `Delivery undone for order #${result.orderNumber} - back to confirmed. Reason: ${trimmed}`,
+    details: {
+      before: "DELIVERED",
+      after: "CONFIRMED",
+      field: "status",
+      reason: trimmed,
+      ...(result.reversedAmount !== null ? { amount: result.reversedAmount } : {}),
+    },
+  });
+
+  revalidate(orderId);
+  // The reversal moved money on the agent ledger, so refresh accounting too.
+  revalidatePath("/accounting/agent-settlement");
   return { success: true };
 }
 
