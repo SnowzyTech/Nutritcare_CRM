@@ -12,18 +12,26 @@ import {
   Save,
   CheckCircle2,
   Wallet,
+  Receipt,
 } from 'lucide-react';
-import type { OrderInvoiceDetail } from '@/modules/finance/services/sales-record.service';
+import type {
+  OrderInvoiceDetail,
+  OrderRemittanceInfo,
+} from '@/modules/finance/services/sales-record.service';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { downloadInvoicePdf } from '@/lib/pdf/invoice-pdf';
+import RemittanceInfoModal from './RemittanceInfoModal';
 
 interface OrderDetailsClientProps {
   order: OrderInvoiceDetail;
+  /** Remittance state for this order; `null` only if the order vanished between queries. */
+  remittance: OrderRemittanceInfo | null;
 }
 
-export default function OrderDetailsClient({ order }: OrderDetailsClientProps) {
+export default function OrderDetailsClient({ order, remittance }: OrderDetailsClientProps) {
   const router = useRouter();
   const [showInvoice, setShowInvoice] = useState(false);
+  const [showRemittance, setShowRemittance] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const inv = order.invoice;
 
@@ -157,8 +165,11 @@ export default function OrderDetailsClient({ order }: OrderDetailsClientProps) {
           </div>
 
           <div className="mt-12 flex items-center gap-4">
-            <button className="flex-1 h-[60px] border-2 border-gray-200 rounded-[14px] text-[15px] font-bold text-gray-600 hover:bg-gray-50 transition-colors">
-              View Remittance Info
+            <button
+              onClick={() => setShowRemittance(true)}
+              className="flex-1 h-[60px] border-2 border-gray-200 rounded-[14px] text-[15px] font-bold text-gray-600 hover:bg-gray-50 hover:border-purple-200 transition-colors flex items-center justify-center gap-2"
+            >
+              <Receipt size={18} /> View Remittance Info
             </button>
             <button
               onClick={() => setShowInvoice(!showInvoice)}
@@ -305,6 +316,16 @@ export default function OrderDetailsClient({ order }: OrderDetailsClientProps) {
           </div>
         )}
       </div>
+
+      {showRemittance && (
+        <RemittanceInfoModal
+          remittance={remittance}
+          orderNumber={order.orderNumber}
+          onClose={() => setShowRemittance(false)}
+          onRecordRemittance={goToRemittance}
+          canRemit={canRemit}
+        />
+      )}
     </div>
   );
 }

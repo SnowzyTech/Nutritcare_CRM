@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { SalesRecordClient } from "../_components/SalesRecordClient";
 import { getSalesRecords, getSalesRecordFilterOptions } from "@/modules/finance/services/sales-record.service";
 
@@ -6,5 +7,11 @@ export default async function SalesRecordPage() {
     getSalesRecords(),
     getSalesRecordFilterOptions(),
   ]);
-  return <SalesRecordClient initialRecords={records} products={options.products} agents={options.agents} states={options.states} />;
+  // The client reads its filter state out of the query string (useSearchParams),
+  // which has to sit under a Suspense boundary.
+  return (
+    <Suspense>
+      <SalesRecordClient initialRecords={records} products={options.products} agents={options.agents} states={options.states} />
+    </Suspense>
+  );
 }

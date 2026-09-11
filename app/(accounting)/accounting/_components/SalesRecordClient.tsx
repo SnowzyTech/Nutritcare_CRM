@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Search,
   ChevronLeft,
@@ -17,6 +17,7 @@ import {
   Edit2,
   Check,
   ClipboardList,
+  X,
 } from 'lucide-react';
 import { SalesRecord } from '@/lib/mock-data/sales-records';
 import { updateOrderDeliveryFeeAction } from '@/modules/finance/actions/sales-record.action';
@@ -28,6 +29,12 @@ type SalesRecordRow = Omit<SalesRecord, 'orderStatus' | 'remStatus'> & {
   // raw components behind the formatted Net Amount / Delivery Fee columns.
   netBeforeDeliveryNum: number;
   deliveryFeeNum: number;
+  // Waybill charge for the order (a PAYMENT settlement adjustment), pre-formatted
+  // by the service; "—" when the order carries none.
+  waybill: string;
+  waybillNum: number;
+  // Stable key for the agent filter — company names are not unique.
+  agentId: string | null;
   // Status-change date (delivered/cancelled/failed/confirmed day); null while PENDING.
   statusDate: string | null;
 };
@@ -41,27 +48,96 @@ interface SalesRecordClientProps {
 
 const PAGE_SIZE = 20;
 
+/** Query-string keys the filter bar reads and writes. Filter state lives in the
+ *  URL so it survives back/forward navigation — most notably drilling into an
+ *  order and coming back to the list. */
+const PARAM = {
+  product: 'product',
+  state: 'state',
+  agent: 'agent',
+  status: 'status',
+  payment: 'payment',
+  from: 'from',
+  to: 'to',
+  search: 'q',
+  page: 'page',
+} as const;
+
+const ALL = 'All';
+
 export function SalesRecordClient({ initialRecords = [], products: productProp, agents: agentProp, states: stateProp }: SalesRecordClientProps = {}) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [records, setRecords] = useState<SalesRecordRow[]>(initialRecords);
-  const [search, setSearch] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [page, setPage] = useState(1);
 
-  // Filter states
-  const [productFilter, setProductFilter] = useState('All');
-  const [stateFilter, setStateFilter] = useState('All');
-  const [agentFilter, setAgentFilter] = useState('All');
-  const [statusFilter, setStatusFilter] = useState('All');
-  const [paymentStatusFilter, setPaymentStatusFilter] = useState('All');
-  const [dateRange, setDateRange] = useState({ from: '', to: '' });
+  // Filters are read straight off the URL rather than mirrored into component
+  // state, so a back/forward navigation restores them with no extra wiring.
+  const productFilter = searchParams.get(PARAM.product) ?? ALL;
+  const stateFilter = searchParams.get(PARAM.state) ?? ALL;
+  const agentFilter = searchParams.get(PARAM.agent) ?? ALL; // an Agent.id, or 'All'
+  const statusFilter = searchParams.get(PARAM.status) ?? ALL;
+  const paymentStatusFilter = searchParams.get(PARAM.payment) ?? ALL;
+  const dateFrom = searchParams.get(PARAM.from) ?? '';
+  const dateTo = searchParams.get(PARAM.to) ?? '';
+  const pageParam = Number(searchParams.get(PARAM.page));
+  const page = Number.isInteger(pageParam) && pageParam > 0 ? pageParam : 1;
+
+  // The free-text box keeps local state for instant typing feedback and is
+  // debounced into the URL; `popstate` pulls it back in line on back/forward.
+  const [search, setSearch] = useState(() => searchParams.get(PARAM.search) ?? '');
+
+  /** Writes filter changes into the URL via the native History API, which Next
+   *  syncs into `useSearchParams` without re-running the server component (so
+   *  filtering stays instant instead of refetching on every click).
+   *  `replace` is for high-frequency updates that shouldn't flood history. */
+  const updateParams = useCallback(
+    (updates: Record<string, string | null>, { replace = false }: { replace?: boolean } = {}) => {
+      const params = new URLSearchParams(window.location.search);
+      for (const [key, value] of Object.entries(updates)) {
+        if (value === null || value === '' || value === ALL) params.delete(key);
+        else params.set(key, value);
+      }
+      const qs = params.toString();
+      const url = `${window.location.pathname}${qs ? `?${qs}` : ''}`;
+      if (replace) window.history.replaceState(null, '', url);
+      else window.history.pushState(null, '', url);
+    },
+    [],
+  );
+
+  // Debounce the search box into the URL. The equality check stops a resync
+  // from `popstate` (below) from immediately writing the value straight back.
+  useEffect(() => {
+    const current = new URLSearchParams(window.location.search).get(PARAM.search) ?? '';
+    if (search === current) return;
+    const timer = setTimeout(
+      () => updateParams({ [PARAM.search]: search || null, [PARAM.page]: null }, { replace: true }),
+      300,
+    );
+    return () => clearTimeout(timer);
+  }, [search, updateParams]);
+
+  useEffect(() => {
+    const syncSearchFromUrl = () =>
+      setSearch(new URLSearchParams(window.location.search).get(PARAM.search) ?? '');
+    window.addEventListener('popstate', syncSearchFromUrl);
+    return () => window.removeEventListener('popstate', syncSearchFromUrl);
+  }, []);
 
   // UI state for dropdowns
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
+  const [agentQuery, setAgentQuery] = useState('');
+  const [agentHighlight, setAgentHighlight] = useState(0);
   const filterBarRef = useRef<HTMLDivElement>(null);
+  const agentListRef = useRef<HTMLDivElement>(null);
 
   const toggleDropdown = (name: string) => {
     setOpenDropdown(openDropdown === name ? null : name);
+    if (name === 'agent') {
+      setAgentQuery('');
+      setAgentHighlight(0);
+    }
   };
 
   // Close any open filter dropdown when clicking outside the filter bar.
@@ -75,8 +151,6 @@ export function SalesRecordClient({ initialRecords = [], products: productProp, 
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [openDropdown]);
-
-  const resetPage = () => setPage(1);
 
   // Net Amount is shown net of the delivery fee, so editing the fee has to
   // recompute it — the two columns are adjacent and would otherwise disagree
@@ -108,31 +182,75 @@ export function SalesRecordClient({ initialRecords = [], products: productProp, 
   const nigerianStates = stateProp ?? [];
 
   const products = productProp ?? ["Fonio Mill", "Trim & Tone", "Prosxact", "Shred Belly", "Neuro-Vive Balm"];
-  const agents = (agentProp ?? []).map(a => a.name);
+  const agentOptions = useMemo(() => agentProp ?? [], [agentProp]);
   const statuses = ["Pending", "Confirmed", "Delivered", "Cancelled", "Failed"];
   const paymentStatuses = ["Paid", "Not Paid"];
 
-  const filtered = records.filter((r) => {
-    const matchSearch = r.customer.toLowerCase().includes(search.toLowerCase()) ||
-      r.orderId.toLowerCase().includes(search.toLowerCase());
-    const matchProduct = productFilter === 'All' || r.products.includes(productFilter);
-    const matchState = stateFilter === 'All' || r.state === stateFilter;
-    const matchAgent = agentFilter === 'All' || r.agent.includes(agentFilter);
-    const matchStatus = statusFilter === 'All' || r.orderStatus === statusFilter;
-    const matchPaymentStatus = paymentStatusFilter === 'All' || r.remStatus === paymentStatusFilter;
-    const matchDate = (!dateRange.from || r.date >= dateRange.from) &&
-      (!dateRange.to || r.date <= dateRange.to);
+  const selectedAgentName =
+    agentFilter === ALL ? null : agentOptions.find(a => a.id === agentFilter)?.name ?? null;
 
-    return matchSearch && matchProduct && matchState && matchAgent && matchStatus && matchPaymentStatus && matchDate;
-  });
+  // What the agent dropdown renders, in render order — the keyboard highlight
+  // indexes into this exact list. "All Agents" is only offered while the search
+  // box is empty; once the user is searching, only matches make sense.
+  const agentChoices = useMemo(() => {
+    const query = agentQuery.trim().toLowerCase();
+    if (!query) return [{ id: ALL, name: 'All Agents' }, ...agentOptions];
+    return agentOptions.filter(a => a.name.toLowerCase().includes(query));
+  }, [agentOptions, agentQuery]);
+
+  // Keep the keyboard-highlighted option in view while arrowing a long list.
+  useEffect(() => {
+    if (openDropdown !== 'agent') return;
+    agentListRef.current
+      ?.querySelector<HTMLElement>('[data-highlighted="true"]')
+      ?.scrollIntoView({ block: 'nearest' });
+  }, [agentHighlight, openDropdown]);
+
+  const filtered = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return records.filter((r) => {
+      const matchSearch = !query ||
+        r.customer.toLowerCase().includes(query) ||
+        r.orderId.toLowerCase().includes(query);
+      const matchProduct = productFilter === ALL || r.products.includes(productFilter);
+      const matchState = stateFilter === ALL || r.state === stateFilter;
+      const matchAgent = agentFilter === ALL || r.agentId === agentFilter;
+      const matchStatus = statusFilter === ALL || r.orderStatus === statusFilter;
+      const matchPaymentStatus = paymentStatusFilter === ALL || r.remStatus === paymentStatusFilter;
+      const matchDate = (!dateFrom || r.date >= dateFrom) && (!dateTo || r.date <= dateTo);
+
+      return matchSearch && matchProduct && matchState && matchAgent && matchStatus && matchPaymentStatus && matchDate;
+    });
+  }, [records, search, productFilter, stateFilter, agentFilter, statusFilter, paymentStatusFilter, dateFrom, dateTo]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  // A `?page=` left over from a wider filter can point past the end of the list.
+  const currentPage = Math.min(page, totalPages);
+  const paginated = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
-  const handleFilterChange = (setter: (v: string) => void, value: string) => {
-    setter(value);
-    resetPage();
+  const goToPage = (p: number) => updateParams({ [PARAM.page]: p > 1 ? String(p) : null });
+
+  // Any filter change invalidates the current page offset.
+  const handleFilterChange = (key: string, value: string) => {
+    updateParams({ [key]: value, [PARAM.page]: null });
     setOpenDropdown(null);
+  };
+
+  const handleAgentKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setAgentHighlight(i => Math.min(i + 1, agentChoices.length - 1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setAgentHighlight(i => Math.max(i - 1, 0));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      const choice = agentChoices[agentHighlight];
+      if (choice) handleFilterChange(PARAM.agent, choice.id);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      setOpenDropdown(null);
+    }
   };
 
   return (
@@ -177,7 +295,7 @@ export function SalesRecordClient({ initialRecords = [], products: productProp, 
             <div className="absolute top-full left-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-gray-100 z-50 p-2 py-3">
               <div
                 className="px-3 py-2 text-[13px] text-gray-600 hover:bg-gray-50 rounded-lg cursor-pointer font-medium"
-                onClick={() => handleFilterChange(setProductFilter, 'All')}
+                onClick={() => handleFilterChange(PARAM.product, ALL)}
               >
                 All Products
               </div>
@@ -185,7 +303,7 @@ export function SalesRecordClient({ initialRecords = [], products: productProp, 
                 <div
                   key={p}
                   className="px-3 py-2 text-[13px] text-gray-600 hover:bg-gray-50 rounded-lg cursor-pointer font-medium"
-                  onClick={() => handleFilterChange(setProductFilter, p)}
+                  onClick={() => handleFilterChange(PARAM.product, p)}
                 >
                   {p}
                 </div>
@@ -210,7 +328,7 @@ export function SalesRecordClient({ initialRecords = [], products: productProp, 
             <div className="absolute top-full left-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-gray-100 z-50 p-2 py-3 max-h-[300px] overflow-y-auto custom-scrollbar">
               <div
                 className="px-3 py-2 text-[13px] text-gray-600 hover:bg-gray-50 rounded-lg cursor-pointer font-medium"
-                onClick={() => handleFilterChange(setStateFilter, 'All')}
+                onClick={() => handleFilterChange(PARAM.state, ALL)}
               >
                 All States
               </div>
@@ -218,7 +336,7 @@ export function SalesRecordClient({ initialRecords = [], products: productProp, 
                 <div
                   key={s}
                   className="px-3 py-2 text-[13px] text-gray-600 hover:bg-gray-50 rounded-lg cursor-pointer font-medium"
-                  onClick={() => handleFilterChange(setStateFilter, s)}
+                  onClick={() => handleFilterChange(PARAM.state, s)}
                 >
                   {s}
                 </div>
@@ -227,35 +345,67 @@ export function SalesRecordClient({ initialRecords = [], products: productProp, 
           )}
         </div>
 
-        {/* Agent Filter */}
+        {/* Agent Filter — searchable: the agent list grows unbounded, so a plain
+            dropdown is unusable once there are more than a screenful. */}
         <div className="relative">
           <button
             onClick={() => toggleDropdown('agent')}
-            className="flex items-center gap-3 bg-black text-white px-4 py-3 rounded-xl text-[13px] font-semibold min-w-[120px] justify-between shadow-sm hover:bg-gray-900 transition-colors"
+            className="flex items-center gap-3 bg-black text-white px-4 py-3 rounded-xl text-[13px] font-semibold min-w-[120px] max-w-[220px] justify-between shadow-sm hover:bg-gray-900 transition-colors"
           >
-            <div className="flex items-center gap-2">
-              <User size={16} strokeWidth={2.5} />
-              <span>{agentFilter === 'All' ? 'Agent' : agentFilter.split('\n')[0]}</span>
+            <div className="flex items-center gap-2 min-w-0">
+              <User size={16} strokeWidth={2.5} className="shrink-0" />
+              <span className="truncate">{selectedAgentName ?? 'Agent'}</span>
             </div>
-            <ChevronDown size={14} strokeWidth={3} className={`transition-transform ${openDropdown === 'agent' ? 'rotate-180' : ''}`} />
+            <ChevronDown size={14} strokeWidth={3} className={`shrink-0 transition-transform ${openDropdown === 'agent' ? 'rotate-180' : ''}`} />
           </button>
           {openDropdown === 'agent' && (
-            <div className="absolute top-full left-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-gray-100 z-50 p-2 py-3">
-              <div
-                className="px-3 py-2 text-[13px] text-gray-600 hover:bg-gray-50 rounded-lg cursor-pointer font-medium"
-                onClick={() => handleFilterChange(setAgentFilter, 'All')}
-              >
-                All Agents
+            <div className="absolute top-full left-0 mt-2 w-64 bg-white rounded-xl shadow-xl border border-gray-100 z-50 p-2 py-3">
+              <div className="relative px-1 pb-2">
+                <Search size={14} className="absolute left-4 top-1/2 -translate-y-1/2 -mt-1 text-gray-400 pointer-events-none" />
+                <input
+                  type="text"
+                  autoFocus
+                  value={agentQuery}
+                  onChange={(e) => { setAgentQuery(e.target.value); setAgentHighlight(0); }}
+                  onKeyDown={handleAgentKeyDown}
+                  placeholder="Search agent..."
+                  className="w-full h-9 pl-8 pr-8 bg-gray-50 border border-gray-200 rounded-lg text-[13px] text-gray-700 placeholder:text-gray-400 focus:outline-none focus:border-purple-300 focus:bg-white"
+                />
+                {agentQuery && (
+                  <button
+                    onClick={() => { setAgentQuery(''); setAgentHighlight(0); }}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 -mt-1 p-0.5 text-gray-300 hover:text-gray-500"
+                    aria-label="Clear agent search"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
               </div>
-              {agents.map(a => (
-                <div
-                  key={a}
-                  className="px-3 py-2 text-[13px] text-gray-600 hover:bg-gray-50 rounded-lg cursor-pointer font-medium"
-                  onClick={() => handleFilterChange(setAgentFilter, a)}
-                >
-                  {a}
-                </div>
-              ))}
+              <div ref={agentListRef} className="max-h-[260px] overflow-y-auto custom-scrollbar">
+                {agentChoices.map((a, idx) => (
+                  <div
+                    key={a.id}
+                    data-highlighted={idx === agentHighlight ? 'true' : undefined}
+                    onMouseEnter={() => setAgentHighlight(idx)}
+                    className={`px-3 py-2 text-[13px] rounded-lg cursor-pointer font-medium truncate ${
+                      a.id === agentFilter
+                        ? 'bg-purple-50 text-[#AE00FF]'
+                        : idx === agentHighlight
+                          ? 'bg-gray-50 text-gray-600'
+                          : 'text-gray-600'
+                    }`}
+                    title={a.name}
+                    onClick={() => handleFilterChange(PARAM.agent, a.id)}
+                  >
+                    {a.name}
+                  </div>
+                ))}
+                {agentChoices.length === 0 && (
+                  <div className="px-3 py-4 text-[13px] text-gray-400 font-medium text-center">
+                    No agents found
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -276,7 +426,7 @@ export function SalesRecordClient({ initialRecords = [], products: productProp, 
             <div className="absolute top-full left-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-gray-100 z-50 p-2 py-3">
               <div
                 className="px-3 py-2 text-[13px] text-gray-600 hover:bg-gray-50 rounded-lg cursor-pointer font-medium"
-                onClick={() => handleFilterChange(setStatusFilter, 'All')}
+                onClick={() => handleFilterChange(PARAM.status, ALL)}
               >
                 All Statuses
               </div>
@@ -284,7 +434,7 @@ export function SalesRecordClient({ initialRecords = [], products: productProp, 
                 <div
                   key={s}
                   className="px-3 py-2 text-[13px] text-gray-600 hover:bg-gray-50 rounded-lg cursor-pointer font-medium"
-                  onClick={() => handleFilterChange(setStatusFilter, s)}
+                  onClick={() => handleFilterChange(PARAM.status, s)}
                 >
                   {s}
                 </div>
@@ -309,7 +459,7 @@ export function SalesRecordClient({ initialRecords = [], products: productProp, 
             <div className="absolute top-full left-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-gray-100 z-50 p-2 py-3">
               <div
                 className="px-3 py-2 text-[13px] text-gray-600 hover:bg-gray-50 rounded-lg cursor-pointer font-medium"
-                onClick={() => handleFilterChange(setPaymentStatusFilter, 'All')}
+                onClick={() => handleFilterChange(PARAM.payment, ALL)}
               >
                 All
               </div>
@@ -317,7 +467,7 @@ export function SalesRecordClient({ initialRecords = [], products: productProp, 
                 <div
                   key={s}
                   className="px-3 py-2 text-[13px] text-gray-600 hover:bg-gray-50 rounded-lg cursor-pointer font-medium"
-                  onClick={() => handleFilterChange(setPaymentStatusFilter, s)}
+                  onClick={() => handleFilterChange(PARAM.payment, s)}
                 >
                   {s}
                 </div>
@@ -334,7 +484,7 @@ export function SalesRecordClient({ initialRecords = [], products: productProp, 
           >
             <div className="flex items-center gap-2">
               <CalendarIcon size={16} strokeWidth={2.5} />
-              <span>Date Range</span>
+              <span>{dateFrom || dateTo ? `${dateFrom || '…'} → ${dateTo || '…'}` : 'Date Range'}</span>
             </div>
             <ChevronDown size={14} strokeWidth={3} className={`transition-transform ${openDropdown === 'date' ? 'rotate-180' : ''}`} />
           </button>
@@ -345,8 +495,8 @@ export function SalesRecordClient({ initialRecords = [], products: productProp, 
                   <label className="text-[11px] font-bold text-gray-400 uppercase block mb-1">From</label>
                   <input
                     type="date"
-                    value={dateRange.from}
-                    onChange={(e) => { setDateRange(prev => ({ ...prev, from: e.target.value })); resetPage(); }}
+                    value={dateFrom}
+                    onChange={(e) => updateParams({ [PARAM.from]: e.target.value || null, [PARAM.page]: null })}
                     className="w-full h-10 border border-gray-200 rounded-lg px-3 text-sm focus:outline-none focus:border-purple-300"
                   />
                 </div>
@@ -354,8 +504,8 @@ export function SalesRecordClient({ initialRecords = [], products: productProp, 
                   <label className="text-[11px] font-bold text-gray-400 uppercase block mb-1">To</label>
                   <input
                     type="date"
-                    value={dateRange.to}
-                    onChange={(e) => { setDateRange(prev => ({ ...prev, to: e.target.value })); resetPage(); }}
+                    value={dateTo}
+                    onChange={(e) => updateParams({ [PARAM.to]: e.target.value || null, [PARAM.page]: null })}
                     className="w-full h-10 border border-gray-200 rounded-lg px-3 text-sm focus:outline-none focus:border-purple-300"
                   />
                 </div>
@@ -366,7 +516,7 @@ export function SalesRecordClient({ initialRecords = [], products: productProp, 
                   Apply Filter
                 </button>
                 <button
-                  onClick={() => { setDateRange({ from: '', to: '' }); resetPage(); setOpenDropdown(null); }}
+                  onClick={() => { updateParams({ [PARAM.from]: null, [PARAM.to]: null, [PARAM.page]: null }); setOpenDropdown(null); }}
                   className="w-full text-gray-400 py-1 text-[12px] font-medium"
                 >
                   Reset
@@ -383,7 +533,7 @@ export function SalesRecordClient({ initialRecords = [], products: productProp, 
             type="text"
             placeholder="search"
             value={search}
-            onChange={(e) => { setSearch(e.target.value); resetPage(); }}
+            onChange={(e) => setSearch(e.target.value)}
             className="w-full h-[48px] pl-12 pr-4 bg-white  rounded-xl text-[14px] text-gray-600 focus:outline-none focus:ring-1 focus:ring-purple-200"
           />
         </div>
@@ -404,6 +554,7 @@ export function SalesRecordClient({ initialRecords = [], products: productProp, 
                 <th className="px-5 py-4 text-[12px] font-bold text-gray-600 whitespace-nowrap">Discount</th>
                 <th className="px-5 py-4 text-[12px] font-bold text-gray-600 whitespace-nowrap">Net Amount</th>
                 <th className="px-5 py-4 text-[12px] font-bold text-gray-600 whitespace-nowrap">Delivery Fee</th>
+                <th className="px-5 py-4 text-[12px] font-bold text-gray-600 whitespace-nowrap">Waybill</th>
                 <th className="px-5 py-4 text-[12px] font-bold text-gray-600 whitespace-nowrap">Rem. Status</th>
                 <th className="px-5 py-4 text-[12px] font-bold text-gray-600 whitespace-nowrap">Agent</th>
                 <th className="px-5 py-4 text-[12px] font-bold text-gray-600 whitespace-nowrap">Order Date</th>
@@ -470,6 +621,9 @@ export function SalesRecordClient({ initialRecords = [], products: productProp, 
                       </div>
                     )}
                   </td>
+                  <td className="px-5 py-6 text-[13px] font-medium whitespace-nowrap">
+                    <span className={r.waybillNum > 0 ? 'text-gray-600' : 'text-gray-300'}>{r.waybill}</span>
+                  </td>
                   <td className="px-5 py-6">
                     <span className={`text-[11px] font-bold px-3 py-1.5 rounded-lg whitespace-nowrap ${r.remStatus === 'Paid' ? 'bg-[#10B981] text-white' :
                       'bg-[#E5E7EB] text-gray-600'
@@ -486,7 +640,7 @@ export function SalesRecordClient({ initialRecords = [], products: productProp, 
               ))}
               {paginated.length === 0 && (
                 <tr>
-                  <td colSpan={13} className="px-5 py-16 text-center text-[14px] text-gray-400 font-medium">
+                  <td colSpan={14} className="px-5 py-16 text-center text-[14px] text-gray-400 font-medium">
                     No records found
                   </td>
                 </tr>
@@ -500,18 +654,18 @@ export function SalesRecordClient({ initialRecords = [], products: productProp, 
       {totalPages > 1 && (
         <div className="flex items-center justify-between mt-6 px-1">
           <p className="text-[13px] text-gray-500 font-medium">
-            Showing {((page - 1) * PAGE_SIZE) + 1}–{Math.min(page * PAGE_SIZE, filtered.length)} of {filtered.length} records
+            Showing {((currentPage - 1) * PAGE_SIZE) + 1}–{Math.min(currentPage * PAGE_SIZE, filtered.length)} of {filtered.length} records
           </p>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => setPage(p => Math.max(1, p - 1))}
-              disabled={page === 1}
+              onClick={() => goToPage(Math.max(1, currentPage - 1))}
+              disabled={currentPage === 1}
               className="p-2 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
             >
               <ChevronLeft size={16} />
             </button>
             {Array.from({ length: totalPages }, (_, i) => i + 1)
-              .filter(p => p === 1 || p === totalPages || Math.abs(p - page) <= 1)
+              .filter(p => p === 1 || p === totalPages || Math.abs(p - currentPage) <= 1)
               .reduce<(number | '...')[]>((acc, p, idx, arr) => {
                 if (idx > 0 && typeof arr[idx - 1] === 'number' && (p as number) - (arr[idx - 1] as number) > 1) {
                   acc.push('...');
@@ -525,9 +679,9 @@ export function SalesRecordClient({ initialRecords = [], products: productProp, 
                 ) : (
                   <button
                     key={p}
-                    onClick={() => setPage(p as number)}
+                    onClick={() => goToPage(p as number)}
                     className={`w-9 h-9 rounded-lg text-[13px] font-semibold transition-colors ${
-                      page === p
+                      currentPage === p
                         ? 'bg-[#AE00FF] text-white'
                         : 'border border-gray-200 text-gray-600 hover:bg-gray-50'
                     }`}
@@ -537,8 +691,8 @@ export function SalesRecordClient({ initialRecords = [], products: productProp, 
                 )
               )}
             <button
-              onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-              disabled={page === totalPages}
+              onClick={() => goToPage(Math.min(totalPages, currentPage + 1))}
+              disabled={currentPage === totalPages}
               className="p-2 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
             >
               <ChevronRight size={16} />
