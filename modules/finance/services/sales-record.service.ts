@@ -21,6 +21,9 @@ export interface SalesRecordRow {
   deliveryFee: string;
   remStatus: "Paid" | "Not Paid";
   agent: string;
+  /** `Agent.id` the order is assigned to, or `null` when unassigned. The agent
+   *  filter keys on this rather than the display name, which is not unique. */
+  agentId: string | null;
   /** Date the order came into the system (order date). */
   date: string;
   /** Date the order's status last changed (delivered/cancelled/failed/confirmed
@@ -103,6 +106,7 @@ export async function getSalesRecords(filters: {
       deliveryFee: fmt(deliveryFeeNum),
       remStatus,
       agent: o.agent?.companyName ?? "—",
+      agentId: o.agent?.id ?? null,
       date: o.date.toISOString().slice(0, 10),
       statusDate:
         o.status === "PENDING" ? null : o.updatedAt.toISOString().slice(0, 10),
