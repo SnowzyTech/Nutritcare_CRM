@@ -3,7 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { auth } from "@/lib/auth/auth";
 import { prisma } from "@/lib/db/prisma";
-import { recordDeliveryFeeEntry } from "@/modules/finance/services/agent-settlement.service";
+import {
+  deliverOrder,
+  deliveryRefusalMessage,
+} from "@/modules/orders/services/deliver-order.service";
 import { resolveDeliveredDate } from "@/lib/orders/delivered-date";
 import { logActivity } from "@/modules/audit/services/audit-log.service";
 import { recordWhatsAppResult } from "@/modules/audit/services/whatsapp-audit.service";
@@ -20,10 +23,15 @@ import { reassignAgentForOrder } from "@/modules/orders/services/reassign-agent.
  *  2. Delivery record status → DELIVERED (deliveredTime stamped)
  *  3. Assigned agent's StockLevel decremented for every item in the order
  *  4. AgentLedgerEntry recorded (idempotent)
+ *
+ * Steps 1-4 are one transaction inside `deliverOrder`, which REFUSES the whole
+ * thing if the agent's recorded stock won't cover the order (an agent can be
+ * over-booked on purpose) rather than letting the balance go negative.
  *  5. WhatsApp "delivered" notification sent to the customer (fire-and-forget)
  *
  * The CONFIRMED guard makes this safe alongside the delivery agent's and
  * analyst's own mark-delivered: whoever marks first wins; the rest are rejected.
+ * The flip itself is a guarded updateMany, so a double-submit cannot double-debit.
  */
 export async function markOrderDeliveredByManager(
   orderId: string,
@@ -37,7 +45,6 @@ export async function markOrderDeliveredByManager(
   const order = await prisma.order.findFirst({
     where: { id: orderId, deletedAt: null },
     include: {
-      items: { select: { productId: true, quantity: true } },
       customer: { select: { name: true, whatsappNumber: true, phone: true } },
       deliveries: { select: { createdAt: true }, orderBy: { createdAt: "asc" }, take: 1 },
     },
@@ -52,36 +59,11 @@ export async function markOrderDeliveredByManager(
   if ("error" in resolved) return { success: false, error: resolved.error };
   const deliveredAt = resolved.deliveredAt;
 
-  const stockDeductions = order.agentId
-    ? order.items.map((item) =>
-        prisma.stockLevel.updateMany({
-          where: {
-            productId: item.productId,
-            locationKind: "AGENT",
-            locationId: order.agentId!,
-          },
-          data: { quantity: { decrement: item.quantity } },
-        }),
-      )
-    : [];
-
-  await prisma.$transaction([
-    prisma.order.update({ where: { id: orderId }, data: { status: "DELIVERED" } }),
-    prisma.delivery.updateMany({
-      where: { orderId },
-      data: { status: "DELIVERED", deliveredTime: deliveredAt },
-    }),
-    ...stockDeductions,
-  ]);
-
-  if (order.agentId) {
-    await recordDeliveryFeeEntry({
-      agentId: order.agentId,
-      netAmount: Number(order.netAmount),
-      orderNumber: order.orderNumber,
-      // Date the funding on the chosen delivery day so the ledger matches the data view.
-      date: deliveredAt,
-    });
+  // Status flip, agent stock debit (refused rather than overdrawn) and the agent
+  // ledger entry all live in the shared service - see deliver-order.service.ts.
+  const delivered = await deliverOrder({ orderId, deliveredAt });
+  if (!delivered.ok) {
+    return { success: false, error: deliveryRefusalMessage(delivered, "office") };
   }
 
   // Log against the order's sales rep for their History page; show the manager as actor.
@@ -125,7 +107,7 @@ export async function markOrderDeliveredByManager(
 /**
  * Company Sales Manager reassigns an order to a different delivery agent — the
  * same authority admins have. Works on CONFIRMED or FAILED orders; a FAILED order
- * is revived to CONFIRMED. The target agent must hold enough available stock.
+ * is revived to CONFIRMED. The target agent must be holding enough stock.
  */
 export async function reassignOrderAgentByManager(
   orderId: string,
@@ -142,7 +124,7 @@ export async function reassignOrderAgentByManager(
       success: false,
       error:
         result.reason === "no_stock"
-          ? "The selected agent doesn't have enough available stock to take this order. Please choose another agent."
+          ? "The selected agent isn't holding enough stock to take this order. Please choose another agent."
           : "This order can no longer be reassigned.",
     };
   }

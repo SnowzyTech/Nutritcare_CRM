@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/prisma";
 import { lockAgent } from "@/modules/delivery/services/agents.service";
+import { creditAgentForDelivery } from "@/modules/inventory/services/stock-level.service";
 import { reverseDeliveryFeeEntry } from "@/modules/finance/services/agent-settlement.service";
 
 /**
@@ -116,16 +117,10 @@ export async function undoOrderDelivery(orderId: string): Promise<UndoDeliveryRe
         data: { status: "PENDING_DISPATCH", deliveredTime: null },
       });
 
-      // Put the units back on the agent's shelf. `updateMany` (not upsert)
-      // mirrors the deduction exactly: no StockLevel row means the delivery
-      // never decremented one either, so there is nothing to credit back.
+      // Put the units back on the agent's shelf, through the exact counterpart of
+      // the debit `deliverOrder` applied, so the two can never drift apart.
       if (order.agentId) {
-        for (const item of order.items) {
-          await tx.stockLevel.updateMany({
-            where: { productId: item.productId, locationKind: "AGENT", locationId: order.agentId },
-            data: { quantity: { increment: item.quantity } },
-          });
-        }
+        await creditAgentForDelivery(tx, order.agentId, order.items);
       }
 
       return order.agentId

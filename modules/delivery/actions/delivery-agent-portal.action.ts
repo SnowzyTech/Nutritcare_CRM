@@ -5,7 +5,10 @@ import { prisma } from "@/lib/db/prisma";
 import { revalidatePath } from "next/cache";
 import bcryptjs from "bcryptjs";
 import { getAgentIdByUserId } from "@/modules/delivery/services/delivery-agent-portal.service";
-import { recordDeliveryFeeEntry } from "@/modules/finance/services/agent-settlement.service";
+import {
+  deliverOrder,
+  deliveryRefusalMessage,
+} from "@/modules/orders/services/deliver-order.service";
 import { logActivity } from "@/modules/audit/services/audit-log.service";
 import { recordWhatsAppResult } from "@/modules/audit/services/whatsapp-audit.service";
 import { suppressCameraForRequest } from "@/lib/audit/context";
@@ -82,6 +85,10 @@ export async function changePasswordAction(data: {
  *  2. Delivery record status → DELIVERED (deliveredTime stamped)
  *  3. Agent's StockLevel decremented for every item in the order
  *  4. AgentLedgerEntry created (agent collected cash, owes company)
+ *
+ * Steps 1-4 are one transaction inside `deliverOrder`, which REFUSES the whole
+ * thing if the agent's recorded stock won't cover the order (an agent can be
+ * over-booked on purpose) rather than letting the balance go negative.
  */
 export async function markOrderDeliveredAction(orderId: string, deliveryCode: string) {
   const session = await auth();
@@ -94,7 +101,6 @@ export async function markOrderDeliveredAction(orderId: string, deliveryCode: st
   const order = await prisma.order.findFirst({
     where: { id: orderId, agentId, deletedAt: null },
     include: {
-      items: { select: { productId: true, quantity: true } },
       customer: { select: { name: true, whatsappNumber: true, phone: true } },
     },
   });
@@ -114,38 +120,16 @@ export async function markOrderDeliveredAction(orderId: string, deliveryCode: st
     return { error: "Incorrect delivery code. Please ask the customer to check the WhatsApp message sent at time of order confirmation." };
   }
 
-  // ── Commit all changes in one transaction ─────────────────────────────────
+  // ── Commit ────────────────────────────────────────────────────────────────
+  // Status flip, agent stock debit and the agent ledger entry all live in the
+  // shared service. It REFUSES rather than overdrawing the agent: assignment
+  // deliberately allows an agent to be over-booked so a newer, more urgent order
+  // is never blocked, so this is the point where the promise meets the shelf.
   const now = new Date();
-
-  const stockDeductions = order.items.map((item) =>
-    prisma.stockLevel.updateMany({
-      where: {
-        productId: item.productId,
-        locationKind: "AGENT",
-        locationId: agentId,
-      },
-      data: { quantity: { decrement: item.quantity } },
-    }),
-  );
-
-  await prisma.$transaction([
-    prisma.order.update({ where: { id: orderId }, data: { status: "DELIVERED" } }),
-    prisma.delivery.update({
-      where: { id: delivery.id },
-      data: { status: "DELIVERED", deliveredTime: now },
-    }),
-    ...stockDeductions,
-  ]);
-
-  // Record ledger entry (idempotent)
-  await recordDeliveryFeeEntry({
-    agentId,
-    netAmount: Number(order.netAmount),
-    orderNumber: order.orderNumber,
-    // Date the funding on the delivery day (when the agent collected the cash),
-    // not the order's original date.
-    date: now,
-  });
+  const delivered = await deliverOrder({ orderId, deliveredAt: now });
+  if (!delivered.ok) {
+    return { error: deliveryRefusalMessage(delivered, "agent") };
+  }
 
   // Log against the order's sales rep so it surfaces in their History page, but
   // show the delivery agent as the actor in the system-wide (General) history.

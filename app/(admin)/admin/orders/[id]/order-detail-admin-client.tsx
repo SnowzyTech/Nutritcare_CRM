@@ -250,7 +250,7 @@ export function AdminOrderDetailClient({
   }
 
   function handleAction(
-    action: () => Promise<{ error?: string; success?: boolean } | void>,
+    action: () => Promise<{ error?: string; success?: boolean; warning?: string } | void>,
     successMsg?: string,
   ) {
     startTransition(async () => {
@@ -264,6 +264,12 @@ export function AdminOrderDetailClient({
           return;
         }
         if (successMsg) toast.success(successMsg);
+        // Succeeded, but flagged something the office must act on (e.g. the
+        // assigned agent is now over-booked). Held longer than a normal toast
+        // because it is a to-do, not a confirmation.
+        if (result && "warning" in result && result.warning) {
+          toast.warning(result.warning, { duration: 12000 });
+        }
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Action failed");
       }

@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { getLogisticsDashboardData } from "@/modules/delivery/services/logistics-dashboard.service";
 import type { DeliveryQueueRow, DriverAssignmentRow } from "@/modules/delivery/services/logistics-dashboard.service";
 import { formatDistanceToNow } from "date-fns";
+import OverbookedAgentsPanel from "@/components/inventory/overbooked-agents-panel";
 
 export default async function LogisticsDashboardPage() {
   const { stats, deliveryQueue, driverAssignments, alerts } =
@@ -55,6 +56,10 @@ export default async function LogisticsDashboardPage() {
           </div>
         </div>
       </div>
+
+      {/* Agents whose confirmed orders exceed what they are holding. Renders
+          nothing when everything is in balance. */}
+      <OverbookedAgentsPanel />
 
       {/* Main Tables Grid */}
       <div className="grid grid-cols-12 gap-6">

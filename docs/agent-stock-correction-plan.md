@@ -139,7 +139,14 @@ Every action writes a rich `logActivity` (before → after, agent, reason, actor
 ## 6. Guardrails (the "what not to do")
 
 - Never a raw silent edit — every change is a recorded, reasoned, audited correction.
-- Can't set below committed confirmed-order stock (re-checked at approval).
+- ~~Can't set below committed confirmed-order stock (re-checked at approval).~~
+  **Relaxed to a warning.** Since the stock guard moved to delivery time,
+  `committed > on-hand` is a legal state (assignment deliberately allows an agent to
+  be over-booked so an earlier booking can't block a newer order). Blocking here
+  would make the tool unusable for exactly the agents that need correcting — and
+  correcting stock is the documented fix for a refused delivery. Create, approve and
+  reverse now return a `warning` naming the resulting shortfall instead of an error.
+  The zero floor is enforced once, in `deliverOrder`. See `docs/agent-stock-commitment.md`.
 - IM cannot self-approve; admin approval required for IM proposals.
 - Reversible, not deletable, once applied.
 - Approval window should stay short: at approval, show admin the **current** system qty vs the

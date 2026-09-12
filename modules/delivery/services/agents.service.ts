@@ -18,97 +18,144 @@ export async function lockAgent(tx: Tx, agentId: string): Promise<void> {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${agentId})::bigint)`;
 }
 
-/**
- * True if an agent has enough AVAILABLE stock for `items`, where
- * available = on-hand − committed, and committed = quantities already promised
- * to that agent's CONFIRMED (not yet delivered/failed/cancelled) orders.
- * `excludeOrderId` drops one order from the committed tally (used when the order
- * being checked is itself already committed to this agent).
- *
- * Call INSIDE a transaction that has taken `lockAgent(tx, agentId)` so the read
- * is serialised against concurrent confirmations for the same agent.
- */
-export async function agentHasAvailableStock(
-  tx: Tx,
-  agentId: string,
-  items: { productId: string; quantity: number }[],
-  opts?: { excludeOrderId?: string },
-): Promise<boolean> {
-  const productIds = [...new Set(items.map((i) => i.productId))];
-
-  const [stockRows, committedItems] = await Promise.all([
-    tx.stockLevel.findMany({
-      where: { locationKind: "AGENT", locationId: agentId, productId: { in: productIds } },
-      select: { productId: true, quantity: true },
-    }),
-    tx.orderItem.findMany({
-      where: {
-        productId: { in: productIds },
-        order: {
-          agentId,
-          status: "CONFIRMED",
-          deletedAt: null,
-          ...(opts?.excludeOrderId ? { id: { not: opts.excludeOrderId } } : {}),
-        },
-      },
-      select: { productId: true, quantity: true },
-    }),
-  ]);
-
-  const stock: Record<string, number> = {};
-  for (const r of stockRows) stock[r.productId] = Math.max(0, r.quantity);
-
-  const committed: Record<string, number> = {};
-  for (const it of committedItems) {
-    committed[it.productId] = (committed[it.productId] ?? 0) + it.quantity;
-  }
-
-  // Aggregate the request per product (handles duplicate product lines).
-  const requested: Record<string, number> = {};
-  for (const it of items) requested[it.productId] = (requested[it.productId] ?? 0) + it.quantity;
-
-  return Object.entries(requested).every(
-    ([pid, qty]) => (stock[pid] ?? 0) - (committed[pid] ?? 0) >= qty,
-  );
-}
-
-/**
- * Outcome of picking a delivery agent for an order.
- *
- * A bare `string | null` couldn't tell the failure modes apart, so every caller
- * showed one catch-all message ("no agent available in this area with the
- * required stock") for two very different problems with two very different
- * fixes. The reasons below let `formatAgentUnavailableMessage()` say which one
- * actually happened.
- */
-export type AgentSelectionResult =
-  | { ok: true; agentId: string }
-  | { ok: false; reason: "no_agent_in_state" }
-  | {
-      ok: false;
-      reason: "insufficient_stock";
-      shortfalls: { productName: string; needed: number; bestAvailable: number }[];
-    }
-  | { ok: false; reason: "no_single_agent_covers_all_items" };
-
-/** An order line as the confirm paths select it (product name is used for messaging only). */
-type OrderLine = {
+/** An order line. `product.name` is carried for messaging only. */
+export type StockLine = {
   productId: string;
   quantity: number;
   product?: { name: string } | null;
 };
 
+/** How far short an agent is on one product. */
+export type StockShortfall = {
+  productId: string;
+  productName: string;
+  needed: number;
+  /** Units available in the checked mode; can be negative in "available" mode. */
+  have: number;
+};
+
 /**
- * Finds the best available delivery agent for an order using:
- *  1. State match (agent.state or statesCovered must include customerState)
- *  2. Agent must hold sufficient AVAILABLE stock (on-hand − committed) for every item
- *  3. Tie-break: fewest active CONFIRMED orders (load balancing)
+ * Stock already promised to an agent's CONFIRMED (not yet delivered/failed/
+ * cancelled) orders, per product. This is the system's ONLY notion of a
+ * "booking" - nothing is materialised, the CONFIRMED order *is* the commitment.
+ *
+ * It is a REPORTING figure, not a gate. Commit paths deliberately do not block on
+ * it (see {@link checkAgentOnHandStock}); it drives agent preference during
+ * assignment, the over-booking reports and the stock-correction warnings.
+ *
+ * Single definition, shared with the agent-stock correction tool - do not
+ * re-implement it.
+ */
+export async function getAgentCommittedQuantities(
+  tx: Tx,
+  agentId: string,
+  productIds: string[],
+): Promise<Record<string, number>> {
+  if (productIds.length === 0) return {};
+
+  const rows = await tx.orderItem.findMany({
+    where: {
+      productId: { in: productIds },
+      order: { agentId, status: "CONFIRMED", deletedAt: null },
+    },
+    select: { productId: true, quantity: true },
+  });
+
+  const committed: Record<string, number> = {};
+  for (const r of rows) committed[r.productId] = (committed[r.productId] ?? 0) + r.quantity;
+  return committed;
+}
+
+export type StockCheckResult = { ok: true } | { ok: false; shortfalls: StockShortfall[] };
+
+/**
+ * Does the agent PHYSICALLY HOLD enough for `items`? Returns the per-product
+ * shortfalls rather than a bare boolean so callers can say what is actually short.
+ *
+ * On-hand, deliberately NOT on-hand-minus-committed. Committing an order to an
+ * agent who has already promised these units elsewhere is allowed: the older
+ * booking must never make a newer, more urgent order un-confirmable. What must
+ * never happen is delivering stock that isn't there, so the zero floor is enforced
+ * once, at the point of consumption - `debitAgentForDelivery`, via `deliverOrder`.
+ *
+ * Call INSIDE a transaction that has taken `lockAgent(tx, agentId)` so the read is
+ * serialised against concurrent confirmations/deliveries for the same agent.
+ */
+export async function checkAgentOnHandStock(
+  tx: Tx,
+  agentId: string,
+  items: StockLine[],
+): Promise<StockCheckResult> {
+  const productIds = [...new Set(items.map((i) => i.productId))];
+
+  const stockRows = await tx.stockLevel.findMany({
+    where: { locationKind: "AGENT", locationId: agentId, productId: { in: productIds } },
+    select: { productId: true, quantity: true },
+  });
+
+  const stock: Record<string, number> = {};
+  for (const r of stockRows) stock[r.productId] = Math.max(0, r.quantity);
+
+  // Aggregate the request per product (handles duplicate product lines).
+  const requested: Record<string, number> = {};
+  const nameOf: Record<string, string> = {};
+  for (const it of items) {
+    requested[it.productId] = (requested[it.productId] ?? 0) + it.quantity;
+    if (it.product?.name) nameOf[it.productId] = it.product.name;
+  }
+
+  const shortfalls: StockShortfall[] = [];
+  for (const [productId, needed] of Object.entries(requested)) {
+    const have = stock[productId] ?? 0;
+    if (have < needed) {
+      shortfalls.push({ productId, productName: nameOf[productId] ?? "this product", needed, have });
+    }
+  }
+
+  return shortfalls.length === 0 ? { ok: true } : { ok: false, shortfalls };
+}
+
+/**
+ * Outcome of picking a delivery agent for an order.
+ *
+ * Success carries `overbooked`: the agent physically holds the goods, but part of
+ * that stock is already promised to their other CONFIRMED orders. That is allowed
+ * on purpose - assignment must never be blocked by an earlier booking - and the
+ * shortfall is surfaced to the confirming user as a warning, then enforced for
+ * real at delivery time (`deliverOrder`), which is where stock is consumed.
+ *
+ * A bare `string | null` couldn't tell the failure modes apart, so every caller
+ * showed one catch-all message for problems with very different fixes. The reasons
+ * below let `formatAgentUnavailableMessage()` say which one actually happened.
+ */
+export type AgentSelectionResult =
+  | { ok: true; agentId: string; overbooked: false }
+  | { ok: true; agentId: string; overbooked: true; shortfalls: StockShortfall[] }
+  | { ok: false; reason: "no_agent_in_state" }
+  | {
+      ok: false;
+      reason: "insufficient_stock";
+      shortfalls: { productName: string; needed: number; bestHeld: number }[];
+    }
+  | { ok: false; reason: "no_single_agent_covers_all_items" };
+
+/**
+ * Finds the best delivery agent for an order:
+ *  1. State match (`agent.state` or `statesCovered` must include `customerState`)
+ *  2. TIER 1 - an agent whose FREE stock (on-hand minus committed) covers every
+ *     line, tie-broken by fewest active CONFIRMED orders (load balancing). This
+ *     keeps the tidy old behaviour whenever stock allows it.
+ *  3. TIER 2 - if nobody has free stock, any agent who PHYSICALLY HOLDS every line,
+ *     picked so the resulting over-book is as small as possible. An order is no
+ *     longer blocked just because earlier orders booked the stock; the real guard
+ *     now sits at delivery.
+ *  4. Blocked only when no single agent in the state is holding the whole order.
  *
  * One agent must cover the WHOLE order - orders are never split across agents.
  */
 export async function findEligibleAgentForOrder(
   customerState: string,
-  orderItems: OrderLine[],
+  orderItems: StockLine[],
 ): Promise<AgentSelectionResult> {
   const agents = await prisma.agent.findMany({
     where: { status: "ACTIVE", deletedAt: null },
@@ -132,10 +179,26 @@ export async function findEligibleAgentForOrder(
   const agentIds = stateMatched.map((a) => a.id);
   const productIds = [...new Set(orderItems.map((i) => i.productId))];
 
-  const stockRows = await prisma.stockLevel.findMany({
-    where: { locationKind: "AGENT", locationId: { in: agentIds }, productId: { in: productIds } },
-    select: { locationId: true, productId: true, quantity: true },
-  });
+  const [stockRows, committedItems, orderCounts] = await Promise.all([
+    prisma.stockLevel.findMany({
+      where: { locationKind: "AGENT", locationId: { in: agentIds }, productId: { in: productIds } },
+      select: { locationId: true, productId: true, quantity: true },
+    }),
+    // Stock already promised to each agent's CONFIRMED (undelivered) orders. Used
+    // to PREFER a less-loaded agent, never to rule one out.
+    prisma.orderItem.findMany({
+      where: {
+        productId: { in: productIds },
+        order: { agentId: { in: agentIds }, status: "CONFIRMED", deletedAt: null },
+      },
+      select: { productId: true, quantity: true, order: { select: { agentId: true } } },
+    }),
+    prisma.order.groupBy({
+      by: ["agentId"],
+      where: { agentId: { in: agentIds }, status: "CONFIRMED", deletedAt: null },
+      _count: { id: true },
+    }),
+  ]);
 
   // agentId -> productId -> qty
   const stockMap: Record<string, Record<string, number>> = {};
@@ -144,15 +207,6 @@ export async function findEligibleAgentForOrder(
     stockMap[row.locationId][row.productId] = Math.max(0, row.quantity);
   }
 
-  // Stock already promised to each agent's CONFIRMED (undelivered) orders, so we
-  // pick on AVAILABLE (on-hand − committed) and never overbook an agent.
-  const committedItems = await prisma.orderItem.findMany({
-    where: {
-      productId: { in: productIds },
-      order: { agentId: { in: agentIds }, status: "CONFIRMED", deletedAt: null },
-    },
-    select: { productId: true, quantity: true, order: { select: { agentId: true } } },
-  });
   const committedMap: Record<string, Record<string, number>> = {};
   for (const it of committedItems) {
     const aId = it.order.agentId;
@@ -161,64 +215,80 @@ export async function findEligibleAgentForOrder(
     committedMap[aId][it.productId] = (committedMap[aId][it.productId] ?? 0) + it.quantity;
   }
 
-  const availableFor = (agentId: string, productId: string) =>
-    (stockMap[agentId]?.[productId] ?? 0) - (committedMap[agentId]?.[productId] ?? 0);
-
-  // Aggregate the request per product (handles duplicate product lines) so this
-  // check matches the authoritative one in `agentHasAvailableStock`, which also
-  // aggregates - otherwise a split line could pass here and then be rejected
-  // under the lock with a misleading "agent just reached capacity" message.
-  const needed: Record<string, number> = {};
-  for (const it of orderItems) needed[it.productId] = (needed[it.productId] ?? 0) + it.quantity;
-
-  const stockEligible = agentIds.filter((agentId) =>
-    Object.entries(needed).every(([pid, qty]) => availableFor(agentId, pid) >= qty),
-  );
-
-  if (stockEligible.length === 0) {
-    const nameOf: Record<string, string> = {};
-    for (const it of orderItems) {
-      if (it.product?.name) nameOf[it.productId] = it.product.name;
-    }
-
-    const shortfalls = Object.entries(needed)
-      .map(([productId, qty]) => ({
-        productName: nameOf[productId] ?? "this product",
-        needed: qty,
-        bestAvailable: Math.max(0, ...agentIds.map((id) => availableFor(id, productId))),
-      }))
-      .filter((s) => s.bestAvailable < s.needed);
-
-    // Every line is individually available somewhere, but no single agent holds
-    // them all together - reporting a per-product shortfall here would be a lie.
-    if (shortfalls.length === 0) {
-      return { ok: false, reason: "no_single_agent_covers_all_items" };
-    }
-    return { ok: false, reason: "insufficient_stock", shortfalls };
-  }
-
-  const orderCounts = await prisma.order.groupBy({
-    by: ["agentId"],
-    where: { agentId: { in: stockEligible }, status: "CONFIRMED", deletedAt: null },
-    _count: { id: true },
-  });
-
   const countMap: Record<string, number> = {};
   for (const row of orderCounts) {
     if (row.agentId) countMap[row.agentId] = row._count.id;
   }
 
-  const agentId = stockEligible.sort((a, b) => (countMap[a] ?? 0) - (countMap[b] ?? 0))[0];
-  return { ok: true, agentId };
+  const heldBy = (agentId: string, productId: string) => stockMap[agentId]?.[productId] ?? 0;
+  const freeFor = (agentId: string, productId: string) =>
+    heldBy(agentId, productId) - (committedMap[agentId]?.[productId] ?? 0);
+
+  // Aggregate the request per product (handles duplicate product lines) so this
+  // matches the authoritative check in `checkAgentStock`, which also aggregates -
+  // otherwise a split line could pass here and then be rejected under the lock.
+  const needed: Record<string, number> = {};
+  const nameOf: Record<string, string> = {};
+  for (const it of orderItems) {
+    needed[it.productId] = (needed[it.productId] ?? 0) + it.quantity;
+    if (it.product?.name) nameOf[it.productId] = it.product.name;
+  }
+  const neededEntries = Object.entries(needed);
+
+  const byFewestOrders = (a: string, b: string) => (countMap[a] ?? 0) - (countMap[b] ?? 0);
+
+  // Tier 1: agents with free (uncommitted) stock.
+  const withFreeStock = agentIds.filter((agentId) =>
+    neededEntries.every(([pid, qty]) => freeFor(agentId, pid) >= qty),
+  );
+  if (withFreeStock.length > 0) {
+    return { ok: true, agentId: withFreeStock.sort(byFewestOrders)[0], overbooked: false };
+  }
+
+  // Tier 2: agents physically holding the goods - over-booking allowed.
+  const holding = agentIds.filter((agentId) =>
+    neededEntries.every(([pid, qty]) => heldBy(agentId, pid) >= qty),
+  );
+  if (holding.length > 0) {
+    // Spread the over-book: prefer whoever ends up least short, then least loaded.
+    const deficitOf = (agentId: string) =>
+      Math.max(0, ...neededEntries.map(([pid, qty]) => qty - freeFor(agentId, pid)));
+    const agentId = holding.sort((a, b) => deficitOf(a) - deficitOf(b) || byFewestOrders(a, b))[0];
+
+    const shortfalls: StockShortfall[] = neededEntries
+      .map(([productId, qty]) => ({
+        productId,
+        productName: nameOf[productId] ?? "this product",
+        needed: qty,
+        have: freeFor(agentId, productId),
+      }))
+      .filter((s) => s.have < s.needed);
+
+    return { ok: true, agentId, overbooked: true, shortfalls };
+  }
+
+  // Blocked: nobody in the state is holding the order.
+  const shortfalls = neededEntries
+    .map(([productId, qty]) => ({
+      productName: nameOf[productId] ?? "this product",
+      needed: qty,
+      bestHeld: Math.max(0, ...agentIds.map((id) => heldBy(id, productId))),
+    }))
+    .filter((s) => s.bestHeld < s.needed);
+
+  // Every line is individually held somewhere, but no single agent holds them all
+  // together - reporting a per-product shortfall here would be a lie.
+  if (shortfalls.length === 0) return { ok: false, reason: "no_single_agent_covers_all_items" };
+  return { ok: false, reason: "insufficient_stock", shortfalls };
 }
 
 /**
- * The message shown when no agent could be assigned. Shared by every confirm
- * path so rep and admin see the same diagnosis for the same underlying state.
+ * The message shown when no agent could be assigned. Shared by every confirm path
+ * so rep and admin see the same diagnosis for the same underlying state.
  *
- * Deliberately does NOT say "try again later" for a stock shortage: retrying
- * cannot fix it, because the stock is held by other confirmed orders until
- * someone dispatches, fails or cancels them.
+ * Reaching this now means a genuine stock-out in the area - stock held by another
+ * confirmed order no longer blocks assignment - so it deliberately does NOT say
+ * "try again later".
  */
 export function formatAgentUnavailableMessage(
   result: Extract<AgentSelectionResult, { ok: false }>,
@@ -232,14 +302,75 @@ export function formatAgentUnavailableMessage(
 
     case "insufficient_stock": {
       const detail = result.shortfalls
-        .map((s) => `${s.productName} (need ${s.needed}, best agent has ${s.bestAvailable} available)`)
+        .map((s) => `${s.productName} (need ${s.needed}, best-stocked agent is holding ${s.bestHeld})`)
         .join("; ");
-      return `No delivery agent in ${state} has enough stock for this order: ${detail}. Retrying won’t help — please contact your manager to restock or free up reserved stock.`;
+      return `No delivery agent in ${state} is holding enough stock for this order: ${detail}. Retrying won't help - please contact your manager to restock the agents in this area.`;
     }
 
     case "no_single_agent_covers_all_items":
-      return `No single delivery agent in ${state} has every item on this order in stock at once. Please contact your manager to restock, or place the items as separate orders.`;
+      return `No single delivery agent in ${state} is holding every item on this order at once. Please contact your manager to restock, or place the items as separate orders.`;
   }
+}
+
+/**
+ * Toast text after a confirmation that over-booked the agent. Not an error - the
+ * order IS confirmed; this tells the office to restock before the delivery date,
+ * because `deliverOrder` will refuse the delivery if the stock isn't there.
+ */
+export function formatOverbookedWarning(
+  shortfalls: StockShortfall[],
+  agentName?: string | null,
+): string {
+  const detail = shortfalls.map((s) => `${s.productName} (short ${s.needed - s.have})`).join("; ");
+  const who = agentName ? `${agentName} is` : "the assigned agent is";
+  return `Confirmed, but ${who} now over-booked: ${detail}. Restock the agent before the delivery date or this delivery will be refused.`;
+}
+
+export type OverbookedRow = {
+  agentId: string;
+  agentName: string;
+  state: string | null;
+  productId: string;
+  productName: string;
+  held: number;
+  committed: number;
+  short: number;
+};
+
+/**
+ * Agents whose CONFIRMED orders promise more units of a product than they hold.
+ * Over-booking is legal at assignment, so this is the work queue that inventory
+ * and logistics clear so it never turns into a refused delivery.
+ *
+ * Aggregated in SQL rather than findMany + reduce: Prisma `groupBy` can't group by
+ * a relation field, and this runs on dashboards.
+ */
+export async function getOverbookedAgents(): Promise<OverbookedRow[]> {
+  return prisma.$queryRaw<OverbookedRow[]>`
+    SELECT
+      a.id                                                AS "agentId",
+      a."companyName"                                     AS "agentName",
+      a.state                                             AS "state",
+      p.id                                                AS "productId",
+      p.name                                              AS "productName",
+      COALESCE(sl.quantity, 0)::int                       AS "held",
+      SUM(oi.quantity)::int                               AS "committed",
+      (SUM(oi.quantity) - COALESCE(sl.quantity, 0))::int  AS "short"
+    FROM order_items oi
+    JOIN orders   o ON o.id = oi."orderId"
+    JOIN agents   a ON a.id = o."agentId"
+    JOIN products p ON p.id = oi."productId"
+    LEFT JOIN stock_levels sl
+      ON sl."productId"    = oi."productId"
+     AND sl."locationKind" = 'AGENT'
+     AND sl."locationId"   = o."agentId"
+    WHERE o.status = 'CONFIRMED'
+      AND o."deletedAt" IS NULL
+      AND a."deletedAt" IS NULL
+    GROUP BY a.id, a."companyName", a.state, p.id, p.name, sl.quantity
+    HAVING SUM(oi.quantity) > COALESCE(sl.quantity, 0)
+    ORDER BY (SUM(oi.quantity) - COALESCE(sl.quantity, 0)) DESC
+  `;
 }
 
 function trendLabel(current: number, previous: number): string {

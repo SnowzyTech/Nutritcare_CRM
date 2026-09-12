@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/prisma";
 import type { Prisma, StockAdjustmentStatus } from "@prisma/client";
+import { getAgentCommittedQuantities as committedQuantitiesFor } from "@/modules/delivery/services/agents.service";
 
 /**
  * Agent stock correction (reconciliation) service.
@@ -15,26 +16,20 @@ import type { Prisma, StockAdjustmentStatus } from "@prisma/client";
 type Tx = Prisma.TransactionClient;
 
 /**
- * Units already promised to an agent's CONFIRMED (not-yet-delivered) orders,
- * per product. A correction must not drop stock below this — otherwise a later
- * delivery would drive the count negative. Mirrors the committed tally in
- * `agentHasAvailableStock` (delivery/agents.service).
+ * Units already promised to an agent's CONFIRMED (not-yet-delivered) orders, per
+ * product. A correction below this figure is allowed but flagged: an agent can
+ * legitimately be over-booked (assignment no longer blocks on free stock), and
+ * the real zero floor is enforced at delivery by `deliverOrder`.
+ *
+ * A thin wrapper over the one shared definition in delivery/agents.service, so
+ * the correction tool and the confirm/delivery paths can never disagree about
+ * what "committed" means.
  */
 export async function getAgentCommittedQuantities(
   agentId: string,
   productIds: string[],
 ): Promise<Record<string, number>> {
-  if (productIds.length === 0) return {};
-  const rows = await prisma.orderItem.findMany({
-    where: {
-      productId: { in: productIds },
-      order: { agentId, status: "CONFIRMED", deletedAt: null },
-    },
-    select: { productId: true, quantity: true },
-  });
-  const committed: Record<string, number> = {};
-  for (const r of rows) committed[r.productId] = (committed[r.productId] ?? 0) + r.quantity;
-  return committed;
+  return committedQuantitiesFor(prisma, agentId, productIds);
 }
 
 /**

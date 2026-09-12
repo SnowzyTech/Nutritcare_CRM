@@ -92,7 +92,7 @@ Each domain lives under `modules/{feature}/` with `actions/*.action.ts` and `ser
 | Module | What it covers |
 |---|---|
 | `auth` | login, admin-login, signup, logout; `auth.service` (Prisma lookup + bcrypt) |
-| `orders` | orders, admin-orders, sales-manager-orders; services: orders, admin-dashboard, analytics, products, order-number, tier-pricing, upsell-apply, manual-order, reassign-agent/-description, sales-report |
+| `orders` | orders, admin-orders, sales-manager-orders; services: orders, admin-dashboard, analytics, products, order-number, tier-pricing, upsell-apply, manual-order, deliver-order/undo-delivery, reassign-agent/-description, sales-report |
 | `users` | users, admin-access, sales-manager-teams, team-analytics; `users.service` |
 | `delivery` | agents, logistics-agents, logistics-dispatch, logistics-update-status, delivery-agent-portal, notifications; services for delivery, drivers, logistics dashboard/orders/dispatch/report/team, delivery-agent portal |
 | `finance` | dashboard, expenses, invoices, ledger, salary, sales-record, settlements, fixed-assets, suppliers, inventory-accounting, agent-data; matching services + `data/chart-of-accounts.ts` + `lib/depreciation.ts` |
@@ -231,6 +231,7 @@ The company expects high order volume. Already scale-ready: Neon pooled Postgres
 - **Chat is externalized** — this app owns the data; a standalone socket server owns fan-out. Everything degrades gracefully without it.
 - **Single `StockMovement` model** covers INCOMING/OUTGOING/RETURN with nullable type-specific fields.
 - **Polymorphic transfers** — `StockTransfer` uses `sourceId/targetId` strings + node-type enums.
+- **Agent stock commitment** — an agent's "booking" is derived, not stored: committed = Σ `OrderItem.quantity` on that agent's CONFIRMED orders (`getAgentCommittedQuantities`, `modules/delivery/services/agents.service.ts`). Assignment/confirm is **permissive** (the agent need only physically hold the goods — `checkAgentOnHandStock`), so an earlier booking can never block a newer, more urgent order; over-booking is legal and surfaced as a warning. The hard zero floor lives at **delivery**, in `modules/orders/services/deliver-order.service.ts` (`deliverOrder`, the single write path behind all four mark-delivered actions), which refuses rather than driving `StockLevel` negative. See `docs/agent-stock-commitment.md`.
 - **Agent ≠ User ≠ Driver** — `Agent` (external distributor) and `Driver` (truck driver) are separate models; `User` is internal staff only.
 - **`Notification.type` / many status-ish fields are Strings** to avoid migrations as types grow.
 - **`statesCovered` on Agent** and form `data` are JSON — avoids junction tables for finite/flexible sets.
@@ -248,6 +249,7 @@ The company expects high order volume. Already scale-ready: Neon pooled Postgres
 - `super-admin-feature.md` — admin tiers + per-page access control.
 - `upsell-package-pricing.md` — package pricing + upsell math. *(Header says "PLANNED" but it is **shipped**.)*
 - `upsell-display-rollout.md` — where upsell cards/badges show per role.
+- `agent-stock-commitment.md` — how orders lay claim to agent stock, the tiered agent selection, and the delivery-time zero floor.
 - `scale-considerations.md` — what to make query-based before high volume.
 
 *(The early one-off build prompts `schema-prompt.md`, `schema-updates.md`, `batch-2-auth-fixes.md`, and `inventory-forms-updates.md` were deleted — fully superseded by the code.)*

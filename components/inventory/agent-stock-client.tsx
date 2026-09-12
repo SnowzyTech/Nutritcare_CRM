@@ -146,17 +146,17 @@ export function AgentStockClient({
   }
 
   const changedRows = rows.filter((r) => r.input !== "" && Number(r.input) !== r.currentQty);
-  const belowCommitted = changedRows.find((r) => Number(r.input) < r.committed);
+  // Corrections below committed are allowed (an over-booked agent is a real
+  // state); this is only a heads-up next to the submit button.
+  const belowCommittedCount = changedRows.filter((r) => Number(r.input) < r.committed).length;
 
   function submit() {
     if (!agentId) return toast.error("Select an agent.");
     if (!reason.trim()) return toast.error("Enter a reason.");
     if (changedRows.length === 0) return toast.error("Change at least one quantity.");
-    if (belowCommitted) {
-      return toast.error(
-        `${belowCommitted.productName} can't go below ${belowCommitted.committed} committed unit(s).`,
-      );
-    }
+    // Going below committed is allowed - an over-booked agent is a legitimate
+    // state, and this tool is how their real count gets recorded. The server
+    // returns a `warning` describing the resulting shortfall.
     startSubmit(async () => {
       const res = await createAgentStockCorrectionAction({
         agentId,
@@ -172,6 +172,7 @@ export function AgentStockClient({
           ? "Correction submitted for admin approval."
           : "Agent stock corrected.",
       );
+      if (res.warning) toast.warning(res.warning, { duration: 12000 });
       setAgentId("");
       setRows([]);
       setReason("CRM transition reconciliation");
@@ -179,7 +180,11 @@ export function AgentStockClient({
     });
   }
 
-  function runAction(id: string, fn: () => Promise<{ error?: string; ok?: true }>, done: string) {
+  function runAction(
+    id: string,
+    fn: () => Promise<{ error?: string; ok?: true; warning?: string }>,
+    done: string,
+  ) {
     setBusyId(id);
     startSubmit(async () => {
       const res = await fn();
@@ -189,6 +194,7 @@ export function AgentStockClient({
         return;
       }
       toast.success(done);
+      if (res.warning) toast.warning(res.warning, { duration: 12000 });
       router.refresh();
     });
   }
@@ -260,15 +266,15 @@ export function AgentStockClient({
                           onChange={(e) => setRowInput(r.productId, e.target.value)}
                           className={`w-24 mx-auto block text-center bg-white border rounded-lg h-9 px-2 text-sm focus:outline-none focus:ring-1 ${
                             below
-                              ? "border-red-300 focus:ring-red-300 text-red-600"
+                              ? "border-amber-300 focus:ring-amber-300 text-amber-700"
                               : changed
                                 ? "border-purple-300 focus:ring-purple-300 text-purple-700 font-semibold"
                                 : "border-gray-200 focus:ring-purple-300 text-gray-700"
                           }`}
                         />
                         {below && (
-                          <p className="text-[10px] text-red-500 text-center mt-1">
-                            Below {r.committed} committed
+                          <p className="text-[10px] text-amber-600 text-center mt-1">
+                            Leaves them {r.committed - (val ?? 0)} short of {r.committed} committed
                           </p>
                         )}
                       </td>
@@ -284,10 +290,16 @@ export function AgentStockClient({
           <div className="flex items-center justify-between pt-1">
             <p className="text-xs text-gray-400">
               {changedRows.length} product{changedRows.length === 1 ? "" : "s"} changed
+              {belowCommittedCount > 0 && (
+                <span className="text-amber-600">
+                  {" "}
+                  · {belowCommittedCount} below committed
+                </span>
+              )}
             </p>
             <button
               onClick={submit}
-              disabled={submitting || changedRows.length === 0 || !!belowCommitted}
+              disabled={submitting || changedRows.length === 0}
               className="inline-flex items-center gap-1.5 bg-[#A020F0] hover:bg-[#8B1ED2] disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-xs uppercase tracking-wider px-5 py-3 rounded-xl transition"
             >
               {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}

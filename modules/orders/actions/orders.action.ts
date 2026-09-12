@@ -8,7 +8,8 @@ import type { MonthMetrics } from "@/modules/orders/services/analytics.service";
 import {
   findEligibleAgentForOrder,
   formatAgentUnavailableMessage,
-  agentHasAvailableStock,
+  formatOverbookedWarning,
+  checkAgentOnHandStock,
   lockAgent,
 } from "@/modules/delivery/services/agents.service";
 import {
@@ -102,7 +103,7 @@ export async function confirmOrderAction(
   orderId: string,
   notes?: string,
   deliveryDate?: string,
-): Promise<{ error?: string }> {
+): Promise<{ error?: string; warning?: string }> {
   // Returns { error } rather than throwing so messages reach the UI clearly in
   // production (Next.js redacts thrown Server Action errors).
   const session = await auth();
@@ -147,14 +148,17 @@ export async function confirmOrderAction(
 
   const deliveryCode = generateDeliveryCode();
 
-  // Assign under a per-agent lock and re-verify availability inside it, so two
-  // orders confirmed at the same instant can't both grab the same agent's stock.
-  let capacityHit = false;
+  // Assign under the agent's lock and re-verify inside it. The check is ON-HAND,
+  // not on-hand minus bookings: an agent already carrying orders for these units
+  // must stay assignable, or one early booking blocks every later (possibly more
+  // urgent) order. Over-booking is caught for real at delivery, where
+  // `deliverOrder` refuses rather than overdrawing the agent.
+  let stockGone = false;
   await prisma.$transaction(async (tx) => {
     await lockAgent(tx, agentId);
-    const ok = await agentHasAvailableStock(tx, agentId, order.items);
-    if (!ok) {
-      capacityHit = true;
+    const check = await checkAgentOnHandStock(tx, agentId, order.items);
+    if (!check.ok) {
+      stockGone = true;
       return; // leave the order untouched
     }
     await tx.order.update({
@@ -176,10 +180,10 @@ export async function confirmOrderAction(
     });
   });
 
-  if (capacityHit) {
+  if (stockGone) {
     return {
       error:
-        "The selected delivery agent just reached capacity for one or more items. Please try again — another agent will be chosen.",
+        "The selected delivery agent is no longer holding the stock for this order. Please try again — another agent will be chosen.",
     };
   }
 
@@ -190,6 +194,18 @@ export async function confirmOrderAction(
     entityId: orderId,
     description: `Order #${order.orderNumber} confirmed`,
   });
+
+  // Assigned, but the agent is now promising more of something than they hold.
+  // Not an error - the order IS confirmed - but the office has to restock before
+  // the delivery date or `deliverOrder` will refuse it.
+  let warning: string | undefined;
+  if (selection.overbooked) {
+    const agent = await prisma.agent.findUnique({
+      where: { id: agentId },
+      select: { companyName: true },
+    });
+    warning = formatOverbookedWarning(selection.shortfalls, agent?.companyName);
+  }
 
   // Send WhatsApp confirmation to customer (fire-and-forget — never throws)
   const waPhone = order.customer.whatsappNumber || order.customer.phone;
@@ -236,7 +252,7 @@ export async function confirmOrderAction(
   }
 
   revalidateOrderPaths(orderId);
-  return {};
+  return warning ? { warning } : {};
 }
 
 export async function updateOrderNotesAction(orderId: string, notes: string) {
@@ -324,14 +340,15 @@ export async function reviveOrderAction(orderId: string): Promise<{ error?: stri
   }
 
   if (order.status === "FAILED") {
-    // Reviving re-commits the order's stock to its agent — verify availability
-    // under the agent's lock first, so a revive can't overbook the agent.
+    // Reviving re-commits the order's stock to its agent. Checked ON-HAND, like
+    // every other commit path: the agent's other bookings must not block a revive,
+    // but the goods do have to still be on their shelf.
     let capacityHit = false;
     await prisma.$transaction(async (tx) => {
       if (order.agentId) {
         await lockAgent(tx, order.agentId);
-        const ok = await agentHasAvailableStock(tx, order.agentId, order.items);
-        if (!ok) {
+        const check = await checkAgentOnHandStock(tx, order.agentId, order.items);
+        if (!check.ok) {
           capacityHit = true;
           return; // leave the order untouched
         }
@@ -346,7 +363,7 @@ export async function reviveOrderAction(orderId: string): Promise<{ error?: stri
     if (capacityHit) {
       return {
         error:
-          "The assigned agent no longer has enough available stock to revive this order. Reassign it to another agent first.",
+          "The assigned agent is no longer holding enough stock to revive this order. Reassign it to another agent first.",
       };
     }
   } else {
