@@ -24,6 +24,7 @@ export default async function InventoryPage() {
   if (!agentId) redirect("/delivery-agents");
 
   const inventory = await getAgentInventory(agentId);
+  const shortItems = inventory.filter((i) => i.short > 0);
 
   const avatarUrl = session.user.name
     ? `https://ui-avatars.com/api/?name=${encodeURIComponent(session.user.name)}&background=f3e8ff&color=ad1df4`
@@ -47,6 +48,17 @@ export default async function InventoryPage() {
         </div>
       </div>
 
+      {shortItems.length > 0 && (
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-red-800">
+          <p className="text-sm font-bold">You are short on {shortItems.length} product(s)</p>
+          <p className="mt-1 text-xs leading-relaxed">
+            {shortItems.map((i) => `${i.productName} (short ${i.short})`).join(", ")}. You have
+            more scheduled than you are holding, so one of those deliveries will be refused.
+            Contact the office to get restocked.
+          </p>
+        </div>
+      )}
+
       {inventory.length === 0 ? (
         <div className="text-center py-20 text-gray-400">
           <p className="text-lg font-bold">No inventory assigned</p>
@@ -66,10 +78,15 @@ export default async function InventoryPage() {
                 </div>
                 <div className="flex items-baseline justify-between mt-auto">
                   <span className="text-6xl font-black tracking-tighter">{item.totalStock}</span>
-                  <div className="text-right max-w-[80px]">
+                  <div className="text-right max-w-[86px]">
                     <p className={`text-[10px] font-bold leading-tight ${subTextTheme}`}>
                       {item.scheduled} scheduled for delivery
                     </p>
+                    {item.short > 0 && (
+                      <p className="mt-1 inline-block rounded-full bg-red-600 px-2 py-0.5 text-[10px] font-bold leading-tight text-white">
+                        Short by {item.short}
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>

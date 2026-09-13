@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/db/prisma";
 import { resolveUpsellPrice } from "./tier-pricing.service";
 import {
-  agentHasAvailableStock,
+  checkAgentOnHandStock,
   lockAgent,
 } from "@/modules/delivery/services/agents.service";
 import type { OrderStatus, Prisma } from "@prisma/client";
@@ -166,15 +166,16 @@ export async function applyUpsellItems(
   await prisma.$transaction(async (tx) => {
     if (confirmedAgentId) {
       await lockAgent(tx, confirmedAgentId);
-      // Available already nets out this confirmed order's existing items, so we
-      // only need room for the NEW units (the added quantity) on top of the
-      // agent's commitments — merging doesn't change how many new units ship.
-      const ok = await agentHasAvailableStock(
+      // Checked ON-HAND, like every other commit path: the agent's existing
+      // bookings must not block an addition. Only the NEW units are checked -
+      // merging doesn't change how many new units ship - and pushing the agent
+      // past their free stock is allowed here, then enforced at delivery.
+      const check = await checkAgentOnHandStock(
         tx,
         confirmedAgentId,
         addedItems.map((i) => ({ productId: i.productId, quantity: i.quantity })),
       );
-      if (!ok) {
+      if (!check.ok) {
         capacityHit = true;
         return; // leave the order untouched
       }
@@ -251,7 +252,7 @@ export async function applyUpsellItems(
   if (capacityHit) {
     return {
       error:
-        "The assigned agent doesn't have enough available stock for the added product(s).",
+        "The assigned agent isn't holding enough stock for the added product(s).",
     };
   }
 

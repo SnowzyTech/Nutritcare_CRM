@@ -142,9 +142,12 @@ export async function getAgentInventory(agentId: string) {
         product: { select: { name: true } },
       },
     }),
-    // Scheduled = quantities committed to confirmed-but-undelivered orders
+    // Scheduled = quantities committed to confirmed-but-undelivered orders.
+    // CONFIRMED only, matching `getAgentCommittedQuantities` - every other part of
+    // the system measures commitment that way, and a PENDING order has no agent
+    // yet, so counting it here only ever overstated the number.
     prisma.order.findMany({
-      where: { agentId, status: { in: ["PENDING", "CONFIRMED"] }, deletedAt: null },
+      where: { agentId, status: "CONFIRMED", deletedAt: null },
       select: {
         items: { select: { quantity: true, product: { select: { id: true, name: true } } } },
       },
@@ -178,12 +181,20 @@ export async function getAgentInventory(agentId: string) {
   for (const sl of stockLevels) stockQty[sl.productId] = Math.max(0, sl.quantity);
 
   return Array.from(allProductIds)
-    .map((productId) => ({
-      productId,
-      productName: nameMap[productId] ?? "Unknown",
-      totalStock: stockQty[productId] ?? 0,
-      scheduled: scheduledMap[productId] ?? 0,
-    }))
+    .map((productId) => {
+      const totalStock = stockQty[productId] ?? 0;
+      const scheduled = scheduledMap[productId] ?? 0;
+      return {
+        productId,
+        productName: nameMap[productId] ?? "Unknown",
+        totalStock,
+        scheduled,
+        // The agent has promised more than they are holding. Allowed at
+        // confirmation on purpose, but `deliverOrder` will refuse the delivery
+        // that runs out, so the agent needs to chase a restock now.
+        short: Math.max(0, scheduled - totalStock),
+      };
+    })
     .filter((item) => item.totalStock > 0 || item.scheduled > 0);
 }
 

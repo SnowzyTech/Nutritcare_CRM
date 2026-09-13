@@ -385,7 +385,7 @@ export function OrderDetailClient({ order, products }: OrderDetailClientProps) {
   }
 
   function handleAction(
-    action: () => Promise<void | { error?: string }>,
+    action: () => Promise<void | { error?: string; warning?: string }>,
     successMsg?: string,
   ) {
     startTransition(async () => {
@@ -398,6 +398,12 @@ export function OrderDetailClient({ order, products }: OrderDetailClientProps) {
           return;
         }
         if (successMsg) toast.success(successMsg);
+        // The action succeeded but flagged something the office must act on
+        // (e.g. the assigned agent is now over-booked). Held longer than a normal
+        // toast because it is a to-do, not a confirmation.
+        if (res && typeof res === "object" && "warning" in res && res.warning) {
+          toast.warning(res.warning, { duration: 12000 });
+        }
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Action failed");
       }

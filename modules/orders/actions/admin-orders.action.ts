@@ -3,13 +3,17 @@
 import { auth } from "@/lib/auth/auth";
 import { prisma } from "@/lib/db/prisma";
 import { revalidatePath } from "next/cache";
-import { recordDeliveryFeeEntry } from "@/modules/finance/services/agent-settlement.service";
+import {
+  deliverOrder,
+  deliveryRefusalMessage,
+} from "@/modules/orders/services/deliver-order.service";
 import { resolveDeliveredDate } from "@/lib/orders/delivered-date";
 import type { OrderStatus } from "@prisma/client";
 import {
   findEligibleAgentForOrder,
   formatAgentUnavailableMessage,
-  agentHasAvailableStock,
+  formatOverbookedWarning,
+  checkAgentOnHandStock,
   lockAgent,
 } from "@/modules/delivery/services/agents.service";
 import { logActivity } from "@/modules/audit/services/audit-log.service";
@@ -31,7 +35,9 @@ import { undoOrderDelivery } from "@/modules/orders/services/undo-delivery.servi
 
 // Returned (not thrown) so the message survives production builds, where Next.js
 // strips messages from thrown server-action errors.
-type ActionResult = { success: true } | { error: string };
+// `warning` rides along with a SUCCESS: the order is confirmed, but the agent is
+// now over-booked and the office has to restock before the delivery date.
+type ActionResult = { success: true; warning?: string } | { error: string };
 
 async function checkAdmin() {
   const session = await auth();
@@ -95,14 +101,17 @@ export async function adminConfirmOrderAction(orderId: string, deliveryDate?: st
 
   const deliveryCode = generateDeliveryCode();
 
-  // Assign under a per-agent lock and re-verify availability inside it, so two
-  // orders confirmed at the same instant can't both grab the same agent's stock.
-  let capacityHit = false;
+  // Assign under the agent's lock and re-verify inside it. The check is ON-HAND,
+  // not on-hand minus bookings: an agent already carrying orders for these units
+  // must stay assignable, or one early booking blocks every later (possibly more
+  // urgent) order. Over-booking is caught for real at delivery, where
+  // `deliverOrder` refuses rather than overdrawing the agent.
+  let stockGone = false;
   await prisma.$transaction(async (tx) => {
     await lockAgent(tx, agentId);
-    const ok = await agentHasAvailableStock(tx, agentId, order.items);
-    if (!ok) {
-      capacityHit = true;
+    const check = await checkAgentOnHandStock(tx, agentId, order.items);
+    if (!check.ok) {
+      stockGone = true;
       return; // leave the order untouched
     }
     await tx.order.update({
@@ -120,10 +129,10 @@ export async function adminConfirmOrderAction(orderId: string, deliveryDate?: st
     });
   });
 
-  if (capacityHit) {
+  if (stockGone) {
     return {
       error:
-        "The selected delivery agent just reached capacity for one or more items. Please try again — another agent will be chosen.",
+        "The selected delivery agent is no longer holding the stock for this order. Please try again — another agent will be chosen.",
     };
   }
 
@@ -134,6 +143,15 @@ export async function adminConfirmOrderAction(orderId: string, deliveryDate?: st
     entityId: orderId,
     description: `Order #${order.orderNumber} confirmed`,
   });
+
+  let warning: string | undefined;
+  if (selection.overbooked) {
+    const agent = await prisma.agent.findUnique({
+      where: { id: agentId },
+      select: { companyName: true },
+    });
+    warning = formatOverbookedWarning(selection.shortfalls, agent?.companyName);
+  }
 
   // Send WhatsApp confirmation + delivery code to customer (fire-and-forget — never throws)
   const waPhone = order.customer.whatsappNumber || order.customer.phone;
@@ -172,7 +190,7 @@ export async function adminConfirmOrderAction(orderId: string, deliveryDate?: st
   }
 
   revalidate(orderId);
-  return { success: true };
+  return warning ? { success: true, warning } : { success: true };
 }
 
 export async function adminCancelOrderAction(orderId: string): Promise<ActionResult> {
@@ -303,7 +321,6 @@ export async function adminDeliverOrderAction(
   const order = await prisma.order.findFirst({
     where: { id: orderId, deletedAt: null },
     include: {
-      items: { select: { productId: true, quantity: true } },
       deliveries: { select: { createdAt: true }, orderBy: { createdAt: "asc" }, take: 1 },
     },
   });
@@ -313,26 +330,12 @@ export async function adminDeliverOrderAction(
   const resolved = resolveDeliveredDate(deliveredDate, confirmedAt);
   if ("error" in resolved) return { error: resolved.error };
   const deliveredAt = resolved.deliveredAt;
-  // Deduct the delivered units from the agent's on-hand stock, mirroring the
-  // delivery-agent/sales-manager/data-analyst paths — otherwise the goods stay
-  // on the agent's StockLevel as phantom stock after delivery.
-  const stockDeductions = order.agentId
-    ? order.items.map((item) =>
-        prisma.stockLevel.updateMany({
-          where: { productId: item.productId, locationKind: "AGENT", locationId: order.agentId! },
-          data: { quantity: { decrement: item.quantity } },
-        }),
-      )
-    : [];
-
-  await prisma.$transaction([
-    prisma.order.update({ where: { id: orderId }, data: { status: "DELIVERED" } }),
-    prisma.delivery.updateMany({
-      where: { orderId },
-      data: { status: "DELIVERED", deliveredTime: deliveredAt },
-    }),
-    ...stockDeductions,
-  ]);
+  // Status flip, agent stock debit (refused rather than overdrawn) and the agent
+  // ledger entry all live in the shared service - see deliver-order.service.ts.
+  const delivered = await deliverOrder({ orderId, deliveredAt });
+  if (!delivered.ok) {
+    return { error: deliveryRefusalMessage(delivered, "office") };
+  }
 
   await logActivity({
     userId: order.salesRepId,
@@ -341,16 +344,6 @@ export async function adminDeliverOrderAction(
     entityId: orderId,
     description: `Order #${order.orderNumber} delivered`,
   });
-
-  if (order.agentId) {
-    await recordDeliveryFeeEntry({
-      agentId: order.agentId,
-      netAmount: Number(order.netAmount),
-      orderNumber: order.orderNumber,
-      // Date the funding on the chosen delivery day so the ledger matches the data view.
-      date: deliveredAt,
-    });
-  }
 
   revalidate(orderId);
   return { success: true };

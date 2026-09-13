@@ -1,7 +1,7 @@
 import type { OrderStatus } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import {
-  agentHasAvailableStock,
+  checkAgentOnHandStock,
   lockAgent,
 } from "@/modules/delivery/services/agents.service";
 
@@ -21,8 +21,8 @@ export type ReassignAgentResult =
  * CONFIRMED so the new agent can complete it.
  *
  * When `verifyStock` is true the move runs under the target agent's advisory lock
- * and is rejected if that agent lacks enough available stock (excluding this order
- * from the committed tally). Admin overrides pass `verifyStock: false`.
+ * and is rejected if that agent is not holding enough stock. Admin overrides pass
+ * `verifyStock: false`.
  */
 export async function reassignAgentForOrder(
   orderId: string,
@@ -59,14 +59,15 @@ export async function reassignAgentForOrder(
     };
   }
 
-  // Verify the TARGET agent has enough available stock, under its lock, before
-  // moving the order (excludes this order in case it's already on that agent).
+  // Verify the TARGET agent is HOLDING the goods, under its lock, before moving
+  // the order. On-hand, not on-hand minus bookings: what that agent has already
+  // promised elsewhere must not block the move (over-booking is legal and is
+  // caught at delivery), but the goods do have to physically be on their shelf.
   let hasStock = true;
   await prisma.$transaction(async (tx) => {
     await lockAgent(tx, agentId);
-    hasStock = await agentHasAvailableStock(tx, agentId, order.items, {
-      excludeOrderId: orderId,
-    });
+    const check = await checkAgentOnHandStock(tx, agentId, order.items);
+    hasStock = check.ok;
     if (!hasStock) return; // leave the order untouched
     await tx.order.update({ where: { id: orderId }, data });
   });

@@ -196,6 +196,100 @@ export async function reverseAdjustment(
   }
 }
 
+// ── Customer delivery: the only debit with a hard zero floor ────────────────
+//
+// Agent stock is CONSUMED when an order is delivered. Unlike every other stock
+// event, a delivery is not planned against free stock: assignment deliberately
+// allows an agent to be over-booked (see `findEligibleAgentForOrder`), so this is
+// the single point where the promise meets the shelf. It therefore refuses rather
+// than driving the balance negative — `applyDelta`'s update branch has no floor
+// and `StockLevel.quantity` has no CHECK constraint, so nothing below would stop it.
+
+export type AgentDebitShortfall = { productId: string; needed: number; have: number };
+
+export type AgentDebitResult = { ok: true } | { ok: false; shortfalls: AgentDebitShortfall[] };
+
+/**
+ * Debits an agent's on-hand stock for a completed delivery, or reports what is
+ * short. Never writes a negative balance and never creates a missing row: no row
+ * means the agent is not recorded as holding anything, which is a shortfall.
+ *
+ * Each line is a CONDITIONAL update (`quantity: { gte }`), so the floor holds at
+ * row level even against writers that don't take `lockAgent` (returns, agent-to-
+ * agent transfers, pick-pack credits, stock corrections). The caller must run this
+ * inside a transaction it aborts on `ok: false`, so partial debits roll back.
+ */
+export async function debitAgentForDelivery(
+  tx: Tx,
+  agentId: string,
+  items: Array<{ productId: string; quantity: number }>,
+): Promise<AgentDebitResult> {
+  // Aggregate duplicate product lines — two lines of the same product must be
+  // debited as one, or each conditional update would be checked in isolation.
+  const needed = new Map<string, number>();
+  for (const it of items) {
+    if (it.quantity <= 0) continue;
+    needed.set(it.productId, (needed.get(it.productId) ?? 0) + it.quantity);
+  }
+  if (needed.size === 0) return { ok: true };
+
+  // Read first so a shortfall can report the real on-hand figure, not just "short".
+  const rows = await tx.stockLevel.findMany({
+    where: {
+      locationKind: "AGENT",
+      locationId: agentId,
+      productId: { in: [...needed.keys()] },
+    },
+    select: { productId: true, quantity: true },
+  });
+  const onHand = new Map(rows.map((r) => [r.productId, r.quantity]));
+
+  const shortfalls: AgentDebitShortfall[] = [];
+  for (const [productId, quantity] of needed) {
+    if ((onHand.get(productId) ?? 0) < quantity) {
+      shortfalls.push({ productId, needed: quantity, have: Math.max(0, onHand.get(productId) ?? 0) });
+    }
+  }
+  if (shortfalls.length > 0) return { ok: false, shortfalls };
+
+  for (const [productId, quantity] of needed) {
+    const res = await tx.stockLevel.updateMany({
+      where: {
+        productId,
+        locationKind: "AGENT",
+        locationId: agentId,
+        quantity: { gte: quantity },
+      },
+      data: { quantity: { decrement: quantity } },
+    });
+    // Lost a race with a concurrent write between the read above and here.
+    if (res.count === 0) {
+      return { ok: false, shortfalls: [{ productId, needed: quantity, have: 0 }] };
+    }
+  }
+
+  return { ok: true };
+}
+
+/**
+ * Exact reverse of {@link debitAgentForDelivery}, for undoing a delivery.
+ * `updateMany` (not upsert) mirrors the debit: a debit only succeeds when a row
+ * exists, so there is always a row to credit back.
+ */
+export async function creditAgentForDelivery(
+  tx: Tx,
+  agentId: string,
+  items: Array<{ productId: string; quantity: number }>,
+): Promise<void> {
+  for (const it of items) {
+    if (it.quantity <= 0) continue;
+    await tx.stockLevel.updateMany({
+      where: { productId: it.productId, locationKind: "AGENT", locationId: agentId },
+      data: { quantity: { increment: it.quantity } },
+    });
+  }
+}
+
 // ── WarehouseLocation bin helpers ───────────────────────────────────────────
 
 /**

@@ -90,7 +90,7 @@ const CreateSchema = z.object({
 
 export async function createAgentStockCorrectionAction(
   input: z.input<typeof CreateSchema>,
-): Promise<{ error?: string; ok?: true; pending?: boolean }> {
+): Promise<{ error?: string; ok?: true; pending?: boolean; warning?: string }> {
   const operator = await requireOperator();
   if (!operator) return { error: "You are not allowed to perform this action." };
   suppressCameraForRequest();
@@ -123,20 +123,30 @@ export async function createAgentStockCorrectionAction(
     return { error: "One or more products are unavailable." };
   }
 
-  // Keep only real changes; block dropping below committed.
+  // Keep only real changes. Setting a quantity BELOW what is committed is allowed:
+  // an agent can legitimately be over-booked now that assignment no longer blocks
+  // on free stock, and refusing here would make this tool unusable for exactly the
+  // agents that need correcting. The zero floor is enforced where it matters - at
+  // delivery, by `deliverOrder`. So warn, do not block.
   const changed: { productId: string; quantityBefore: number; quantityAfter: number }[] = [];
+  const overbooked: string[] = [];
   for (const it of items) {
     const before = beforeMap.get(it.productId) ?? 0;
     if (it.quantityAfter === before) continue;
     const committedQty = committed[it.productId] ?? 0;
     if (it.quantityAfter < committedQty) {
-      return {
-        error: `${nameMap.get(it.productId)} can't be set to ${it.quantityAfter} — ${committedQty} unit(s) are already committed to this agent's confirmed orders.`,
-      };
+      overbooked.push(
+        `${nameMap.get(it.productId)} (setting ${it.quantityAfter}, ${committedQty} committed)`,
+      );
     }
     changed.push({ productId: it.productId, quantityBefore: before, quantityAfter: it.quantityAfter });
   }
   if (changed.length === 0) return { error: "No changes to apply." };
+
+  const warning =
+    overbooked.length > 0
+      ? `This leaves ${agent.companyName} short of their confirmed orders: ${overbooked.join("; ")}. Those deliveries will be refused until the agent is restocked.`
+      : undefined;
 
   const applyNow = isAdmin(operator.role);
   const referenceNumber = generateRefNumber();
@@ -174,7 +184,7 @@ export async function createAgentStockCorrectionAction(
       details: { before: reason, field: "agentStock" },
     });
     revalidate();
-    return { ok: true, pending: false };
+    return { ok: true, pending: false, ...(warning ? { warning } : {}) };
   }
 
   // Inventory manager → needs admin approval; stock unchanged for now.
@@ -218,14 +228,14 @@ export async function createAgentStockCorrectionAction(
     description: `Agent stock correction ${referenceNumber} submitted for approval — ${agent.companyName}: ${summary}`,
   });
   revalidate();
-  return { ok: true, pending: true };
+  return { ok: true, pending: true, ...(warning ? { warning } : {}) };
 }
 
 // ── Approve (Admin only) ───────────────────────────────────────────────────────
 
 export async function approveAgentStockCorrectionAction(
   id: string,
-): Promise<{ error?: string; ok?: true }> {
+): Promise<{ error?: string; ok?: true; warning?: string }> {
   const session = await auth();
   if (!session?.user?.id) return { error: "Unauthorized" };
   if (!isAdmin(session.user.role)) return { error: "Only admins can approve corrections." };
@@ -238,7 +248,9 @@ export async function approveAgentStockCorrectionAction(
   if (!adj) return { error: "Correction not found." };
   if (adj.status !== "PENDING_APPROVAL") return { error: "This correction is not pending approval." };
 
-  // Re-check the committed guard against CURRENT confirmed orders (time has passed).
+  // Re-read commitments against CURRENT confirmed orders (time has passed). This is
+  // a warning, not a block: over-booking an agent is legal, and the delivery gate
+  // is what actually keeps the balance off negative.
   const committed = await getAgentCommittedQuantities(
     adj.agentId,
     adj.items.map((i) => i.productId),
@@ -248,14 +260,16 @@ export async function approveAgentStockCorrectionAction(
     select: { id: true, name: true },
   });
   const nameMap = new Map(products.map((p) => [p.id, p.name]));
-  for (const it of adj.items) {
-    const committedQty = committed[it.productId] ?? 0;
-    if (it.quantityAfter < committedQty) {
-      return {
-        error: `Can't approve — ${nameMap.get(it.productId)} would drop below ${committedQty} unit(s) now committed to confirmed orders. Reject and re-do the correction.`,
-      };
-    }
-  }
+  const overbooked = adj.items
+    .filter((it) => it.quantityAfter < (committed[it.productId] ?? 0))
+    .map(
+      (it) =>
+        `${nameMap.get(it.productId)} (setting ${it.quantityAfter}, ${committed[it.productId] ?? 0} committed)`,
+    );
+  const warning =
+    overbooked.length > 0
+      ? `Approved, but this leaves the agent short of their confirmed orders: ${overbooked.join("; ")}. Those deliveries will be refused until the agent is restocked.`
+      : undefined;
 
   await prisma.$transaction(async (tx) => {
     await tx.agentStockAdjustment.update({
@@ -290,7 +304,7 @@ export async function approveAgentStockCorrectionAction(
     description: `Approved agent stock correction ${adj.referenceNumber}`,
   });
   revalidate();
-  return { ok: true };
+  return { ok: true, ...(warning ? { warning } : {}) };
 }
 
 // ── Reject (Admin only) ────────────────────────────────────────────────────────
@@ -344,7 +358,7 @@ export async function rejectAgentStockCorrectionAction(
 
 export async function reverseAgentStockCorrectionAction(
   id: string,
-): Promise<{ error?: string; ok?: true }> {
+): Promise<{ error?: string; ok?: true; warning?: string }> {
   const session = await auth();
   if (!session?.user?.id) return { error: "Unauthorized" };
   if (!isAdmin(session.user.role)) return { error: "Only admins can reverse corrections." };
@@ -357,7 +371,8 @@ export async function reverseAgentStockCorrectionAction(
   if (!adj) return { error: "Correction not found." };
   if (adj.status !== "RECORDED") return { error: "Only an applied correction can be reversed." };
 
-  // Reverting to `quantityBefore` must still respect current commitments.
+  // Reverting to `quantityBefore` may leave the agent short of what they have
+  // promised. Flagged, not blocked - same reasoning as create/approve.
   const committed = await getAgentCommittedQuantities(
     adj.agentId,
     adj.items.map((i) => i.productId),
@@ -367,14 +382,16 @@ export async function reverseAgentStockCorrectionAction(
     select: { id: true, name: true },
   });
   const nameMap = new Map(products.map((p) => [p.id, p.name]));
-  for (const it of adj.items) {
-    const committedQty = committed[it.productId] ?? 0;
-    if (it.quantityBefore < committedQty) {
-      return {
-        error: `Can't reverse — ${nameMap.get(it.productId)} would drop below ${committedQty} unit(s) now committed to confirmed orders.`,
-      };
-    }
-  }
+  const overbooked = adj.items
+    .filter((it) => it.quantityBefore < (committed[it.productId] ?? 0))
+    .map(
+      (it) =>
+        `${nameMap.get(it.productId)} (back to ${it.quantityBefore}, ${committed[it.productId] ?? 0} committed)`,
+    );
+  const warning =
+    overbooked.length > 0
+      ? `Reversed, but this leaves the agent short of their confirmed orders: ${overbooked.join("; ")}. Those deliveries will be refused until the agent is restocked.`
+      : undefined;
 
   await prisma.$transaction(async (tx) => {
     await tx.agentStockAdjustment.update({ where: { id }, data: { status: "REVERSED" } });
@@ -395,5 +412,5 @@ export async function reverseAgentStockCorrectionAction(
     description: `Reversed agent stock correction ${adj.referenceNumber} (restored previous quantities)`,
   });
   revalidate();
-  return { ok: true };
+  return { ok: true, ...(warning ? { warning } : {}) };
 }

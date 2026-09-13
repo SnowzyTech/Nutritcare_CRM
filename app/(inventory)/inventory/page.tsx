@@ -7,6 +7,7 @@ import { StockMovementChart } from "@/components/dashboard/inventory/stock-movem
 import { StockSummaryCard } from "@/components/dashboard/inventory/stock-summary-card";
 import { AlertsList } from "@/components/dashboard/inventory/alerts-list";
 import { getInventoryDashboardData } from "@/modules/inventory/services/inventory.service";
+import OverbookedAgentsPanel from "@/components/inventory/overbooked-agents-panel";
 
 export default async function InventoryDashboardPage() {
   const [session, data] = await Promise.all([
@@ -25,6 +26,10 @@ export default async function InventoryDashboardPage() {
       </div>
 
       <InventoryStepper />
+
+      {/* Agents whose confirmed orders exceed what they are holding. Renders
+          nothing when everything is in balance. */}
+      <OverbookedAgentsPanel correctionHref="/inventory/agent-stock" />
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <StatsCard
