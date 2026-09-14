@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getFormById } from "@/modules/admin/services/forms.service";
+import { getPublicFormById } from "@/modules/admin/services/forms.service";
 import { prisma } from "@/lib/db/prisma";
 
 export async function GET(
@@ -7,7 +7,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const form = await getFormById(id);
+  const form = await getPublicFormById(id);
   if (!form) return NextResponse.json({ error: "Not found" }, { status: 404 });
   return NextResponse.json(form);
 }
