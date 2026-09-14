@@ -1,7 +1,8 @@
 "use server";
 
 import { auth } from "@/lib/auth/auth";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
+import { formTag } from "@/lib/cache/tags";
 import {
   createForm,
   updateForm,
@@ -82,6 +83,7 @@ export async function updateFormAction(
       description: `Form ${name.trim()} updated`,
     });
     revalidateForms();
+    revalidateTag(formTag(id), { expire: 0 }); // bust the public order-form cache immediately
     return { success: true };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Failed to update form" };
@@ -138,6 +140,7 @@ export async function deleteFormAction(
           : `Form ${form.name} deleted`,
     });
     revalidateForms();
+    revalidateTag(formTag(id), { expire: 0 }); // bust the public order-form cache immediately
     revalidatePath("/admin/orders");
     return { success: true };
   } catch (e) {
@@ -160,6 +163,7 @@ export async function setFormDisabledAction(
       description: `Form ${disabled ? "disabled" : "enabled"}`,
     });
     revalidateForms();
+    revalidateTag(formTag(id), { expire: 0 }); // bust the public order-form cache immediately
     return { success: true };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Failed to update form" };

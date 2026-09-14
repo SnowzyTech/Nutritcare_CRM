@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import type { SavedForm } from "@/lib/formsStore";
-import { getFormById } from "@/modules/admin/services/forms.service";
+import { getPublicFormById } from "@/modules/admin/services/forms.service";
 import OrderFormClient from "./order-form-client";
 
 /**
@@ -15,16 +15,16 @@ export default async function OrderFormPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const form = await getFormById(id);
+  const form = await getPublicFormById(id);
   if (!form) notFound();
 
   const initialForm: SavedForm = {
     id: form.id,
     formName: form.name,
-    createdAt: form.createdAt.toISOString(),
+    createdAt: form.createdAt,
     hits: form.hits,
     orders: form.orders,
-    data: form.data as Record<string, unknown>,
+    data: form.data,
   };
 
   return <OrderFormClient formId={id} initialForm={initialForm} />;

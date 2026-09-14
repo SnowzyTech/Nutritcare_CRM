@@ -1,5 +1,60 @@
 import { prisma } from "@/lib/db/prisma";
 import type { Prisma } from "@prisma/client";
+import { unstable_cache } from "next/cache";
+import { CACHE_TAGS, formTag, REFERENCE_TTL_SECONDS } from "@/lib/cache/tags";
+
+/** Cache-safe shape for public form rendering (dates as ISO strings, no Decimals). */
+export type PublicForm = {
+  id: string;
+  name: string;
+  hits: number;
+  orders: number;
+  data: Record<string, unknown>;
+  createdAt: string;
+  disabledAt: string | null;
+};
+
+/**
+ * Public order-form fetch, cached in the Data Cache. This is hit by ad traffic
+ * around the clock, so caching it is the biggest single reduction in Neon
+ * compute usage. Used ONLY by the public order-form page + public GET API —
+ * NOT the admin/media-buyer editors, which must read fresh via getFormById.
+ *
+ * The disabled/deleted gate for NEW orders is enforced fresh at submit time
+ * (app/api/orders/form-submit), so a form disabled within the TTL window still
+ * stops accepting orders immediately; only the public display can be up to
+ * REFERENCE_TTL_SECONDS stale. Edits call revalidateTag(formTag(id)) to bust it.
+ */
+export function getPublicFormById(id: string): Promise<PublicForm | null> {
+  return unstable_cache(
+    async (): Promise<PublicForm | null> => {
+      const form = await prisma.form.findFirst({
+        where: { id, deletedAt: null },
+        select: {
+          id: true,
+          name: true,
+          hits: true,
+          orders: true,
+          data: true,
+          createdAt: true,
+          disabledAt: true,
+        },
+      });
+      if (!form) return null;
+      return {
+        id: form.id,
+        name: form.name,
+        hits: form.hits,
+        orders: form.orders,
+        data: (form.data ?? {}) as Record<string, unknown>,
+        createdAt: form.createdAt.toISOString(),
+        disabledAt: form.disabledAt ? form.disabledAt.toISOString() : null,
+      };
+    },
+    ["public-form", id],
+    { tags: [formTag(id), CACHE_TAGS.forms], revalidate: REFERENCE_TTL_SECONDS }
+  )();
+}
 
 export async function getAllForms() {
   const forms = await prisma.form.findMany({
