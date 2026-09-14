@@ -18,6 +18,7 @@ export const allNavItems: NavItem[] = [
     children: [
       { label: "All Orders", href: "/admin/orders" },
       { label: "Order Assignment", href: "/admin/orders/order-assignment" },
+      { label: "Failed Orders", href: "/admin/orders/failed-attempts" },
     ],
   },
   {

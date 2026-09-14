@@ -646,6 +646,48 @@ export default function OrderFormClient({
     const phone = withCountryCode(formValues.phone ?? "", phoneCountryCode);
     const whatsapp = withCountryCode(formValues.whatsapp ?? "", whatsappCountryCode);
 
+    // Fire-and-forget: record a FAILED submission so a lost order isn't invisible
+    // and a rep can call the customer back. Uses sendBeacon so it survives the
+    // page being closed/backgrounded (common in Meta in-app browsers). Never
+    // throws — logging must not break an already-failing submit. Only called from
+    // the failure branches below; the success/duplicate path never reports.
+    const reportFailedAttempt = (
+      reason: "timeout" | "network" | "server_error",
+      httpStatus?: number,
+      errorMessage?: string | null
+    ) => {
+      try {
+        const payload = {
+          formId,
+          customerName: formValues.name ?? "",
+          customerPhone: phone,
+          customerWhatsapp: whatsapp || undefined,
+          productId,
+          productName: typeof data.productName === "string" ? data.productName : undefined,
+          packageName: selectedVariation?.name ?? undefined,
+          state: formValues.state ?? undefined,
+          deliveryAddress: formValues.address ?? undefined,
+          reason,
+          httpStatus,
+          errorMessage: errorMessage ?? undefined,
+        };
+        const url = "/api/orders/form-submit-failure";
+        const json = JSON.stringify(payload);
+        if (typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
+          navigator.sendBeacon(url, new Blob([json], { type: "application/json" }));
+        } else {
+          void fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: json,
+            keepalive: true,
+          }).catch(() => {});
+        }
+      } catch {
+        /* never let logging break the form */
+      }
+    };
+
     setSubmitting(true);
     // A manual AbortController rather than `AbortSignal.timeout()`: most of this
     // traffic arrives through the Meta in-app browser, which on budget Android
@@ -692,6 +734,7 @@ export default function OrderFormClient({
       const result = await res.json().catch(() => null);
 
       if (!res.ok || !result?.success || !result.orderNumber) {
+        reportFailedAttempt("server_error", res.status, result?.error ?? `HTTP ${res.status}`);
         showToast(
           `❌ ${result?.error ?? "Could not place your order. Please try again."}`,
           "info"
@@ -717,6 +760,11 @@ export default function OrderFormClient({
       // duplicate-guard window, where the server returns the original order
       // instead of creating a second one.
       const timedOut = (err as { name?: string } | null)?.name === "AbortError";
+      reportFailedAttempt(
+        timedOut ? "timeout" : "network",
+        undefined,
+        (err as { message?: string } | null)?.message ?? null
+      );
       showToast(
         timedOut
           ? "⏱ This is taking longer than usual. Please tap ORDER NOW again — if your order already went through, we'll recognise it and won't place it twice."

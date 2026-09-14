@@ -1085,6 +1085,35 @@ model AuditLog {
   @@map("audit_logs")
 }
 
+/// A public order-form submission that FAILED to save (timeout / network drop /
+/// server error). Captured fire-and-forget from the form's failure branches so
+/// no lost order is invisible and a rep can call the customer back. No FK to
+/// User/Form: these are anonymous public attempts (formId is a plain string).
+model FailedOrderAttempt {
+  id               String    @id @default(cuid())
+  formId           String?
+  customerName     String?
+  customerPhone    String?
+  customerWhatsapp String?
+  productId        String?
+  productName      String?
+  packageName      String?
+  state            String?
+  deliveryAddress  String?
+  reason           String // "timeout" | "network" | "server_error"
+  httpStatus       Int?
+  errorMessage     String?
+  userAgent        String?
+  recoveredAt      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([createdAt])
+  @@index([formId])
+  @@index([recoveredAt])
+  @@map("failed_order_attempts")
+}
+
 model StockAdjustment {
   id              String                @id @default(cuid())
   referenceNumber String                @unique

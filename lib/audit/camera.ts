@@ -48,6 +48,9 @@ const IGNORED_MODELS = new Set<string>([
   "PickPack",
   "Customer",
   "SalaryRecord",
+  // Public order-form failure log — its own review UI (/admin/orders/failed-attempts),
+  // not a business action to audit; would flood the trail one row per failed submit.
+  "FailedOrderAttempt",
   // Chat (deferred) and NextAuth internals
   "Message",
   "Conversation",
