@@ -1,0 +1,17 @@
+/*
+ * Tailwind source for the inline embed (public/embed.js). Compiled by the
+ * Tailwind v4 CLI in scripts/build-embed.mjs, scanning ONLY the order-form
+ * component so the output stays small, then injected into the embed's Shadow DOM.
+ *
+ * `source(none)` disables Tailwind's project-wide auto content scan; the single
+ * `@source` line adds back exactly the classes the form uses.
+ */
+@import "tailwindcss" source(none);
+@source "../app/order-form/[id]/order-form-client.tsx";
+
+@theme {
+  --font-sans: Poppins, ui-sans-serif, system-ui, sans-serif;
+  --radius-lg: 0.75rem;
+  --radius-md: calc(0.75rem - 2px);
+  --radius-sm: calc(0.75rem - 4px);
+}

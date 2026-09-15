@@ -25,8 +25,13 @@ export function buildFormEmbedCodes(formId: string, origin: string) {
     optinIframe: iframeSnippet(`${formId}-optin`, `${origin}/order-form/${formId}?tab=optin`, origin),
     /** Order form iframe (+ resize/redirect script). */
     orderIframe: iframeSnippet(`${formId}-order`, `${origin}/order-form/${formId}?tab=order`, origin),
-    /** Script-tag embed (no iframe). */
-    formCode: `<div data-form-id="${formId}"></div><script src="${origin}/embed.js"></script>`,
+    /**
+     * Inline script embed (no iframe) — RECOMMENDED. Mounts the order form
+     * directly into the landing page's DOM (public/embed.js), which is far more
+     * reliable than an iframe in Facebook/Instagram in-app browsers and lets the
+     * host page's pixel see the form. The thank-you redirect works natively.
+     */
+    formCode: `<div data-form-id="${formId}"></div>\n<script src="${origin}/embed.js" async></script>`,
   };
 }
 
