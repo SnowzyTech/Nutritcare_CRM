@@ -346,9 +346,16 @@ type PriceVariation = { id: string; name: string; price: number; formattedPrice:
 export default function OrderFormClient({
   formId,
   initialForm,
+  apiBase = "",
 }: {
   formId: string;
   initialForm: SavedForm;
+  /**
+   * Absolute origin of the CRM API (e.g. "https://crm.mynucle.com"). Empty on the
+   * hosted page (same-origin). The inline embed (public/embed.js) passes the CRM
+   * origin so the form, running on a WordPress landing page, still calls the CRM.
+   */
+  apiBase?: string;
 }) {
   // Form data is provided by the server component on first render — no client
   // fetch, so the embedded form has no loading spinner even on weak networks.
@@ -451,7 +458,7 @@ export default function OrderFormClient({
   useEffect(() => {
     if (!form || !isIframe || viewTrackedRef.current) return;
     viewTrackedRef.current = true;
-    fetch(`/api/forms/${formId}/view`, { method: "POST" }).catch(() => {});
+    fetch(`${apiBase}/api/forms/${formId}/view`, { method: "POST" }).catch(() => {});
   }, [form, isIframe, formId]);
 
   if (!form) {
@@ -671,7 +678,7 @@ export default function OrderFormClient({
           httpStatus,
           errorMessage: errorMessage ?? undefined,
         };
-        const url = "/api/orders/form-submit-failure";
+        const url = `${apiBase}/api/orders/form-submit-failure`;
         const json = JSON.stringify(payload);
         if (typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
           navigator.sendBeacon(url, new Blob([json], { type: "application/json" }));
@@ -695,7 +702,7 @@ export default function OrderFormClient({
     const timeoutController = new AbortController();
     const timeoutId = setTimeout(() => timeoutController.abort(), SUBMIT_TIMEOUT_MS);
     try {
-      const res = await fetch("/api/orders/form-submit", {
+      const res = await fetch(`${apiBase}/api/orders/form-submit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         signal: timeoutController.signal,

@@ -403,17 +403,17 @@ export default function FormsListClient({
                   )}
                   <ActionBtn
                     icon={<Copy size={12} />}
-                    variant="indigo"
-                    onClick={() => copyToClipboard(iframeCode, "Iframe code")}
+                    variant="purple"
+                    onClick={() => copyToClipboard(formCode, "Embed code")}
                   >
-                    Copy Iframe Code (Iframe)
+                    Copy Embed Code (Recommended)
                   </ActionBtn>
                   <ActionBtn
                     icon={<Copy size={12} />}
                     variant="indigo"
-                    onClick={() => copyToClipboard(formCode, "Form code")}
+                    onClick={() => copyToClipboard(iframeCode, "Iframe code")}
                   >
-                    Copy Form Code (No Iframe)
+                    Copy Iframe Code (Legacy)
                   </ActionBtn>
                   <ActionBtn
                     icon={<Copy size={12} />}

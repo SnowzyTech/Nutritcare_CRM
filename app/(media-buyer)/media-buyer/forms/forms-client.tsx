@@ -421,8 +421,8 @@ export default function MediaBuyerFormsClient({ rows }: { rows: MediaBuyerFormRo
                       Prev Order Form
                     </OutlineBtn>
                     <SoftBtn onClick={() => copy(c.optinIframe, "Optin code")}>Optin Code</SoftBtn>
-                    <SoftBtn onClick={() => copy(c.orderIframe, "iFrame code")}>iFrame Code</SoftBtn>
-                    <SolidBtn onClick={() => copy(c.formCode, "Form code")}>Form Code</SolidBtn>
+                    <SolidBtn onClick={() => copy(c.formCode, "Embed code")}>Embed Code (Recommended)</SolidBtn>
+                    <SoftBtn onClick={() => copy(c.orderIframe, "iFrame code")}>iFrame Code (Legacy)</SoftBtn>
                     <SoftBtn onClick={() => copy(f.id, "Form ID")}>Form ID</SoftBtn>
                     <UpsellButton formId={f.id} origin={origin} count={f.upsellCount} />
                   </div>
