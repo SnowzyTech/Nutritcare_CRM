@@ -23,8 +23,19 @@ execFileSync(
   { stdio: "inherit", shell: isWin }
 );
 
-// 2. Shadow DOM fix: variables defined on :root don't apply inside a shadow tree.
-const css = readFileSync(TMP_CSS, "utf8").replaceAll(":root", ":host");
+const compiled = readFileSync(TMP_CSS, "utf8");
+
+// 2a. Tailwind v4 implements border-style, rings, shadows and gradients via
+// REGISTERED custom properties (@property --tw-border-style, etc.). @property does
+// NOT register when the stylesheet lives inside a Shadow DOM, so those values go
+// unset and every border/ring/shadow silently disappears. Fix: pull the @property
+// rules out and register them at the DOCUMENT level (global, incl. shadow trees);
+// the rest of the CSS stays scoped inside the shadow root.
+const PROP_RE = /@property\s+--[\w-]+\s*\{[^}]*\}/g;
+const propsCss = (compiled.match(PROP_RE) || []).join("");
+
+// 2b. Variables defined on :root don't apply inside a shadow tree — retarget to :host.
+const shadowCss = compiled.replace(PROP_RE, "").replaceAll(":root", ":host");
 
 // 3. Bundle the entry + React into a single self-contained script.
 await build({
@@ -37,7 +48,8 @@ await build({
   tsconfig: "tsconfig.json", // so esbuild resolves the "@/..." path alias
   define: {
     "process.env.NODE_ENV": '"production"',
-    __EMBED_CSS__: JSON.stringify(css),
+    __EMBED_CSS__: JSON.stringify(shadowCss),
+    __EMBED_PROPS__: JSON.stringify(propsCss),
   },
   outfile: "public/embed.js",
   legalComments: "none",

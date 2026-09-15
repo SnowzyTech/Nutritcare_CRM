@@ -16,6 +16,9 @@ import type { SavedForm } from "@/lib/formsStore";
 
 // Compiled Tailwind CSS for the form, inlined at build time (esbuild `define`).
 declare const __EMBED_CSS__: string;
+// Tailwind v4 @property rules — must be registered at DOCUMENT level (they don't
+// register from inside a shadow root), or borders/rings/shadows won't render.
+declare const __EMBED_PROPS__: string;
 
 // Capture the CRM origin from THIS script's own <src> synchronously at load —
 // document.currentScript is null once we're inside async callbacks.
@@ -37,6 +40,22 @@ type PublicForm = {
   createdAt: string;
   disabledAt: string | null;
 };
+
+/**
+ * Register Tailwind's @property custom-property defaults once, at the document
+ * level. @property is ignored inside a shadow root, so without this the
+ * --tw-border-style / --tw-ring-* / --tw-shadow-* values stay unset and borders,
+ * focus rings and shadows silently vanish inside the embedded form. Registered
+ * properties are global and inherit into shadow trees, and are otherwise inert.
+ */
+function ensureGlobalProps() {
+  const id = "nucle-embed-props";
+  if (document.getElementById(id)) return;
+  const style = document.createElement("style");
+  style.id = id;
+  style.textContent = __EMBED_PROPS__;
+  document.head.appendChild(style);
+}
 
 /** Load Poppins once (fonts must resolve at document level to reach the shadow tree). */
 function ensureFont() {
@@ -88,6 +107,7 @@ async function mount(host: HTMLElement) {
 }
 
 function init() {
+  ensureGlobalProps();
   ensureFont();
   document.querySelectorAll<HTMLElement>("div[data-form-id]").forEach((el) => {
     void mount(el);
