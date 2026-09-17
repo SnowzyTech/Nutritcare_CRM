@@ -251,12 +251,12 @@ export async function getMediaBuyerAnalytics(
           },
           select: { status: true, createdAt: true },
         }),
-        prisma.formView.findMany({
+        prisma.formViewDaily.findMany({
           where: {
             formId: { in: formIds },
-            createdAt: { gte: currentStart, lte: currentEnd },
+            day: { gte: currentStart, lte: currentEnd },
           },
-          select: { createdAt: true },
+          select: { day: true, count: true },
         }),
       ])
     : [[], []];
@@ -307,8 +307,8 @@ export async function getMediaBuyerAnalytics(
     if (order.status === "DELIVERED") point.delivered += 1;
   }
   for (const view of views) {
-    const point = pointAt(view.createdAt);
-    if (point) point.views += 1;
+    const point = pointAt(view.day);
+    if (point) point.views += view.count;
   }
 
   // ── Per-product totals ──

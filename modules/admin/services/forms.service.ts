@@ -63,24 +63,38 @@ export async function getAllForms() {
     select: {
       id: true,
       name: true,
-      hits: true,
       data: true,
       createdAt: true,
       createdBy: { select: { name: true, role: true } },
     },
   });
+  const formIds = forms.map((f) => f.id);
 
-  // Order count is derived LIVE from the orders table rather than read from the
-  // denormalised Form.orders counter (which only counts up on submit and drifts
-  // when orders are deleted). formId is indexed, so this group-count is cheap.
-  const counts = await prisma.order.groupBy({
-    by: ["formId"],
-    where: { deletedAt: null, formId: { in: forms.map((f) => f.id) } },
-    _count: { _all: true },
-  });
-  const liveOrders = new Map(counts.map((c) => [c.formId as string, c._count._all]));
+  // Order count AND view count (hits) are both derived LIVE from source tables,
+  // not the denormalised Form.orders / Form.hits counters (which drift). Views
+  // now live in form_view_daily (one row per form per day, since the per-view
+  // writes were collapsed into a daily tally), so total hits = SUM(count). Both
+  // group keys are indexed, so these are cheap.
+  const [orderCounts, viewSums] = await Promise.all([
+    prisma.order.groupBy({
+      by: ["formId"],
+      where: { deletedAt: null, formId: { in: formIds } },
+      _count: { _all: true },
+    }),
+    prisma.formViewDaily.groupBy({
+      by: ["formId"],
+      where: { formId: { in: formIds } },
+      _sum: { count: true },
+    }),
+  ]);
+  const liveOrders = new Map(orderCounts.map((c) => [c.formId as string, c._count._all]));
+  const liveHits = new Map(viewSums.map((v) => [v.formId, v._sum.count ?? 0]));
 
-  return forms.map((f) => ({ ...f, orders: liveOrders.get(f.id) ?? 0 }));
+  return forms.map((f) => ({
+    ...f,
+    hits: liveHits.get(f.id) ?? 0,
+    orders: liveOrders.get(f.id) ?? 0,
+  }));
 }
 
 export async function getFormById(id: string) {

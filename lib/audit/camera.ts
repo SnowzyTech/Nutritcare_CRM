@@ -32,6 +32,8 @@ const IGNORED_MODELS = new Set<string>([
   "StockLevel",
   "ShelfProductStock",
   "WarehouseLocation",
+  // Daily form-view tally — high-churn, derived from public ad traffic
+  "FormViewDaily",
   // Child rows of a parent create (the parent is already logged)
   "OrderItem",
   "StockMovementItem",
