@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db/prisma";
+import { unstable_cache } from "next/cache";
 import { formatDate } from "@/lib/utils";
 import type { DeliveryStatus } from "@prisma/client";
 
@@ -41,7 +42,7 @@ export type AlertRow = {
   id: string;
   level: "red" | "orange" | "purple";
   message: string;
-  createdAt: Date;
+  createdAt: string; // ISO — serialised so the dashboard payload is cache-safe
 };
 
 export type LogisticsDashboardData = {
@@ -75,7 +76,7 @@ function mapTransferStatus(status: string): DeliveryStatus {
   }
 }
 
-export async function getLogisticsDashboardData(): Promise<LogisticsDashboardData> {
+async function _getLogisticsDashboardData(): Promise<LogisticsDashboardData> {
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
   const todayEnd = new Date();
@@ -279,7 +280,9 @@ export async function getLogisticsDashboardData(): Promise<LogisticsDashboardDat
     activeDeliveries: e.activeDeliveries,
   }));
 
-  // Alerts — only for actual failures, empty if none
+  // Alerts — only for actual failures, empty if none. Built with a Date (`at`) for
+  // sorting, then serialised to an ISO string so the payload survives the Data
+  // Cache cleanly (getLogisticsDashboardData is wrapped in unstable_cache below).
   const alerts: AlertRow[] = [
     ...outgoing
       .filter((m) => m.status === "NOT_RECEIVED")
@@ -289,7 +292,7 @@ export async function getLogisticsDashboardData(): Promise<LogisticsDashboardDat
         id: m.id,
         level: "red" as const,
         message: `${m.referenceNumber} — delivery not received`,
-        createdAt: m.updatedAt,
+        at: m.updatedAt,
       })),
     ...transfers
       .filter((t) => t.status === "FAILED")
@@ -299,11 +302,12 @@ export async function getLogisticsDashboardData(): Promise<LogisticsDashboardDat
         id: t.id,
         level: "red" as const,
         message: `Transfer ${t.referenceNumber} failed`,
-        createdAt: t.updatedAt,
+        at: t.updatedAt,
       })),
   ]
-    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-    .slice(0, 5);
+    .sort((a, b) => b.at.getTime() - a.at.getTime())
+    .slice(0, 5)
+    .map(({ at, ...rest }) => ({ ...rest, createdAt: at.toISOString() }));
 
   return {
     stats: {
@@ -317,4 +321,20 @@ export async function getLogisticsDashboardData(): Promise<LogisticsDashboardDat
     routes: [],
     alerts,
   };
+}
+
+/**
+ * Cached entry point for the /logistics dashboard (Phase A —
+ * docs/dashboard-caching-plan.md). The stock-movement / transfer scans run at
+ * most once per TTL instead of on every load. The payload is now Decimal- AND
+ * Date-free (alerts[].createdAt is an ISO string), so it serialises cleanly.
+ */
+const LOGISTICS_TTL_SECONDS = 120;
+
+export function getLogisticsDashboardData(): Promise<LogisticsDashboardData> {
+  return unstable_cache(
+    () => _getLogisticsDashboardData(),
+    ["logistics-dashboard"],
+    { revalidate: LOGISTICS_TTL_SECONDS }
+  )();
 }

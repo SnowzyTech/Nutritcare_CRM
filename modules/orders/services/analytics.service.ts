@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db/prisma";
+import { unstable_cache } from "next/cache";
 import { generalPerformanceScore, kpiScore } from "@/lib/performance";
 
 export type ProductStat = { name: string; qty: number };
@@ -141,7 +142,7 @@ function computeMetrics(orders: OrderRow[]): MonthMetrics {
   };
 }
 
-export async function getSalesRepWeeklyAnalytics(salesRepId: string): Promise<MonthMetrics> {
+async function _getSalesRepWeeklyAnalytics(salesRepId: string): Promise<MonthMetrics> {
   const now = new Date();
   const weekStart = new Date(now);
   weekStart.setDate(now.getDate() - 6);
@@ -150,7 +151,7 @@ export async function getSalesRepWeeklyAnalytics(salesRepId: string): Promise<Mo
   return computeMetrics(orders);
 }
 
-export async function getSalesRepAnalytics(
+async function _getSalesRepAnalytics(
   salesRepId: string,
   period: Period = "month",
   targetMonth?: Date,
@@ -193,4 +194,39 @@ export async function getSalesRepAnalytics(
     current: computeMetrics(currentOrders),
     last: lastOrders.length > 0 ? computeMetrics(lastOrders) : null,
   };
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Cached entry points (Phase A — docs/dashboard-caching-plan.md).
+
+   Rep analytics are read from the rep's own portal AND every admin/manager/analyst
+   view of that rep, so the same (rep, period) result is recomputed a lot. Caching
+   runs the order scan + metric reduce at most once per TTL. MonthMetrics is
+   entirely numbers/strings (Decimal-free), so it serialises cleanly. Keyed by
+   rep + period + explicit month so different reps/months never collide; the
+   "current" (no targetMonth) case is bounded by the TTL.
+   ──────────────────────────────────────────────────────────────────────────── */
+const ANALYTICS_TTL_SECONDS = 120;
+
+export function getSalesRepWeeklyAnalytics(salesRepId: string): Promise<MonthMetrics> {
+  return unstable_cache(
+    () => _getSalesRepWeeklyAnalytics(salesRepId),
+    ["rep-weekly-analytics", salesRepId],
+    { revalidate: ANALYTICS_TTL_SECONDS }
+  )();
+}
+
+export function getSalesRepAnalytics(
+  salesRepId: string,
+  period: Period = "month",
+  targetMonth?: Date,
+): Promise<AnalyticsData> {
+  const monthKey = targetMonth
+    ? `${targetMonth.getFullYear()}-${targetMonth.getMonth()}`
+    : "current";
+  return unstable_cache(
+    () => _getSalesRepAnalytics(salesRepId, period, targetMonth),
+    ["rep-analytics", salesRepId, period, monthKey],
+    { revalidate: ANALYTICS_TTL_SECONDS }
+  )();
 }

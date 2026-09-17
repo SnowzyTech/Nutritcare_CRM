@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db/prisma";
+import { unstable_cache } from "next/cache";
 import { OrderStatus, Prisma } from "@prisma/client";
 import { generalPerformanceScore, kpiScore } from "@/lib/performance";
 
@@ -666,79 +667,197 @@ export async function getSalesRepsList(): Promise<SalesRepItem[]> {
  * always-applied soft-delete filter, so callers can scope to a subset (e.g. the
  * orders attributed to one media buyer's forms) and reuse this mapping.
  */
+// Shared row shape for every order-list query (full list + paged). Kept as one
+// const so `getOrderRows` and `getOrdersPage` return byte-identical rows.
+const ORDER_ROW_SELECT = {
+  id: true,
+  orderNumber: true,
+  status: true,
+  isReorder: true,
+  createdAt: true,
+  updatedAt: true,
+  formId: true,
+  form: { select: { name: true } },
+  customer: { select: { name: true, email: true, state: true } },
+  agent: { select: { id: true, companyName: true, state: true } },
+  salesRep: { select: { id: true, name: true, team: { select: { id: true, name: true } } } },
+  _count: { select: { items: true } },
+  items: {
+    select: {
+      quantity: true,
+      product: { select: { name: true } },
+    },
+    orderBy: { createdAt: "asc" },
+    take: 2,
+  },
+  // Latest delivery — its dates drive the accurate per-status date below.
+  deliveries: {
+    select: { deliveredTime: true, createdAt: true, updatedAt: true },
+    orderBy: { createdAt: "desc" },
+    take: 1,
+  },
+} satisfies Prisma.OrderSelect;
+
+type OrderRowRaw = Prisma.OrderGetPayload<{ select: typeof ORDER_ROW_SELECT }>;
+
+function toOrderRow(o: OrderRowRaw): OrderRow {
+  const latest = o.deliveries[0];
+  // The date the order reached its CURRENT status, from the most accurate source:
+  // delivered → deliveredTime; confirmed → the delivery row's createdAt (created at
+  // confirmation); failed → the delivery's updatedAt; cancelled → order.updatedAt;
+  // pending → null (the "Date"/placed column represents it).
+  const statusSrc =
+    o.status === "DELIVERED" ? latest?.deliveredTime ?? o.updatedAt :
+    o.status === "CONFIRMED" ? latest?.createdAt ?? o.updatedAt :
+    o.status === "FAILED" ? latest?.updatedAt ?? o.updatedAt :
+    o.status === "CANCELLED" ? o.updatedAt :
+    null;
+  return {
+    id: o.orderNumber,
+    gmail: o.customer.email ?? "",
+    name: o.customer.name,
+    agent: o.agent ? { id: o.agent.id, name: o.agent.companyName, state: o.agent.state ?? "" } : null,
+    state: o.customer.state,
+    salesRep: o.salesRep.name,
+    salesRepId: o.salesRep.id,
+    teamId: o.salesRep.team?.id ?? null,
+    teamName: o.salesRep.team?.name ?? null,
+    product: o.items[0]?.product.name ?? "—",
+    itemCount: o._count.items,
+    isReorder: o.isReorder,
+    quantity: o.items[0]?.quantity ?? 0,
+    date: fmtDate(o.createdAt),
+    status: STATUS_MAP[o.status] ?? "Pending",
+    statusDate: statusSrc ? fmtDate(statusSrc) : null,
+    formId: o.formId,
+    formName: o.form?.name ?? null,
+  };
+}
+
 export async function getOrderRows(
   where: Prisma.OrderWhereInput = {}
 ): Promise<OrderRow[]> {
   const orders = await prisma.order.findMany({
     where: { deletedAt: null, ...where },
     orderBy: { createdAt: "desc" },
-    select: {
-      id: true,
-      orderNumber: true,
-      status: true,
-      isReorder: true,
-      createdAt: true,
-      updatedAt: true,
-      formId: true,
-      form: { select: { name: true } },
-      customer: { select: { name: true, email: true, state: true } },
-      agent: { select: { id: true, companyName: true, state: true } },
-      salesRep: { select: { id: true, name: true, team: { select: { id: true, name: true } } } },
-      _count: { select: { items: true } },
-      items: {
-        select: {
-          quantity: true,
-          product: { select: { name: true } },
-        },
-        orderBy: { createdAt: "asc" },
-        take: 2,
-      },
-      // Latest delivery — its dates drive the accurate per-status date below.
-      deliveries: {
-        select: { deliveredTime: true, createdAt: true, updatedAt: true },
-        orderBy: { createdAt: "desc" },
-        take: 1,
-      },
-    },
+    select: ORDER_ROW_SELECT,
   });
-
-  return orders.map((o) => {
-    const latest = o.deliveries[0];
-    // The date the order reached its CURRENT status, from the most accurate source:
-    // delivered → deliveredTime; confirmed → the delivery row's createdAt (created at
-    // confirmation); failed → the delivery's updatedAt; cancelled → order.updatedAt;
-    // pending → null (the "Date"/placed column represents it).
-    const statusSrc =
-      o.status === "DELIVERED" ? latest?.deliveredTime ?? o.updatedAt :
-      o.status === "CONFIRMED" ? latest?.createdAt ?? o.updatedAt :
-      o.status === "FAILED" ? latest?.updatedAt ?? o.updatedAt :
-      o.status === "CANCELLED" ? o.updatedAt :
-      null;
-    return {
-      id: o.orderNumber,
-      gmail: o.customer.email ?? "",
-      name: o.customer.name,
-      agent: o.agent ? { id: o.agent.id, name: o.agent.companyName, state: o.agent.state ?? "" } : null,
-      state: o.customer.state,
-      salesRep: o.salesRep.name,
-      salesRepId: o.salesRep.id,
-      teamId: o.salesRep.team?.id ?? null,
-      teamName: o.salesRep.team?.name ?? null,
-      product: o.items[0]?.product.name ?? "—",
-      itemCount: o._count.items,
-      isReorder: o.isReorder,
-      quantity: o.items[0]?.quantity ?? 0,
-      date: fmtDate(o.createdAt),
-      status: STATUS_MAP[o.status] ?? "Pending",
-      statusDate: statusSrc ? fmtDate(statusSrc) : null,
-      formId: o.formId,
-      formName: o.form?.name ?? null,
-    };
-  });
+  return orders.map(toOrderRow);
 }
 
 export async function getAllOrders(): Promise<OrderRow[]> {
   return getOrderRows();
+}
+
+// ── Server-side paged + filtered orders (docs/orders-pagination-plan.md) ────────
+// The reusable foundation so an Orders page can fetch ONE page (15 rows) with the
+// filters applied in the DB, instead of loading every order and filtering in the
+// browser.
+
+export type OrderListFilters = {
+  status?: OrderStatus[];
+  /** Free text across customer name/email, sales-rep name, order number. */
+  search?: string;
+  /** Product NAMES — matches orders containing ANY item with that product. */
+  productNames?: string[];
+  states?: string[];
+  teamIds?: string[];
+  agentIds?: string[];
+  salesRepIds?: string[];
+  /** Placed-date (Order.createdAt) window. NOTE: the legacy client filtered by the
+   *  per-status date; this server version filters by placed date — see the plan. */
+  from?: Date;
+  to?: Date;
+};
+
+export function buildOrderWhere(f: OrderListFilters): Prisma.OrderWhereInput {
+  const where: Prisma.OrderWhereInput = { deletedAt: null };
+  if (f.status?.length) where.status = { in: f.status };
+  const q = f.search?.trim();
+  if (q) {
+    where.OR = [
+      { orderNumber: { contains: q, mode: "insensitive" } },
+      { customer: { is: { name: { contains: q, mode: "insensitive" } } } },
+      { customer: { is: { email: { contains: q, mode: "insensitive" } } } },
+      { salesRep: { is: { name: { contains: q, mode: "insensitive" } } } },
+    ];
+  }
+  if (f.productNames?.length) {
+    where.items = { some: { product: { name: { in: f.productNames } } } };
+  }
+  if (f.states?.length) {
+    where.customer = { is: { state: { in: f.states } } };
+  }
+  if (f.teamIds?.length) where.salesRep = { is: { teamId: { in: f.teamIds } } };
+  if (f.agentIds?.length) where.agentId = { in: f.agentIds };
+  if (f.salesRepIds?.length) where.salesRepId = { in: f.salesRepIds };
+
+  // Date filter matches each order by the date it reached its CURRENT status — the
+  // SAME source the displayed statusDate uses (see toOrderRow): delivered →
+  // deliveredTime, confirmed → delivery.createdAt, failed → delivery.updatedAt,
+  // cancelled → order.updatedAt, pending → order.createdAt. So "Delivered tab +
+  // date range" filters by DELIVERED date, "Confirmed" by CONFIRMED date, etc.
+  // Orders with no delivery row fall back to updatedAt (mirrors the `?? o.updatedAt`
+  // in the display). Only the selected statuses' branches are included.
+  if (f.from || f.to) {
+    const win: Prisma.DateTimeFilter = {
+      ...(f.from ? { gte: f.from } : {}),
+      ...(f.to ? { lte: f.to } : {}),
+    };
+    const byDelivery = (
+      field: "deliveredTime" | "createdAt" | "updatedAt"
+    ): Prisma.OrderWhereInput => {
+      const dw: Prisma.DeliveryWhereInput =
+        field === "deliveredTime" ? { deliveredTime: win } :
+        field === "createdAt" ? { createdAt: win } :
+        { updatedAt: win };
+      return { OR: [{ deliveries: { some: dw } }, { deliveries: { none: {} }, updatedAt: win }] };
+    };
+    const branchFor: Record<OrderStatus, Prisma.OrderWhereInput> = {
+      DELIVERED: byDelivery("deliveredTime"),
+      CONFIRMED: byDelivery("createdAt"),
+      FAILED: byDelivery("updatedAt"),
+      CANCELLED: { updatedAt: win },
+      PENDING: { createdAt: win },
+    };
+    const statuses: OrderStatus[] = f.status?.length
+      ? f.status
+      : ["PENDING", "CONFIRMED", "DELIVERED", "CANCELLED", "FAILED"];
+    where.AND = [{ OR: statuses.map((s) => ({ status: s, ...branchFor[s] })) }];
+  }
+  return where;
+}
+
+/**
+ * One page of orders + the total count + per-status tab counts. Tab counts use
+ * every filter EXCEPT status (so each tab shows how many match the other filters,
+ * and switching tabs makes sense). All three run in one round trip.
+ */
+export async function getOrdersPage(
+  filters: OrderListFilters,
+  page: number,
+  pageSize = 15,
+): Promise<{ rows: OrderRow[]; total: number; statusCounts: Record<string, number> }> {
+  const where = buildOrderWhere(filters);
+  const whereNoStatus = buildOrderWhere({ ...filters, status: undefined });
+  const safePage = Math.max(1, Math.floor(page) || 1);
+
+  const [orders, total, grouped] = await Promise.all([
+    prisma.order.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      skip: (safePage - 1) * pageSize,
+      take: pageSize,
+      select: ORDER_ROW_SELECT,
+    }),
+    prisma.order.count({ where }),
+    prisma.order.groupBy({ by: ["status"], where: whereNoStatus, _count: { _all: true } }),
+  ]);
+
+  const statusCounts: Record<string, number> = {};
+  for (const g of grouped) statusCounts[g.status] = g._count._all;
+
+  return { rows: orders.map(toOrderRow), total, statusCounts };
 }
 
 export async function getOrderByOrderNumber(orderNumber: string): Promise<OrderDetailFull | null> {
@@ -951,7 +1070,18 @@ export async function getSalesRepOrders(salesRepId: string): Promise<OrderRow[]>
   return getOrderRows({ salesRepId });
 }
 
-export async function getSalesRepAnalyticsForUI(
+export function getSalesRepAnalyticsForUI(
+  salesRepId: string,
+  options?: { month: number; year: number }
+): Promise<RepAnalyticsData> {
+  return unstable_cache(
+    () => _getSalesRepAnalyticsForUI(salesRepId, options),
+    ["data-rep-analytics-ui", salesRepId, `${options?.year ?? ""}-${options?.month ?? ""}`],
+    { revalidate: DATA_ANALYTICS_TTL_SECONDS }
+  )();
+}
+
+async function _getSalesRepAnalyticsForUI(
   salesRepId: string,
   options?: { month: number; year: number }
 ): Promise<RepAnalyticsData> {
@@ -1022,7 +1152,62 @@ function resolvePeriodWindow(
   };
 }
 
-export async function getTeamsAnalytics(options?: {
+/* ─────────────────────────────────────────────────────────────────────────────
+   Cached analytics entry points (Phase A — docs/dashboard-caching-plan.md).
+
+   The data-analyst boards recompute these order scans on every load. Caching
+   runs each at most once per TTL. RepAnalyticsData / TeamAnalyticsEntry /
+   ChartPoint are all numbers + strings (Decimal- and Date-free), so they
+   serialise cleanly. Keys include period/month/year so windows never collide;
+   the current window is bounded by the TTL. Wrappers call the hoisted `_impl`s.
+   ──────────────────────────────────────────────────────────────────────────── */
+const DATA_ANALYTICS_TTL_SECONDS = 120;
+
+function analyticsOptionsKey(o?: { month?: number; year?: number; period?: Period }): string {
+  return `${o?.period ?? "month"}:${o?.year ?? ""}:${o?.month ?? ""}`;
+}
+
+export function getTeamsAnalytics(options?: {
+  month?: number;
+  year?: number;
+  period?: Period;
+}): Promise<TeamAnalyticsEntry[]> {
+  return unstable_cache(
+    () => _getTeamsAnalytics(options),
+    ["data-teams-analytics", analyticsOptionsKey(options)],
+    { revalidate: DATA_ANALYTICS_TTL_SECONDS }
+  )();
+}
+
+export function getCompanyAnalytics(options?: {
+  month?: number;
+  year?: number;
+  period?: Period;
+}): Promise<RepAnalyticsData> {
+  return unstable_cache(
+    () => _getCompanyAnalytics(options),
+    ["data-company-analytics", analyticsOptionsKey(options)],
+    { revalidate: DATA_ANALYTICS_TTL_SECONDS }
+  )();
+}
+
+export function getWeeklyOrderVolume(): Promise<ChartPoint[]> {
+  return unstable_cache(
+    () => _getWeeklyOrderVolume(),
+    ["data-weekly-order-volume"],
+    { revalidate: DATA_ANALYTICS_TTL_SECONDS }
+  )();
+}
+
+export function getMonthlyOrderVolume(year: number): Promise<ChartPoint[]> {
+  return unstable_cache(
+    () => _getMonthlyOrderVolume(year),
+    ["data-monthly-order-volume", String(year)],
+    { revalidate: DATA_ANALYTICS_TTL_SECONDS }
+  )();
+}
+
+async function _getTeamsAnalytics(options?: {
   month?: number;
   year?: number;
   period?: Period;
@@ -1074,7 +1259,7 @@ export async function getTeamsAnalytics(options?: {
   return results;
 }
 
-export async function getCompanyAnalytics(options?: {
+async function _getCompanyAnalytics(options?: {
   month?: number;
   year?: number;
   period?: Period;
@@ -1104,7 +1289,7 @@ export type ChartPoint = { name: string; value: number };
 
 /** Order volume (any status) for the current week, by weekday — for the
  *  dashboard's weekday bar chart. */
-export async function getWeeklyOrderVolume(): Promise<ChartPoint[]> {
+async function _getWeeklyOrderVolume(): Promise<ChartPoint[]> {
   const now = new Date();
   const from = new Date(now);
   from.setDate(now.getDate() - 6);
@@ -1135,7 +1320,7 @@ export async function getWeeklyOrderVolume(): Promise<ChartPoint[]> {
 
 /** Order volume (any status) per month for the given year — for the
  *  dashboard's yearly trend line chart. */
-export async function getMonthlyOrderVolume(year: number): Promise<ChartPoint[]> {
+async function _getMonthlyOrderVolume(year: number): Promise<ChartPoint[]> {
   const yearStart = new Date(year, 0, 1);
   const yearEnd = new Date(year + 1, 0, 1);
 

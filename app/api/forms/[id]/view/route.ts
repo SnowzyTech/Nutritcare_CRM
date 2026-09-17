@@ -13,27 +13,37 @@ export async function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: CORS_HEADERS });
 }
 
-/** Record one landing-page view for a form (skips disabled / deleted forms). */
+/** Record one landing-page view for a form as a daily tally (see FormViewDaily). */
 export async function POST(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
 
-  const form = await prisma.form.findUnique({
-    where: { id },
-    select: { id: true, disabledAt: true, deletedAt: true },
-  });
-  if (!form || form.disabledAt || form.deletedAt) {
+  // 24/7 ad-traffic hot path (one call per landing-page load), so keep it minimal.
+  // We no longer write a row per impression. Instead we keep ONE running tally per
+  // form per UTC day and bump it with a single upsert (Postgres INSERT ... ON
+  // CONFLICT) — no pre-read, no transaction — so the table grows by (forms × days),
+  // not impressions. Total hits = SUM(count).
+  //
+  // The disabled/deleted gate is enforced fresh at order-submit time
+  // (app/api/orders/form-submit), and a deleted form never renders the beacon at
+  // all (its public page 404s), so we skip the pre-read here; a stray tick on a
+  // just-disabled-but-still-embedded form is a harmless rounding error on a view
+  // counter.
+  const day = new Date();
+  day.setUTCHours(0, 0, 0, 0);
+
+  try {
+    await prisma.formViewDaily.upsert({
+      where: { formId_day: { formId: id, day } },
+      create: { formId: id, day, count: 1 },
+      update: { count: { increment: 1 } },
+    });
+  } catch {
+    // Fire-and-forget beacon: a bad/removed formId (FK violation) must not 500.
     return NextResponse.json({ ok: false }, { headers: CORS_HEADERS });
   }
-
-  // Log a timestamped view (for time-filtered analytics) and bump the fast
-  // denormalised counter the admin list still reads.
-  await prisma.$transaction([
-    prisma.formView.create({ data: { formId: id } }),
-    prisma.form.update({ where: { id }, data: { hits: { increment: 1 } } }),
-  ]);
 
   return NextResponse.json({ ok: true }, { headers: CORS_HEADERS });
 }

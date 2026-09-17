@@ -3,11 +3,18 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { getDeliveryAgentById } from "@/modules/delivery/services/agents.service";
-import { getOrdersByAgent } from "@/modules/orders/services/orders.service";
+import { getAdminOrdersPage, type AdminOrderFilters } from "@/modules/orders/services/orders.service";
 import { getActiveProducts } from "@/modules/orders/services/products.service";
 import { AdminOrdersClient } from "../../../../orders/orders-client";
+import type { OrderStatus } from "@prisma/client";
 
-type Props = { params: Promise<{ id: string }> };
+type Props = {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+};
+
+const PAGE_SIZE = 10;
+const STATUSES: OrderStatus[] = ["PENDING", "CONFIRMED", "DELIVERED", "CANCELLED", "FAILED"];
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { id } = await params;
@@ -15,47 +22,30 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   return { title: agent ? `${agent.companyName} — Orders` : "Orders" };
 }
 
-export default async function DeliveryAgentOrdersPage({ params }: Props) {
+export default async function DeliveryAgentOrdersPage({ params, searchParams }: Props) {
   const { id } = await params;
-  const [agent, rawOrders, rawProducts] = await Promise.all([
+  const sp = await searchParams;
+  const get = (k: string): string | undefined =>
+    Array.isArray(sp[k]) ? (sp[k] as string[])[0] : (sp[k] as string | undefined);
+
+  const statusRaw = get("status") ?? "";
+  const filters: AdminOrderFilters = {
+    status: STATUSES.includes(statusRaw as OrderStatus) ? (statusRaw as OrderStatus) : undefined,
+    search: (get("q") ?? "").trim(),
+    productName: get("product") || undefined,
+    state: get("state") || undefined,
+    teamId: get("team") || undefined,
+    date: get("date") || undefined,
+  };
+  const pageNum = Math.max(1, parseInt(get("page") ?? "1", 10) || 1);
+
+  const [agent, orderPage, rawProducts] = await Promise.all([
     getDeliveryAgentById(id),
-    getOrdersByAgent(id),
+    getAdminOrdersPage(filters, pageNum, PAGE_SIZE, { agentId: id }),
     getActiveProducts(),
   ]);
 
   if (!agent) notFound();
-
-  const orders = rawOrders.map((o) => ({
-    id: o.id,
-    orderNumber: o.orderNumber,
-    status: o.status,
-    createdAt: o.createdAt.toISOString(),
-    updatedAt: o.updatedAt.toISOString(),
-    customer: {
-      name: o.customer.name,
-      email: o.customer.email ?? null,
-      state: o.customer.state,
-    },
-    agent: o.agent
-      ? { companyName: o.agent.companyName, state: o.agent.state ?? null }
-      : null,
-    items: o.items.map((item) => ({
-      quantity: item.quantity,
-      upsellQuantity: item.upsellQuantity,
-      isUpsell: item.isUpsell,
-      product: { name: item.product.name },
-    })),
-    salesRep: { name: o.salesRep.name },
-  }));
-
-  const counts = {
-    all: orders.length,
-    pending: orders.filter((o) => o.status === "PENDING").length,
-    confirmed: orders.filter((o) => o.status === "CONFIRMED").length,
-    delivered: orders.filter((o) => o.status === "DELIVERED").length,
-    cancelled: orders.filter((o) => o.status === "CANCELLED").length,
-    failed: orders.filter((o) => o.status === "FAILED").length,
-  };
 
   const products = rawProducts.map((p) => ({ id: p.id, name: p.name }));
 
@@ -74,7 +64,21 @@ export default async function DeliveryAgentOrdersPage({ params }: Props) {
         <span className="text-base text-gray-400">Delivery Agent</span>
       </div>
 
-      <AdminOrdersClient orders={orders} counts={counts} products={products} />
+      <AdminOrdersClient
+        orders={orderPage.rows}
+        total={orderPage.total}
+        statusCounts={orderPage.statusCounts}
+        page={pageNum}
+        products={products}
+        initialFilters={{
+          status: filters.status ?? "",
+          search: filters.search ?? "",
+          product: filters.productName ?? "",
+          state: filters.state ?? "",
+          team: filters.teamId ?? "",
+          date: filters.date ?? "",
+        }}
+      />
     </div>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import {
   Search,
   SlidersHorizontal,
@@ -8,6 +8,7 @@ import {
   ChevronDown,
 } from "lucide-react";
 import Link from "next/link";
+import { useRouter, usePathname } from "next/navigation";
 import {
   Select,
   SelectContent,
@@ -80,10 +81,20 @@ export type AdminOrderCounts = {
 };
 
 interface AdminOrdersClientProps {
+  /** The CURRENT page's rows (server-paginated). */
   orders: AdminOrderListItem[];
-  counts: AdminOrderCounts;
+  /** Total orders matching the filters (drives pagination). */
+  total: number;
+  /** Per-status counts (every filter except status), for the tab badges. */
+  statusCounts: Record<string, number>;
+  /** Current 1-based page. */
+  page: number;
   products: Array<{ id: string; name: string }>;
   teams?: Array<{ id: string; name: string }>;
+  /** Filter selections parsed from the URL on the server (seed the controls). */
+  initialFilters?: {
+    status: string; search: string; product: string; state: string; team: string; date: string;
+  };
 }
 
 const STATUS_DOT: Record<OrderStatus, string> = {
@@ -117,81 +128,70 @@ const TABS: Array<{
 
 export function AdminOrdersClient({
   orders,
-  counts,
+  total,
+  statusCounts,
+  page: pageProp,
   products,
   teams = [],
+  initialFilters,
 }: AdminOrdersClientProps) {
-  const [activeTab, setActiveTab] = useState<OrderStatus | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [selectedProduct, setSelectedProduct] = useState("__all__");
-  const [selectedState, setSelectedState] = useState("__all__");
-  const [selectedTeam, setSelectedTeam] = useState("__all__");
-  const [selectedDate, setSelectedDate] = useState("");
+  const router = useRouter();
+  const pathname = usePathname();
+  const [activeTab, setActiveTab] = useState<OrderStatus | null>((initialFilters?.status || null) as OrderStatus | null);
+  const [searchQuery, setSearchQuery] = useState(initialFilters?.search ?? "");
+  const [selectedProduct, setSelectedProduct] = useState(initialFilters?.product || "__all__");
+  const [selectedState, setSelectedState] = useState(initialFilters?.state || "__all__");
+  const [selectedTeam, setSelectedTeam] = useState(initialFilters?.team || "__all__");
+  const [selectedDate, setSelectedDate] = useState(initialFilters?.date ?? "");
 
-  const filteredOrders = useMemo(() => {
-    let result = activeTab
-      ? orders.filter((o) => o.status === activeTab)
-      : orders;
+  // Tab badges come from the server (counts for every filter EXCEPT status, so
+  // switching tabs still makes sense).
+  const counts: AdminOrderCounts = useMemo(() => ({
+    all: (statusCounts.PENDING ?? 0) + (statusCounts.CONFIRMED ?? 0) + (statusCounts.DELIVERED ?? 0) + (statusCounts.CANCELLED ?? 0) + (statusCounts.FAILED ?? 0),
+    pending: statusCounts.PENDING ?? 0,
+    confirmed: statusCounts.CONFIRMED ?? 0,
+    delivered: statusCounts.DELIVERED ?? 0,
+    cancelled: statusCounts.CANCELLED ?? 0,
+    failed: statusCounts.FAILED ?? 0,
+  }), [statusCounts]);
 
-    if (searchQuery.trim()) {
-      const q = searchQuery.trim().toLowerCase();
-      result = result.filter(
-        (o) =>
-          o.customer.name.toLowerCase().includes(q) ||
-          (o.customer.email ?? "").toLowerCase().includes(q) ||
-          o.orderNumber.toLowerCase().includes(q) ||
-          o.salesRep.name.toLowerCase().includes(q),
-      );
-    }
-
-    if (selectedProduct && selectedProduct !== "__all__") {
-      result = result.filter((o) =>
-        o.items.some((i) => i.product.name === selectedProduct),
-      );
-    }
-
-    if (selectedState && selectedState !== "__all__") {
-      result = result.filter(
-        (o) => o.customer.state.toLowerCase() === selectedState.toLowerCase(),
-      );
-    }
-
-    if (selectedTeam && selectedTeam !== "__all__") {
-      result = result.filter((o) => o.team?.id === selectedTeam);
-    }
-
-    if (selectedDate) {
-      result = result.filter((o) => {
-        const orderDate = new Date(o.createdAt).toISOString().split("T")[0];
-        return orderDate === selectedDate;
-      });
-    }
-
-    return result;
-  }, [
-    orders,
-    activeTab,
-    searchQuery,
-    selectedProduct,
-    selectedState,
-    selectedTeam,
-    selectedDate,
-  ]);
-
-  // Pagination: show 10 orders per page over the current (filtered) result set.
+  // The server already returns just this page's rows.
+  const pageOrders = orders;
   const PAGE_SIZE = 10;
-  const [page, setPage] = useState(1);
-  const totalPages = Math.max(1, Math.ceil(filteredOrders.length / PAGE_SIZE));
-  const currentPage = Math.min(page, totalPages);
-  const pageOrders = filteredOrders.slice(
-    (currentPage - 1) * PAGE_SIZE,
-    currentPage * PAGE_SIZE,
-  );
+  const [page, setPage] = useState(pageProp);
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const currentPage = Math.min(Math.max(1, page), totalPages);
 
-  // Jump back to the first page whenever a filter changes the result set.
+  // Jump back to the first page whenever a filter changes.
   useEffect(() => {
     setPage(1);
   }, [activeTab, searchQuery, selectedProduct, selectedState, selectedTeam, selectedDate]);
+
+  // Sync filters → URL → server. Local state drives the controls; the URL (read by
+  // the server page) drives which rows come back, so filtering + pagination happen
+  // in the database. router.replace keeps us on the current path — works for the
+  // main /admin/orders AND the scoped per-rep / per-agent pages.
+  const query = (() => {
+    const p = new URLSearchParams();
+    if (activeTab) p.set("status", activeTab);
+    if (searchQuery.trim()) p.set("q", searchQuery.trim());
+    if (selectedProduct !== "__all__") p.set("product", selectedProduct);
+    if (selectedState !== "__all__") p.set("state", selectedState);
+    if (selectedTeam !== "__all__") p.set("team", selectedTeam);
+    if (selectedDate) p.set("date", selectedDate);
+    if (currentPage > 1) p.set("page", String(currentPage));
+    return p.toString();
+  })();
+
+  const didMount = useRef(false);
+  useEffect(() => {
+    // Skip the first run — the initial URL already matches the seeded filters.
+    if (!didMount.current) { didMount.current = true; return; }
+    const handle = setTimeout(() => {
+      router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+    }, 300);
+    return () => clearTimeout(handle);
+  }, [query, pathname, router]);
 
   function formatDate(iso: string) {
     const d = new Date(iso);
@@ -397,7 +397,7 @@ export function AdminOrdersClient({
         </div>
 
         {/* Rows */}
-        {filteredOrders.length === 0 ? (
+        {orders.length === 0 ? (
           <div className="py-20 text-center text-gray-400 text-sm bg-white">
             No orders found.
           </div>
@@ -516,7 +516,7 @@ export function AdminOrdersClient({
               Prev
             </button>
             <span className="text-xs font-semibold text-gray-500">
-              Page {currentPage} of {totalPages} · {filteredOrders.length} orders
+              Page {currentPage} of {totalPages} · {total} orders
             </span>
             <button
               onClick={() => setPage((p) => Math.min(totalPages, p + 1))}

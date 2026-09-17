@@ -2,12 +2,20 @@ import { auth } from "@/lib/auth/auth";
 import { redirect } from "next/navigation";
 import {
   getAgentIdByUserId,
-  getAgentOrders,
-  getAgentOrderStatusCounts,
+  getAgentOrdersPage,
+  type AgentOrderFilters,
+  type AgentUIStatus,
 } from "@/modules/delivery/services/delivery-agent-portal.service";
 import { OrdersClient } from "./orders-client";
 
-export default async function DeliveryAgentOrders() {
+const PAGE_SIZE = 15;
+const UI_STATUSES: AgentUIStatus[] = ["Pending", "Delivered", "Failed"];
+
+export default async function DeliveryAgentOrders({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const session = await auth();
   if (!session?.user?.id) redirect("/login");
 
@@ -21,21 +29,26 @@ export default async function DeliveryAgentOrders() {
     );
   }
 
-  const [orders, counts] = await Promise.all([
-    getAgentOrders(agentId),
-    getAgentOrderStatusCounts(agentId),
-  ]);
+  const sp = await searchParams;
+  const get = (k: string): string | undefined =>
+    Array.isArray(sp[k]) ? (sp[k] as string[])[0] : (sp[k] as string | undefined);
 
-  const statusCounts = {
-    pending: (counts.PENDING ?? 0) + (counts.CONFIRMED ?? 0),
-    delivered: counts.DELIVERED ?? 0,
-    failed: (counts.FAILED ?? 0) + (counts.CANCELLED ?? 0),
+  const statusRaw = get("status") ?? "";
+  const filters: AgentOrderFilters = {
+    uiStatus: UI_STATUSES.includes(statusRaw as AgentUIStatus) ? (statusRaw as AgentUIStatus) : undefined,
+    search: (get("q") ?? "").trim(),
   };
+  const pageNum = Math.max(1, parseInt(get("page") ?? "1", 10) || 1);
+
+  const orderPage = await getAgentOrdersPage(agentId, filters, pageNum, PAGE_SIZE);
 
   return (
     <OrdersClient
-      orders={orders}
-      statusCounts={statusCounts}
+      orders={orderPage.rows}
+      statusCounts={orderPage.statusCounts}
+      total={orderPage.total}
+      page={pageNum}
+      initialFilters={{ status: filters.uiStatus ?? "", search: filters.search ?? "" }}
       user={session.user}
     />
   );

@@ -1226,6 +1226,7 @@ model Form {
   createdBy   User        @relation("FormCreatedBy", fields: [createdById], references: [id])
   formOrders  Order[]     @relation("FormOrders")
   formViews   FormView[]
+  formViewsDaily FormViewDaily[]
 
   @@index([createdById])
   @@map("forms")
@@ -1240,6 +1241,23 @@ model FormView {
   @@index([formId])
   @@index([createdAt])
   @@map("form_views")
+}
+
+/// Daily view tally per form. Replaces one-row-per-impression FormView writes on
+/// the 24/7 ad-traffic hot path: the beacon upserts a single row per form per UTC
+/// day (count++), so the table grows by (forms × days), not impressions. Total
+/// hits = SUM(count); analytics bucket by `day`. Legacy FormView rows are kept
+/// (backfilled into this table) but no longer written.
+model FormViewDaily {
+  id     String   @id @default(cuid())
+  formId String
+  day    DateTime @db.Date
+  count  Int      @default(0)
+  form   Form     @relation(fields: [formId], references: [id], onDelete: Cascade)
+
+  @@unique([formId, day])
+  @@index([day])
+  @@map("form_view_daily")
 }
 
 model JournalEntryRow {

@@ -122,10 +122,10 @@ export async function getMyFormRows(
       },
       _count: { id: true },
     }),
-    prisma.formView.groupBy({
+    prisma.formViewDaily.groupBy({
       by: ["formId"],
-      where: { formId: { in: formIds }, ...(range ? { createdAt: range } : {}) },
-      _count: { id: true },
+      where: { formId: { in: formIds }, ...(range ? { day: range } : {}) },
+      _sum: { count: true },
     }),
   ]);
 
@@ -138,7 +138,7 @@ export async function getMyFormRows(
       deliveredMap.set(s.formId, (deliveredMap.get(s.formId) ?? 0) + s._count.id);
     }
   }
-  const viewsMap = new Map(viewStats.map((v) => [v.formId, v._count.id]));
+  const viewsMap = new Map(viewStats.map((v) => [v.formId, v._sum.count ?? 0]));
 
   // Resolve product names across all referenced products.
   const allProductIds = new Set<string>();
@@ -196,16 +196,18 @@ export async function getMyFormDetail(
 
   // An explicit range is used directly; a string token maps through periodRange.
   const range = period && typeof period === "object" ? period : periodRange(period ?? null);
-  const [orderStats, viewCount] = await Promise.all([
+  const [orderStats, viewAgg] = await Promise.all([
     prisma.order.groupBy({
       by: ["status"],
       where: { formId, deletedAt: null, ...(range ? { createdAt: range } : {}) },
       _count: { id: true },
     }),
-    prisma.formView.count({
-      where: { formId, ...(range ? { createdAt: range } : {}) },
+    prisma.formViewDaily.aggregate({
+      where: { formId, ...(range ? { day: range } : {}) },
+      _sum: { count: true },
     }),
   ]);
+  const viewCount = viewAgg._sum.count ?? 0;
 
   const leads = orderStats.reduce((sum, s) => sum + s._count.id, 0);
   const delivered =
@@ -301,9 +303,9 @@ export async function getMediaBuyerOverview(
           },
           select: { formId: true, status: true, createdAt: true },
         }),
-        prisma.formView.findMany({
-          where: { formId: { in: formIds }, createdAt: { gte: prevStart, lte: currentEnd } },
-          select: { formId: true, createdAt: true },
+        prisma.formViewDaily.findMany({
+          where: { formId: { in: formIds }, day: { gte: prevStart, lte: currentEnd } },
+          select: { formId: true, day: true, count: true },
         }),
       ])
     : [[], []];
@@ -346,8 +348,8 @@ export async function getMediaBuyerOverview(
   for (const v of views) {
     const owner = formOwner.get(v.formId);
     if (!owner) continue;
-    const bucket = inCurrent(v.createdAt) ? cur.get(owner) : inPrev(v.createdAt) ? prev.get(owner) : null;
-    if (bucket) bucket.views += 1;
+    const bucket = inCurrent(v.day) ? cur.get(owner) : inPrev(v.day) ? prev.get(owner) : null;
+    if (bucket) bucket.views += v.count;
   }
 
   // Pick each buyer's best-performing form (most delivered this window) and

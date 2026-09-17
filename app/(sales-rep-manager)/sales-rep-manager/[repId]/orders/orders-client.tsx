@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
-import { useRouter } from "next/navigation";
+import React, { useState, useMemo, useEffect, useRef } from "react";
+import { useRouter, usePathname } from "next/navigation";
 import { Search, SlidersHorizontal, ArrowUpDown, ChevronLeft, RotateCcw } from "lucide-react";
 import { formatDate,formatCurrency } from "@/lib/utils";
 import { useBasePath } from "../../_lib/base-path";
@@ -35,9 +35,17 @@ export type OrderCounts = {
 interface OrdersClientProps {
   repId: string;
   repName: string;
+  /** The CURRENT page's rows (server-paginated). */
   orders: OrderListItem[];
-  counts: OrderCounts;
+  /** Total orders matching the filters (drives pagination). */
+  total: number;
+  /** Per-status counts (every filter except status), for the tab badges. */
+  statusCounts: Record<string, number>;
+  /** Current 1-based page. */
+  page: number;
   products?: string[];
+  /** Filter selections parsed from the URL on the server (seed the controls). */
+  initialFilters?: { status: string; search: string; product: string; state: string; date: string };
 }
 
 const STATUS_STYLES: Record<OrderStatus, { dot: string; bg: string; text: string; label: string }> = {
@@ -65,14 +73,15 @@ const NIGERIAN_STATES = [
   "Yobe","Zamfara",
 ];
 
-export function OrdersClient({ repId, repName, orders, counts, products = [] }: OrdersClientProps) {
+export function OrdersClient({ repId, repName, orders, total, statusCounts, page: pageProp, products = [], initialFilters }: OrdersClientProps) {
   const router = useRouter();
+  const pathname = usePathname();
   const base = useBasePath();
-  const [activeTab, setActiveTab] = useState<OrderStatus | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [dateFilter, setDateFilter] = useState("");
-  const [productFilter, setProductFilter] = useState("");
-  const [stateFilter, setStateFilter] = useState("");
+  const [activeTab, setActiveTab] = useState<OrderStatus | null>((initialFilters?.status || null) as OrderStatus | null);
+  const [searchQuery, setSearchQuery] = useState(initialFilters?.search ?? "");
+  const [dateFilter, setDateFilter] = useState(initialFilters?.date ?? "");
+  const [productFilter, setProductFilter] = useState(initialFilters?.product ?? "");
+  const [stateFilter, setStateFilter] = useState(initialFilters?.state ?? "");
 
   // Full catalog when provided; otherwise fall back to products seen in the orders
   // (each order can carry several products, so flatten itemNames — not just the first).
@@ -81,24 +90,49 @@ export function OrdersClient({ repId, repName, orders, counts, products = [] }: 
     return Array.from(new Set(orders.flatMap(o => o.itemNames).filter(Boolean))).sort();
   }, [products, orders]);
 
-  const filteredOrders = useMemo(() => {
-    let result = activeTab ? orders.filter(o => o.status === activeTab) : orders;
+  // Tab badges come from the server (counts for every filter EXCEPT status).
+  const counts: OrderCounts = useMemo(() => ({
+    all: (statusCounts.PENDING ?? 0) + (statusCounts.CONFIRMED ?? 0) + (statusCounts.DELIVERED ?? 0) + (statusCounts.CANCELLED ?? 0) + (statusCounts.FAILED ?? 0),
+    pending: statusCounts.PENDING ?? 0,
+    confirmed: statusCounts.CONFIRMED ?? 0,
+    delivered: statusCounts.DELIVERED ?? 0,
+    cancelled: statusCounts.CANCELLED ?? 0,
+    failed: statusCounts.FAILED ?? 0,
+  }), [statusCounts]);
 
-    if (dateFilter) result = result.filter(o => o.date === dateFilter);
-    if (productFilter) result = result.filter(o => o.itemNames.includes(productFilter));
-    if (stateFilter) result = result.filter(o => o.agent?.state === stateFilter);
+  // The server already returns just this page's rows (filtered + paginated).
+  const filteredOrders = orders;
+  const PAGE_SIZE = 15;
+  const [page, setPage] = useState(pageProp);
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const currentPage = Math.min(Math.max(1, page), totalPages);
 
-    const q = searchQuery.trim().toLowerCase();
-    if (q) {
-      result = result.filter(
-        o =>
-          o.name.toLowerCase().includes(q) ||
-          o.email.toLowerCase().includes(q) ||
-          o.product.toLowerCase().includes(q)
-      );
-    }
-    return result;
-  }, [orders, activeTab, dateFilter, productFilter, stateFilter, searchQuery]);
+  // Jump back to page 1 whenever a filter changes.
+  useEffect(() => {
+    setPage(1);
+  }, [activeTab, searchQuery, dateFilter, productFilter, stateFilter]);
+
+  // Sync filters → URL → server (debounced). Local state drives the controls; the
+  // URL (read by the server page) drives which rows come back.
+  const query = (() => {
+    const p = new URLSearchParams();
+    if (activeTab) p.set("status", activeTab);
+    if (searchQuery.trim()) p.set("q", searchQuery.trim());
+    if (productFilter) p.set("product", productFilter);
+    if (stateFilter) p.set("state", stateFilter);
+    if (dateFilter) p.set("date", dateFilter);
+    if (currentPage > 1) p.set("page", String(currentPage));
+    return p.toString();
+  })();
+
+  const didMount = useRef(false);
+  useEffect(() => {
+    if (!didMount.current) { didMount.current = true; return; }
+    const handle = setTimeout(() => {
+      router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+    }, 300);
+    return () => clearTimeout(handle);
+  }, [query, pathname, router]);
 
   const hasActiveFilters = dateFilter || productFilter || stateFilter;
 
@@ -360,6 +394,29 @@ export function OrdersClient({ repId, repName, orders, counts, products = [] }: 
           </table>
           </div>
         </>
+      )}
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-3">
+          <button
+            onClick={() => setPage(p => Math.max(1, p - 1))}
+            disabled={currentPage === 1}
+            className="px-4 py-1.5 text-xs font-bold rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+          >
+            Prev
+          </button>
+          <span className="text-xs font-semibold text-gray-500">
+            Page {currentPage} of {totalPages} · {total} orders
+          </span>
+          <button
+            onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+            disabled={currentPage === totalPages}
+            className="px-4 py-1.5 text-xs font-bold rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+          >
+            Next
+          </button>
+        </div>
       )}
     </div>
   );

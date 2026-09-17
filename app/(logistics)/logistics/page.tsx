@@ -165,7 +165,7 @@ export default async function LogisticsDashboardPage() {
                       : "bg-[#ad1df4]"
                   }
                   message={alert.message}
-                  time={formatDistanceToNow(alert.createdAt, { addSuffix: true })}
+                  time={formatDistanceToNow(new Date(alert.createdAt), { addSuffix: true })}
                 />
               ))
             )}

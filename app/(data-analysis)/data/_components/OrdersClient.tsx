@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   Search,
   SlidersHorizontal,
@@ -49,10 +49,15 @@ const NIGERIAN_STATES = [
   'Rivers', 'Sokoto', 'Taraba', 'Yobe', 'Zamfara'
 ];
 
-// Parse the "DD-MM-YYYY" date string used in OrderRow back into a Date.
-function parseRowDate(s: string): Date | null {
-  const [d, m, y] = s.split('-').map(Number);
-  if (!d || !m || !y) return null;
+/** Date → "YYYY-MM-DD" (local) for URL params. */
+function ymd(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+/** "YYYY-MM-DD" → Date (local start of day), or undefined. */
+function ymdToDate(s: string | null | undefined): Date | undefined {
+  if (!s) return undefined;
+  const [y, m, d] = s.split('-').map(Number);
+  if (!y || !m || !d) return undefined;
   return new Date(y, m - 1, d);
 }
 
@@ -68,7 +73,20 @@ interface TeamItem {
 }
 
 interface OrdersClientProps {
+  /** The CURRENT page's rows (server-paginated), not all orders. */
   initialOrders?: OrderRow[];
+  /** Total orders matching the current filters (drives pagination). */
+  total?: number;
+  /** Per-status counts (every filter except status), for the tab badges. */
+  statusCounts?: Record<string, number>;
+  /** Current 1-based page. */
+  page?: number;
+  /** Filter selections parsed from the URL on the server (seed the controls). */
+  initialFilters?: {
+    statuses: string[]; search: string; products: string[]; states: string[];
+    teams: string[]; agents: string[]; csAgents: string[];
+    from: string | null; to: string | null;
+  };
   deliveryAgents?: AgentItem[];
   salesReps?: AgentItem[];
   teams?: TeamItem[];
@@ -81,16 +99,16 @@ interface OrdersClientProps {
   userName?: string | null;
 }
 
-export function OrdersClient({ initialOrders = [], deliveryAgents = [], salesReps = [], teams = [], products = [], catalogProducts = [], productForms = [], userName = null }: OrdersClientProps) {
+export function OrdersClient({ initialOrders = [], total = 0, statusCounts = {}, page: pageProp = 1, initialFilters, deliveryAgents = [], salesReps = [], teams = [], products = [], catalogProducts = [], productForms = [], userName = null }: OrdersClientProps) {
   const firstName = userName?.trim().split(/\s+/)[0] ?? "";
   const router = useRouter();
   // Multi-select status filter — drives BOTH the tabs and the Status dropdown.
   // [] means "All" (no status restriction).
-  const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
+  const [selectedStatuses, setSelectedStatuses] = useState<string[]>(initialFilters?.statuses ?? []);
   const [pendingStatuses, setPendingStatuses] = useState<string[]>([]);
   const [isStatusOpen, setIsStatusOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [currentPage, setCurrentPage] = useState(1);
+  const [searchQuery, setSearchQuery] = useState(initialFilters?.search ?? '');
+  const [currentPage, setCurrentPage] = useState(pageProp);
 
   // Manual "Add Order" modal — the analyst keys in an order on a rep's behalf.
   const [isAddOrderOpen, setIsAddOrderOpen] = useState(false);
@@ -100,29 +118,29 @@ export function OrdersClient({ initialOrders = [], deliveryAgents = [], salesRep
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   // Multi-select product filter
-  const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
+  const [selectedProducts, setSelectedProducts] = useState<string[]>(initialFilters?.products ?? []);
   const [pendingProducts, setPendingProducts] = useState<string[]>([]);
   // Multi-select team filter
-  const [selectedTeams, setSelectedTeams] = useState<string[]>([]);
+  const [selectedTeams, setSelectedTeams] = useState<string[]>(initialFilters?.teams ?? []);
   const [pendingTeams, setPendingTeams] = useState<string[]>([]);
   // Date range state
-  const [startDate, setStartDate] = useState<Date | undefined>(undefined);
-  const [endDate, setEndDate] = useState<Date | undefined>(undefined);
+  const [startDate, setStartDate] = useState<Date | undefined>(ymdToDate(initialFilters?.from));
+  const [endDate, setEndDate] = useState<Date | undefined>(ymdToDate(initialFilters?.to));
   const [isDateOpen, setIsDateOpen] = useState(false);
 
   // Multi-select state filter
-  const [selectedStates, setSelectedStates] = useState<string[]>([]);
+  const [selectedStates, setSelectedStates] = useState<string[]>(initialFilters?.states ?? []);
   const [pendingStates, setPendingStates] = useState<string[]>([]);
   const [isStateOpen, setIsStateOpen] = useState(false);
 
   // Del. Agent dialog
-  const [selectedDelAgents, setSelectedDelAgents] = useState<string[]>([]);
+  const [selectedDelAgents, setSelectedDelAgents] = useState<string[]>(initialFilters?.agents ?? []);
   const [pendingDelAgents, setPendingDelAgents] = useState<string[]>([]);
   const [isDelAgentOpen, setIsDelAgentOpen] = useState(false);
   const [delAgentSearch, setDelAgentSearch] = useState('');
 
   // CS Agent dialog
-  const [selectedCSAgents, setSelectedCSAgents] = useState<string[]>([]);
+  const [selectedCSAgents, setSelectedCSAgents] = useState<string[]>(initialFilters?.csAgents ?? []);
   const [pendingCSAgents, setPendingCSAgents] = useState<string[]>([]);
   const [isCSAgentOpen, setIsCSAgentOpen] = useState(false);
   const [csAgentSearch, setCSAgentSearch] = useState('');
@@ -153,13 +171,17 @@ export function OrdersClient({ initialOrders = [], deliveryAgents = [], salesRep
     });
   };
 
-  // Toggle all orders selection
+  // Select / deselect all rows ON THE CURRENT PAGE (the list is server-paginated,
+  // so we can't "select every match" from the client — only what's loaded).
   const toggleAllOrders = () => {
-    if (selectedOrders.size === filteredOrders.length) {
-      setSelectedOrders(new Set());
-    } else {
-      setSelectedOrders(new Set(filteredOrders.map(o => o.id)));
-    }
+    const pageIds = initialOrders.map(o => o.id);
+    const allSelected = pageIds.length > 0 && pageIds.every(id => selectedOrders.has(id));
+    setSelectedOrders(prev => {
+      const next = new Set(prev);
+      if (allSelected) pageIds.forEach(id => next.delete(id));
+      else pageIds.forEach(id => next.add(id));
+      return next;
+    });
   };
 
   // Handle delete selected orders
@@ -195,54 +217,23 @@ export function OrdersClient({ initialOrders = [], deliveryAgents = [], salesRep
     router.refresh();
   };
 
+  // ── Server-driven counts, page rows & pagination ──────────────────────────
+  // Tab badges come from the server (counts for every filter EXCEPT status, so
+  // switching tabs still makes sense).
   const counts = useMemo(() => ({
-    All: initialOrders.length,
-    Pending: initialOrders.filter(o => o.status === 'Pending').length,
-    Confirmed: initialOrders.filter(o => o.status === 'Confirmed').length,
-    Delivered: initialOrders.filter(o => o.status === 'Delivered').length,
-    Cancelled: initialOrders.filter(o => o.status === 'Cancelled').length,
-    Failed: initialOrders.filter(o => o.status === 'Failed').length,
-  }), [initialOrders]);
+    All: (statusCounts.PENDING ?? 0) + (statusCounts.CONFIRMED ?? 0) + (statusCounts.DELIVERED ?? 0) + (statusCounts.CANCELLED ?? 0) + (statusCounts.FAILED ?? 0),
+    Pending: statusCounts.PENDING ?? 0,
+    Confirmed: statusCounts.CONFIRMED ?? 0,
+    Delivered: statusCounts.DELIVERED ?? 0,
+    Cancelled: statusCounts.CANCELLED ?? 0,
+    Failed: statusCounts.FAILED ?? 0,
+  }), [statusCounts]);
 
-  const filteredOrders = useMemo(() => {
-    return initialOrders.filter(o => {
-      const matchesStatus = selectedStatuses.length === 0 || selectedStatuses.includes(o.status);
-      const matchesSearch = o.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                           o.gmail.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                           o.salesRep.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchesProduct = selectedProducts.length === 0 || selectedProducts.includes(o.product);
-      const matchesState = selectedStates.length === 0 || selectedStates.includes(o.state);
-      const matchesTeam = selectedTeams.length === 0 || (o.teamId != null && selectedTeams.includes(o.teamId));
-      const matchesDelAgent = selectedDelAgents.length === 0 || (o.agent && selectedDelAgents.includes(o.agent.id));
-      const matchesCSAgent = selectedCSAgents.length === 0 || selectedCSAgents.includes(o.salesRepId);
-      let matchesDate = true;
-      if (startDate || endDate) {
-        // Filter by the date the order reached its current status (delivered/confirmed/…);
-        // pending orders have no status date, so fall back to the placed date.
-        const od = parseRowDate(o.statusDate ?? o.date);
-        if (!od) {
-          matchesDate = false;
-        } else {
-          if (startDate) {
-            const s = new Date(startDate);
-            s.setHours(0, 0, 0, 0);
-            if (od < s) matchesDate = false;
-          }
-          if (endDate) {
-            const e = new Date(endDate);
-            e.setHours(23, 59, 59, 999);
-            if (od > e) matchesDate = false;
-          }
-        }
-      }
-      return matchesStatus && matchesSearch && matchesProduct && matchesState && matchesTeam && matchesDelAgent && matchesCSAgent && matchesDate;
-    });
-  }, [initialOrders, selectedStatuses, searchQuery, selectedProducts, selectedStates, selectedTeams, selectedDelAgents, selectedCSAgents, startDate, endDate]);
+  // The server already returns just this page's rows.
+  const rows = initialOrders;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
-  // ── Pagination (15 per page) ──────────────────────────────────────────────
-  const totalPages = Math.max(1, Math.ceil(filteredOrders.length / PAGE_SIZE));
-
-  // Reset to page 1 whenever the filters/search change — adjusted during render
+  // Reset to page 1 whenever a NON-page filter changes — adjusted during render
   // (not in an effect) per React's "you might not need an effect" guidance.
   const filterKey = JSON.stringify([
     selectedStatuses, searchQuery, selectedProducts, selectedStates,
@@ -255,16 +246,43 @@ export function OrdersClient({ initialOrders = [], deliveryAgents = [], salesRep
     setCurrentPage(1);
   }
 
-  // Effective page, clamped so a shrinking list (e.g. after a delete refresh)
-  // never leaves us on an out-of-range page.
   const page = Math.min(Math.max(1, currentPage), totalPages);
-  const paginatedOrders = filteredOrders.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   // Compact window of page numbers around the current page.
   const pageWindow: number[] = [];
   for (let i = Math.max(1, page - 2); i <= Math.min(totalPages, page + 2); i++) {
     pageWindow.push(i);
   }
+
+  // ── Sync filters → URL → server ───────────────────────────────────────────
+  // Local state is the source of truth for the controls; the URL (read by the
+  // server page) drives which rows come back. On any filter/search/page change we
+  // write the URL (debounced), which re-runs the server component and returns the
+  // matching page — so filtering + pagination happen in the database, not here.
+  const query = (() => {
+    const p = new URLSearchParams();
+    if (selectedStatuses.length) p.set('status', selectedStatuses.join(','));
+    if (searchQuery.trim()) p.set('q', searchQuery.trim());
+    if (selectedProducts.length) p.set('product', selectedProducts.join(','));
+    if (selectedStates.length) p.set('state', selectedStates.join(','));
+    if (selectedTeams.length) p.set('team', selectedTeams.join(','));
+    if (selectedDelAgents.length) p.set('agent', selectedDelAgents.join(','));
+    if (selectedCSAgents.length) p.set('rep', selectedCSAgents.join(','));
+    if (startDate) p.set('from', ymd(startDate));
+    if (endDate) p.set('to', ymd(endDate));
+    if (page > 1) p.set('page', String(page));
+    return p.toString();
+  })();
+
+  const didMount = useRef(false);
+  useEffect(() => {
+    // Skip the first run — the initial URL already matches the seeded filters.
+    if (!didMount.current) { didMount.current = true; return; }
+    const handle = setTimeout(() => {
+      router.replace(query ? `?${query}` : '/data/order', { scroll: false });
+    }, 300);
+    return () => clearTimeout(handle);
+  }, [query, router]);
 
   // Full catalog when provided; otherwise fall back to products seen in the orders.
   const uniqueProducts = useMemo(() => {
@@ -969,7 +987,7 @@ export function OrdersClient({ initialOrders = [], deliveryAgents = [], salesRep
               <th className="px-4 py-4 w-12">
                 <input
                   type="checkbox"
-                  checked={filteredOrders.length > 0 && selectedOrders.size === filteredOrders.length}
+                  checked={rows.length > 0 && rows.every((o) => selectedOrders.has(o.id))}
                   onChange={toggleAllOrders}
                   className="w-4 h-4 rounded border-gray-300 text-[#A020F0] accent-[#A020F0] cursor-pointer"
                 />
@@ -986,7 +1004,7 @@ export function OrdersClient({ initialOrders = [], deliveryAgents = [], salesRep
             </tr>
           </thead>
           <tbody className="bg-white">
-            {paginatedOrders.map((order) => {
+            {rows.map((order) => {
               const style = STATUS_STYLES[order.status];
               return (
                 <tr
@@ -1075,10 +1093,10 @@ export function OrdersClient({ initialOrders = [], deliveryAgents = [], salesRep
       </div>
 
       {/* Pagination */}
-      {filteredOrders.length > 0 && (
+      {total > 0 && (
         <div className="flex flex-wrap items-center justify-between gap-3 mt-4 px-1">
           <p className="text-xs text-gray-400">
-            Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filteredOrders.length)} of {filteredOrders.length}
+            Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)} of {total}
           </p>
           {totalPages > 1 && (
             <div className="flex items-center gap-1">

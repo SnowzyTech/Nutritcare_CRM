@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
-import { useRouter } from "next/navigation";
+import React, { useState, useMemo, useEffect, useRef } from "react";
+import { useRouter, usePathname } from "next/navigation";
 import { Search, SlidersHorizontal, ArrowUpDown, ChevronLeft, ChevronDown, CalendarDays, RotateCcw } from "lucide-react";
 import { formatDate, formatCurrency } from "@/lib/utils";
 import { Calendar } from "@/components/ui/calendar";
@@ -46,10 +46,18 @@ export type OrderCounts = {
 };
 
 interface TeamOrdersClientProps {
+  /** The CURRENT page's rows (server-paginated). */
   orders: TeamOrderListItem[];
-  counts: OrderCounts;
+  /** Total orders matching the filters (drives pagination). */
+  total: number;
+  /** Per-status counts (every filter except status), for the tab badges. */
+  statusCounts: Record<string, number>;
+  /** Current 1-based page. */
+  page: number;
   products?: string[];
   teams?: { id: string; name: string }[];
+  /** Filter selections parsed from the URL on the server (seed the controls). */
+  initialFilters?: { status: string; search: string; product: string; state: string; team: string; date: string };
 }
 
 const STATUS_STYLES: Record<OrderStatus, { dot: string; bg: string; text: string; label: string }> = {
@@ -77,16 +85,17 @@ const NIGERIAN_STATES = [
   "Yobe","Zamfara",
 ];
 
-export function TeamOrdersClient({ orders, counts, products = [], teams = [] }: TeamOrdersClientProps) {
+export function TeamOrdersClient({ orders, total, statusCounts, page: pageProp, products = [], teams = [], initialFilters }: TeamOrdersClientProps) {
   const router = useRouter();
+  const pathname = usePathname();
   const base = useBasePath();
-  const [activeTab, setActiveTab] = useState<OrderStatus | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [dateValue, setDateValue] = useState<Date | undefined>(undefined);
+  const [activeTab, setActiveTab] = useState<OrderStatus | null>((initialFilters?.status || null) as OrderStatus | null);
+  const [searchQuery, setSearchQuery] = useState(initialFilters?.search ?? "");
+  const [dateValue, setDateValue] = useState<Date | undefined>(initialFilters?.date ? new Date(`${initialFilters.date}T00:00:00`) : undefined);
   const [isDateOpen, setIsDateOpen] = useState(false);
-  const [productFilter, setProductFilter] = useState("");
-  const [stateFilter, setStateFilter] = useState("");
-  const [teamFilter, setTeamFilter] = useState("");
+  const [productFilter, setProductFilter] = useState(initialFilters?.product ?? "");
+  const [stateFilter, setStateFilter] = useState(initialFilters?.state ?? "");
+  const [teamFilter, setTeamFilter] = useState(initialFilters?.team ?? "");
   // Only the company manager sees orders spanning multiple teams; show the team
   // filter only when there's more than one team to choose between.
   const showTeamFilter = teams.length > 1;
@@ -97,38 +106,51 @@ export function TeamOrdersClient({ orders, counts, products = [], teams = [] }: 
     return Array.from(new Set(orders.flatMap(o => o.itemNames).filter(Boolean))).sort();
   }, [products, orders]);
 
-  const filteredOrders = useMemo(() => {
-    let result = activeTab ? orders.filter(o => o.status === activeTab) : orders;
+  // Tab badges come from the server (counts for every filter EXCEPT status).
+  const counts: OrderCounts = useMemo(() => ({
+    all: (statusCounts.PENDING ?? 0) + (statusCounts.CONFIRMED ?? 0) + (statusCounts.DELIVERED ?? 0) + (statusCounts.CANCELLED ?? 0) + (statusCounts.FAILED ?? 0),
+    pending: statusCounts.PENDING ?? 0,
+    confirmed: statusCounts.CONFIRMED ?? 0,
+    delivered: statusCounts.DELIVERED ?? 0,
+    cancelled: statusCounts.CANCELLED ?? 0,
+    failed: statusCounts.FAILED ?? 0,
+  }), [statusCounts]);
 
-    if (dateValue) {
-      const ymd = toYMD(dateValue);
-      result = result.filter(o => o.date === ymd);
-    }
+  // The server already returns just this page's rows (filtered + paginated).
+  const filteredOrders = orders;
+  const PAGE_SIZE = 15;
+  const [page, setPage] = useState(pageProp);
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const currentPage = Math.min(Math.max(1, page), totalPages);
 
-    if (productFilter) {
-      result = result.filter(o => o.itemNames.includes(productFilter));
-    }
+  // Jump back to page 1 whenever a filter changes.
+  useEffect(() => {
+    setPage(1);
+  }, [activeTab, searchQuery, dateValue, productFilter, stateFilter, teamFilter]);
 
-    if (stateFilter) {
-      result = result.filter(o => o.agent?.state === stateFilter);
-    }
+  // Sync filters → URL → server (debounced). Local state drives the controls; the
+  // URL (read by the server page) drives which rows come back, so filtering +
+  // pagination happen in the database.
+  const query = (() => {
+    const p = new URLSearchParams();
+    if (activeTab) p.set("status", activeTab);
+    if (searchQuery.trim()) p.set("q", searchQuery.trim());
+    if (productFilter) p.set("product", productFilter);
+    if (stateFilter) p.set("state", stateFilter);
+    if (teamFilter) p.set("team", teamFilter);
+    if (dateValue) p.set("date", toYMD(dateValue));
+    if (currentPage > 1) p.set("page", String(currentPage));
+    return p.toString();
+  })();
 
-    if (teamFilter) {
-      result = result.filter(o => o.teamId === teamFilter);
-    }
-
-    const q = searchQuery.trim().toLowerCase();
-    if (q) {
-      result = result.filter(
-        o =>
-          o.name.toLowerCase().includes(q) ||
-          o.email.toLowerCase().includes(q) ||
-          o.product.toLowerCase().includes(q) ||
-          o.salesRep.toLowerCase().includes(q)
-      );
-    }
-    return result;
-  }, [orders, activeTab, dateValue, productFilter, stateFilter, teamFilter, searchQuery]);
+  const didMount = useRef(false);
+  useEffect(() => {
+    if (!didMount.current) { didMount.current = true; return; }
+    const handle = setTimeout(() => {
+      router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+    }, 300);
+    return () => clearTimeout(handle);
+  }, [query, pathname, router]);
 
   const hasActiveFilters = dateValue || productFilter || stateFilter || teamFilter;
 
@@ -473,6 +495,29 @@ export function TeamOrdersClient({ orders, counts, products = [], teams = [] }: 
           </table>
           </div>
         </>
+      )}
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-3 -mt-16 mb-24">
+          <button
+            onClick={() => setPage(p => Math.max(1, p - 1))}
+            disabled={currentPage === 1}
+            className="px-4 py-1.5 text-xs font-bold rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+          >
+            Prev
+          </button>
+          <span className="text-xs font-semibold text-gray-500">
+            Page {currentPage} of {totalPages} · {total} orders
+          </span>
+          <button
+            onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+            disabled={currentPage === totalPages}
+            className="px-4 py-1.5 text-xs font-bold rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+          >
+            Next
+          </button>
+        </div>
       )}
     </div>
   );

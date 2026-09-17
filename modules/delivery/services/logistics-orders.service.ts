@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db/prisma";
 import { formatDate } from "@/lib/utils";
-import type { DeliveryStatus, OrderStatus } from "@prisma/client";
+import { Prisma, type DeliveryStatus, type OrderStatus } from "@prisma/client";
 
 export type LogisticsDeliveryRow = {
   id: string;
@@ -188,4 +188,84 @@ export async function getLogisticsOrderStatusCounts() {
     map[row.status] = row._count._all;
   }
   return map;
+}
+
+// ── Server-side paged logistics orders (docs/orders-pagination-plan.md) ──────────
+// The logistics Orders screen only filters by status + search, over all orders.
+
+export type LogisticsOrderRow = {
+  id: string;
+  status: OrderStatus;
+  date: string;
+  customer: { name: string; email: string | null };
+  agent: { companyName: string; state: string | null } | null;
+  items: { quantity: number; upsellQuantity: number; isUpsell: boolean; product: { name: string } }[];
+  deliveryFee: number;
+};
+
+export type LogisticsOrderFilters = { status?: OrderStatus; search?: string };
+
+const LOGISTICS_ORDER_SELECT = {
+  id: true,
+  status: true,
+  date: true,
+  deliveryFee: true,
+  customer: { select: { name: true, email: true } },
+  agent: { select: { companyName: true, state: true } },
+  items: {
+    select: { quantity: true, upsellQuantity: true, isUpsell: true, product: { select: { name: true } } },
+    orderBy: { createdAt: "asc" },
+  },
+} satisfies Prisma.OrderSelect;
+
+function buildLogisticsOrderWhere(f: LogisticsOrderFilters): Prisma.OrderWhereInput {
+  const where: Prisma.OrderWhereInput = { deletedAt: null };
+  if (f.status) where.status = f.status;
+  const q = f.search?.trim();
+  if (q) {
+    where.OR = [
+      { customer: { is: { name: { contains: q, mode: "insensitive" } } } },
+      { customer: { is: { email: { contains: q, mode: "insensitive" } } } },
+      { agent: { is: { companyName: { contains: q, mode: "insensitive" } } } },
+      { items: { some: { product: { name: { contains: q, mode: "insensitive" } } } } },
+    ];
+  }
+  return where;
+}
+
+export async function getLogisticsOrdersPage(
+  filters: LogisticsOrderFilters,
+  page: number,
+  pageSize = 15,
+): Promise<{ rows: LogisticsOrderRow[]; total: number; statusCounts: Partial<Record<OrderStatus, number>> }> {
+  const where = buildLogisticsOrderWhere(filters);
+  const whereNoStatus = buildLogisticsOrderWhere({ ...filters, status: undefined });
+  const safePage = Math.max(1, Math.floor(page) || 1);
+
+  const [orders, total, grouped] = await Promise.all([
+    prisma.order.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      skip: (safePage - 1) * pageSize,
+      take: pageSize,
+      select: LOGISTICS_ORDER_SELECT,
+    }),
+    prisma.order.count({ where }),
+    prisma.order.groupBy({ by: ["status"], where: whereNoStatus, _count: { _all: true } }),
+  ]);
+
+  const statusCounts: Partial<Record<OrderStatus, number>> = {};
+  for (const g of grouped) statusCounts[g.status] = g._count._all;
+
+  const rows: LogisticsOrderRow[] = orders.map((o) => ({
+    id: o.id,
+    status: o.status,
+    date: o.date.toISOString(),
+    customer: { name: o.customer.name, email: o.customer.email ?? null },
+    agent: o.agent ? { companyName: o.agent.companyName, state: o.agent.state ?? null } : null,
+    items: o.items.map((i) => ({ quantity: i.quantity, upsellQuantity: i.upsellQuantity, isUpsell: i.isUpsell, product: { name: i.product.name } })),
+    deliveryFee: Number(o.deliveryFee),
+  }));
+
+  return { rows, total, statusCounts };
 }
