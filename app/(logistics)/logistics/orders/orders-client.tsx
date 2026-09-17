@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
-import { useRouter } from "next/navigation";
+import React, { useState, useEffect, useRef } from "react";
+import { useRouter, usePathname } from "next/navigation";
 import {
   Filter,
   ChevronDown,
@@ -47,36 +47,53 @@ const PAGE_SIZE = 15;
 export function LogisticsOrdersClient({
   orders,
   statusCounts,
+  total,
+  page: pageProp,
+  initialFilters,
 }: {
   orders: OrderRow[];
   statusCounts: StatusCounts;
+  total: number;
+  page: number;
+  initialFilters?: { status: string; search: string };
 }) {
-  const [activeTab, setActiveTab] = useState<OrderStatus | "ALL">("ALL");
-  const [search, setSearch] = useState("");
-  const [page, setPage] = useState(1);
+  const [activeTab, setActiveTab] = useState<OrderStatus | "ALL">((initialFilters?.status as OrderStatus) || "ALL");
+  const [search, setSearch] = useState(initialFilters?.search ?? "");
+  const [page, setPage] = useState(pageProp);
 
   const router = useRouter();
+  const pathname = usePathname();
   const totalAll = Object.values(statusCounts).reduce((a, b) => a + (b ?? 0), 0);
 
-  const filtered = useMemo(() => {
-    let rows = orders;
-    if (activeTab !== "ALL") rows = rows.filter((o) => o.status === activeTab);
-    if (search.trim()) {
-      const q = search.trim().toLowerCase();
-      rows = rows.filter(
-        (o) =>
-          o.customer.name.toLowerCase().includes(q) ||
-          (o.customer.email ?? "").toLowerCase().includes(q) ||
-          (o.agent?.companyName ?? "").toLowerCase().includes(q) ||
-          o.items.some((i) => i.product.name.toLowerCase().includes(q))
-      );
-    }
-    return rows;
-  }, [orders, activeTab, search]);
+  // The server already returns just this page's rows (filtered + paginated).
+  const pageRows = orders;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const safePage = Math.min(Math.max(1, page), totalPages);
+  // Compact window of page numbers around the current page — avoids a huge row of
+  // buttons when there are many pages.
+  const pageWindow: number[] = [];
+  for (let i = Math.max(1, safePage - 2); i <= Math.min(totalPages, safePage + 2); i++) {
+    pageWindow.push(i);
+  }
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const safePage = Math.min(page, totalPages);
-  const pageRows = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  // Sync filters → URL → server (debounced). Local state drives the controls; the
+  // URL (read by the server page) drives which rows come back.
+  const query = (() => {
+    const p = new URLSearchParams();
+    if (activeTab !== "ALL") p.set("status", activeTab);
+    if (search.trim()) p.set("q", search.trim());
+    if (safePage > 1) p.set("page", String(safePage));
+    return p.toString();
+  })();
+
+  const didMount = useRef(false);
+  useEffect(() => {
+    if (!didMount.current) { didMount.current = true; return; }
+    const handle = setTimeout(() => {
+      router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+    }, 300);
+    return () => clearTimeout(handle);
+  }, [query, pathname, router]);
 
   function handleTabChange(tab: OrderStatus | "ALL") {
     setActiveTab(tab);
@@ -88,7 +105,7 @@ export function LogisticsOrdersClient({
       {/* Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold text-gray-800">Orders</h1>
-        <span className="text-sm text-gray-400">{filtered.length} orders</span>
+        <span className="text-sm text-gray-400">{total} orders</span>
       </div>
 
       {/* Status Tabs */}
@@ -233,37 +250,65 @@ export function LogisticsOrdersClient({
       </div>
 
       {/* Pagination */}
-      <div className="flex justify-end gap-2 pb-8">
-        <Button
-          variant="outline"
-          onClick={() => setPage((p) => Math.max(1, p - 1))}
-          disabled={safePage <= 1}
-          className="h-8 text-xs bg-gray-200 text-gray-500 border-none hover:bg-gray-300 px-4 disabled:opacity-40"
-        >
-          Previous
-        </Button>
-        {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+      {totalPages > 1 && (
+        <div className="flex justify-end items-center gap-2 pb-8">
           <Button
-            key={p}
-            onClick={() => setPage(p)}
-            className={`h-8 w-8 text-xs rounded-md ${
-              safePage === p
-                ? "bg-[#ad1df4] hover:bg-[#8e14cc] text-white"
-                : "bg-gray-200 text-gray-500 hover:bg-gray-300"
-            }`}
+            variant="outline"
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            disabled={safePage <= 1}
+            className="h-8 text-xs bg-gray-200 text-gray-500 border-none hover:bg-gray-300 px-4 disabled:opacity-40"
           >
-            {p}
+            Previous
           </Button>
-        ))}
-        <Button
-          variant="outline"
-          onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-          disabled={safePage >= totalPages}
-          className="h-8 text-xs bg-gray-200 text-gray-500 border-none hover:bg-gray-300 px-4 disabled:opacity-40"
-        >
-          Next
-        </Button>
-      </div>
+
+          {pageWindow[0] > 1 && (
+            <>
+              <Button
+                onClick={() => setPage(1)}
+                className="h-8 w-8 text-xs rounded-md bg-gray-200 text-gray-500 hover:bg-gray-300"
+              >
+                1
+              </Button>
+              {pageWindow[0] > 2 && <span className="px-1 text-gray-300">…</span>}
+            </>
+          )}
+
+          {pageWindow.map((p) => (
+            <Button
+              key={p}
+              onClick={() => setPage(p)}
+              className={`h-8 w-8 text-xs rounded-md ${
+                safePage === p
+                  ? "bg-[#ad1df4] hover:bg-[#8e14cc] text-white"
+                  : "bg-gray-200 text-gray-500 hover:bg-gray-300"
+              }`}
+            >
+              {p}
+            </Button>
+          ))}
+
+          {pageWindow[pageWindow.length - 1] < totalPages && (
+            <>
+              {pageWindow[pageWindow.length - 1] < totalPages - 1 && <span className="px-1 text-gray-300">…</span>}
+              <Button
+                onClick={() => setPage(totalPages)}
+                className="h-8 w-8 text-xs rounded-md bg-gray-200 text-gray-500 hover:bg-gray-300"
+              >
+                {totalPages}
+              </Button>
+            </>
+          )}
+
+          <Button
+            variant="outline"
+            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            disabled={safePage >= totalPages}
+            className="h-8 text-xs bg-gray-200 text-gray-500 border-none hover:bg-gray-300 px-4 disabled:opacity-40"
+          >
+            Next
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

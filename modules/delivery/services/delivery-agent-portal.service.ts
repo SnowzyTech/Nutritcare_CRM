@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db/prisma";
-import type { OrderStatus } from "@prisma/client";
+import { Prisma, type OrderStatus } from "@prisma/client";
 
 export async function getAgentIdByUserId(userId: string) {
   const user = await prisma.user.findUnique({
@@ -77,6 +77,86 @@ export async function getAgentOrderStatusCounts(agentId: string) {
     map[row.status] = row._count._all;
   }
   return map;
+}
+
+// ── Server-side paged agent orders (docs/orders-pagination-plan.md) ──────────────
+// The portal groups DB statuses into 3 UI buckets and filters by status + search,
+// scoped to the agent's own orders.
+
+export type AgentUIStatus = "Pending" | "Delivered" | "Failed";
+
+const UI_STATUS_DB: Record<AgentUIStatus, OrderStatus[]> = {
+  Pending: ["PENDING", "CONFIRMED"],
+  Delivered: ["DELIVERED"],
+  Failed: ["FAILED", "CANCELLED"],
+};
+
+export type AgentOrderFilters = { uiStatus?: AgentUIStatus; search?: string };
+
+const AGENT_ORDER_SELECT = {
+  id: true,
+  orderNumber: true,
+  status: true,
+  isRescheduled: true,
+  createdAt: true,
+  customer: { select: { name: true, email: true, phone: true } },
+  items: { select: { quantity: true, upsellQuantity: true, isUpsell: true, product: { select: { name: true } } } },
+  deliveries: { orderBy: { createdAt: "desc" }, take: 1, select: { scheduledTime: true, deliveredTime: true } },
+} satisfies Prisma.OrderSelect;
+
+function buildAgentOrderWhere(agentId: string, f: AgentOrderFilters): Prisma.OrderWhereInput {
+  const where: Prisma.OrderWhereInput = { agentId, deletedAt: null };
+  if (f.uiStatus) where.status = { in: UI_STATUS_DB[f.uiStatus] };
+  const q = f.search?.trim();
+  if (q) {
+    where.OR = [
+      { customer: { is: { name: { contains: q, mode: "insensitive" } } } },
+      { customer: { is: { email: { contains: q, mode: "insensitive" } } } },
+      { orderNumber: { contains: q, mode: "insensitive" } },
+    ];
+  }
+  return where;
+}
+
+export async function getAgentOrdersPage(
+  agentId: string,
+  filters: AgentOrderFilters,
+  page: number,
+  pageSize = 15,
+) {
+  const where = buildAgentOrderWhere(agentId, filters);
+  const whereNoStatus = buildAgentOrderWhere(agentId, { ...filters, uiStatus: undefined });
+  const safePage = Math.max(1, Math.floor(page) || 1);
+
+  const [rawOrders, total, grouped] = await Promise.all([
+    prisma.order.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      skip: (safePage - 1) * pageSize,
+      take: pageSize,
+      select: AGENT_ORDER_SELECT,
+    }),
+    prisma.order.count({ where }),
+    prisma.order.groupBy({ by: ["status"], where: whereNoStatus, _count: { _all: true } }),
+  ]);
+
+  // Same derived "delivery date" as getAgentOrders (delivered date, else scheduled).
+  const rows = rawOrders.map(({ deliveries, ...order }) => {
+    const latest = deliveries[0];
+    const deliveryDate =
+      order.status === "DELIVERED" ? latest?.deliveredTime ?? null : latest?.scheduledTime ?? null;
+    return { ...order, deliveryDate };
+  });
+
+  const byStatus: Partial<Record<OrderStatus, number>> = {};
+  for (const g of grouped) byStatus[g.status] = g._count._all;
+  const statusCounts = {
+    pending: (byStatus.PENDING ?? 0) + (byStatus.CONFIRMED ?? 0),
+    delivered: byStatus.DELIVERED ?? 0,
+    failed: (byStatus.FAILED ?? 0) + (byStatus.CANCELLED ?? 0),
+  };
+
+  return { rows, total, statusCounts };
 }
 
 export async function getAgentOrderById(orderId: string, agentId: string) {

@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
+import { useRouter, usePathname } from "next/navigation";
 import { Search, Settings, Bell, CalendarClock } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 import { upsellExtraCount } from "@/lib/orders/upsell";
@@ -33,8 +34,15 @@ interface StatusCounts {
 }
 
 interface Props {
+  /** The CURRENT page's rows (server-paginated). */
   orders: Order[];
   statusCounts: StatusCounts;
+  /** Total orders matching the filters (drives pagination). */
+  total: number;
+  /** Current 1-based page. */
+  page: number;
+  /** Filter selections parsed from the URL on the server (seed the controls). */
+  initialFilters?: { status: string; search: string };
   user: { name?: string | null; image?: string | null } | undefined;
 }
 
@@ -69,25 +77,42 @@ function summariseItems(items: OrderItem[]): string {
   return `${total} items (${items.map(i => i.product.name).join(", ")})`;
 }
 
-export function OrdersClient({ orders, statusCounts, user }: Props) {
-  const [activeFilter, setActiveFilter] = useState<UIStatus>("All");
-  const [search, setSearch] = useState("");
+export function OrdersClient({ orders, statusCounts, total, page: pageProp, initialFilters, user }: Props) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const [activeFilter, setActiveFilter] = useState<UIStatus>((initialFilters?.status as UIStatus) || "All");
+  const [search, setSearch] = useState(initialFilters?.search ?? "");
+  const [page, setPage] = useState(pageProp);
+
+  const PAGE_SIZE = 15;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const currentPage = Math.min(Math.max(1, page), totalPages);
+
+  // Jump back to page 1 whenever the filter/search changes.
+  useEffect(() => { setPage(1); }, [activeFilter, search]);
+
+  // Sync filters → URL → server (debounced). Local state drives the controls; the
+  // URL (read by the server page) drives which rows come back, so filtering +
+  // pagination happen in the database.
+  const query = (() => {
+    const p = new URLSearchParams();
+    if (activeFilter !== "All") p.set("status", activeFilter);
+    if (search.trim()) p.set("q", search.trim());
+    if (currentPage > 1) p.set("page", String(currentPage));
+    return p.toString();
+  })();
+  const didMount = useRef(false);
+  useEffect(() => {
+    if (!didMount.current) { didMount.current = true; return; }
+    const handle = setTimeout(() => {
+      router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+    }, 300);
+    return () => clearTimeout(handle);
+  }, [query, pathname, router]);
 
   const avatarUrl = user?.name
     ? `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}&background=f3e8ff&color=ad1df4`
     : "https://ui-avatars.com/api/?name=Agent&background=f3e8ff&color=ad1df4";
-
-  const filtered = orders.filter((order) => {
-    const uiStatus = mapToUIStatus(order.status);
-    const matchesFilter = activeFilter === "All" || uiStatus === activeFilter;
-    const q = search.toLowerCase();
-    const matchesSearch =
-      !q ||
-      order.customer.name.toLowerCase().includes(q) ||
-      (order.customer.email ?? "").toLowerCase().includes(q) ||
-      order.orderNumber.toLowerCase().includes(q);
-    return matchesFilter && matchesSearch;
-  });
 
   return (
     <div className="max-w-xl mx-auto space-y-6">
@@ -124,7 +149,7 @@ export function OrdersClient({ orders, statusCounts, user }: Props) {
 
       {/* Filter Tabs */}
       <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-        <FilterTab label={`All (${orders.length})`} active={activeFilter === "All"} onClick={() => setActiveFilter("All")} color="purple" />
+        <FilterTab label={`All (${total})`} active={activeFilter === "All"} onClick={() => setActiveFilter("All")} color="purple" />
         <FilterTab label={`Pending (${statusCounts.pending})`} active={activeFilter === "Pending"} onClick={() => setActiveFilter("Pending")} color="yellow" />
         <FilterTab label={`Delivered (${statusCounts.delivered})`} active={activeFilter === "Delivered"} onClick={() => setActiveFilter("Delivered")} color="green" />
         <FilterTab label={`Failed (${statusCounts.failed})`} active={activeFilter === "Failed"} onClick={() => setActiveFilter("Failed")} color="red" />
@@ -132,10 +157,10 @@ export function OrdersClient({ orders, statusCounts, user }: Props) {
 
       {/* Orders List */}
       <div className="space-y-6 pt-2">
-        {filtered.length === 0 ? (
+        {orders.length === 0 ? (
           <p className="text-center text-gray-400 text-sm py-12">No orders found</p>
         ) : (
-          filtered.map((order) => (
+          orders.map((order) => (
             <Link key={order.id} href={`/delivery-agents/${order.id}`}>
               <div className="flex items-start justify-between mb-6 active:scale-[0.98] transition-transform">
                 <div className="space-y-1">
@@ -171,6 +196,29 @@ export function OrdersClient({ orders, statusCounts, user }: Props) {
           ))
         )}
       </div>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-3 pb-4">
+          <button
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            disabled={currentPage === 1}
+            className="px-4 py-1.5 text-xs font-bold rounded-lg border border-gray-200 bg-white text-gray-600 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Prev
+          </button>
+          <span className="text-xs font-semibold text-gray-500">
+            Page {currentPage} of {totalPages}
+          </span>
+          <button
+            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            disabled={currentPage === totalPages}
+            className="px-4 py-1.5 text-xs font-bold rounded-lg border border-gray-200 bg-white text-gray-600 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Next
+          </button>
+        </div>
+      )}
     </div>
   );
 }

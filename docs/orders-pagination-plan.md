@@ -24,7 +24,13 @@
 >
 > **Sales-manager per-rep done (2026-09-17):** `sales-rep-manager/[repId]/orders` — **reused `getTeamOrdersPage([repId], …)`** (TeamOrderRow already carries every field this client's `OrderListItem` needs). Client made URL-driven + Prev/Next (no pagination before). Filters: status/date(placed)/product/state(agent)/search. tsc + `next build` pass.
 >
-> **Remaining:** order-assignment (`sales-rep-manager/order-assignment`, specialized assign-to-agent tool), logistics Orders, delivery-agent Orders.
+> **Logistics Orders done (2026-09-17):** `getLogisticsOrdersPage(filters, 15)` in `logistics-orders.service.ts` (`LogisticsOrderRow`; filters = status + search only — the "Date" button was always a non-functional placeholder). Client already had server statusCounts + numbered pagination; made URL-driven (status/q/page). Behavior note: tab counts now reflect the search (were unfiltered). tsc + `next build` pass.
+>
+> **Delivery-agent Orders done (2026-09-17):** `getAgentOrdersPage(agentId, filters, 15)` in `delivery-agent-portal.service.ts` (UI groups statuses: Pending=PENDING+CONFIRMED, Delivered=DELIVERED, Failed=FAILED+CANCELLED → `UI_STATUS_DB` map; derived `deliveryDate` per row; grouped statusCounts). No pagination before → added Prev/Next. Client (mobile card list) made URL-driven (status label/q/page). tsc + `next build` pass.
+>
+> **All standard order lists are now paginated.**
+>
+> **Order-assignment — DECISION: leave as-is (do NOT paginate).** Both `sales-rep-manager/order-assignment` and `admin/orders/order-assignment` are bulk multi-select **reassign-to-rep** tools (tick many orders across the list → reassign together via `reassignOrdersAction`). Pagination fights that workflow (can't select across pages; "select all" only grabs a page). And the scaling risk is low: they load only **PENDING + CONFIRMED** (the active pipeline), which is self-limiting — it doesn't accumulate all-time history like the browse lists. If the active backlog ever runs to the hundreds during surges, the right fix is a **capped single load** (top N oldest-first + "narrow with filters" note), NOT pagination. Bulk-select tools should filter-and-cap, not paginate.
 
 ## Plain-language summary
 
