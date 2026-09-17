@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db/prisma";
+import { unstable_cache } from "next/cache";
 import { OrderStatus, Prisma } from "@prisma/client";
 import { generalPerformanceScore, kpiScore } from "@/lib/performance";
 
@@ -951,7 +952,18 @@ export async function getSalesRepOrders(salesRepId: string): Promise<OrderRow[]>
   return getOrderRows({ salesRepId });
 }
 
-export async function getSalesRepAnalyticsForUI(
+export function getSalesRepAnalyticsForUI(
+  salesRepId: string,
+  options?: { month: number; year: number }
+): Promise<RepAnalyticsData> {
+  return unstable_cache(
+    () => _getSalesRepAnalyticsForUI(salesRepId, options),
+    ["data-rep-analytics-ui", salesRepId, `${options?.year ?? ""}-${options?.month ?? ""}`],
+    { revalidate: DATA_ANALYTICS_TTL_SECONDS }
+  )();
+}
+
+async function _getSalesRepAnalyticsForUI(
   salesRepId: string,
   options?: { month: number; year: number }
 ): Promise<RepAnalyticsData> {
@@ -1022,7 +1034,62 @@ function resolvePeriodWindow(
   };
 }
 
-export async function getTeamsAnalytics(options?: {
+/* ─────────────────────────────────────────────────────────────────────────────
+   Cached analytics entry points (Phase A — docs/dashboard-caching-plan.md).
+
+   The data-analyst boards recompute these order scans on every load. Caching
+   runs each at most once per TTL. RepAnalyticsData / TeamAnalyticsEntry /
+   ChartPoint are all numbers + strings (Decimal- and Date-free), so they
+   serialise cleanly. Keys include period/month/year so windows never collide;
+   the current window is bounded by the TTL. Wrappers call the hoisted `_impl`s.
+   ──────────────────────────────────────────────────────────────────────────── */
+const DATA_ANALYTICS_TTL_SECONDS = 120;
+
+function analyticsOptionsKey(o?: { month?: number; year?: number; period?: Period }): string {
+  return `${o?.period ?? "month"}:${o?.year ?? ""}:${o?.month ?? ""}`;
+}
+
+export function getTeamsAnalytics(options?: {
+  month?: number;
+  year?: number;
+  period?: Period;
+}): Promise<TeamAnalyticsEntry[]> {
+  return unstable_cache(
+    () => _getTeamsAnalytics(options),
+    ["data-teams-analytics", analyticsOptionsKey(options)],
+    { revalidate: DATA_ANALYTICS_TTL_SECONDS }
+  )();
+}
+
+export function getCompanyAnalytics(options?: {
+  month?: number;
+  year?: number;
+  period?: Period;
+}): Promise<RepAnalyticsData> {
+  return unstable_cache(
+    () => _getCompanyAnalytics(options),
+    ["data-company-analytics", analyticsOptionsKey(options)],
+    { revalidate: DATA_ANALYTICS_TTL_SECONDS }
+  )();
+}
+
+export function getWeeklyOrderVolume(): Promise<ChartPoint[]> {
+  return unstable_cache(
+    () => _getWeeklyOrderVolume(),
+    ["data-weekly-order-volume"],
+    { revalidate: DATA_ANALYTICS_TTL_SECONDS }
+  )();
+}
+
+export function getMonthlyOrderVolume(year: number): Promise<ChartPoint[]> {
+  return unstable_cache(
+    () => _getMonthlyOrderVolume(year),
+    ["data-monthly-order-volume", String(year)],
+    { revalidate: DATA_ANALYTICS_TTL_SECONDS }
+  )();
+}
+
+async function _getTeamsAnalytics(options?: {
   month?: number;
   year?: number;
   period?: Period;
@@ -1074,7 +1141,7 @@ export async function getTeamsAnalytics(options?: {
   return results;
 }
 
-export async function getCompanyAnalytics(options?: {
+async function _getCompanyAnalytics(options?: {
   month?: number;
   year?: number;
   period?: Period;
@@ -1104,7 +1171,7 @@ export type ChartPoint = { name: string; value: number };
 
 /** Order volume (any status) for the current week, by weekday — for the
  *  dashboard's weekday bar chart. */
-export async function getWeeklyOrderVolume(): Promise<ChartPoint[]> {
+async function _getWeeklyOrderVolume(): Promise<ChartPoint[]> {
   const now = new Date();
   const from = new Date(now);
   from.setDate(now.getDate() - 6);
@@ -1135,7 +1202,7 @@ export async function getWeeklyOrderVolume(): Promise<ChartPoint[]> {
 
 /** Order volume (any status) per month for the given year — for the
  *  dashboard's yearly trend line chart. */
-export async function getMonthlyOrderVolume(year: number): Promise<ChartPoint[]> {
+async function _getMonthlyOrderVolume(year: number): Promise<ChartPoint[]> {
   const yearStart = new Date(year, 0, 1);
   const yearEnd = new Date(year + 1, 0, 1);
 

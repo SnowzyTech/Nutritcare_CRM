@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db/prisma";
+import { unstable_cache } from "next/cache";
 import {
   getAgentStockMap,
   getWarehouseStockMap,
@@ -41,7 +42,7 @@ function dayKey(date: Date) {
   return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
 }
 
-export async function getFinancialSummary(refDate: Date = new Date()) {
+async function _getFinancialSummary(refDate: Date = new Date()) {
   const monthStart = startOfMonth(refDate);
   const monthEnd = endOfMonth(refDate);
   const lastMonthStart = new Date(refDate.getFullYear(), refDate.getMonth() - 1, 1);
@@ -116,7 +117,7 @@ export interface SalesTrends {
  *   • month → 12 calendar months of the current year
  * One query covers the widest range; rows are then fanned out into each bucket.
  */
-export async function getSalesTrends(now: Date = new Date()): Promise<SalesTrends> {
+async function _getSalesTrends(now: Date = new Date()): Promise<SalesTrends> {
   const today = startOfDay(now);
   const dayStart = addDays(today, -6); // 7 days incl. today
   const weekStart = addDays(startOfWeekMon(now), -7 * 11); // 12 weeks incl. this week
@@ -196,7 +197,7 @@ export function resolvePeriodRange(period: DashboardPeriod, now: Date = new Date
   return { from, to };
 }
 
-export async function getSalesByProduct(range?: DateRange, limit = 8) {
+async function _getSalesByProduct(range?: DateRange, limit = 8) {
   // Sales uses REVENUE_STATUSES — the same definition as the P&L and Balance
   // Sheet, not just the rest of this dashboard. An optional date range scopes it
   // to the period selected on the dashboard (week / month).
@@ -233,7 +234,7 @@ export async function getSalesByProduct(range?: DateRange, limit = 8) {
   });
 }
 
-export async function getSalesByState(range?: DateRange, limit = 12) {
+async function _getSalesByState(range?: DateRange, limit = 12) {
   const orders = await prisma.order.findMany({
     where: {
       status: { in: REVENUE_STATUSES },
@@ -260,7 +261,7 @@ export async function getSalesByState(range?: DateRange, limit = 12) {
   }));
 }
 
-export async function getInventorySnapshot() {
+async function _getInventorySnapshot() {
   // Source of truth is the materialized StockLevel table (locationKind +
   // locationId), NOT StockMovement aggregation — agent stock arrives via
   // warehouse→agent transfers and leaves on delivery, neither of which writes
@@ -349,7 +350,7 @@ export async function getInventorySnapshot() {
   };
 }
 
-export async function getAgentSettlementSummary(range?: DateRange) {
+async function _getAgentSettlementSummary(range?: DateRange) {
   // Derived from the agent ledger — the exact source of truth the Agent List
   // page uses. For each agent within the window we net debits (deliveries the
   // agent owes for) against credits (remittances / adjustments):
@@ -419,4 +420,66 @@ export async function getAgentSettlementSummary(range?: DateRange) {
     topAgentState: top?.state ?? "",
     topAgentRemitted: top?.remitted ?? 0,
   };
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Cached entry points (Phase A — docs/dashboard-caching-plan.md).
+
+   The /accounting dashboard fires all of these on every load; caching runs each
+   at most once per TTL instead of on every refresh, cutting the repeated
+   CPU/memory load that would push Neon to a bigger compute as data grows. Every
+   payload above is Decimal-free (all money is Number()-ed before return), so it
+   survives Data Cache serialization. Keys include every argument (date/range/
+   limit) so different periods never collide. Up to TTL seconds stale is fine for
+   an at-a-glance finance dashboard.
+   ──────────────────────────────────────────────────────────────────────────── */
+const DASHBOARD_TTL_SECONDS = 120;
+const rangeKey = (r?: DateRange) => (r ? `${+r.from}-${+r.to}` : "all");
+
+export function getFinancialSummary(refDate: Date = new Date()) {
+  return unstable_cache(
+    () => _getFinancialSummary(refDate),
+    ["finance-summary", `${refDate.getFullYear()}-${refDate.getMonth()}`],
+    { revalidate: DASHBOARD_TTL_SECONDS }
+  )();
+}
+
+export function getSalesTrends(now: Date = new Date()): Promise<SalesTrends> {
+  return unstable_cache(
+    () => _getSalesTrends(now),
+    ["finance-sales-trends", `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}`],
+    { revalidate: DASHBOARD_TTL_SECONDS }
+  )();
+}
+
+export function getSalesByProduct(range?: DateRange, limit = 8) {
+  return unstable_cache(
+    () => _getSalesByProduct(range, limit),
+    ["finance-sales-by-product", rangeKey(range), String(limit)],
+    { revalidate: DASHBOARD_TTL_SECONDS }
+  )();
+}
+
+export function getSalesByState(range?: DateRange, limit = 12) {
+  return unstable_cache(
+    () => _getSalesByState(range, limit),
+    ["finance-sales-by-state", rangeKey(range), String(limit)],
+    { revalidate: DASHBOARD_TTL_SECONDS }
+  )();
+}
+
+export function getInventorySnapshot() {
+  return unstable_cache(
+    () => _getInventorySnapshot(),
+    ["finance-inventory-snapshot"],
+    { revalidate: DASHBOARD_TTL_SECONDS }
+  )();
+}
+
+export function getAgentSettlementSummary(range?: DateRange) {
+  return unstable_cache(
+    () => _getAgentSettlementSummary(range),
+    ["finance-agent-settlement", rangeKey(range)],
+    { revalidate: DASHBOARD_TTL_SECONDS }
+  )();
 }

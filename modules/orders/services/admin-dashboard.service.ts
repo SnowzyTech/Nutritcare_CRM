@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db/prisma";
+import { unstable_cache } from "next/cache";
 
 export type PeriodStats = {
   totalRevenue: number;
@@ -265,7 +266,7 @@ async function getRecentWhatsAppFailures(): Promise<number> {
   });
 }
 
-export async function getAdminDashboardData(
+async function computeAdminDashboardData(
   year: number,
   month: number
 ): Promise<AdminDashboardData> {
@@ -286,4 +287,30 @@ export async function getAdminDashboardData(
     ]);
 
   return { current, last, monthlyRevenue, weeklyOrders, remainingStock, negativeStockUnits, recentWhatsAppFailures };
+}
+
+/**
+ * Cached entry point for the /admin dashboard. The heavy period scans above (all
+ * orders + items for TWO months, a whole-year revenue pull, a weekly scan and two
+ * stock scans) previously re-ran on EVERY dashboard load/refresh — and multiple
+ * admins + SUPER_ADMIN watch this screen through the day. Caching in Next's Data
+ * Cache runs them at most once per TTL, cutting the repeated CPU/memory load that
+ * would otherwise push Neon to a bigger (pricier) compute as order volume grows.
+ *
+ * Safe to cache: keyed by year+month (different months never collide) and the
+ * whole payload is Decimal-free (every money value is Number()-ed before return),
+ * so it survives Data Cache serialization. An at-a-glance dashboard being up to
+ * TTL seconds stale is acceptable.
+ */
+const DASHBOARD_TTL_SECONDS = 120;
+
+export function getAdminDashboardData(
+  year: number,
+  month: number
+): Promise<AdminDashboardData> {
+  return unstable_cache(
+    () => computeAdminDashboardData(year, month),
+    ["admin-dashboard", String(year), String(month)],
+    { revalidate: DASHBOARD_TTL_SECONDS }
+  )();
 }

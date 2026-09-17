@@ -1,7 +1,17 @@
 # Scope — Fix #3: Cache + SQL-aggregate the heavy dashboards ("scale-proofing")
 
-**Status:** Scope only. No code yet. Prepared 2026-09-17.
+**Status:** Scoped 2026-09-17. **Phase A COMPLETE** — all listed dashboards cached (20 functions / 6 services). Phase B (SQL aggregation) pending.
 **Companion to:** `docs/db-compute-review.md` (finding #3) + `docs/scale-considerations.md`.
+
+> **Progress (2026-09-17):** Phase A caching implemented across **20 functions / 6 services** (all `unstable_cache`, 120s TTL, keys include every arg/period, all returns verified Decimal- & Date-free). Type-checks clean; in the working tree, awaits deploy.
+> - `orders/…/admin-dashboard.service.ts` → `getAdminDashboardData` ✅
+> - `finance/…/dashboard.service.ts` → `getFinancialSummary`, `getSalesTrends`, `getSalesByProduct`, `getSalesByState`, `getInventorySnapshot`, `getAgentSettlementSummary` ✅
+> - `orders/…/analytics.service.ts` → `getSalesRepWeeklyAnalytics`, `getSalesRepAnalytics` ✅
+> - `users/…/users.service.ts` → `getSalesRepAnalytics`, `getSalesRepOverview`, `getCompanyOrderStatusCounts`, `getTeamAnalytics`, `getCompanyAnalytics` ✅
+> - `data-analysis/…/data-analysis.service.ts` → `getTeamsAnalytics`, `getCompanyAnalytics`, `getWeeklyOrderVolume`, `getMonthlyOrderVolume`, `getSalesRepAnalyticsForUI` ✅
+> - `delivery/…/logistics-dashboard.service.ts` → `getLogisticsDashboardData` ✅ — `AlertRow.createdAt` converted `Date`→ISO string (+ consumer `logistics/page.tsx` wraps it in `new Date(...)`) so the payload is cache-safe.
+>
+> **Note on staleness:** all cached dashboards are now up to 120s stale (fine for at-a-glance boards). If a specific write must show instantly, add `revalidateTag` busting later (optional refinement). Next: Phase B (SQL aggregation), as volume grows.
 
 ## Why this is the real scaling lever
 

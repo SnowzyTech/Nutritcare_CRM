@@ -1,10 +1,70 @@
 import { prisma } from "@/lib/db/prisma";
+import { unstable_cache } from "next/cache";
 import { Prisma, type UserRole } from "@prisma/client";
 import { monthRanges, parseMonthParam, type MonthPeriod } from "@/lib/month-period";
 import { dateRanges, type DatePeriod } from "@/lib/date-period";
 import { generalPerformanceScore, kpiScore } from "@/lib/performance";
 import type { MonthMetrics } from "@/modules/orders/services/analytics.service";
 import { addUserToAllAgentGroups } from "@/modules/chat/services/conversations.service";
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Cached analytics entry points (Phase A — docs/dashboard-caching-plan.md).
+
+   These per-rep / per-team / company analytics do findMany(...).reduce() and are
+   read from many screens (rep portals, admin staff pages, the sales-manager
+   dashboard). Caching runs each at most once per TTL. Every return is Decimal-
+   and Date-free (computeRepMetrics/trendLabel yield numbers + strings), so it
+   serialises cleanly. Keys include the subject id + period so nothing collides;
+   the default (current) period is bounded by the TTL. Wrappers call the hoisted
+   `_impl` declarations below.
+   ──────────────────────────────────────────────────────────────────────────── */
+const USER_ANALYTICS_TTL_SECONDS = 120;
+
+function analyticsPeriodKey(period?: MonthPeriod | DatePeriod): string {
+  if (!period) return "default";
+  if ("from" in period) return `d:${+period.from}:${+period.to}`;
+  return `m:${period.year}-${period.month}`;
+}
+
+export function getSalesRepAnalytics(salesRepId: string, period?: MonthPeriod | DatePeriod) {
+  return unstable_cache(
+    () => _getSalesRepAnalytics(salesRepId, period),
+    ["users-rep-analytics", salesRepId, analyticsPeriodKey(period)],
+    { revalidate: USER_ANALYTICS_TTL_SECONDS }
+  )();
+}
+
+export function getSalesRepOverview(period: DatePeriod) {
+  return unstable_cache(
+    () => _getSalesRepOverview(period),
+    ["users-rep-overview", analyticsPeriodKey(period)],
+    { revalidate: USER_ANALYTICS_TTL_SECONDS }
+  )();
+}
+
+export function getCompanyOrderStatusCounts() {
+  return unstable_cache(
+    () => _getCompanyOrderStatusCounts(),
+    ["users-company-order-status-counts"],
+    { revalidate: USER_ANALYTICS_TTL_SECONDS }
+  )();
+}
+
+export function getTeamAnalytics(teamId: string, period?: MonthPeriod | DatePeriod) {
+  return unstable_cache(
+    () => _getTeamAnalytics(teamId, period),
+    ["users-team-analytics", teamId, analyticsPeriodKey(period)],
+    { revalidate: USER_ANALYTICS_TTL_SECONDS }
+  )();
+}
+
+export function getCompanyAnalytics(period?: MonthPeriod | DatePeriod) {
+  return unstable_cache(
+    () => _getCompanyAnalytics(period),
+    ["users-company-analytics", analyticsPeriodKey(period)],
+    { revalidate: USER_ANALYTICS_TTL_SECONDS }
+  )();
+}
 
 // ── Analytics helpers ─────────────────────────────────────────────────────────
 
@@ -275,7 +335,7 @@ export async function getSalesRepOrderSummary(id: string) {
   };
 }
 
-export async function getSalesRepAnalytics(salesRepId: string, period?: MonthPeriod | DatePeriod) {
+async function _getSalesRepAnalytics(salesRepId: string, period?: MonthPeriod | DatePeriod) {
   const { currentStart, currentEnd, prevStart, prevEnd } = !period
     ? monthRanges(parseMonthParam())
     : "from" in period
@@ -320,7 +380,7 @@ export async function getSalesRepAnalytics(salesRepId: string, period?: MonthPer
  * can rank everyone at a glance (and see a department aggregate) without
  * opening each profile. Reuses the same metric math as the per-rep analytics.
  */
-export async function getSalesRepOverview(period: DatePeriod) {
+async function _getSalesRepOverview(period: DatePeriod) {
   const { currentStart, currentEnd, prevStart, prevEnd } = dateRanges(period);
 
   const reps = await prisma.user.findMany({
@@ -701,7 +761,7 @@ export async function getAllActiveSalesReps() {
  * status (NOT period-scoped; open orders are inherently "now"). Used by the
  * company sales-manager overview.
  */
-export async function getCompanyOrderStatusCounts() {
+async function _getCompanyOrderStatusCounts() {
   const grouped = await prisma.order.groupBy({
     by: ["status"],
     where: { deletedAt: null, salesRep: { role: "SALES_REP" } },
@@ -747,7 +807,7 @@ function toReportMetrics(orders: ReportOrder[]): MonthMetrics {
   };
 }
 
-export async function getTeamAnalytics(teamId: string, period?: MonthPeriod | DatePeriod) {
+async function _getTeamAnalytics(teamId: string, period?: MonthPeriod | DatePeriod) {
   const members = await prisma.user.findMany({
     where: { teamId, role: "SALES_REP", isActive: true },
     select: { id: true },
@@ -825,7 +885,7 @@ export async function getTeamAnalytics(teamId: string, period?: MonthPeriod | Da
  * getTeamAnalytics but drops the teamId filter. Used by the company-wide
  * Sales Rep Manager dashboard.
  */
-export async function getCompanyAnalytics(period?: MonthPeriod | DatePeriod) {
+async function _getCompanyAnalytics(period?: MonthPeriod | DatePeriod) {
   const members = await prisma.user.findMany({
     where: { role: "SALES_REP", isActive: true },
     select: { id: true },
