@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db/prisma";
-import type { OrderStatus } from "@prisma/client";
+import { Prisma, type OrderStatus } from "@prisma/client";
 
 export async function getAllOrders() {
   return prisma.order.findMany({ orderBy: { createdAt: "desc" } });
@@ -146,4 +146,122 @@ export async function getOrderWithDetails(id: string) {
       },
     },
   });
+}
+
+// ── Server-side paged + filtered admin orders (docs/orders-pagination-plan.md) ──
+// Powers the admin "All Orders" screen AND the scoped per-rep / per-agent staff
+// order views (via `base`). One page (default 10 rows) with filters applied in the
+// DB, instead of loading every order and filtering in the browser.
+
+export type AdminOrderRow = {
+  id: string;
+  orderNumber: string;
+  status: OrderStatus;
+  createdAt: string;
+  updatedAt: string;
+  customer: { name: string; email: string | null; state: string };
+  agent: { companyName: string; state: string | null } | null;
+  items: Array<{ quantity: number; upsellQuantity: number; isUpsell: boolean; product: { name: string } }>;
+  salesRep: { name: string };
+  team?: { id: string; name: string } | null;
+};
+
+const ADMIN_ORDER_SELECT = {
+  id: true,
+  orderNumber: true,
+  status: true,
+  createdAt: true,
+  updatedAt: true,
+  customer: { select: { name: true, email: true, state: true } },
+  agent: { select: { companyName: true, state: true } },
+  items: { select: { quantity: true, upsellQuantity: true, isUpsell: true, product: { select: { name: true } } } },
+  salesRep: { select: { name: true, team: { select: { id: true, name: true } } } },
+} satisfies Prisma.OrderSelect;
+
+type AdminOrderRaw = Prisma.OrderGetPayload<{ select: typeof ADMIN_ORDER_SELECT }>;
+
+function toAdminOrderRow(o: AdminOrderRaw): AdminOrderRow {
+  return {
+    id: o.id,
+    orderNumber: o.orderNumber,
+    status: o.status,
+    createdAt: o.createdAt.toISOString(),
+    updatedAt: o.updatedAt.toISOString(),
+    customer: { name: o.customer.name, email: o.customer.email ?? null, state: o.customer.state },
+    agent: o.agent ? { companyName: o.agent.companyName, state: o.agent.state ?? null } : null,
+    items: o.items.map((i) => ({ quantity: i.quantity, upsellQuantity: i.upsellQuantity, isUpsell: i.isUpsell, product: { name: i.product.name } })),
+    salesRep: { name: o.salesRep.name },
+    team: o.salesRep.team ? { id: o.salesRep.team.id, name: o.salesRep.team.name } : null,
+  };
+}
+
+export type AdminOrderFilters = {
+  status?: OrderStatus;
+  /** Free text across order number, customer name/email, sales-rep name. */
+  search?: string;
+  productName?: string;
+  state?: string;
+  teamId?: string;
+  /** "YYYY-MM-DD" — placed date (Order.createdAt), single day (admin behavior). */
+  date?: string;
+};
+
+function buildAdminOrderWhere(
+  f: AdminOrderFilters,
+  base: Prisma.OrderWhereInput = {},
+): Prisma.OrderWhereInput {
+  const where: Prisma.OrderWhereInput = { deletedAt: null, ...base };
+  if (f.status) where.status = f.status;
+  const q = f.search?.trim();
+  if (q) {
+    where.OR = [
+      { orderNumber: { contains: q, mode: "insensitive" } },
+      { customer: { is: { name: { contains: q, mode: "insensitive" } } } },
+      { customer: { is: { email: { contains: q, mode: "insensitive" } } } },
+      { salesRep: { is: { name: { contains: q, mode: "insensitive" } } } },
+    ];
+  }
+  if (f.productName) where.items = { some: { product: { name: f.productName } } };
+  if (f.state) where.customer = { is: { state: { equals: f.state, mode: "insensitive" } } };
+  if (f.teamId) where.salesRep = { is: { teamId: f.teamId } };
+  if (f.date) {
+    const [y, m, d] = f.date.split("-").map(Number);
+    if (y && m && d) {
+      where.createdAt = { gte: new Date(y, m - 1, d, 0, 0, 0, 0), lt: new Date(y, m - 1, d + 1, 0, 0, 0, 0) };
+    }
+  }
+  return where;
+}
+
+/**
+ * One page of admin orders + total + per-status tab counts. Tab counts use every
+ * filter EXCEPT status (so switching tabs makes sense). `base` scopes the query for
+ * the per-rep (`{ salesRepId }`) / per-agent (`{ agentId }`) staff views.
+ */
+export async function getAdminOrdersPage(
+  filters: AdminOrderFilters,
+  page: number,
+  pageSize = 10,
+  base: Prisma.OrderWhereInput = {},
+): Promise<{ rows: AdminOrderRow[]; total: number; statusCounts: Record<string, number> }> {
+  const where = buildAdminOrderWhere(filters, base);
+  const whereNoStatus = buildAdminOrderWhere({ ...filters, status: undefined }, base);
+  const safePage = Math.max(1, Math.floor(page) || 1);
+
+  const [orders, total, grouped] = await Promise.all([
+    prisma.order.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      skip: (safePage - 1) * pageSize,
+      take: pageSize,
+      select: ADMIN_ORDER_SELECT,
+    }),
+    prisma.order.count({ where }),
+    prisma.order.groupBy({ by: ["status"], where: whereNoStatus, _count: { _all: true } }),
+  ]);
+
+  const statusCounts: Record<string, number> = {};
+  for (const g of grouped) statusCounts[g.status] = g._count._all;
+
+  return { rows: orders.map(toAdminOrderRow), total, statusCounts };
 }

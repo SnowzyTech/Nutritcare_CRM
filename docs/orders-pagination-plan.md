@@ -16,7 +16,9 @@
 > - Filtering/paging now costs a ~300ms-debounced server round-trip (was: instant in-browser).
 > - Rare: a delivered order with a delivery row but null deliveredTime isn't matched by the date filter (falls outside the primary source).
 >
-> **Remaining:** admin Orders, then the scoped per-rep/agent/team lists (reuse `getOrdersPage` with a `baseWhere`).
+> **Admin Orders done (2026-09-17):** `getAdminOrdersPage(filters, page, pageSize=10, base?)` in `modules/orders/services/orders.service.ts` (own `AdminOrderRow` shape + `buildAdminOrderWhere`; admin date filter = **placed date, single day** — admin never used per-status dates). `AdminOrdersClient` made URL-driven (single-select filters + `usePathname` so the same component works for the main page AND the scoped views). Wired into ALL 3 pages that share the component: `admin/orders` (no base), `admin/staff/sales-rep/[id]/orders` (`base {salesRepId}`), `admin/staff/delivery-agent/[id]/orders` (`base {agentId}`). Behavior note: status tab counts now reflect other active filters (was grand totals); product/state/date/search semantics preserved. tsc + `next build` pass.
+>
+> **Remaining:** sales-rep Orders, sales-manager Team/assignment/per-rep lists, logistics Orders, delivery-agent Orders (each its own client component; reuse the same URL-driven pattern + a paged query).
 
 ## Plain-language summary
 
