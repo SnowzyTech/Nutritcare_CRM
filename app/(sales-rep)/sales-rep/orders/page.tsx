@@ -1,19 +1,39 @@
 import { auth } from "@/lib/auth/auth";
 import { redirect } from "next/navigation";
-import { getSalesRepOrders } from "@/modules/orders/services/orders.service";
+import { getSalesRepOrdersPage, type AdminOrderFilters } from "@/modules/orders/services/orders.service";
 import { getActiveProducts } from "@/modules/orders/services/products.service";
 import { getManualOrderProductForms } from "@/modules/orders/services/form-packages.service";
 import { OrdersClient } from "./orders-client";
 import type { Metadata } from "next";
+import type { OrderStatus } from "@prisma/client";
 
 export const metadata: Metadata = { title: "Orders" };
 
-export default async function OrdersPage() {
+const PAGE_SIZE = 15;
+const STATUSES: OrderStatus[] = ["PENDING", "CONFIRMED", "DELIVERED", "CANCELLED", "FAILED"];
+
+export default async function OrdersPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const session = await auth();
   if (!session?.user?.id) redirect("/login");
 
-  const [rawOrders, rawProducts, productForms] = await Promise.all([
-    getSalesRepOrders(session.user.id),
+  const sp = await searchParams;
+  const get = (k: string): string | undefined =>
+    Array.isArray(sp[k]) ? (sp[k] as string[])[0] : (sp[k] as string | undefined);
+
+  const statusRaw = get("status") ?? "";
+  const filters: AdminOrderFilters = {
+    status: STATUSES.includes(statusRaw as OrderStatus) ? (statusRaw as OrderStatus) : undefined,
+    search: (get("q") ?? "").trim(),
+    date: get("date") || undefined,
+  };
+  const pageNum = Math.max(1, parseInt(get("page") ?? "1", 10) || 1);
+
+  const [orderPage, rawProducts, productForms] = await Promise.all([
+    getSalesRepOrdersPage(session.user.id, filters, pageNum, PAGE_SIZE),
     getActiveProducts(),
     getManualOrderProductForms(),
   ]);
@@ -24,48 +44,20 @@ export default async function OrdersPage() {
     sellingPrice: Number(p.sellingPrice),
   }));
 
-  // Serialize Dates before passing to client component
-  const orders = rawOrders.map((o) => ({
-    id: o.id,
-    orderNumber: o.orderNumber,
-    status: o.status,
-    isReorder: o.isReorder,
-    isRescheduled: o.isRescheduled,
-    createdAt: o.createdAt.toISOString(),
-    updatedAt: o.updatedAt.toISOString(),
-    customer: { name: o.customer.name, email: o.customer.email ?? null },
-    agent: o.agent
-      ? { companyName: o.agent.companyName, state: o.agent.state ?? null }
-      : null,
-    items: o.items.map((item) => ({
-      quantity: item.quantity,
-      upsellQuantity: item.upsellQuantity,
-      isUpsell: item.isUpsell,
-      product: { name: item.product.name },
-    })),
-    deliveryFee: Number(o.deliveryFee),
-  }));
-
-  // Derive per-status counts from the single fetch (no extra DB round-trip per tab)
-  const counts = {
-    all: orders.length,
-    pending:   orders.filter((o) => o.status === "PENDING").length,
-    confirmed: orders.filter((o) => o.status === "CONFIRMED").length,
-    delivered: orders.filter((o) => o.status === "DELIVERED").length,
-    cancelled: orders.filter((o) => o.status === "CANCELLED").length,
-    failed:    orders.filter((o) => o.status === "FAILED").length,
-  };
-
   return (
     <OrdersClient
-      orders={orders}
-      counts={counts}
+      orders={orderPage.rows}
+      total={orderPage.total}
+      statusCounts={orderPage.statusCounts}
+      page={pageNum}
       userName={session.user.name ?? ""}
       products={products}
       productForms={productForms}
+      initialFilters={{
+        status: filters.status ?? "",
+        search: filters.search ?? "",
+        date: filters.date ?? "",
+      }}
     />
   );
 }
-
-
-

@@ -18,7 +18,13 @@
 >
 > **Admin Orders done (2026-09-17):** `getAdminOrdersPage(filters, page, pageSize=10, base?)` in `modules/orders/services/orders.service.ts` (own `AdminOrderRow` shape + `buildAdminOrderWhere`; admin date filter = **placed date, single day** — admin never used per-status dates). `AdminOrdersClient` made URL-driven (single-select filters + `usePathname` so the same component works for the main page AND the scoped views). Wired into ALL 3 pages that share the component: `admin/orders` (no base), `admin/staff/sales-rep/[id]/orders` (`base {salesRepId}`), `admin/staff/delivery-agent/[id]/orders` (`base {agentId}`). Behavior note: status tab counts now reflect other active filters (was grand totals); product/state/date/search semantics preserved. tsc + `next build` pass.
 >
-> **Remaining:** sales-rep Orders, sales-manager Team/assignment/per-rep lists, logistics Orders, delivery-agent Orders (each its own client component; reuse the same URL-driven pattern + a paged query).
+> **Sales-rep Orders done (2026-09-17):** `getSalesRepOrdersPage(salesRepId, filters, page, 15)` in `orders.service.ts` (own `SalesRepOrderRow` shape incl. isReorder/isRescheduled/deliveryFee; reuses `buildAdminOrderWhere` scoped to the rep — filters are status/search/**placed-date**). This list had **no pagination before** (rendered everything) → added Prev/Next controls. Optimistic Add-Order (`localOrders`) replaced with `router.refresh()` so the new order comes from the server. Status sub-routes (`/pending` etc.) already just redirect. tsc + `next build` pass.
+>
+> **Team Orders done (2026-09-17):** `getTeamOrdersPage(memberIds, filters, 15)` in `orders.service.ts` (own `TeamOrderRow` shape; dedicated `buildTeamOrderWhere` — its **state filter = delivery AGENT state**, search includes product name). Had **no pagination before** → added Prev/Next. Team-filter options now derived from `resolveManagerScope` (all teams for company manager, none for a team-lead) instead of the loaded orders. `sales-rep-manager/orders` page reads the URL. tsc + `next build` pass.
+>
+> **Sales-manager per-rep done (2026-09-17):** `sales-rep-manager/[repId]/orders` — **reused `getTeamOrdersPage([repId], …)`** (TeamOrderRow already carries every field this client's `OrderListItem` needs). Client made URL-driven + Prev/Next (no pagination before). Filters: status/date(placed)/product/state(agent)/search. tsc + `next build` pass.
+>
+> **Remaining:** order-assignment (`sales-rep-manager/order-assignment`, specialized assign-to-agent tool), logistics Orders, delivery-agent Orders.
 
 ## Plain-language summary
 

@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/prisma";
 import { Prisma, type OrderStatus } from "@prisma/client";
+import { upsellExtraCount } from "@/lib/orders/upsell";
 
 export async function getAllOrders() {
   return prisma.order.findMany({ orderBy: { createdAt: "desc" } });
@@ -264,4 +265,210 @@ export async function getAdminOrdersPage(
   for (const g of grouped) statusCounts[g.status] = g._count._all;
 
   return { rows: orders.map(toAdminOrderRow), total, statusCounts };
+}
+
+// ── Server-side paged orders for a single sales rep (their own Orders screen) ────
+// Reuses buildAdminOrderWhere (status/search/date) scoped to the rep. Its own row
+// shape carries the rep-specific fields (isReorder, isRescheduled, deliveryFee).
+
+export type SalesRepOrderRow = {
+  id: string;
+  orderNumber: string;
+  status: OrderStatus;
+  isReorder: boolean;
+  isRescheduled: boolean;
+  createdAt: string;
+  updatedAt: string;
+  customer: { name: string; email: string | null };
+  agent: { companyName: string; state: string | null } | null;
+  items: Array<{ quantity: number; upsellQuantity: number; isUpsell: boolean; product: { name: string } }>;
+  deliveryFee: number;
+};
+
+const SALES_REP_ORDER_SELECT = {
+  id: true,
+  orderNumber: true,
+  status: true,
+  isReorder: true,
+  isRescheduled: true,
+  createdAt: true,
+  updatedAt: true,
+  deliveryFee: true,
+  customer: { select: { name: true, email: true } },
+  agent: { select: { companyName: true, state: true } },
+  items: { select: { quantity: true, upsellQuantity: true, isUpsell: true, product: { select: { name: true } } } },
+} satisfies Prisma.OrderSelect;
+
+type SalesRepOrderRaw = Prisma.OrderGetPayload<{ select: typeof SALES_REP_ORDER_SELECT }>;
+
+function toSalesRepOrderRow(o: SalesRepOrderRaw): SalesRepOrderRow {
+  return {
+    id: o.id,
+    orderNumber: o.orderNumber,
+    status: o.status,
+    isReorder: o.isReorder,
+    isRescheduled: o.isRescheduled,
+    createdAt: o.createdAt.toISOString(),
+    updatedAt: o.updatedAt.toISOString(),
+    customer: { name: o.customer.name, email: o.customer.email ?? null },
+    agent: o.agent ? { companyName: o.agent.companyName, state: o.agent.state ?? null } : null,
+    items: o.items.map((i) => ({ quantity: i.quantity, upsellQuantity: i.upsellQuantity, isUpsell: i.isUpsell, product: { name: i.product.name } })),
+    deliveryFee: Number(o.deliveryFee),
+  };
+}
+
+export async function getSalesRepOrdersPage(
+  salesRepId: string,
+  filters: AdminOrderFilters,
+  page: number,
+  pageSize = 15,
+): Promise<{ rows: SalesRepOrderRow[]; total: number; statusCounts: Record<string, number> }> {
+  const base: Prisma.OrderWhereInput = { salesRepId };
+  const where = buildAdminOrderWhere(filters, base);
+  const whereNoStatus = buildAdminOrderWhere({ ...filters, status: undefined }, base);
+  const safePage = Math.max(1, Math.floor(page) || 1);
+
+  const [orders, total, grouped] = await Promise.all([
+    prisma.order.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      skip: (safePage - 1) * pageSize,
+      take: pageSize,
+      select: SALES_REP_ORDER_SELECT,
+    }),
+    prisma.order.count({ where }),
+    prisma.order.groupBy({ by: ["status"], where: whereNoStatus, _count: { _all: true } }),
+  ]);
+
+  const statusCounts: Record<string, number> = {};
+  for (const g of grouped) statusCounts[g.status] = g._count._all;
+
+  return { rows: orders.map(toSalesRepOrderRow), total, statusCounts };
+}
+
+// ── Server-side paged team orders (sales-rep-manager "Team's Orders") ────────────
+// Scoped to the manager's rep members. Note its state filter matches the delivery
+// AGENT's state (not the customer's) and its search includes the product name —
+// both differ from the admin builder, hence a dedicated where.
+
+export type TeamOrderRow = {
+  id: string;
+  status: string;
+  email: string;
+  name: string;
+  agent: { name: string; state: string } | null;
+  salesRep: string;
+  teamId: string | null;
+  teamName: string | null;
+  product: string;
+  qty: number;
+  isReorder: boolean;
+  itemNames: string[];
+  extraCount: number;
+  date: string;
+  statusDate: string;
+  deliveryFee: number;
+};
+
+const TEAM_ORDER_SELECT = {
+  id: true,
+  status: true,
+  isReorder: true,
+  createdAt: true,
+  updatedAt: true,
+  deliveryFee: true,
+  customer: { select: { name: true, email: true } },
+  agent: { select: { companyName: true, state: true } },
+  salesRep: { select: { name: true, team: { select: { id: true, name: true } } } },
+  items: { select: { quantity: true, upsellQuantity: true, isUpsell: true, product: { select: { name: true } } } },
+} satisfies Prisma.OrderSelect;
+
+type TeamOrderRaw = Prisma.OrderGetPayload<{ select: typeof TEAM_ORDER_SELECT }>;
+
+function toTeamOrderRow(o: TeamOrderRaw): TeamOrderRow {
+  return {
+    id: o.id,
+    status: o.status,
+    email: o.customer.email ?? "",
+    name: o.customer.name,
+    agent: o.agent ? { name: o.agent.companyName, state: o.agent.state ?? "" } : null,
+    salesRep: o.salesRep?.name ?? "—",
+    teamId: o.salesRep?.team?.id ?? null,
+    teamName: o.salesRep?.team?.name ?? null,
+    product: o.items[0]?.product.name ?? "—",
+    qty: o.items.reduce((s, i) => s + i.quantity, 0),
+    isReorder: o.isReorder,
+    itemNames: o.items.map((i) => i.product.name),
+    extraCount: upsellExtraCount(o.items),
+    date: o.createdAt.toISOString().split("T")[0],
+    statusDate: o.updatedAt.toISOString().split("T")[0],
+    deliveryFee: Number(o.deliveryFee),
+  };
+}
+
+export type TeamOrderFilters = {
+  status?: OrderStatus;
+  /** Free text across customer name/email, sales-rep name, product name. */
+  search?: string;
+  productName?: string;
+  /** Delivery AGENT's state (matches the legacy team-orders filter). */
+  agentState?: string;
+  teamId?: string;
+  /** "YYYY-MM-DD" placed date, single day. */
+  date?: string;
+};
+
+function buildTeamOrderWhere(f: TeamOrderFilters, base: Prisma.OrderWhereInput): Prisma.OrderWhereInput {
+  const where: Prisma.OrderWhereInput = { deletedAt: null, ...base };
+  if (f.status) where.status = f.status;
+  const q = f.search?.trim();
+  if (q) {
+    where.OR = [
+      { customer: { is: { name: { contains: q, mode: "insensitive" } } } },
+      { customer: { is: { email: { contains: q, mode: "insensitive" } } } },
+      { salesRep: { is: { name: { contains: q, mode: "insensitive" } } } },
+      { items: { some: { product: { name: { contains: q, mode: "insensitive" } } } } },
+    ];
+  }
+  if (f.productName) where.items = { some: { product: { name: f.productName } } };
+  if (f.agentState) where.agent = { is: { state: { equals: f.agentState, mode: "insensitive" } } };
+  if (f.teamId) where.salesRep = { is: { teamId: f.teamId } };
+  if (f.date) {
+    const [y, m, d] = f.date.split("-").map(Number);
+    if (y && m && d) {
+      where.createdAt = { gte: new Date(y, m - 1, d, 0, 0, 0, 0), lt: new Date(y, m - 1, d + 1, 0, 0, 0, 0) };
+    }
+  }
+  return where;
+}
+
+export async function getTeamOrdersPage(
+  memberIds: string[],
+  filters: TeamOrderFilters,
+  page: number,
+  pageSize = 15,
+): Promise<{ rows: TeamOrderRow[]; total: number; statusCounts: Record<string, number> }> {
+  if (memberIds.length === 0) return { rows: [], total: 0, statusCounts: {} };
+
+  const base: Prisma.OrderWhereInput = { salesRepId: { in: memberIds } };
+  const where = buildTeamOrderWhere(filters, base);
+  const whereNoStatus = buildTeamOrderWhere({ ...filters, status: undefined }, base);
+  const safePage = Math.max(1, Math.floor(page) || 1);
+
+  const [orders, total, grouped] = await Promise.all([
+    prisma.order.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      skip: (safePage - 1) * pageSize,
+      take: pageSize,
+      select: TEAM_ORDER_SELECT,
+    }),
+    prisma.order.count({ where }),
+    prisma.order.groupBy({ by: ["status"], where: whereNoStatus, _count: { _all: true } }),
+  ]);
+
+  const statusCounts: Record<string, number> = {};
+  for (const g of grouped) statusCounts[g.status] = g._count._all;
+
+  return { rows: orders.map(toTeamOrderRow), total, statusCounts };
 }

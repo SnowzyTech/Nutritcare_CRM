@@ -1,51 +1,64 @@
 import { notFound } from "next/navigation";
 import { getSalesRepById } from "@/modules/users/services/users.service";
-import { getSalesRepOrders } from "@/modules/orders/services/orders.service";
-import { upsellExtraCount } from "@/lib/orders/upsell";
+import { getTeamOrdersPage, type TeamOrderFilters } from "@/modules/orders/services/orders.service";
 import { getActiveProducts } from "@/modules/orders/services/products.service";
-import { OrdersClient, type OrderListItem } from "./orders-client";
+import { OrdersClient } from "./orders-client";
+import type { OrderStatus } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
 
+const PAGE_SIZE = 15;
+const STATUSES: OrderStatus[] = ["PENDING", "CONFIRMED", "DELIVERED", "CANCELLED", "FAILED"];
+
 export default async function RepOrdersPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ repId: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { repId } = await params;
-  const rep = await getSalesRepById(repId);
+  const sp = await searchParams;
+  const get = (k: string): string | undefined =>
+    Array.isArray(sp[k]) ? (sp[k] as string[])[0] : (sp[k] as string | undefined);
+
+  const statusRaw = get("status") ?? "";
+  const filters: TeamOrderFilters = {
+    status: STATUSES.includes(statusRaw as OrderStatus) ? (statusRaw as OrderStatus) : undefined,
+    search: (get("q") ?? "").trim(),
+    productName: get("product") || undefined,
+    agentState: get("state") || undefined,
+    date: get("date") || undefined,
+  };
+  const pageNum = Math.max(1, parseInt(get("page") ?? "1", 10) || 1);
+
+  // Reuses the team-orders paged query scoped to this single rep.
+  const [rep, orderPage, allProducts] = await Promise.all([
+    getSalesRepById(repId),
+    getTeamOrdersPage([repId], filters, pageNum, PAGE_SIZE),
+    getActiveProducts(),
+  ]);
 
   if (!rep) notFound();
 
-  const [dbOrders, allProducts] = await Promise.all([
-    getSalesRepOrders(repId),
-    getActiveProducts(),
-  ]);
-  const products = allProducts.map(p => p.name);
+  const products = allProducts.map((p) => p.name);
 
-  const orders: OrderListItem[] = dbOrders.map(o => ({
-    id: o.id,
-    status: o.status,
-    email: o.customer.email ?? "",
-    name: o.customer.name,
-    agent: o.agent ? { name: o.agent.companyName, state: o.agent.state ?? "" } : null,
-    product: o.items[0]?.product.name ?? "—",
-    qty: o.items.reduce((sum, i) => sum + i.quantity, 0),
-    isReorder: o.isReorder,
-    itemNames: o.items.map(i => i.product.name),
-    extraCount: upsellExtraCount(o.items),
-    date: o.createdAt.toISOString().split("T")[0],
-    deliveryFee: Number(o.deliveryFee),
-  }));
-
-  const counts = {
-    all: orders.length,
-    pending: orders.filter(o => o.status === "PENDING").length,
-    confirmed: orders.filter(o => o.status === "CONFIRMED").length,
-    delivered: orders.filter(o => o.status === "DELIVERED").length,
-    cancelled: orders.filter(o => o.status === "CANCELLED").length,
-    failed: orders.filter(o => o.status === "FAILED").length,
-  };
-
-  return <OrdersClient repId={repId} repName={rep.name} orders={orders} counts={counts} products={products} />;
+  return (
+    <OrdersClient
+      repId={repId}
+      repName={rep.name}
+      orders={orderPage.rows}
+      total={orderPage.total}
+      statusCounts={orderPage.statusCounts}
+      page={pageNum}
+      products={products}
+      initialFilters={{
+        status: filters.status ?? "",
+        search: filters.search ?? "",
+        product: filters.productName ?? "",
+        state: filters.agentState ?? "",
+        date: filters.date ?? "",
+      }}
+    />
+  );
 }

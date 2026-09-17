@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { useRouter, usePathname } from 'next/navigation';
 import { createOrderAction } from '@/modules/orders/actions/orders.action';
 import type { ProductForms } from '@/modules/orders/services/form-packages.service';
 import { AddOrderModal } from '@/components/orders/add-order-modal';
@@ -69,11 +69,19 @@ export type ProductItem = {
 };
 
 interface OrdersClientProps {
+  /** The CURRENT page's rows (server-paginated). */
   orders: OrderListItem[];
-  counts: OrderCounts;
+  /** Total orders matching the filters (drives pagination). */
+  total: number;
+  /** Per-status counts (every filter except status), for the tab badges. */
+  statusCounts: Record<string, number>;
+  /** Current 1-based page. */
+  page: number;
   userName: string;
   products: ProductItem[];
   productForms: ProductForms[];
+  /** Filter selections parsed from the URL on the server (seed the controls). */
+  initialFilters?: { status: string; search: string; date: string };
 }
 
 const STATUS_STYLES: Record<OrderStatus, { dot: string; bg: string; text: string; label: string }> = {
@@ -93,54 +101,61 @@ const TABS: Array<{ label: string; key: OrderStatus | null; countKey: keyof Orde
   { label: 'Failed',    key: 'FAILED',    countKey: 'failed' },
 ];
 
-export function OrdersClient({ orders, counts, userName, products, productForms }: OrdersClientProps) {
+export function OrdersClient({ orders, total, statusCounts, page: pageProp, userName, products, productForms, initialFilters }: OrdersClientProps) {
   const router = useRouter();
+  const pathname = usePathname();
 
-  // Interactive Local Orders state
-  const [localOrders, setLocalOrders] = useState<OrderListItem[]>(orders);
-  
-  const [activeTab, setActiveTab] = useState<OrderStatus | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [filterDate, setFilterDate] = useState<Date | undefined>(undefined);
+  const [activeTab, setActiveTab] = useState<OrderStatus | null>((initialFilters?.status || null) as OrderStatus | null);
+  const [searchQuery, setSearchQuery] = useState(initialFilters?.search ?? '');
+  const [filterDate, setFilterDate] = useState<Date | undefined>(
+    initialFilters?.date ? new Date(`${initialFilters.date}T00:00:00`) : undefined
+  );
 
   // Manual "Add Order" modal — the form itself lives in <AddOrderModal/>.
   const [isAddOrderOpen, setIsAddOrderOpen] = useState(false);
 
-  // Dynamic counts derived from state
-  const dynamicCounts = useMemo(() => {
-    return {
-      all: localOrders.length,
-      pending:   localOrders.filter((o) => o.status === "PENDING").length,
-      confirmed: localOrders.filter((o) => o.status === "CONFIRMED").length,
-      delivered: localOrders.filter((o) => o.status === "DELIVERED").length,
-      cancelled: localOrders.filter((o) => o.status === "CANCELLED").length,
-      failed:    localOrders.filter((o) => o.status === "FAILED").length,
-    };
-  }, [localOrders]);
+  // Tab badges come from the server (counts for every filter EXCEPT status).
+  const dynamicCounts = useMemo(() => ({
+    all: (statusCounts.PENDING ?? 0) + (statusCounts.CONFIRMED ?? 0) + (statusCounts.DELIVERED ?? 0) + (statusCounts.CANCELLED ?? 0) + (statusCounts.FAILED ?? 0),
+    pending: statusCounts.PENDING ?? 0,
+    confirmed: statusCounts.CONFIRMED ?? 0,
+    delivered: statusCounts.DELIVERED ?? 0,
+    cancelled: statusCounts.CANCELLED ?? 0,
+    failed: statusCounts.FAILED ?? 0,
+  }), [statusCounts]);
 
-  const filteredOrders = useMemo(() => {
-    let result = activeTab ? localOrders.filter((o) => o.status === activeTab) : localOrders;
-    
-    if (filterDate) {
-      const formattedFilterDate = format(filterDate, 'yyyy-MM-dd');
-      result = result.filter((o) => {
-        const orderDate = new Date(o.createdAt);
-        const formattedDate = orderDate.toISOString().split('T')[0];
-        return formattedDate === formattedFilterDate;
-      });
-    }
+  // The server already returns just this page's rows (filtered + paginated).
+  const filteredOrders = orders;
+  const PAGE_SIZE = 15;
+  const [page, setPage] = useState(pageProp);
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const currentPage = Math.min(Math.max(1, page), totalPages);
 
-    const q = searchQuery.trim().toLowerCase();
-    if (q) {
-      result = result.filter(
-        (o) =>
-          o.customer.name.toLowerCase().includes(q) ||
-          (o.customer.email ?? '').toLowerCase().includes(q) ||
-          o.orderNumber.toLowerCase().includes(q)
-      );
-    }
-    return result;
-  }, [localOrders, activeTab, searchQuery, filterDate]);
+  // Jump back to page 1 whenever a filter changes.
+  useEffect(() => {
+    setPage(1);
+  }, [activeTab, searchQuery, filterDate]);
+
+  // Sync filters → URL → server (debounced). Local state drives the controls; the
+  // URL (read by the server page) drives which rows come back, so filtering +
+  // pagination happen in the database, not the browser.
+  const query = (() => {
+    const p = new URLSearchParams();
+    if (activeTab) p.set('status', activeTab);
+    if (searchQuery.trim()) p.set('q', searchQuery.trim());
+    if (filterDate) p.set('date', format(filterDate, 'yyyy-MM-dd'));
+    if (currentPage > 1) p.set('page', String(currentPage));
+    return p.toString();
+  })();
+
+  const didMount = useRef(false);
+  useEffect(() => {
+    if (!didMount.current) { didMount.current = true; return; }
+    const handle = setTimeout(() => {
+      router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+    }, 300);
+    return () => clearTimeout(handle);
+  }, [query, pathname, router]);
 
   return (
     <div className="max-w-[1200px] mx-auto space-y-4 sm:space-y-6">
@@ -458,6 +473,29 @@ export function OrdersClient({ orders, counts, userName, products, productForms 
         )}
       </div>
 
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-3 py-2">
+          <button
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            disabled={currentPage === 1}
+            className="px-4 py-1.5 text-xs font-bold rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+          >
+            Prev
+          </button>
+          <span className="text-xs font-semibold text-gray-500">
+            Page {currentPage} of {totalPages} · {total} orders
+          </span>
+          <button
+            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            disabled={currentPage === totalPages}
+            className="px-4 py-1.5 text-xs font-bold rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+          >
+            Next
+          </button>
+        </div>
+      )}
+
       {/* Manual "Add Order" modal — shared with the data-analyst flow so the
           pricing rules and fields can never drift apart. */}
       <AddOrderModal
@@ -466,34 +504,10 @@ export function OrdersClient({ orders, counts, userName, products, productForms 
         products={products}
         productForms={productForms}
         onSubmit={createOrderAction}
-        onCreated={(created, payload) => {
-          // Optimistic row so the new order appears without a refetch.
-          setLocalOrders((prev) => [
-            {
-              id: created.orderId,
-              orderNumber: created.orderNumber,
-              status: 'PENDING',
-              isReorder: payload.isReorder,
-              isRescheduled: false,
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString(),
-              customer: {
-                name: payload.customerName.trim(),
-                email: payload.email?.trim() || null,
-              },
-              agent: null,
-              items: payload.products.map((line) => ({
-                quantity: line.quantity,
-                upsellQuantity: 0,
-                isUpsell: false,
-                product: {
-                  name: products.find((p) => p.id === line.productId)?.name ?? line.productId,
-                },
-              })),
-              deliveryFee: 0,
-            },
-            ...prev,
-          ]);
+        onCreated={() => {
+          // Refetch from the server so the new order shows up on the (now paginated)
+          // list instead of being held only in client memory.
+          router.refresh();
         }}
       />
 
