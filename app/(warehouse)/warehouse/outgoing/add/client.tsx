@@ -12,14 +12,8 @@ import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import type { OutgoingFormAgent, OutgoingFormProduct } from "@/modules/warehouse/services/warehouse.service";
 import { createOutgoingMovementAction } from "@/modules/warehouse/actions/outgoing.action";
+import { COUNTRIES, getStatesForCountry } from "@/lib/constants/country-states";
 
-const nigerianStates = [
-  "Abia", "Adamawa", "Akwa Ibom", "Anambra", "Bauchi", "Bayelsa", "Benue", "Borno",
-  "Cross River", "Delta", "Ebonyi", "Edo", "Ekiti", "Enugu", "FCT Abuja", "Gombe",
-  "Imo", "Jigawa", "Kaduna", "Kano", "Katsina", "Kebbi", "Kogi", "Kwara",
-  "Lagos", "Nasarawa", "Niger", "Ogun", "Ondo", "Osun", "Oyo", "Plateau",
-  "Rivers", "Sokoto", "Taraba", "Yobe", "Zamfara",
-];
 
 type ProductRow = {
   rowId: number;
@@ -166,7 +160,7 @@ export default function AddOutgoingClient({ agents, products }: Props) {
                   <SelectValue placeholder="Select an Option" />
                 </SelectTrigger>
                 <SelectContent className="max-h-[240px]">
-                  {nigerianStates.map((s) => (
+                  {getStatesForCountry(country).map((s) => (
                     <SelectItem key={s} value={s} className="text-[13px]">
                       {s}
                     </SelectItem>
@@ -180,14 +174,21 @@ export default function AddOutgoingClient({ agents, products }: Props) {
               <label className="text-[12px] font-semibold text-amber-600 w-[180px] text-left">
                 Country<span className="text-amber-600">*</span>
               </label>
-              <Select value={country} onValueChange={(v) => v && setCountry(v)}>
+              <Select
+                value={country}
+                onValueChange={(v) => {
+                  if (!v) return;
+                  setCountry(v);
+                  setSelectedState(""); // re-derive the state list
+                }}
+              >
                 <SelectTrigger className="w-full max-w-[400px] h-[36px] border border-gray-200 text-[13px] text-gray-300 focus:ring-[#9747FF] focus:border-[#9747FF]">
                   <SelectValue placeholder="Select an Option" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Nigeria" className="text-[13px]">Nigeria</SelectItem>
-                  <SelectItem value="Ghana" className="text-[13px]">Ghana</SelectItem>
-                  <SelectItem value="Kenya" className="text-[13px]">Kenya</SelectItem>
+                  {COUNTRIES.map((c) => (
+                    <SelectItem key={c} value={c} className="text-[13px]">{c}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>

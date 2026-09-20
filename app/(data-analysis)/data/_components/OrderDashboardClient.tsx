@@ -14,6 +14,7 @@ import { OrderRow, SalesRepProfile } from '@/modules/data-analysis/services/data
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { Calendar } from '@/components/ui/calendar';
+import { STATE_OPTION_GROUPS, statesMatch } from "@/lib/constants/country-states";
 
 const STATUS_STYLES: Record<string, { dot: string; bg: string; text: string; label: string }> = {
   Pending: { dot: 'bg-yellow-400', bg: 'bg-[#FFF9E6]', text: 'text-[#856404]', label: 'Pending' },
@@ -25,13 +26,6 @@ const STATUS_STYLES: Record<string, { dot: string; bg: string; text: string; lab
 
 const TABS = ['All', 'Pending', 'Confirmed', 'Delivered', 'Cancelled', 'Failed'];
 
-const NIGERIAN_STATES = [
-  'Abia', 'Adamawa', 'Akwa Ibom', 'Anambra', 'Bauchi', 'Bayelsa', 'Benue', 'Borno',
-  'Cross River', 'Delta', 'Ebonyi', 'Edo', 'Ekiti', 'Enugu', 'FCT', 'Gombe',
-  'Imo', 'Jigawa', 'Kaduna', 'Kano', 'Katsina', 'Kebbi', 'Kogi', 'Kwara',
-  'Lagos', 'Nasarawa', 'Niger', 'Ogun', 'Ondo', 'Osun', 'Oyo', 'Plateau',
-  'Rivers', 'Sokoto', 'Taraba', 'Yobe', 'Zamfara'
-];
 
 // Parse the "DD-MM-YYYY" date string used in OrderRow back into a Date.
 function parseRowDate(s: string): Date | null {
@@ -109,8 +103,7 @@ export function OrderDashboardClient({ initialOrders = [], repProfile, deliveryA
       const matchesProduct = selectedProducts.length === 0 || selectedProducts.includes(o.product);
       const matchesState = selectedStates.length === 0 ||
         selectedStates.some(s =>
-          o.agent?.state?.toLowerCase().includes(s.toLowerCase()) ||
-          o.state?.toLowerCase().includes(s.toLowerCase())
+          statesMatch(o.agent?.state, s) || statesMatch(o.state, s)
         );
       const matchesDelAgent = selectedDelAgents.length === 0 ||
         (o.agent != null && selectedDelAgents.includes(o.agent.id));
@@ -348,27 +341,34 @@ export function OrderDashboardClient({ initialOrders = [], repProfile, deliveryA
                     </button>
                   </div>
                   <div className="flex-1 overflow-y-auto py-1">
-                    {NIGERIAN_STATES.map((s) => (
-                      <label
-                        key={s}
-                        className="flex items-center gap-3 px-4 py-2 hover:bg-purple-50 cursor-pointer transition-colors"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={pendingStates.includes(s)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setPendingStates(prev => [...prev, s]);
-                            } else {
-                              setPendingStates(prev => prev.filter(st => st !== s));
-                            }
-                          }}
-                          className="w-4 h-4 rounded border-gray-300 text-[#A020F0] accent-[#A020F0]"
-                        />
-                        <span className={`text-xs font-medium ${pendingStates.includes(s) ? 'text-[#A020F0]' : 'text-gray-600'}`}>
-                          {s}
-                        </span>
-                      </label>
+                    {STATE_OPTION_GROUPS.map((group) => (
+                      <div key={group.country}>
+                        <div className="sticky top-0 z-10 bg-white px-4 py-1 text-[10px] font-bold uppercase tracking-wide text-gray-400">
+                          {group.country}
+                        </div>
+                        {group.states.map((s) => (
+                          <label
+                            key={s}
+                            className="flex items-center gap-3 px-4 py-2 hover:bg-purple-50 cursor-pointer transition-colors"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={pendingStates.includes(s)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setPendingStates(prev => [...prev, s]);
+                                } else {
+                                  setPendingStates(prev => prev.filter(st => st !== s));
+                                }
+                              }}
+                              className="w-4 h-4 rounded border-gray-300 text-[#A020F0] accent-[#A020F0]"
+                            />
+                            <span className={`text-xs font-medium ${pendingStates.includes(s) ? 'text-[#A020F0]' : 'text-gray-600'}`}>
+                              {s}
+                            </span>
+                          </label>
+                        ))}
+                      </div>
                     ))}
                   </div>
                   <div className="px-4 pt-2 border-t border-gray-100">

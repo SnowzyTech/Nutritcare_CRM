@@ -6,6 +6,7 @@ import { Search, SlidersHorizontal, ArrowUpDown, ChevronLeft, ChevronDown, Calen
 import { formatDate, formatCurrency } from "@/lib/utils";
 import { Calendar } from "@/components/ui/calendar";
 import { useBasePath } from "../_lib/base-path";
+import { STATE_OPTION_GROUPS, canonicalizeState } from "@/lib/constants/country-states";
 
 /** Local YYYY-MM-DD (avoids UTC shift from toISOString). */
 function toYMD(d: Date): string {
@@ -77,13 +78,6 @@ const TABS: Array<{ label: string; key: OrderStatus | null; countKey: keyof Orde
   { label: "Failed", key: "FAILED", countKey: "failed" },
 ];
 
-const NIGERIAN_STATES = [
-  "Abia","Adamawa","Akwa Ibom","Anambra","Bauchi","Bayelsa","Benue","Borno",
-  "Cross River","Delta","Ebonyi","Edo","Ekiti","Enugu","FCT","Gombe","Imo",
-  "Jigawa","Kaduna","Kano","Katsina","Kebbi","Kogi","Kwara","Lagos","Nasarawa",
-  "Niger","Ogun","Ondo","Osun","Oyo","Plateau","Rivers","Sokoto","Taraba",
-  "Yobe","Zamfara",
-];
 
 export function TeamOrdersClient({ orders, total, statusCounts, page: pageProp, products = [], teams = [], initialFilters }: TeamOrdersClientProps) {
   const router = useRouter();
@@ -94,7 +88,12 @@ export function TeamOrdersClient({ orders, total, statusCounts, page: pageProp, 
   const [dateValue, setDateValue] = useState<Date | undefined>(initialFilters?.date ? new Date(`${initialFilters.date}T00:00:00`) : undefined);
   const [isDateOpen, setIsDateOpen] = useState(false);
   const [productFilter, setProductFilter] = useState(initialFilters?.product ?? "");
-  const [stateFilter, setStateFilter] = useState(initialFilters?.state ?? "");
+  // A bookmarked ?state=Lagos must still select the canonical "Lagos State"
+  // option; unrecognised values pass through so the filter is never silently
+  // dropped.
+  const [stateFilter, setStateFilter] = useState(
+    canonicalizeState(initialFilters?.state) ?? initialFilters?.state ?? ""
+  );
   const [teamFilter, setTeamFilter] = useState(initialFilters?.team ?? "");
   // Only the company manager sees orders spanning multiple teams; show the team
   // filter only when there's more than one team to choose between.
@@ -288,10 +287,12 @@ export function TeamOrdersClient({ orders, total, statusCounts, page: pageProp, 
             className="w-full appearance-none bg-gray-900 border border-gray-900 rounded-lg pl-4 pr-10 py-2 text-sm text-white font-medium outline-none hover:bg-gray-800 transition-colors cursor-pointer"
           >
             <option value="">State</option>
-            {NIGERIAN_STATES.map(s => (
-              <option key={s} value={s}>
-                {s}
-              </option>
+            {STATE_OPTION_GROUPS.map((group) => (
+              <optgroup key={group.country} label={group.country}>
+                {group.states.map(s => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </optgroup>
             ))}
           </select>
           <ChevronLeft

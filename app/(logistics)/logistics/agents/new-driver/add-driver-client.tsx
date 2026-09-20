@@ -6,6 +6,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ArrowLeft, CheckCircle2 } from "lucide-react";
 import { createDriverAction } from "@/modules/delivery/actions/logistics-agents.action";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { COUNTRIES, DEFAULT_COUNTRY, getStatesForCountry } from "@/lib/constants/country-states";
 
 export default function AddDriverClient() {
   const [name, setName] = useState("");
@@ -13,7 +21,7 @@ export default function AddDriverClient() {
   const [phone, setPhone] = useState("");
   const [phone2, setPhone2] = useState("");
   const [phone3, setPhone3] = useState("");
-  const [country, setCountry] = useState("Nigeria");
+  const [country, setCountry] = useState<string>(DEFAULT_COUNTRY);
   const [state, setState] = useState("");
   const [vehicleNo, setVehicleNo] = useState("");
 
@@ -140,12 +148,22 @@ export default function AddDriverClient() {
           </div>
           <div className="space-y-2">
             <label className="text-[10px] font-bold text-gray-700 uppercase">Country</label>
-            <Input
+            <Select
               value={country}
-              onChange={(e) => setCountry(e.target.value)}
-              placeholder="e.g. Nigeria"
-              className="bg-white border-gray-200 h-11 text-xs focus:ring-[#ad1df4]"
-            />
+              onValueChange={(v) => {
+                setCountry(v ?? DEFAULT_COUNTRY);
+                setState(""); // re-derive the state list
+              }}
+            >
+              <SelectTrigger className="h-11 text-xs border-gray-200">
+                <SelectValue placeholder="Select a Country" />
+              </SelectTrigger>
+              <SelectContent>
+                {COUNTRIES.map((c) => (
+                  <SelectItem key={c} value={c}>{c}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
 
@@ -186,12 +204,16 @@ export default function AddDriverClient() {
         <div className="grid grid-cols-3 gap-8">
           <div className="space-y-2">
             <label className="text-[10px] font-bold text-gray-700 uppercase">Main State</label>
-            <Input
-              value={state}
-              onChange={(e) => setState(e.target.value)}
-              placeholder="e.g. Lagos State"
-              className="bg-white border-gray-200 h-11 text-xs focus:ring-[#ad1df4]"
-            />
+            <Select value={state} onValueChange={(v) => setState(v ?? "")}>
+              <SelectTrigger className="h-11 text-xs border-gray-200">
+                <SelectValue placeholder="Select a State" />
+              </SelectTrigger>
+              <SelectContent className="max-h-[240px]">
+                {getStatesForCountry(country).map((s) => (
+                  <SelectItem key={s} value={s}>{s}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div className="space-y-2">
             <label className="text-[10px] font-bold text-gray-700 uppercase">Vehicle No.</label>

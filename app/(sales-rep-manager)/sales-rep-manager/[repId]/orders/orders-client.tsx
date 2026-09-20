@@ -5,6 +5,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { Search, SlidersHorizontal, ArrowUpDown, ChevronLeft, RotateCcw } from "lucide-react";
 import { formatDate,formatCurrency } from "@/lib/utils";
 import { useBasePath } from "../../_lib/base-path";
+import { STATE_OPTION_GROUPS, canonicalizeState } from "@/lib/constants/country-states";
 
 type OrderStatus = "PENDING" | "CONFIRMED" | "DELIVERED" | "CANCELLED" | "FAILED";
 
@@ -65,13 +66,6 @@ const TABS: Array<{ label: string; key: OrderStatus | null; countKey: keyof Orde
   { label: "Failed", key: "FAILED", countKey: "failed" },
 ];
 
-const NIGERIAN_STATES = [
-  "Abia","Adamawa","Akwa Ibom","Anambra","Bauchi","Bayelsa","Benue","Borno",
-  "Cross River","Delta","Ebonyi","Edo","Ekiti","Enugu","FCT","Gombe","Imo",
-  "Jigawa","Kaduna","Kano","Katsina","Kebbi","Kogi","Kwara","Lagos","Nasarawa",
-  "Niger","Ogun","Ondo","Osun","Oyo","Plateau","Rivers","Sokoto","Taraba",
-  "Yobe","Zamfara",
-];
 
 export function OrdersClient({ repId, repName, orders, total, statusCounts, page: pageProp, products = [], initialFilters }: OrdersClientProps) {
   const router = useRouter();
@@ -81,7 +75,9 @@ export function OrdersClient({ repId, repName, orders, total, statusCounts, page
   const [searchQuery, setSearchQuery] = useState(initialFilters?.search ?? "");
   const [dateFilter, setDateFilter] = useState(initialFilters?.date ?? "");
   const [productFilter, setProductFilter] = useState(initialFilters?.product ?? "");
-  const [stateFilter, setStateFilter] = useState(initialFilters?.state ?? "");
+  const [stateFilter, setStateFilter] = useState(
+    canonicalizeState(initialFilters?.state) ?? initialFilters?.state ?? ""
+  );
 
   // Full catalog when provided; otherwise fall back to products seen in the orders
   // (each order can carry several products, so flatten itemNames — not just the first).
@@ -206,8 +202,12 @@ export function OrdersClient({ repId, repName, orders, total, statusCounts, page
             className="appearance-none bg-gray-50 border border-gray-200 rounded-lg pl-3 pr-8 py-2 text-sm text-gray-700 font-medium outline-none hover:bg-gray-100 transition-colors cursor-pointer"
           >
             <option value="">State</option>
-            {NIGERIAN_STATES.map(s => (
-              <option key={s} value={s}>{s}</option>
+            {STATE_OPTION_GROUPS.map((group) => (
+              <optgroup key={group.country} label={group.country}>
+                {group.states.map(s => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </optgroup>
             ))}
           </select>
           <ChevronLeft className="-rotate-90 absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={14} />

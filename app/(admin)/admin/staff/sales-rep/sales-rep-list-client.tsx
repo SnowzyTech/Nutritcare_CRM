@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { Search, SlidersHorizontal, ArrowUpDown, ChevronDown } from "lucide-react";
 import Image from "next/image";
+import { STATE_OPTION_GROUPS, statesMatch } from "@/lib/constants/country-states";
 
 type SalesRep = {
   id: string;
@@ -22,17 +23,11 @@ export default function SalesRepListClient({ reps }: { reps: SalesRep[] }) {
   const filtered = reps.filter(r => {
     const matchesSearch = r.name.toLowerCase().includes(search.toLowerCase()) ||
       (r.phone ?? "").includes(search);
-    const matchesState = selectedState === "__all__" || r.state === selectedState;
+    const matchesState =
+      selectedState === "__all__" || statesMatch(r.state, selectedState);
     return matchesSearch && matchesState;
   });
 
-  const nigerianStates = [
-    "Abia", "Adamawa", "Akwa Ibom", "Anambra", "Bauchi", "Bayelsa", "Benue", "Borno",
-    "Cross River", "Delta", "Ebonyi", "Edo", "Ekiti", "Enugu", "Gombe", "Imo",
-    "Jigawa", "Kaduna", "Kano", "Katsina", "Kebbi", "Kogi", "Kwara", "Lagos",
-    "Nasarawa", "Niger", "Ogun", "Ondo", "Osun", "Oyo", "Plateau", "Rivers",
-    "Sokoto", "Taraba", "Yobe", "Zamfara", "FCT"
-  ];
 
   return (
     <div className="max-w-[1200px] mx-auto">
@@ -51,8 +46,12 @@ export default function SalesRepListClient({ reps }: { reps: SalesRep[] }) {
             className="appearance-none bg-transparent text-sm text-gray-500 font-medium pl-2 pr-6 py-1 outline-none cursor-pointer"
           >
             <option value="__all__">State</option>
-            {nigerianStates.map(state => (
-              <option key={state} value={state}>{state}</option>
+            {STATE_OPTION_GROUPS.map((group) => (
+              <optgroup key={group.country} label={group.country}>
+                {group.states.map((state) => (
+                  <option key={state} value={state}>{state}</option>
+                ))}
+              </optgroup>
             ))}
           </select>
           <ChevronDown size={14} className="absolute right-1 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />

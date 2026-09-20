@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Filter, ArrowUpDown, ChevronDown, ArrowLeft, Plus, MessageCircle, Check, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { createOutgoingMovementAction } from "@/modules/inventory/actions/stock.action";
+import { COUNTRIES, getStatesForCountry } from "@/lib/constants/country-states";
 
 const inputClass =
   "w-full border border-gray-200 rounded-md px-3 py-2.5 text-sm text-gray-700 placeholder:text-gray-300 outline-none focus:border-[#9D00FF] focus:ring-1 focus:ring-[#9D00FF]/20 transition-all bg-white";
@@ -13,12 +14,6 @@ const selectClass =
 const readonlyClass =
   "w-full border border-gray-100 rounded-md px-3 py-2.5 text-sm text-gray-500 bg-gray-50 cursor-not-allowed";
 
-const NIGERIA_STATES = [
-  "Abia","Adamawa","Akwa Ibom","Anambra","Bauchi","Bayelsa","Benue","Borno","Cross River",
-  "Delta","Ebonyi","Edo","Ekiti","Enugu","FCT - Abuja","Gombe","Imo","Jigawa","Kaduna",
-  "Kano","Katsina","Kebbi","Kogi","Kwara","Lagos","Nasarawa","Niger","Ogun","Ondo","Osun",
-  "Oyo","Plateau","Rivers","Sokoto","Taraba","Yobe","Zamfara",
-];
 
 interface BulkItem {
   id: number;
@@ -206,7 +201,7 @@ export default function OutgoingCreateClient({ agents, products, warehouses, war
             <div className="relative flex-1">
               <select name="state" value={form.state} onChange={handleChange} className={selectClass}>
                 <option value="" disabled>Select an Option</option>
-                {NIGERIA_STATES.map((s) => (
+                {getStatesForCountry(form.country).map((s) => (
                   <option key={s} value={s}>{s}</option>
                 ))}
               </select>
@@ -218,9 +213,19 @@ export default function OutgoingCreateClient({ agents, products, warehouses, war
           <div className="flex items-center gap-4">
             <label className="text-sm font-semibold text-amber-500 w-48 shrink-0">Country*</label>
             <div className="relative flex-1">
-              <select name="country" value={form.country} onChange={handleChange} className={selectClass}>
-                <option value="Nigeria">Nigeria</option>
-                <option value="Ghana">Ghana</option>
+              <select
+                name="country"
+                value={form.country}
+                onChange={(e) =>
+                  // Re-derive the state list; the previous pick belongs to the
+                  // old country and would otherwise be submitted against it.
+                  setForm((prev) => ({ ...prev, country: e.target.value, state: "" }))
+                }
+                className={selectClass}
+              >
+                {COUNTRIES.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
               </select>
               <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             </div>

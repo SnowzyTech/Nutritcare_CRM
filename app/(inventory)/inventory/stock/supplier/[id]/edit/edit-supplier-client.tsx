@@ -1,10 +1,18 @@
 "use client";
 
-import React, { useActionState, useEffect } from "react";
+import React, { useActionState, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 import { updateSupplierAction } from "@/modules/inventory/actions/stock.action";
+import {
+  COUNTRIES,
+  DEFAULT_COUNTRY,
+  canonicalizeState,
+  countryForState,
+  getStatesForCountry,
+  isSelectableCountry,
+} from "@/lib/constants/country-states";
 
 const inputClass =
   "w-full border border-gray-200 rounded-md px-3 py-2.5 text-sm text-gray-700 placeholder:text-gray-300 outline-none focus:border-[#9D00FF] focus:ring-1 focus:ring-[#9D00FF]/20 transition-all bg-white";
@@ -15,6 +23,24 @@ const labelClass = "block text-[11px] font-bold text-gray-500 uppercase tracking
 export default function EditSupplierClient({ supplier }: { supplier: any }) {
   const router = useRouter();
   const [state, formAction, pending] = useActionState(updateSupplierAction, null);
+
+  // Rows predate the shared list, so a supplier may hold a spelling we no
+  // longer offer ("Lagos", or a Kenyan country). Offer it back as a extra
+  // option rather than rendering blank and silently wiping it on save.
+  const storedState: string = supplier.state ?? "";
+  const storedCountry: string = supplier.country ?? "";
+  const legacyState = storedState && !canonicalizeState(storedState) ? storedState : null;
+  const legacyCountry = storedCountry && !isSelectableCountry(storedCountry) ? storedCountry : null;
+
+  const [selectedCountry, setSelectedCountry] = useState<string>(
+    legacyCountry ??
+      (isSelectableCountry(storedCountry) ? storedCountry : null) ??
+      countryForState(storedState) ??
+      DEFAULT_COUNTRY
+  );
+  const [selectedState, setSelectedState] = useState<string>(
+    canonicalizeState(storedState) ?? storedState
+  );
 
   useEffect(() => {
     if (state?.error) toast.error(state.error);
@@ -88,13 +114,24 @@ export default function EditSupplierClient({ supplier }: { supplier: any }) {
               </div>
               <div>
                 <label className={labelClass} htmlFor="state">State</label>
-                <input
-                  id="state"
-                  type="text"
-                  name="state"
-                  className={inputClass}
-                  defaultValue={supplier.state ?? ""}
-                />
+                <div className="relative">
+                  <select
+                    id="state"
+                    name="state"
+                    value={selectedState}
+                    onChange={(e) => setSelectedState(e.target.value)}
+                    className={selectClass}
+                  >
+                    <option value="">Select an Option</option>
+                    {legacyState && (
+                      <option value={legacyState}>{legacyState} (existing)</option>
+                    )}
+                    {getStatesForCountry(selectedCountry).map((s) => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
+                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">▾</span>
+                </div>
               </div>
             </div>
 
@@ -115,13 +152,19 @@ export default function EditSupplierClient({ supplier }: { supplier: any }) {
                   <select
                     id="country"
                     name="country"
+                    value={selectedCountry}
+                    onChange={(e) => {
+                      setSelectedCountry(e.target.value);
+                      setSelectedState(""); // re-derive the state list
+                    }}
                     className={selectClass}
-                    defaultValue={supplier.country ?? ""}
                   >
-                    <option value="">Select an Option</option>
-                    <option value="Nigeria">Nigeria</option>
-                    <option value="Ghana">Ghana</option>
-                    <option value="Kenya">Kenya</option>
+                    {legacyCountry && (
+                      <option value={legacyCountry}>{legacyCountry} (existing)</option>
+                    )}
+                    {COUNTRIES.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
                   </select>
                   <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">▾</span>
                 </div>

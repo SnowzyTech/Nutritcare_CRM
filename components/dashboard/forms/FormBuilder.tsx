@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { MessageCircle, ChevronDown, X, Trash2 } from "lucide-react";
+import { STATE_OPTION_GROUPS } from "@/lib/constants/country-states";
 import {
   createFormAction,
   updateFormAction,
@@ -331,46 +332,6 @@ function computeVariations(
   ];
 }
 
-/* ── Nigerian States List ── */
-const NIGERIAN_STATES = [
-  "Abia State",
-  "Adamawa State",
-  "Akwa Ibom State",
-  "Anambra State",
-  "Bauchi State",
-  "Bayelsa State",
-  "Benue State",
-  "Borno State",
-  "Cross River State",
-  "Delta State",
-  "Ebonyi State",
-  "Edo State",
-  "Ekiti State",
-  "Enugu State",
-  "Gombe State",
-  "Imo State",
-  "Jigawa State",
-  "Kaduna State",
-  "Kano State",
-  "Katsina State",
-  "Kebbi State",
-  "Kogi State",
-  "Kwara State",
-  "Lagos State",
-  "Nasarawa State",
-  "Niger State",
-  "Ogun State",
-  "Ondo State",
-  "Osun State",
-  "Oyo State",
-  "Plateau State",
-  "Rivers State",
-  "Sokoto State",
-  "Taraba State",
-  "Yobe State",
-  "Zamfara State",
-  "Federal Capital Territory (FCT)",
-];
 
 /* ── Custom Toggle Component ── */
 function Toggle({
@@ -2668,30 +2629,37 @@ export function FormBuilder({
                 {/* Dropdown list */}
                 {statesDropdownOpen && (
                   <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-52 overflow-y-auto">
-                    {NIGERIAN_STATES.map((state) => {
-                      const selected = (
-                        formData.selectStatesExclude as string[]
-                      ).includes(state);
-                      return (
-                        <div
-                          key={state}
-                          onClick={() => toggleStateSelection(state)}
-                          className={`flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-purple-50 transition-colors ${
-                            selected
-                              ? "bg-purple-50 text-purple-700 font-medium"
-                              : "text-gray-700"
-                          }`}
-                        >
-                          <input
-                            type="checkbox"
-                            readOnly
-                            checked={selected}
-                            className="accent-purple-600 pointer-events-none"
-                          />
-                          {state}
+                    {STATE_OPTION_GROUPS.map((group) => (
+                      <div key={group.country}>
+                        <div className="sticky top-0 z-10 bg-white px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-gray-400">
+                          {group.country}
                         </div>
-                      );
-                    })}
+                        {group.states.map((state) => {
+                          const selected = (
+                            formData.selectStatesExclude as string[]
+                          ).includes(state);
+                          return (
+                            <div
+                              key={state}
+                              onClick={() => toggleStateSelection(state)}
+                              className={`flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-purple-50 transition-colors ${
+                                selected
+                                  ? "bg-purple-50 text-purple-700 font-medium"
+                                  : "text-gray-700"
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                readOnly
+                                checked={selected}
+                                className="accent-purple-600 pointer-events-none"
+                              />
+                              {state}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>

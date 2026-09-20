@@ -3,17 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { SavedForm } from "@/lib/formsStore";
 import { Check, Copy, Sparkles, ShoppingBag, CreditCard, ArrowRight, ChevronDown } from "lucide-react";
+import { COUNTRIES, DEFAULT_COUNTRY, getStatesForCountry } from "@/lib/constants/country-states";
 
-/* ── Nigerian States List ── */
-const NIGERIAN_STATES = [
-  "Abia State", "Adamawa State", "Akwa Ibom State", "Anambra State", "Bauchi State",
-  "Bayelsa State", "Benue State", "Borno State", "Cross River State", "Delta State",
-  "Ebonyi State", "Edo State", "Ekiti State", "Enugu State", "Gombe State", "Imo State",
-  "Jigawa State", "Kaduna State", "Kano State", "Katsina State", "Kebbi State", "Kogi State",
-  "Kwara State", "Lagos State", "Nasarawa State", "Niger State", "Ogun State", "Ondo State",
-  "Osun State", "Oyo State", "Plateau State", "Rivers State", "Sokoto State", "Taraba State",
-  "Yobe State", "Zamfara State", "Federal Capital Territory (FCT)",
-];
 
 /* ── Order the customer fields are displayed in, regardless of saved key order ──
    name → email → address → state → phone → whatsapp. Any unlisted field falls
@@ -372,6 +363,7 @@ export default function OrderFormClient({
   const [optinValues, setOptinValues] = useState<Record<string, string>>({});
 
   // Country code states
+  const [country, setCountry] = useState<string>(DEFAULT_COUNTRY);
   const [phoneCountryCode, setPhoneCountryCode] = useState("+234");
   const [whatsappCountryCode, setWhatsappCountryCode] = useState("+234");
   const [optinWhatsappCountryCode, setOptinWhatsappCountryCode] = useState("+234");
@@ -1260,23 +1252,54 @@ export default function OrderFormClient({
                     .sort(([a], [b]) => fieldOrderIndex(a) - fieldOrderIndex(b))
                     .map(([key, f]) => {
                       if (key === "state") {
+                        // Country is deliberately NOT a `fields` key: `fields`
+                        // comes from the saved Form.data JSON, so a synthetic
+                        // entry would leak into the form builder and vanish on
+                        // the next save. Pairing it with the state field also
+                        // means it inherits the state slot in FIELD_DISPLAY_ORDER
+                        // and disappears when the seller hides the state field.
                         return (
-                          <div key={key} className="mb-4 text-left">
-                            <label className="block text-sm font-semibold mb-1" style={{ color: labelColor }}>
-                              {f.label || "State"}
-                              {f.required && <span className="text-red-500 ml-1">*</span>}
-                            </label>
-                            <select
-                              value={formValues[key] || ""}
-                              onChange={(e) => handleFieldChange(key, e.target.value)}
-                              required={f.required}
-                              className="w-full px-4 py-3 border border-gray-300 rounded-md text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
-                            >
-                              <option value="">Select State</option>
-                              {NIGERIAN_STATES.map((st) => (
-                                <option key={st} value={st}>{st}</option>
-                              ))}
-                            </select>
+                          <div key={key}>
+                            <div className="mb-4 text-left">
+                              <label className="block text-sm font-semibold mb-1" style={{ color: labelColor }}>
+                                Country
+                              </label>
+                              <select
+                                value={country}
+                                onChange={(e) => {
+                                  const next = e.target.value;
+                                  setCountry(next);
+                                  handleFieldChange(key, "");
+                                  const dial = COUNTRIES_AND_CODES.find((c) => c.name === next)?.code;
+                                  if (dial) {
+                                    setPhoneCountryCode(dial);
+                                    setWhatsappCountryCode(dial);
+                                  }
+                                }}
+                                className="w-full px-4 py-3 border border-gray-300 rounded-md text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
+                              >
+                                {COUNTRIES.map((c) => (
+                                  <option key={c} value={c}>{c}</option>
+                                ))}
+                              </select>
+                            </div>
+                            <div className="mb-4 text-left">
+                              <label className="block text-sm font-semibold mb-1" style={{ color: labelColor }}>
+                                {f.label || "State"}
+                                {f.required && <span className="text-red-500 ml-1">*</span>}
+                              </label>
+                              <select
+                                value={formValues[key] || ""}
+                                onChange={(e) => handleFieldChange(key, e.target.value)}
+                                required={f.required}
+                                className="w-full px-4 py-3 border border-gray-300 rounded-md text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
+                              >
+                                <option value="">Select State</option>
+                                {getStatesForCountry(country).map((st) => (
+                                  <option key={st} value={st}>{st}</option>
+                                ))}
+                              </select>
+                            </div>
                           </div>
                         );
                       }

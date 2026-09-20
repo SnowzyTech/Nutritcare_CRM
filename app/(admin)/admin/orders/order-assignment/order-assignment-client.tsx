@@ -14,19 +14,15 @@ import Image from "next/image";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
 } from "@/components/ui/select";
+import { STATE_OPTION_GROUPS, statesMatch } from "@/lib/constants/country-states";
 import type { OrderStatus } from "@prisma/client";
 import { adminReassignOrdersAction } from "@/modules/orders/actions/admin-orders.action";
 
-const nigerianStates = [
-  "Abia", "Adamawa", "Akwa Ibom", "Anambra", "Bauchi", "Bayelsa", "Benue",
-  "Borno", "Cross River", "Delta", "Ebonyi", "Edo", "Ekiti", "Enugu", "FCT",
-  "Gombe", "Imo", "Jigawa", "Kaduna", "Kano", "Katsina", "Kebbi", "Kogi",
-  "Kwara", "Lagos", "Nasarawa", "Niger", "Ogun", "Ondo", "Osun", "Oyo",
-  "Plateau", "Rivers", "Sokoto", "Taraba", "Yobe", "Zamfara",
-];
 
 export type AssignableOrder = {
   id: string;
@@ -107,9 +103,7 @@ export function OrderAssignmentClient({
       );
     }
     if (selectedState !== "__all__") {
-      result = result.filter(
-        (o) => o.customer.state.toLowerCase() === selectedState.toLowerCase()
-      );
+      result = result.filter((o) => statesMatch(o.customer.state, selectedState));
     }
     if (selectedDate) {
       result = result.filter(
@@ -278,10 +272,15 @@ export function OrderAssignmentClient({
           </SelectTrigger>
           <SelectContent className="max-h-[300px]">
             <SelectItem value="__all__">All States</SelectItem>
-            {nigerianStates.map((state) => (
-              <SelectItem key={state} value={state}>
-                {state}
-              </SelectItem>
+            {STATE_OPTION_GROUPS.map((group) => (
+              <SelectGroup key={group.country}>
+                <SelectLabel>{group.country}</SelectLabel>
+                {group.states.map((state) => (
+                  <SelectItem key={state} value={state}>
+                    {state}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
             ))}
           </SelectContent>
         </Select>

@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db/prisma";
+import { stateQueryVariants } from "@/lib/constants/country-states";
 import { Prisma, type OrderStatus } from "@prisma/client";
 import { upsellExtraCount } from "@/lib/orders/upsell";
 
@@ -223,7 +224,12 @@ function buildAdminOrderWhere(
     ];
   }
   if (f.productName) where.items = { some: { product: { name: f.productName } } };
-  if (f.state) where.customer = { is: { state: { equals: f.state, mode: "insensitive" } } };
+  // `in` over the known spellings, not `equals`: legacy rows hold "Lagos"
+  // where newer ones hold "Lagos State" (and five spellings of the FCT).
+  if (f.state)
+    where.customer = {
+      is: { state: { in: stateQueryVariants(f.state), mode: "insensitive" } },
+    };
   if (f.teamId) where.salesRep = { is: { teamId: f.teamId } };
   if (f.date) {
     const [y, m, d] = f.date.split("-").map(Number);
@@ -431,7 +437,10 @@ function buildTeamOrderWhere(f: TeamOrderFilters, base: Prisma.OrderWhereInput):
     ];
   }
   if (f.productName) where.items = { some: { product: { name: f.productName } } };
-  if (f.agentState) where.agent = { is: { state: { equals: f.agentState, mode: "insensitive" } } };
+  if (f.agentState)
+    where.agent = {
+      is: { state: { in: stateQueryVariants(f.agentState), mode: "insensitive" } },
+    };
   if (f.teamId) where.salesRep = { is: { teamId: f.teamId } };
   if (f.date) {
     const [y, m, d] = f.date.split("-").map(Number);

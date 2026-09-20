@@ -4,6 +4,7 @@ import React, { useActionState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { addWarehouseAction } from "@/modules/inventory/actions/stock.action";
+import { COUNTRIES } from "@/lib/constants/country-states";
 
 const inputClass =
   "w-full border border-gray-200 rounded-md px-3 py-2.5 text-sm text-gray-700 placeholder:text-gray-300 outline-none focus:border-[#9D00FF] focus:ring-1 focus:ring-[#9D00FF]/20 transition-all bg-white";
@@ -108,9 +109,9 @@ export default function AddWarehousePage() {
                 <div className="relative">
                   <select id="country" name="country" className={selectClass}>
                     <option value="">Select an Option</option>
-                    <option value="Nigeria">Nigeria</option>
-                    <option value="Ghana">Ghana</option>
-                    <option value="Kenya">Kenya</option>
+                    {COUNTRIES.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
                   </select>
                   <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">▾</span>
                 </div>

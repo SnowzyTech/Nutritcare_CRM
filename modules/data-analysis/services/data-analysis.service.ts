@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db/prisma";
+import { stateQueryVariants } from "@/lib/constants/country-states";
 import { unstable_cache } from "next/cache";
 import { OrderStatus, Prisma } from "@prisma/client";
 import { generalPerformanceScore, kpiScore } from "@/lib/performance";
@@ -786,7 +787,15 @@ export function buildOrderWhere(f: OrderListFilters): Prisma.OrderWhereInput {
     where.items = { some: { product: { name: { in: f.productNames } } } };
   }
   if (f.states?.length) {
-    where.customer = { is: { state: { in: f.states } } };
+    // Expand each canonical pick into the spellings the DB may hold.
+    where.customer = {
+      is: {
+        state: {
+          in: f.states.flatMap(stateQueryVariants),
+          mode: "insensitive",
+        },
+      },
+    };
   }
   if (f.teamIds?.length) where.salesRep = { is: { teamId: { in: f.teamIds } } };
   if (f.agentIds?.length) where.agentId = { in: f.agentIds };
