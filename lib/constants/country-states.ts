@@ -62,6 +62,22 @@ export type ActiveCountry = (typeof COUNTRIES)[number];
 
 export const DEFAULT_COUNTRY: ActiveCountry = "Nigeria";
 
+/**
+ * E.164 dialling prefix per country. Kept here rather than derived from a
+ * country-name lookup so the public form, the rep's order modal and the
+ * WhatsApp sender all agree on one mapping.
+ */
+export const COUNTRY_DIAL_CODES = {
+  Nigeria: "+234",
+  Ghana: "+233",
+  Kenya: "+254",
+} as const satisfies Record<Country, string>;
+
+/** The dialling prefix for a country, falling back to the default market. */
+export function dialCodeForCountry(country: string | null | undefined): string {
+  return COUNTRY_DIAL_CODES[country as Country] ?? COUNTRY_DIAL_CODES[DEFAULT_COUNTRY];
+}
+
 /** True when `value` is a country the UI currently offers. */
 export function isSelectableCountry(value: string | null | undefined): value is ActiveCountry {
   return !!value && (COUNTRIES as readonly string[]).includes(value);

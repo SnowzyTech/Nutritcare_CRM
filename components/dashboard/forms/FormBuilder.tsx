@@ -3,7 +3,11 @@
 import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { MessageCircle, ChevronDown, X, Trash2 } from "lucide-react";
-import { STATE_OPTION_GROUPS } from "@/lib/constants/country-states";
+import {
+  COUNTRIES,
+  DEFAULT_COUNTRY,
+  STATE_OPTION_GROUPS,
+} from "@/lib/constants/country-states";
 import {
   createFormAction,
   updateFormAction,
@@ -455,6 +459,9 @@ export function FormBuilder({
       whatsapp: { label: "", required: true, show: false },
     },
 
+    // The market this form is built for: seeds the live form's country,
+    // its state list and its phone dial code.
+    country: DEFAULT_COUNTRY as string,
     showCountryCode: "YES",
     productQuantityDisplay: "Radio Button Option",
     typeProductText: "Choose Your Preferred Packages",
@@ -841,6 +848,7 @@ export function FormBuilder({
         phone: { label: "", required: false, show: false },
         whatsapp: { label: "", required: true, show: false },
       },
+      country: DEFAULT_COUNTRY as string,
       showCountryCode: "YES",
       productQuantityDisplay: "Radio Button Option",
       typeProductText: "Choose Your Preferred Packages",
@@ -1057,6 +1065,17 @@ export function FormBuilder({
                 value={formData.formName}
                 onChange={(e) => updateField("formName", e.target.value)}
                 className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm outline-none focus:border-purple-300"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-amber-600 mb-1">
+                Country*
+              </label>
+              <CustomSelect
+                value={formData.country}
+                onChange={(v) => updateField("country", v)}
+                options={[...COUNTRIES]}
+                placeholder="Select a Country"
               />
             </div>
             <div className="flex items-center gap-3">
