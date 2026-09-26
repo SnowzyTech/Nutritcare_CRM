@@ -46,6 +46,7 @@ model User {
   upsoldOrderItems        OrderItem[]             @relation("UpsoldOrderItems")
   orderFeedbacks          OrderFeedback[]         @relation("OrderFeedbackAuthor")
   orders                  Order[]                 @relation("SalesRepOrders")
+  autoAssignedOrders      Order[]                 @relation("AutoAssignedOrders")
   discountedOrders        Order[]                 @relation("DiscountedOrders")
   pickPackAssignments     PickPack[]              @relation("PickerAssignments")
   purchaseOrders          PurchaseOrder[]         @relation("PurchaseOrderCreatedBy")
@@ -420,6 +421,10 @@ model Order {
   contactMethod      ContactMethod?
   cancellationReason String?
   formId          String?
+  // The rep the system's form-intake rotation originally gave this order to.
+  // Set once at intake and never changed by reassignment — it drives the even
+  // daily distribution (modules/orders/services/rep-assignment.service.ts).
+  autoAssignedToId String?
   // Latest sales-rep call feedback (denormalized from OrderFeedback for list
   // display + filtering). A label only — never drives `status`. See
   // lib/orders/order-feedback.ts.
@@ -434,6 +439,7 @@ model Order {
   salesRep        User        @relation("SalesRepOrders", fields: [salesRepId], references: [id])
   discountedBy    User?       @relation("DiscountedOrders", fields: [discountedById], references: [id])
   form            Form?       @relation("FormOrders", fields: [formId], references: [id])
+  autoAssignedTo  User?       @relation("AutoAssignedOrders", fields: [autoAssignedToId], references: [id], onDelete: SetNull)
   pickPacks       PickPack[]
   messageRefs     MessageOrderRef[]
 
@@ -447,6 +453,7 @@ model Order {
   @@index([discountedById])
   @@index([formId])
   @@index([salesRepId, lastFeedback])
+  @@index([autoAssignedToId, createdAt])
   @@map("orders")
 }
 

@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { nextOrderNumber } from "@/modules/orders/services/order-number.service";
 import { notifyRepNewOrder } from "@/modules/notifications/services/order-events.service";
+import { pickRepForNewOrder } from "@/modules/orders/services/rep-assignment.service";
+
+/** Thrown inside the create transaction when no rep can take the order. */
+class NoRepAvailableError extends Error {}
 
 // ── CORS headers — allow any origin so iframes on external sites work ──────
 const CORS_HEADERS = {
@@ -135,32 +139,8 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    // ── 2. Auto-assign to the sales rep with fewest open orders ────────────
-    const salesReps = await prisma.user.findMany({
-      where: { role: "SALES_REP", isActive: true },
-      select: { id: true },
-    });
-
-    if (!salesReps.length) {
-      return NextResponse.json(
-        { error: "No active sales representative available to handle orders right now. Please try again later." },
-        { status: 503, headers: CORS_HEADERS }
-      );
-    }
-
-    const openCounts = await prisma.order.groupBy({
-      by: ["salesRepId"],
-      where: {
-        salesRepId: { in: salesReps.map((r) => r.id) },
-        status: { in: ["PENDING", "CONFIRMED"] },
-        deletedAt: null,
-      },
-      _count: { id: true },
-    });
-    const countMap = new Map(openCounts.map((c) => [c.salesRepId, c._count.id]));
-    const assignedRep = salesReps.reduce((least, rep) =>
-      (countMap.get(rep.id) ?? 0) < (countMap.get(least.id) ?? 0) ? rep : least
-    );
+    // ── 2. Rep assignment happens inside the create transaction (step 6) ───
+    // so concurrent submissions can't take the same turn in the rotation.
 
     // ── 3. Validate product(s) exist ───────────────────────────────────────
     // The order code prefix comes from the main product; the number itself is
@@ -226,13 +206,20 @@ export async function POST(req: NextRequest) {
     const totalAmount = orderItemsData.reduce((sum, i) => sum + i.lineTotal, 0);
 
     // ── 6. Create Order in a transaction ───────────────────────────────────
+    // The rep is picked under a lock in this same transaction: the next turn in
+    // the even daily rotation (see rep-assignment.service.ts).
     const order = await prisma.$transaction(async (tx) => {
+      const repId = await pickRepForNewOrder(tx);
+      if (!repId) throw new NoRepAvailableError();
+
       const orderNumber = await nextOrderNumber(tx, productMap.get(productId)?.name);
       const newOrder = await tx.order.create({
         data: {
           orderNumber,
           customerId: customer.id,
-          salesRepId: assignedRep.id,
+          salesRepId: repId,
+          // Who the rotation gave it to — never changed by later reassignment.
+          autoAssignedToId: repId,
           totalAmount,
           netAmount: totalAmount,
           status: "PENDING",
@@ -263,7 +250,13 @@ export async function POST(req: NextRequest) {
       { success: true, orderNumber: order.orderNumber },
       { headers: CORS_HEADERS }
     );
-  } catch (error: any) {
+  } catch (error: unknown) {
+    if (error instanceof NoRepAvailableError) {
+      return NextResponse.json(
+        { error: "No active sales representative available to handle orders right now. Please try again later." },
+        { status: 503, headers: CORS_HEADERS }
+      );
+    }
     console.error("[form-submit] Error creating order:", error);
     return NextResponse.json(
       { error: "Something went wrong while placing your order. Please try again." },
