@@ -103,10 +103,18 @@ export async function getOrdersByAgent(agentId: string) {
 }
 
 // Fetch all orders belonging to a set of sales reps (a team).
-export async function getTeamOrders(memberIds: string[]) {
+/**
+ * Orders placed by the given reps, newest first. Pass `createdAt` (inclusive
+ * bounds) to fetch only one period — e.g. the analytics product tables — instead
+ * of the reps' whole history.
+ */
+export async function getTeamOrders(
+  memberIds: string[],
+  createdAt?: { gte: Date; lte: Date },
+) {
   if (memberIds.length === 0) return [];
   return prisma.order.findMany({
-    where: { salesRepId: { in: memberIds }, deletedAt: null },
+    where: { salesRepId: { in: memberIds }, deletedAt: null, ...(createdAt ? { createdAt } : {}) },
     orderBy: { createdAt: "desc" },
     include: {
       customer: { select: { name: true, email: true } },

@@ -7,18 +7,11 @@ import {
   getSalesTeamLeads,
 } from "@/modules/users/services/users.service";
 import { getTeamsAnalytics } from "@/modules/data-analysis/services/data-analysis.service";
-import { parseMonthParam } from "@/lib/month-period";
 import { BaseLink } from "../_lib/base-path";
-import { AnalyticsPeriodToggle } from "../analytics/period-toggle";
-import { parseRange } from "../analytics/analytics-period";
+import { StaffPeriodFilter } from "@/components/admin/staff-period-filter";
+import { parseStaffPeriod } from "@/lib/staff-period";
 
 export const dynamic = "force-dynamic";
-
-const PERIOD_LABEL: Record<"day" | "week" | "month", string> = {
-  day: "today",
-  week: "this week",
-  month: "this month",
-};
 
 /**
  * Company Sales Manager only — a company-wide view of every team, each team's
@@ -29,26 +22,20 @@ const PERIOD_LABEL: Record<"day" | "week" | "month", string> = {
 export default async function TeamsOverviewPage({
   searchParams,
 }: {
-  searchParams: Promise<{ range?: string; month?: string }>;
+  searchParams: Promise<{ g?: string; month?: string; w?: string; d?: string }>;
 }) {
   const session = await auth();
   if (!isCompanySalesManager(session?.user?.role)) {
     redirect("/sales-rep-manager");
   }
 
-  const { range: rangeParam, month } = await searchParams;
-  const range = parseRange(rangeParam);
-  const mp = parseMonthParam(month);
-  // getTeamsAnalytics month is 0-indexed; parseMonthParam is 1-12.
-  const analyticsOptions =
-    range === "month"
-      ? { period: "month" as const, month: mp.month - 1, year: mp.year }
-      : { period: range };
+  // Day / Week (Mon–Sun) / Month — shared with every analytics screen.
+  const sp = parseStaffPeriod(await searchParams);
 
   const [teams, leads, analytics] = await Promise.all([
     getTeamsWithMemberCount(),
     getSalesTeamLeads(),
-    getTeamsAnalytics(analyticsOptions),
+    getTeamsAnalytics({ period: sp.arg }),
   ]);
 
   // Group team leads by their team id; collect any with no team separately.
@@ -79,7 +66,7 @@ export default async function TeamsOverviewPage({
             All Teams
           </span>
         </div>
-        <AnalyticsPeriodToggle />
+        <StaffPeriodFilter />
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
@@ -118,7 +105,7 @@ export default async function TeamsOverviewPage({
         <h2 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-3">
           Teams & Team Leads — Comparison
           <span className="ml-2 normal-case tracking-normal text-gray-400 font-medium">
-            (Orders / Delivered / KPI — {PERIOD_LABEL[range]})
+            (Orders / Delivered / KPI — {sp.periodText})
           </span>
         </h2>
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-x-auto">

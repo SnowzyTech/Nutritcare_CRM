@@ -22,8 +22,9 @@ export default async function DataAnalystDashboardPage() {
   const year = new Date().getFullYear();
 
   const [company, teams, weeklyOrders, monthlyOrders, salesByProduct, salesByState] = await Promise.all([
-    getCompanyAnalytics({ period: "month" }),
-    getTeamsAnalytics({ period: "month" }),
+    // Current calendar month (the default period).
+    getCompanyAnalytics(),
+    getTeamsAnalytics(),
     getWeeklyOrderVolume(),
     getMonthlyOrderVolume(year),
     getSalesByProduct(),

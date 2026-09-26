@@ -7,7 +7,7 @@ import {
   TrendingUp, TrendingDown, Truck, Target, AlertTriangle, UserX, Crown,
 } from "lucide-react";
 import { useBasePath, BaseLink } from "./_lib/base-path";
-import { AnalyticsPeriodToggle } from "./analytics/period-toggle";
+import { StaffPeriodFilter } from "@/components/admin/staff-period-filter";
 
 export type CompanyRep = {
   id: string;
@@ -180,7 +180,7 @@ export function CompanyOverviewClient({
             Company-Wide
           </span>
         </div>
-        <AnalyticsPeriodToggle />
+        <StaffPeriodFilter />
       </div>
 
       {/* Company totals — live headcounts + open pipeline (not period-scoped) */}

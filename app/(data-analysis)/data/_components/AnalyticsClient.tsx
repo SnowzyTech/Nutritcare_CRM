@@ -1,19 +1,13 @@
 'use client';
 
-import React, { useState, useTransition } from 'react';
+import React, { useState } from 'react';
 import { ChevronDown, ArrowUpRight, Download } from 'lucide-react';
 import {
   TeamAnalyticsEntry,
   RepAnalyticsData,
 } from '@/modules/data-analysis/services/data-analysis.service';
-import {
-  fetchTeamsAnalyticsForMonth,
-  fetchCompanyAnalyticsForMonth,
-  fetchTeamsAnalyticsForPeriod,
-  fetchCompanyAnalyticsForPeriod,
-} from '@/modules/data-analysis/actions/data-analysis.action';
-import type { Period } from '@/modules/data-analysis/services/data-analysis.service';
-import { calculateBonus, KPI_TARGET } from '@/lib/bonus';
+import { calculateBonus, KPI_TARGET, type BonusPeriod } from '@/lib/bonus';
+import { StaffPeriodFilter } from '@/components/admin/staff-period-filter';
 
 const METRIC_KEYS = [
   'totalProductsSold', 'totalOrderCustomer', 'bestSellingProduct',
@@ -33,19 +27,6 @@ const METRIC_LABELS: Record<string, string> = {
   recoveryRate: 'Recovery Rate',
 };
 
-const MONTHS = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December',
-];
-
-function monthIndexFromName(name: string): { month: number; year: number } {
-  const now = new Date();
-  if (name === 'This Month') return { month: now.getMonth(), year: now.getFullYear() };
-  const idx = MONTHS.indexOf(name);
-  const year = idx <= now.getMonth() ? now.getFullYear() : now.getFullYear() - 1;
-  return { month: idx, year };
-}
-
 function buildMetricByKey(data: RepAnalyticsData | undefined) {
   const map: Record<string, { value: string | number; change: string }> = {};
   if (!data) return map;
@@ -56,63 +37,21 @@ function buildMetricByKey(data: RepAnalyticsData | undefined) {
   return map;
 }
 
-function MonthDropdown({
-  value,
-  onChange,
-  disabled,
-}: {
-  value: string;
-  onChange: (val: string) => void;
-  disabled?: boolean;
-}) {
-  const [isOpen, setIsOpen] = useState(false);
-  return (
-    <div className="relative">
-      <button
-        onClick={() => !disabled && setIsOpen(!isOpen)}
-        disabled={disabled}
-        className={`flex items-center gap-1 px-2 py-0.5 bg-gray-50 rounded-lg border border-gray-100 transition-colors ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-gray-100'}`}
-      >
-        <span className="text-[10px] font-bold text-gray-500">{value}</span>
-        <ChevronDown size={10} className="text-gray-400" />
-      </button>
-      {isOpen && !disabled && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
-          <div className="absolute right-0 top-full mt-1 bg-white border border-gray-100 rounded-lg shadow-lg z-50 py-1 min-w-[120px] max-h-[200px] overflow-y-auto">
-            {['This Month', ...MONTHS].map((month) => (
-              <button
-                key={month}
-                onClick={() => { onChange(month); setIsOpen(false); }}
-                className={`w-full text-left px-3 py-1.5 text-xs font-medium hover:bg-purple-50 transition-colors ${value === month ? 'text-[#A020F0] font-bold bg-purple-50' : 'text-gray-600'}`}
-              >
-                {month}
-              </button>
-            ))}
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
 function MetricCard({
   label,
   data,
-  isPending,
-  periodLabel = 'month',
+  comparisonLabel,
 }: {
   label: string;
   data: { value: string | number; change: string } | undefined;
-  isPending: boolean;
-  periodLabel?: string;
+  comparisonLabel: string;
 }) {
   const isBestProduct = label === 'Best Selling Product';
   const value = data?.value ?? '—';
   const change = data?.change ?? '—';
 
   return (
-    <div className={`bg-white p-5 rounded-xl border border-gray-200 shadow-sm space-y-3 transition-opacity duration-200 ${isPending ? 'opacity-50' : 'opacity-100'}`}>
+    <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm space-y-3">
       <div className="flex items-center justify-between">
         <span className="text-xs font-bold text-gray-800">{label}</span>
       </div>
@@ -122,140 +61,85 @@ function MetricCard({
         </span>
         <div className="flex flex-col items-end">
           <div className="flex items-center gap-1 text-green-500 font-bold text-xs">{change}</div>
-          <span className="text-[10px] text-gray-400 font-medium">vs last {periodLabel}</span>
+          <span className="text-[10px] text-gray-400 font-medium">{comparisonLabel}</span>
         </div>
       </div>
     </div>
   );
 }
 
+/** The selected Day / Week / Month period, resolved on the server (lib/staff-period.ts). */
+export type AnalyticsPeriodInfo = {
+  /** e.g. "vs previous day" / "vs last week" / "vs last month". */
+  comparisonLabel: string;
+  /** e.g. "Today" / "This Week" / "July 2026" — table captions. */
+  valueLabel: string;
+  /** null on the Day view — bonuses are weekly/monthly only. */
+  bonusPeriod: BonusPeriod | null;
+};
+
 interface AnalyticsClientProps {
   teamsData?: TeamAnalyticsEntry[];
   companyData: RepAnalyticsData;
+  period: AnalyticsPeriodInfo;
 }
 
-export function AnalyticsClient({ teamsData = [], companyData }: AnalyticsClientProps) {
-  // `selected` is either 'all' (company-wide rollup) or a team index into currentTeamsData.
+export function AnalyticsClient({ teamsData = [], companyData, period }: AnalyticsClientProps) {
+  // `selected` is either 'all' (company-wide rollup) or a team index into teamsData.
+  // The period lives in the URL (StaffPeriodFilter), so switching it re-renders
+  // this page with fresh data while the team selection is kept.
   const [selected, setSelected] = useState<'all' | number>('all');
-  const [selectedMonth, setSelectedMonth] = useState('This Month');
-  const [selectedPeriod, setSelectedPeriod] = useState<Period>('month');
-  const [currentTeamsData, setCurrentTeamsData] = useState(teamsData);
-  const [currentCompanyData, setCurrentCompanyData] = useState(companyData);
-  const [isPending, startTransition] = useTransition();
+  // Keep a team selection valid if the teams list shrinks between periods.
+  const activeSelection: 'all' | number =
+    selected === 'all' || selected < teamsData.length ? selected : 'all';
 
   // 'all' shows the company-wide rollup; otherwise the selected team's metrics.
   const activeMetrics: RepAnalyticsData | undefined =
-    selected === 'all'
-      ? currentCompanyData
-      : currentTeamsData[selected]?.currentMetrics;
+    activeSelection === 'all'
+      ? companyData
+      : teamsData[activeSelection]?.currentMetrics;
 
   const metricByKey = buildMetricByKey(activeMetrics);
-
-  // Keep a team selection valid if the teams list shrinks after a refetch.
-  const clampSelection = (teamsLen: number) =>
-    setSelected((prev) => (prev === 'all' ? 'all' : Math.min(prev, Math.max(teamsLen - 1, 0))));
-
-  // Refetch both the per-team and company rollups together, so toggling the
-  // selector between "All Teams" and a specific team needs no extra fetch.
-  function handlePeriodChange(period: Period) {
-    // No-op only if already where this button points (already week, or already
-    // showing the current month) — otherwise snap back to the current period.
-    if (period === selectedPeriod && (period === 'week' || selectedMonth === 'This Month')) return;
-    setSelectedPeriod(period);
-    setSelectedMonth('This Month'); // anchor back to the current month/week
-    startTransition(async () => {
-      const [teams, company] = await Promise.all([
-        fetchTeamsAnalyticsForPeriod(period),
-        fetchCompanyAnalyticsForPeriod(period),
-      ]);
-      setCurrentTeamsData(teams);
-      setCurrentCompanyData(company);
-      clampSelection(teams.length);
-    });
-  }
-
-  function handleMonthChange(month: string) {
-    setSelectedMonth(month);
-    const { month: m, year: y } = monthIndexFromName(month);
-    startTransition(async () => {
-      const [teams, company] = await Promise.all([
-        fetchTeamsAnalyticsForMonth(m, y),
-        fetchCompanyAnalyticsForMonth(m, y),
-      ]);
-      setCurrentTeamsData(teams);
-      setCurrentCompanyData(company);
-      clampSelection(teams.length);
-    });
-  }
 
   return (
     <div className="p-8 max-w-[1400px] mx-auto">
       {/* Header */}
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex flex-wrap items-center justify-between gap-4 mb-8">
         <h1 className="text-2xl font-bold text-gray-700">
-          {selected === 'all'
+          {activeSelection === 'all'
             ? 'Sales Analytics'
-            : `${currentTeamsData[selected]?.teamName ?? 'Team'}'s Analytics`}
+            : `${teamsData[activeSelection]?.teamName ?? 'Team'}'s Analytics`}
         </h1>
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-4">
           {/* Team selector — "All Teams" (company-wide) or a specific team */}
           <div className="relative">
             <select
-              value={selected === 'all' ? 'all' : String(selected)}
+              value={activeSelection === 'all' ? 'all' : String(activeSelection)}
               onChange={(e) => setSelected(e.target.value === 'all' ? 'all' : Number(e.target.value))}
               className="appearance-none bg-black text-white px-4 py-2 rounded-lg text-xs font-bold pr-8 focus:outline-none cursor-pointer"
             >
               <option value="all">All Teams</option>
-              {currentTeamsData.map((t, i) => (
+              {teamsData.map((t, i) => (
                 <option key={t.teamId} value={i}>{t.teamName}</option>
               ))}
             </select>
             <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-white" />
           </div>
 
-          {/* Period toggle (Week/Month) */}
-          <div className="flex items-center bg-gray-100 rounded-lg p-1">
-            <button
-              onClick={() => handlePeriodChange('month')}
-              disabled={isPending}
-              className={`px-4 py-1.5 rounded-md text-xs font-semibold transition-all ${
-                selectedPeriod === 'month'
-                  ? 'bg-purple-600 text-white shadow-sm'
-                  : 'text-gray-500 hover:text-gray-700'
-              } ${isPending ? 'opacity-50 cursor-not-allowed' : ''}`}
-            >
-              This Month
-            </button>
-            <button
-              onClick={() => handlePeriodChange('week')}
-              disabled={isPending}
-              className={`px-4 py-1.5 rounded-md text-xs font-semibold transition-all ${
-                selectedPeriod === 'week'
-                  ? 'bg-purple-600 text-white shadow-sm'
-                  : 'text-gray-500 hover:text-gray-700'
-              } ${isPending ? 'opacity-50 cursor-not-allowed' : ''}`}
-            >
-              This Week
-            </button>
-          </div>
-
-          {/* Month dropdown — only show when period is month */}
-          {selectedPeriod === 'month' && (
-            <MonthDropdown value={selectedMonth} onChange={handleMonthChange} disabled={isPending} />
-          )}
+          {/* Day / Week (Mon–Sun) / Month — shared with every analytics screen */}
+          <StaffPeriodFilter />
         </div>
       </div>
 
       <>
           {/* Metrics Grid */}
-          <div className={`grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 transition-opacity duration-200 ${isPending ? 'opacity-50' : 'opacity-100'}`}>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
             {METRIC_KEYS.map((key) => (
               <MetricCard
                 key={key}
                 label={METRIC_LABELS[key]}
                 data={metricByKey[key]}
-                isPending={isPending}
-                periodLabel={selectedPeriod === 'week' ? 'week' : 'month'}
+                comparisonLabel={period.comparisonLabel}
               />
             ))}
 
@@ -267,9 +151,12 @@ export function AnalyticsClient({ teamsData = [], companyData }: AnalyticsClient
               // Threshold scales with BOTH the period (180/wk vs 720/mo) and the
               // number of reps in the current selection (team, or all reps for
               // "All Teams"), matching the sales-rep portal and manager views.
-              const bonusPeriod = selectedPeriod === 'week' ? 'week' : 'month';
-              const bonus = calculateBonus(kpiValue, activeMetrics?.kpi.totalOrders ?? 0, bonusPeriod, salesRepCount);
-              const periodLabel = bonusPeriod;
+              // Bonuses are weekly/monthly only — the Day view shows "not applicable".
+              const bonus = period.bonusPeriod
+                ? calculateBonus(kpiValue, activeMetrics?.kpi.totalOrders ?? 0, period.bonusPeriod, salesRepCount)
+                : { amount: 0, eligible: false, reason: 'Bonuses apply to weekly/monthly periods' };
+              const bonusTitle =
+                period.bonusPeriod === 'week' ? 'Weekly Bonus' : period.bonusPeriod === 'month' ? 'Monthly Bonus' : 'Bonus';
 
               return (
                 <>
@@ -300,7 +187,7 @@ export function AnalyticsClient({ teamsData = [], companyData }: AnalyticsClient
                     )}
                     <div className="flex items-center gap-2 mt-4 relative z-10">
                       <span className="text-green-400 text-sm font-bold">{activeMetrics?.kpi.change ?? '—'}</span>
-                      <span className="text-[10px] font-medium opacity-60">vs last {periodLabel}</span>
+                      <span className="text-[10px] font-medium opacity-60">{period.comparisonLabel}</span>
                     </div>
                   </div>
 
@@ -311,9 +198,7 @@ export function AnalyticsClient({ teamsData = [], companyData }: AnalyticsClient
                       : "bg-gray-50 border-gray-200"
                   }`}>
                     <div className="flex justify-between items-start mb-4">
-                      <span className="text-sm font-bold text-gray-900">
-                        {selectedPeriod === 'week' ? 'Weekly' : 'Monthly'} Bonus
-                      </span>
+                      <span className="text-sm font-bold text-gray-900">{bonusTitle}</span>
                       {bonus.eligible && (
                         <span className="text-[10px] font-bold text-green-600 bg-green-100 px-2 py-0.5 rounded-full">
                           Eligible
@@ -351,13 +236,13 @@ export function AnalyticsClient({ teamsData = [], companyData }: AnalyticsClient
           </div>
 
           {/* Tables */}
-          <div className={`mt-12 space-y-8 transition-opacity duration-200 ${isPending ? 'opacity-50' : 'opacity-100'}`}>
+          <div className="mt-12 space-y-8">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
               {/* Best Selling */}
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <h3 className="text-xs font-bold text-gray-700">Best Selling Product</h3>
-                  <span className="text-[10px] text-gray-400 font-medium">{selectedMonth}</span>
+                  <span className="text-[10px] text-gray-400 font-medium">{period.valueLabel}</span>
                 </div>
                 <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
                   <table className="w-full text-left">
@@ -392,7 +277,7 @@ export function AnalyticsClient({ teamsData = [], companyData }: AnalyticsClient
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <h3 className="text-xs font-bold text-gray-700">Upselling Rate</h3>
-                  <span className="text-[10px] text-gray-400 font-medium">{selectedMonth}</span>
+                  <span className="text-[10px] text-gray-400 font-medium">{period.valueLabel}</span>
                 </div>
                 <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
                   <table className="w-full text-left">

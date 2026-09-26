@@ -13,8 +13,6 @@ import { suppressCameraForRequest } from "@/lib/audit/context";
 import { sendOrderDeliveredTemplate } from "@/lib/whatsapp/whatsapp";
 import {
   getSalesRepAnalyticsForUI,
-  getTeamsAnalytics,
-  getCompanyAnalytics,
   hardDeleteOrder,
 } from "@/modules/data-analysis/services/data-analysis.service";
 import { isUserTeamLead } from "@/modules/users/services/users.service";
@@ -25,11 +23,7 @@ import {
 } from "@/modules/orders/services/manual-order.service";
 import { reassignAgentForOrder } from "@/modules/orders/services/reassign-agent.service";
 import { resolveDeliveredDate } from "@/lib/orders/delivered-date";
-import type {
-  RepAnalyticsData,
-  TeamAnalyticsEntry,
-  Period,
-} from "@/modules/data-analysis/services/data-analysis.service";
+import type { RepAnalyticsData } from "@/modules/data-analysis/services/data-analysis.service";
 import { getSalesRepWeeklyAnalytics } from "@/modules/orders/services/analytics.service";
 import type { MonthMetrics } from "@/modules/orders/services/analytics.service";
 import { z } from "zod";
@@ -40,28 +34,6 @@ export async function fetchAnalyticsForMonth(
   year: number
 ): Promise<RepAnalyticsData> {
   return getSalesRepAnalyticsForUI(salesRepId, { month, year });
-}
-
-export async function fetchTeamsAnalyticsForMonth(
-  month: number,
-  year: number
-): Promise<TeamAnalyticsEntry[]> {
-  return getTeamsAnalytics({ month, year, period: "month" });
-}
-
-export async function fetchCompanyAnalyticsForMonth(
-  month: number,
-  year: number
-): Promise<RepAnalyticsData> {
-  return getCompanyAnalytics({ month, year, period: "month" });
-}
-
-export async function fetchTeamsAnalyticsForPeriod(
-  period: Period,
-  month?: number,
-  year?: number
-): Promise<TeamAnalyticsEntry[]> {
-  return getTeamsAnalytics({ month, year, period });
 }
 
 /**
@@ -76,14 +48,6 @@ export async function fetchRepWeeklyAnalytics(
   } catch {
     return { error: "Failed to generate weekly report" };
   }
-}
-
-export async function fetchCompanyAnalyticsForPeriod(
-  period: Period,
-  month?: number,
-  year?: number
-): Promise<RepAnalyticsData> {
-  return getCompanyAnalytics({ month, year, period });
 }
 
 /**
