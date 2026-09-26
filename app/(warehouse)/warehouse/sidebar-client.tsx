@@ -3,7 +3,7 @@
 import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { signOut } from "next-auth/react";
+import { signOutAndUnsubscribe } from "@/lib/auth/client-sign-out";
 import {
   LayoutDashboard,
   Package,
@@ -19,6 +19,7 @@ import {
   MessageCircle,
 } from "lucide-react";
 import { getInitials } from "@/lib/utils";
+import { NotificationBell } from "@/components/notifications/notification-bell";
 
 interface SidebarProps {
   user?: {
@@ -88,6 +89,13 @@ export function WarehouseSidebarClient({ user }: SidebarProps) {
 
       {/* Main Navigation */}
       <nav className="flex-1 px-3 py-4 space-y-1">
+        <NotificationBell
+          label="Notifications"
+          collapsed={isCollapsed}
+          side="right"
+          align="start"
+          className="px-3 py-2.5 text-gray-200 hover:bg-[#631899] hover:text-white"
+        />
         {navItems.map((item) => {
           const active = isActive(item.href);
           return (
@@ -131,7 +139,7 @@ export function WarehouseSidebarClient({ user }: SidebarProps) {
 
         {/* Log Out */}
         <button
-          onClick={() => signOut({ callbackUrl: "/login" })}
+          onClick={() => void signOutAndUnsubscribe({ callbackUrl: "/login" })}
           title={isCollapsed ? "Log Out" : undefined}
           className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-gray-200 hover:bg-red-500/20 hover:text-red-300 transition-all duration-200 ${isCollapsed ? "justify-center" : ""}`}
         >

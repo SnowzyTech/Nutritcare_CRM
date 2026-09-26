@@ -12,6 +12,7 @@ import {
   getAgentCommittedQuantities,
   applyAgentStockCorrection,
 } from "@/modules/inventory/services/agent-stock-adjustment.service";
+import { notify } from "@/modules/notifications/services/notify.service";
 
 /**
  * Agent stock correction actions (maker–checker).
@@ -200,23 +201,17 @@ export async function createAgentStockCorrectionAction(
     },
   });
 
-  const admins = await prisma.user.findMany({
-    where: { role: { in: ["ADMIN", "SUPER_ADMIN"] } },
-    select: { id: true },
+  await notify({
+    type: "agent_stock_correction_approval",
+    vars: {
+      title: "Agent Stock Correction Pending Approval",
+      message: `${operator.name} submitted a stock correction for ${agent.companyName} (${referenceNumber}): ${summary}. Awaiting your approval.`,
+      link: `/admin/inventory/agent-stock`,
+    },
+    to: { roles: ["ADMIN", "SUPER_ADMIN"] },
+    entityType: "AgentStockAdjustment",
+    entityId: created.id,
   });
-  if (admins.length > 0) {
-    await prisma.notification.createMany({
-      data: admins.map((a) => ({
-        recipientId: a.id,
-        title: "Agent Stock Correction Pending Approval",
-        message: `${operator.name} submitted a stock correction for ${agent.companyName} (${referenceNumber}): ${summary}. Awaiting your approval.`,
-        type: "agent_stock_correction_approval",
-        link: `/admin/inventory/agent-stock`,
-        entityType: "AgentStockAdjustment",
-        entityId: created.id,
-      })),
-    });
-  }
 
   await logActivity({
     userId: operator.id,
@@ -283,16 +278,16 @@ export async function approveAgentStockCorrectionAction(
     );
   });
 
-  await prisma.notification.create({
-    data: {
-      recipientId: adj.createdById,
+  await notify({
+    type: "agent_stock_correction_approved",
+    vars: {
       title: "Agent Stock Correction Approved",
       message: `Your agent stock correction ${adj.referenceNumber} was approved and the stock has been updated.`,
-      type: "agent_stock_correction_approved",
       link: `/inventory/agent-stock`,
-      entityType: "AgentStockAdjustment",
-      entityId: adj.id,
     },
+    to: { userIds: [adj.createdById] },
+    entityType: "AgentStockAdjustment",
+    entityId: adj.id,
   });
   await logActivity({
     userId: session.user.id,
@@ -330,16 +325,16 @@ export async function rejectAgentStockCorrectionAction(
     data: { status: "REJECTED", notes: reason.trim() || null },
   });
 
-  await prisma.notification.create({
-    data: {
-      recipientId: adj.createdById,
+  await notify({
+    type: "agent_stock_correction_rejected",
+    vars: {
       title: "Agent Stock Correction Rejected",
       message: `Your agent stock correction ${adj.referenceNumber} was rejected${reason.trim() ? `: ${reason.trim()}` : "."}`,
-      type: "agent_stock_correction_rejected",
       link: `/inventory/agent-stock`,
-      entityType: "AgentStockAdjustment",
-      entityId: adj.id,
     },
+    to: { userIds: [adj.createdById] },
+    entityType: "AgentStockAdjustment",
+    entityId: adj.id,
   });
   await logActivity({
     userId: session.user.id,

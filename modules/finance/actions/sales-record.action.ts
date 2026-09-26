@@ -7,6 +7,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { logActivity } from "@/modules/audit/services/audit-log.service";
 import { suppressCameraForRequest } from "@/lib/audit/context";
+import { notify } from "@/modules/notifications/services/notify.service";
 
 const updateDeliveryFeeSchema = z.object({
   orderId: z.string().min(1),
@@ -34,26 +35,20 @@ export async function updateOrderDeliveryFeeAction(input: z.infer<typeof updateD
     data: { deliveryFee: newFee },
   });
 
-  // Notify the delivery agent (a User linked to the order's Agent) whenever the
-  // fee actually changes. User.agentId is unique, so there is at most one.
+  // Notify the delivery agent (the User(s) linked to the order's Agent) whenever
+  // the fee actually changes.
   if (order.agentId && previousFee !== newFee) {
-    const agentUser = await prisma.user.findFirst({
-      where: { agentId: order.agentId },
-      select: { id: true },
+    await notify({
+      type: "delivery_fee_changed",
+      vars: {
+        title: "Delivery Fee Updated",
+        message: `The delivery fee for order ${order.orderNumber} was changed from ${formatCurrency(previousFee)} to ${formatCurrency(newFee)} by the accounting team.`,
+        link: `/delivery-agents/${order.id}`,
+      },
+      to: { agentId: order.agentId },
+      entityType: "Order",
+      entityId: order.id,
     });
-    if (agentUser) {
-      await prisma.notification.create({
-        data: {
-          recipientId: agentUser.id,
-          title: "Delivery Fee Updated",
-          message: `The delivery fee for order ${order.orderNumber} was changed from ${formatCurrency(previousFee)} to ${formatCurrency(newFee)} by the accounting team.`,
-          type: "delivery_fee_changed",
-          link: `/delivery-agents/${order.id}`,
-          entityType: "Order",
-          entityId: order.id,
-        },
-      });
-    }
   }
 
   if (previousFee !== newFee) {

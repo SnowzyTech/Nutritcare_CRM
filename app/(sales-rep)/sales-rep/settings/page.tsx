@@ -2,6 +2,7 @@ import { auth } from "@/lib/auth/auth";
 import { redirect } from "next/navigation";
 import { getSelfProfile, getSalesRepAnalytics } from "@/modules/users/services/users.service";
 import { ProfileClient } from "./profile-client";
+import { PushPermissionCard } from "@/components/notifications/push-permission-card";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = { title: "Settings" };
@@ -18,6 +19,7 @@ export default async function SalesRepSettingsPage() {
 
   return (
     <div className="w-full pb-10">
+      <PushPermissionCard className="mb-6" />
       <ProfileClient
         profile={{ ...profile, teamName: profile.team?.name ?? null }}
         metrics={{

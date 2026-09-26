@@ -15,6 +15,7 @@ import {
 } from "@/modules/inventory/services/stock-level.service";
 import { logActivity } from "@/modules/audit/services/audit-log.service";
 import { suppressCameraForRequest } from "@/lib/audit/context";
+import { notify } from "@/modules/notifications/services/notify.service";
 
 function generateReferenceNumber(): string {
   const suffix = Date.now().toString(36).toUpperCase().slice(-6);
@@ -238,23 +239,17 @@ export async function confirmIncomingReceiptAction(
   });
 
   if (hasRaps) {
-    const inventoryManagers = await prisma.user.findMany({
-      where: { role: "INVENTORY_MANAGER" },
-      select: { id: true },
+    await notify({
+      type: "raps_pending_approval",
+      vars: {
+        title: "RAPS Awaiting Approval",
+        message: `${userName ?? "A warehouse manager"} marked units of voucher ${movement.referenceNumber} as Returned at Point of Supply — review and approve.`,
+        link: `/inventory/incoming/${movement.id}`,
+      },
+      to: { roles: ["INVENTORY_MANAGER"] },
+      entityType: "StockMovement",
+      entityId: movement.id,
     });
-    if (inventoryManagers.length > 0) {
-      await prisma.notification.createMany({
-        data: inventoryManagers.map((u) => ({
-          recipientId: u.id,
-          title: "RAPS Awaiting Approval",
-          message: `${userName ?? "A warehouse manager"} marked units of voucher ${movement.referenceNumber} as Returned at Point of Supply — review and approve.`,
-          type: "raps_pending_approval",
-          link: `/inventory/incoming/${movement.id}`,
-          entityType: "StockMovement",
-          entityId: movement.id,
-        })),
-      });
-    }
   }
   await logActivity({
     userId,

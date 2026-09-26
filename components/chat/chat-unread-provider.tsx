@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { useChatSocket } from "@/app/chat/_components/use-chat-socket";
+import { useFallbackRefresh } from "@/lib/realtime/use-fallback-refresh";
 import { getMyUnreadChatCountAction } from "@/modules/chat/actions/chat.action";
 
 /**
@@ -13,12 +14,12 @@ import { getMyUnreadChatCountAction } from "@/modules/chat/actions/chat.action";
  *  - seeded by the layout on render (`initialCount`),
  *  - bumped instantly when the socket delivers a new message, then reconciled
  *    against the server a moment later,
- *  - re-fetched on tab focus and on a slow poll while the tab is visible, which
- *    keeps it correct when realtime is not configured (socket env unset) and
- *    after chats are read on another device.
+ *  - re-fetched on tab focus and socket reconnect (catches chats read on
+ *    another device), with a slow poll ONLY while the socket is down — so it
+ *    stays correct when realtime is not configured without paying for polling
+ *    when it is (see useFallbackRefresh).
  */
 
-const POLL_MS = 60_000;
 const RECONCILE_DELAY_MS = 1_500;
 
 const ChatUnreadContext = createContext<number>(0);
@@ -54,27 +55,16 @@ export function ChatUnreadProvider({
     reconcileTimer.current = setTimeout(() => void refresh(), RECONCILE_DELAY_MS);
   });
 
+  // Mount check (the layout's count can be a cached render), focus, socket
+  // reconnect, and a slow poll only while the socket is down.
+  useFallbackRefresh(refresh);
+
   useEffect(() => {
-    // The layout's count can be a cached render (client router cache), so
-    // confirm it once on mount.
-    void refresh();
-
-    const onVisible = () => {
-      if (document.visibilityState === "visible") void refresh();
-    };
-    const poll = setInterval(() => {
-      if (document.visibilityState === "visible") void refresh();
-    }, POLL_MS);
-
-    document.addEventListener("visibilitychange", onVisible);
-    window.addEventListener("focus", onVisible);
+    const timer = reconcileTimer;
     return () => {
-      clearInterval(poll);
-      if (reconcileTimer.current) clearTimeout(reconcileTimer.current);
-      document.removeEventListener("visibilitychange", onVisible);
-      window.removeEventListener("focus", onVisible);
+      if (timer.current) clearTimeout(timer.current);
     };
-  }, [refresh]);
+  }, []);
 
   return <ChatUnreadContext.Provider value={count}>{children}</ChatUnreadContext.Provider>;
 }

@@ -3,17 +3,17 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { signOut } from "next-auth/react";
+import { signOutAndUnsubscribe } from "@/lib/auth/client-sign-out";
 import {
   MonitorSmartphone,
   FileText,
   BarChart3,
-  Bell,
   Settings,
   LogOut,
   Menu,
 } from "lucide-react";
 import { getInitials } from "@/lib/utils";
+import { NotificationBell } from "@/components/notifications/notification-bell";
 
 const BRAND = "#8B2FE8";
 
@@ -122,10 +122,17 @@ export function MediaBuyerSidebarClient({ user }: SidebarProps) {
 
       {/* Bottom navigation */}
       <div className="px-3 py-6 space-y-1.5">
-        {navLink({ name: "Notification", href: "/media-buyer/notifications", icon: Bell })}
+        <NotificationBell
+          label="Notification"
+          collapsed={isCollapsed}
+          side="right"
+          align="end"
+          viewAllHref="/media-buyer/notifications"
+          className="text-slate-500 hover:bg-slate-50 hover:text-slate-800"
+        />
         {navLink({ name: "Settings", href: "/media-buyer/settings", icon: Settings })}
         <button
-          onClick={() => signOut({ callbackUrl: "/login" })}
+          onClick={() => void signOutAndUnsubscribe({ callbackUrl: "/login" })}
           className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-slate-500 hover:bg-red-50 hover:text-red-600 transition-all cursor-pointer ${isCollapsed ? "justify-center px-0" : ""}`}
           title={isCollapsed ? "Log Out" : ""}
         >

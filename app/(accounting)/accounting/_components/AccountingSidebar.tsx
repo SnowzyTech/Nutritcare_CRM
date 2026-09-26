@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
-import { signOut } from 'next-auth/react';
+import { signOutAndUnsubscribe } from "@/lib/auth/client-sign-out";
 import {
   Monitor,
   ClipboardList,
@@ -22,6 +22,7 @@ import {
   MessageCircle,
   ShieldCheck,
 } from 'lucide-react';
+import { NotificationBell } from "@/components/notifications/notification-bell";
 
 const reportSubItems = [
   { href: '/accounting/reports/profit-loss', label: 'Profit & Loss' },
@@ -155,6 +156,13 @@ export function AccountingSidebar({ user }: { user?: SidebarUser }) {
 
       {/* Nav Items */}
       <nav className={`flex-1 mt-2 space-y-1.5 overflow-y-auto no-scrollbar ${isCollapsed ? 'px-3' : 'px-4'}`}>
+        <NotificationBell
+          label="Notifications"
+          collapsed={isCollapsed}
+          side="right"
+          align="start"
+          className="py-3.5 text-gray-400 hover:bg-gray-50 hover:text-gray-900"
+        />
         {visibleNavItems.map((item) => {
           const isReports = item.href === '/accounting/reports';
           const isActive = isReports
@@ -283,7 +291,7 @@ export function AccountingSidebar({ user }: { user?: SidebarUser }) {
           );
         })}
         <button
-          onClick={() => signOut({ callbackUrl: '/login' })}
+          onClick={() => void signOutAndUnsubscribe({ callbackUrl: '/login' })}
           title={isCollapsed ? "Log Out" : undefined}
           className={`flex items-center rounded-xl text-gray-400 hover:text-red-500 hover:bg-red-50 transition-all duration-200 group ${
             isCollapsed ? 'justify-center h-12 w-full mx-auto' : 'gap-4 px-4 py-3.5 w-full'

@@ -2,6 +2,7 @@
 import type { Metadata } from "next";
 import { WarehouseSidebarClient } from "./warehouse/sidebar-client";
 import { getSelfProfile } from "@/modules/users/services/users.service";
+import { NotificationRoot } from "@/components/notifications/notification-root";
 
 export const metadata: Metadata = {
   title: {
@@ -21,20 +22,22 @@ export default async function WarehouseLayout({
   const profile = session?.user?.id ? await getSelfProfile(session.user.id) : null;
 
   return (
-    <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
-      <WarehouseSidebarClient
-        user={{
-          name: session?.user?.name,
-          email: session?.user?.email,
-          image: profile?.avatarUrl ?? null,
-          warehouseName: profile?.warehouse?.name ?? null,
-        }}
-      />
+    <NotificationRoot>
+      <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
+        <WarehouseSidebarClient
+          user={{
+            name: session?.user?.name,
+            email: session?.user?.email,
+            image: profile?.avatarUrl ?? null,
+            warehouseName: profile?.warehouse?.name ?? null,
+          }}
+        />
 
-      {/* Main content area */}
-      <div className="flex flex-col flex-1 overflow-hidden">
-        <main className="flex-1 overflow-y-auto p-6">{children}</main>
+        {/* Main content area */}
+        <div className="flex flex-col flex-1 overflow-hidden">
+          <main className="flex-1 overflow-y-auto p-6">{children}</main>
+        </div>
       </div>
-    </div>
+    </NotificationRoot>
   );
 }

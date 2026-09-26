@@ -32,6 +32,15 @@ import {
   upsellOrderSelect,
 } from "@/modules/orders/services/upsell-apply.service";
 import { undoOrderDelivery } from "@/modules/orders/services/undo-delivery.service";
+import {
+  notifyAgentAssigned,
+  notifyAgentCancelled,
+  notifyAgentItemsChanged,
+  notifyAgentNotesChanged,
+  notifyAgentReassigned,
+  notifyRepDeliveryOutcome,
+  notifyRepsOrdersAssigned,
+} from "@/modules/notifications/services/order-events.service";
 
 // Returned (not thrown) so the message survives production builds, where Next.js
 // strips messages from thrown server-action errors.
@@ -64,7 +73,7 @@ function generateDeliveryCode(): string {
 }
 
 export async function adminConfirmOrderAction(orderId: string, deliveryDate?: string): Promise<ActionResult> {
-  await checkAdmin();
+  const session = await checkAdmin();
   suppressCameraForRequest();
 
   if (!deliveryDate) return { error: "Please select a delivery date before confirming." };
@@ -144,6 +153,8 @@ export async function adminConfirmOrderAction(orderId: string, deliveryDate?: st
     description: `Order #${order.orderNumber} confirmed`,
   });
 
+  notifyAgentAssigned(orderId, { id: session.user.id, name: session.user.name });
+
   let warning: string | undefined;
   if (selection.overbooked) {
     const agent = await prisma.agent.findUnique({
@@ -194,7 +205,7 @@ export async function adminConfirmOrderAction(orderId: string, deliveryDate?: st
 }
 
 export async function adminCancelOrderAction(orderId: string): Promise<ActionResult> {
-  await checkAdmin();
+  const session = await checkAdmin();
   suppressCameraForRequest();
   const order = await getOrder(orderId);
   if (!order || (order.status !== "PENDING" && order.status !== "CONFIRMED")) {
@@ -208,12 +219,15 @@ export async function adminCancelOrderAction(orderId: string): Promise<ActionRes
     entityId: orderId,
     description: `Order #${order.orderNumber} cancelled`,
   });
+  if (order.status === "CONFIRMED") {
+    notifyAgentCancelled(orderId, order.agentId, { id: session.user.id, name: session.user.name });
+  }
   revalidate(orderId);
   return { success: true };
 }
 
 export async function adminFailOrderAction(orderId: string): Promise<ActionResult> {
-  await checkAdmin();
+  const session = await checkAdmin();
   suppressCameraForRequest();
   const order = await getOrder(orderId);
   if (!order || order.status !== "CONFIRMED") return { error: "Cannot fail this order" };
@@ -225,12 +239,13 @@ export async function adminFailOrderAction(orderId: string): Promise<ActionResul
     entityId: orderId,
     description: `Order #${order.orderNumber} failed`,
   });
+  notifyRepDeliveryOutcome(orderId, { kind: "failed" }, { id: session.user.id, name: session.user.name });
   revalidate(orderId);
   return { success: true };
 }
 
 export async function adminReviveOrderAction(orderId: string): Promise<ActionResult> {
-  await checkAdmin();
+  const session = await checkAdmin();
   suppressCameraForRequest();
   const order = await getOrder(orderId);
   if (!order || (order.status !== "CANCELLED" && order.status !== "FAILED")) {
@@ -262,6 +277,10 @@ export async function adminReviveOrderAction(orderId: string): Promise<ActionRes
     entityId: orderId,
     description: `Order #${order.orderNumber} revived`,
   });
+  // A revived FAILED order goes straight back to its agent as CONFIRMED.
+  if (order.status === "FAILED") {
+    notifyAgentAssigned(orderId, { id: session.user.id, name: session.user.name });
+  }
   revalidate(orderId);
   return { success: true };
 }
@@ -316,7 +335,7 @@ export async function adminDeliverOrderAction(
   orderId: string,
   deliveredDate?: string,
 ): Promise<ActionResult> {
-  await checkAdmin();
+  const session = await checkAdmin();
   suppressCameraForRequest();
   const order = await prisma.order.findFirst({
     where: { id: orderId, deletedAt: null },
@@ -344,6 +363,7 @@ export async function adminDeliverOrderAction(
     entityId: orderId,
     description: `Order #${order.orderNumber} delivered`,
   });
+  notifyRepDeliveryOutcome(orderId, { kind: "delivered" }, { id: session.user.id, name: session.user.name });
 
   revalidate(orderId);
   return { success: true };
@@ -436,6 +456,7 @@ export async function adminReassignOrdersAction(
     entityId: orderIds[0] ?? "bulk",
     description: await describeReassignment(orderIds, salesRepIds),
   });
+  notifyRepsOrdersAssigned(orderIds, { id: session.user.id, name: session.user.name });
   revalidatePath("/admin/orders");
   revalidatePath("/admin/orders/order-assignment");
   revalidatePath("/sales-rep/orders");
@@ -456,6 +477,9 @@ export async function adminReassignOrderAgentAction(orderId: string, agentId: st
     userId: session.user.id, action: "Reassigned", entityType: "Order", entityId: orderId,
     description: `Order #${order.orderNumber} reassigned to a different delivery agent`,
   });
+  if (order.agentId !== agentId) {
+    notifyAgentReassigned(orderId, order.agentId, { id: session.user.id, name: session.user.name });
+  }
   revalidate(orderId);
   return { success: true };
 }
@@ -472,6 +496,9 @@ export async function adminUpdateOrderNotesAction(orderId: string, notes: string
     userId: session.user.id, action: "Updated", entityType: "Order", entityId: orderId,
     description: `Updated notes on Order #${order.orderNumber}`,
   });
+  if ((order.notes ?? "") !== (notes.trim() || "")) {
+    notifyAgentNotesChanged(orderId, { id: session.user.id, name: session.user.name });
+  }
   revalidate(orderId);
   return { success: true };
 }
@@ -503,6 +530,7 @@ export async function adminAddOrderItemsAction(
     entityId: orderId,
     description: `Added ${result.addedCount} product line${result.addedCount === 1 ? "" : "s"} to Order #${order.orderNumber}`,
   });
+  notifyAgentItemsChanged(orderId, { id: session.user.id, name: session.user.name });
 
   // Audit trail for every manually-priced (surplus) line.
   for (const s of result.surplusPlans) {

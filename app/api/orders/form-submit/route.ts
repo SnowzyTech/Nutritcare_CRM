@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { nextOrderNumber } from "@/modules/orders/services/order-number.service";
+import { notifyRepNewOrder } from "@/modules/notifications/services/order-events.service";
 
 // ── CORS headers — allow any origin so iframes on external sites work ──────
 const CORS_HEADERS = {
@@ -253,6 +254,10 @@ export async function POST(req: NextRequest) {
 
       return newOrder;
     });
+
+    // Alert the assigned rep (bell + phone). Runs after the response is sent,
+    // so the customer's confirmation is never slowed down by it.
+    notifyRepNewOrder(order.id);
 
     return NextResponse.json(
       { success: true, orderNumber: order.orderNumber },

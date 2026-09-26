@@ -44,6 +44,10 @@ Required in `.env`:
 **Chat realtime** — bridge to the external socket server (all optional; chat degrades to optimistic-only if absent)
 - `CHAT_SOCKET_TOKEN_SECRET`, `CHAT_SOCKET_PUBLISH_URL`, `CHAT_SOCKET_PUBLISH_SECRET`, `NEXT_PUBLIC_CHAT_SOCKET_URL`
 
+**Notifications** (all optional; each channel degrades to off — see `docs/notifications.md`)
+- `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` — Web Push (generate with `npx web-push generate-vapid-keys`)
+- `TERMII_API_KEY`, `TERMII_SENDER_ID` (opt. `TERMII_BASE_URL`) — SMS fallback for critical alerts
+
 **Audit**
 - `AUDIT_CAMERA` = `off | shadow | on` (default `on`) — kill-switch for the auto audit-log camera (`lib/audit/camera.ts`).
 
@@ -54,7 +58,7 @@ Required in `.env`:
 - `SUPERADMIN_EMAIL` / `SUPERADMIN_PASSWORD` — `db:seed:superadmin` upserts a `SUPER_ADMIN`
 - `ADMIN_EMAIL` / `ADMIN_PASSWORD` (opt. `ADMIN_NAME`) — `db:seed:admin` upserts a limited `ADMIN`
 
-> Local `.env` currently points `DATABASE_URL` at the **live Neon database** (same as Vercel). Local seeds/`db push` hit production — be careful.
+> Local `.env` holds several `DATABASE_URL`/`DIRECT_URL` pairs and only one is uncommented — normally a **preview Neon database**, with the live production URL kept commented out. Check which host is active before running seeds, `db execute`, or scripts. Schema migrations applied locally reach only that database; production needs them applied separately before the matching code deploys.
 
 ## Stack
 
@@ -94,7 +98,7 @@ Each domain lives under `modules/{feature}/` with `actions/*.action.ts` and `ser
 | `auth` | login, admin-login, signup, logout; `auth.service` (Prisma lookup + bcrypt) |
 | `orders` | orders, admin-orders, sales-manager-orders; services: orders, admin-dashboard, analytics, products, order-number, tier-pricing, upsell-apply, manual-order, deliver-order/undo-delivery, reassign-agent/-description, sales-report |
 | `users` | users, admin-access, sales-manager-teams, team-analytics; `users.service` |
-| `delivery` | agents, logistics-agents, logistics-dispatch, logistics-update-status, delivery-agent-portal, notifications; services for delivery, drivers, logistics dashboard/orders/dispatch/report/team, delivery-agent portal |
+| `delivery` | agents, logistics-agents, logistics-dispatch, logistics-update-status, delivery-agent-portal; services for delivery, drivers, logistics dashboard/orders/dispatch/report/team, delivery-agent portal |
 | `finance` | dashboard, expenses, invoices, ledger, salary, sales-record, settlements, fixed-assets, suppliers, inventory-accounting, agent-data; matching services + `data/chart-of-accounts.ts` + `lib/depreciation.ts` |
 | `inventory` | stock, upload; services: inventory, stock-level, movement-format, raps (**no longer a stub**) |
 | `warehouse` | incoming, outgoing, returns, location, pick-pack, receive-transfer; `warehouse.service` |
@@ -103,6 +107,7 @@ Each domain lives under `modules/{feature}/` with `actions/*.action.ts` and `ser
 | `data-analysis` | data-analysis, media-buyer-analysis, stock-analysis services |
 | `audit` | audit-log, audit-query, whatsapp-audit services; audit-export action |
 | `chat` | chat.action; conversations, messages, tags services |
+| `notifications` | notifications.action (list/count/mark-read/push subscribe/test); services: notify (single entry point), dispatch (realtime/push/SMS), recipients, order-events (rep + agent order lifecycle), push-subscriptions, notifications (reads) |
 | `reports` | executive narrative report `definitions.ts`, `types.ts`, `period.service.ts` |
 
 ### Auth (Two-File Pattern)
@@ -182,7 +187,7 @@ Prisma + Neon serverless adapter (WebSocket pool). `lib/db/prisma.ts` detects `n
 
 ### API Routes (`app/api/`)
 
-`auth/[...nextauth]` · `orders/form-submit` (public order intake) · `forms/[id]` + `forms/[id]/view` (fetch + view tracking) · `teams` · `warehouses` · `chat/socket-token` · `upload/{avatar,chat,expense,supplier-invoice}`.
+`auth/[...nextauth]` · `orders/form-submit` (public order intake) · `forms/[id]` + `forms/[id]/view` (fetch + view tracking) · `teams` · `warehouses` · `chat/socket-token` · `notifications/push-subscription` (service-worker re-subscribe) · `upload/{avatar,chat,expense,supplier-invoice}`.
 
 ### Utilities
 
@@ -221,7 +226,7 @@ The company expects high order volume. Already scale-ready: Neon pooled Postgres
 
 - `app/manifest.ts` → served at `/manifest.webmanifest`. App name is **"Nucle CRM"**.
 - `public/sw.js` — service worker. **Caches only content-hashed build assets (`/_next/static/*`), icons, and the offline page. Never caches HTML/RSC payloads/`/api`/authenticated data** (staff phones are shared → no business-data leak). Bump `CACHE_VERSION` to force clients to drop old caches. Navigations are network-first with `/offline` fallback; RSC requests excluded from the fallback.
-- `components/pwa/service-worker-register.tsx` — registers `/sw.js` (**production only**), mounted in `app/layout.tsx`.
+- `components/pwa/service-worker-register.tsx` — registers `/sw.js` (**production only**), mounted in `app/layout.tsx`. `sw.js` also handles Web Push (`push` / `notificationclick` / `pushsubscriptionchange`) — so push only works in a production build.
 - `components/pwa/install-prompt.tsx` — Android `beforeinstallprompt` button + iOS "Share → Add to Home Screen" card (iOS has no programmatic install). Phone-only, hidden in standalone mode, 14-day snooze.
 - `app/offline/page.tsx` + `offline-retry.tsx` — offline fallback. PWA `metadata`/`viewport` live in `app/layout.tsx`. Icons in `public/icons/`.
 
@@ -229,6 +234,7 @@ The company expects high order volume. Already scale-ready: Neon pooled Postgres
 
 - **Audit camera** — one Prisma extension auto-logs all business writes, out-of-band; no per-action logging code. Suppress with `withoutCameraAudit` when a flow writes its own rich log.
 - **Chat is externalized** — this app owns the data; a standalone socket server owns fan-out. Everything degrades gracefully without it.
+- **Notifications** — every alert goes through `notify()` (`modules/notifications/services/notify.service.ts`): an in-app `Notification` row (source of truth), then — after the response — realtime (`notification.created` over the chat socket, one shared WebSocket per tab via `lib/realtime/socket-client.ts`), Web Push to every device, and an SMS fallback for `critical` alerts with no working push device. Types/wording live in `lib/notifications/catalog.ts`; never write `prisma.notification` directly. Order events for reps/agents are one-line calls in `order-events.service.ts`. Push/SMS text is lock-screen safe (no customer name/phone/address, no upsell amounts). Logout unregisters the device (shared phones). See `docs/notifications.md`.
 - **Single `StockMovement` model** covers INCOMING/OUTGOING/RETURN with nullable type-specific fields.
 - **Polymorphic transfers** — `StockTransfer` uses `sourceId/targetId` strings + node-type enums.
 - **Agent stock commitment** — an agent's "booking" is derived, not stored: committed = Σ `OrderItem.quantity` on that agent's CONFIRMED orders (`getAgentCommittedQuantities`, `modules/delivery/services/agents.service.ts`). Assignment/confirm is **permissive** (the agent need only physically hold the goods — `checkAgentOnHandStock`), so an earlier booking can never block a newer, more urgent order; over-booking is legal and surfaced as a warning. The hard zero floor lives at **delivery**, in `modules/orders/services/deliver-order.service.ts` (`deliverOrder`, the single write path behind all four mark-delivered actions), which refuses rather than driving `StockLevel` negative. See `docs/agent-stock-commitment.md`.
@@ -251,5 +257,6 @@ The company expects high order volume. Already scale-ready: Neon pooled Postgres
 - `upsell-display-rollout.md` — where upsell cards/badges show per role.
 - `agent-stock-commitment.md` — how orders lay claim to agent stock, the tiered agent selection, and the delivery-time zero floor.
 - `scale-considerations.md` — what to make query-based before high volume.
+- `notifications.md` — the notification pipeline, event catalog, channels (in-app / realtime / push / SMS) and how to add an event.
 
 *(The early one-off build prompts `schema-prompt.md`, `schema-updates.md`, `batch-2-auth-fixes.md`, and `inventory-forms-updates.md` were deleted — fully superseded by the code.)*

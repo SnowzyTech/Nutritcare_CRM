@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { signOut } from "next-auth/react";
+import { signOutAndUnsubscribe } from "@/lib/auth/client-sign-out";
 import {
   LayoutDashboard,
   Truck,
@@ -20,6 +20,7 @@ import {
   PackageCheck,
 } from "lucide-react";
 import { getInitials } from "@/lib/utils";
+import { NotificationBell } from "@/components/notifications/notification-bell";
 
 interface SidebarProps {
   user?: {
@@ -78,6 +79,13 @@ export function LogisticsSidebarClient({ user, isHead }: SidebarProps) {
 
       {/* Main Navigation */}
       <nav className="flex-1 px-4 py-4 space-y-2">
+        <NotificationBell
+          label="Notifications"
+          collapsed={isCollapsed}
+          side="right"
+          align="start"
+          className="text-gray-200 hover:bg-[#631899] hover:text-white"
+        />
         {navItems.map((item) => {
           const isActive = pathname === item.href;
           return (
@@ -110,7 +118,7 @@ export function LogisticsSidebarClient({ user, isHead }: SidebarProps) {
           {!isCollapsed && <span className="text-sm font-medium">Settings</span>}
         </Link>
         <button
-          onClick={() => signOut({ callbackUrl: "/login" })}
+          onClick={() => void signOutAndUnsubscribe({ callbackUrl: "/login" })}
           className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-gray-200 hover:bg-red-600/20 hover:text-red-300 transition-all ${isCollapsed ? "justify-center px-0" : ""}`}
           title={isCollapsed ? "Log Out" : ""}
         >

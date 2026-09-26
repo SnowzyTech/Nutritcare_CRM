@@ -24,6 +24,7 @@ import {
 // RAPS units are excluded from creditWarehouse at receipt time, so any later
 // debit (delete/reverse) must undo the same net amount, not the full item qty.
 import { creditedQuantities } from "@/modules/inventory/services/raps";
+import { notify } from "@/modules/notifications/services/notify.service";
 
 // ── Shared ────────────────────────────────────────────────────────────────────
 
@@ -521,23 +522,17 @@ export async function createAdjustmentAction(
 
     if (savedStatus === "PENDING_APPROVAL") {
       // Notify all admins that a stock adjustment awaits their approval
-      const admins = await prisma.user.findMany({
-        where: { role: { in: ["ADMIN", "SUPER_ADMIN"] } },
-        select: { id: true },
+      await notify({
+        type: "stock_adjustment_approval",
+        vars: {
+          title: "Stock Adjustment Pending Approval",
+          message: `Inventory Manager ${user.name} submitted stock adjustment ${adjustment.referenceNumber} for your approval.`,
+          link: `/admin/inventory/adjustment/${adjustment.id}`,
+        },
+        to: { roles: ["ADMIN", "SUPER_ADMIN"] },
+        entityType: "StockAdjustment",
+        entityId: adjustment.id,
       });
-      if (admins.length > 0) {
-        await prisma.notification.createMany({
-          data: admins.map((admin) => ({
-            recipientId: admin.id,
-            title: "Stock Adjustment Pending Approval",
-            message: `Inventory Manager ${user.name} submitted stock adjustment ${adjustment.referenceNumber} for your approval.`,
-            type: "stock_adjustment_approval",
-            link: `/admin/inventory/adjustment/${adjustment.id}`,
-            entityType: "StockAdjustment",
-            entityId: adjustment.id,
-          })),
-        });
-      }
     }
 
     await logActivity({
@@ -595,16 +590,16 @@ export async function approveAdjustmentAction(
     });
 
     // Notify the inventory manager who submitted the adjustment
-    await prisma.notification.create({
-      data: {
-        recipientId: adj.createdById,
+    await notify({
+      type: "stock_adjustment_approved",
+      vars: {
         title: "Stock Adjustment Approved",
         message: `Your stock adjustment ${adj.referenceNumber} has been approved by admin and the warehouse stock has been updated.`,
-        type: "stock_adjustment_approved",
         link: `/inventory/adjustment/${adj.id}`,
-        entityType: "StockAdjustment",
-        entityId: adj.id,
       },
+      to: { userIds: [adj.createdById] },
+      entityType: "StockAdjustment",
+      entityId: adj.id,
     });
     await logActivity({
       userId: user.id, actorName: user.name, actorRole: user.role,
@@ -651,16 +646,16 @@ export async function rejectAdjustmentAction(
   });
 
   // Notify the inventory manager
-  await prisma.notification.create({
-    data: {
-      recipientId: adj.createdById,
+  await notify({
+    type: "stock_adjustment_rejected",
+    vars: {
       title: "Stock Adjustment Rejected",
       message: `Your stock adjustment ${adj.referenceNumber} was rejected by admin${reason.trim() ? `: ${reason.trim()}` : "."}`,
-      type: "stock_adjustment_rejected",
       link: `/inventory/adjustment/${adj.id}`,
-      entityType: "StockAdjustment",
-      entityId: adj.id,
     },
+    to: { userIds: [adj.createdById] },
+    entityType: "StockAdjustment",
+    entityId: adj.id,
   });
 
   await logActivity({
@@ -866,16 +861,16 @@ export async function approveRapsAction(id: string): Promise<{ error?: string }>
     data: { rapsApprovalStatus: "APPROVED" },
   });
 
-  await prisma.notification.create({
-    data: {
-      recipientId: movement.createdById,
+  await notify({
+    type: "raps_approved",
+    vars: {
       title: "RAPS Approved",
       message: `Your Returned-at-Point-of-Supply claim on voucher ${movement.referenceNumber} has been approved.`,
-      type: "raps_approved",
       link: `/warehouse/incoming-goods/${movement.id}`,
-      entityType: "StockMovement",
-      entityId: movement.id,
     },
+    to: { userIds: [movement.createdById] },
+    entityType: "StockMovement",
+    entityId: movement.id,
   });
 
   revalidatePath(`/inventory/incoming/${id}`);
@@ -905,16 +900,16 @@ export async function rejectRapsAction(id: string, reason: string): Promise<{ er
     data: { rapsApprovalStatus: "REJECTED", rapsRejectionReason: reason.trim() || null },
   });
 
-  await prisma.notification.create({
-    data: {
-      recipientId: movement.createdById,
+  await notify({
+    type: "raps_rejected",
+    vars: {
       title: "RAPS Rejected",
       message: `Your Returned-at-Point-of-Supply claim on voucher ${movement.referenceNumber} was rejected${reason.trim() ? `: ${reason.trim()}` : "."}`,
-      type: "raps_rejected",
       link: `/warehouse/incoming-goods/${movement.id}`,
-      entityType: "StockMovement",
-      entityId: movement.id,
     },
+    to: { userIds: [movement.createdById] },
+    entityType: "StockMovement",
+    entityId: movement.id,
   });
 
   revalidatePath(`/inventory/incoming/${id}`);
@@ -1516,23 +1511,17 @@ export async function addProductAction(
   // No cost price was submitted — nudge Accountant/Admin to set the real value
   // before this product's inventory valuation is trusted.
   if (!parsed.data.costPrice) {
-    const financeUsers = await prisma.user.findMany({
-      where: { role: { in: ["ACCOUNTANT", "ADMIN"] } },
-      select: { id: true },
+    await notify({
+      type: "product_needs_cost_price",
+      vars: {
+        title: "Product Needs Cost Price",
+        message: `${user.name} added "${product.name}" without a cost price. Set it in Inventory Valuation before it affects reports.`,
+        link: "/accounting/inventory",
+      },
+      to: { roles: ["ACCOUNTANT", "ADMIN"] },
+      entityType: "Product",
+      entityId: product.id,
     });
-    if (financeUsers.length > 0) {
-      await prisma.notification.createMany({
-        data: financeUsers.map((u) => ({
-          recipientId: u.id,
-          title: "Product Needs Cost Price",
-          message: `${user.name} added "${product.name}" without a cost price. Set it in Inventory Valuation before it affects reports.`,
-          type: "product_needs_cost_price",
-          link: "/accounting/inventory",
-          entityType: "Product",
-          entityId: product.id,
-        })),
-      });
-    }
   }
 
   // Save packages as ProductPackage records

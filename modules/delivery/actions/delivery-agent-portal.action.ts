@@ -13,6 +13,7 @@ import { logActivity } from "@/modules/audit/services/audit-log.service";
 import { recordWhatsAppResult } from "@/modules/audit/services/whatsapp-audit.service";
 import { suppressCameraForRequest } from "@/lib/audit/context";
 import { sendOrderDeliveredTemplate } from "@/lib/whatsapp/whatsapp";
+import { notifyRepDeliveryOutcome } from "@/modules/notifications/services/order-events.service";
 
 export async function updateAgentProfileAction(data: {
   name: string;
@@ -142,6 +143,7 @@ export async function markOrderDeliveredAction(orderId: string, deliveryCode: st
     entityId: orderId,
     description: `Order #${order.orderNumber} delivered`,
   });
+  notifyRepDeliveryOutcome(orderId, { kind: "delivered" }, { id: session.user.id, name: session.user.name });
 
   // Send WhatsApp delivery notification (fire-and-forget — never throws)
   const waPhone = order.customer.whatsappNumber || order.customer.phone;
@@ -201,6 +203,11 @@ export async function markOrderFailedAction(orderId: string, failureReason: stri
     entityId: orderId,
     description: `Order #${order.orderNumber} failed`,
   });
+  notifyRepDeliveryOutcome(
+    orderId,
+    { kind: "failed", reason: failureReason },
+    { id: session.user.id, name: session.user.name },
+  );
 
   revalidatePath("/delivery-agents");
   revalidatePath(`/delivery-agents/${orderId}`);
@@ -274,6 +281,11 @@ export async function rescheduleOrderAction(orderId: string, scheduledDate: stri
     entityId: orderId,
     description: `Order #${order.orderNumber} rescheduled to ${new Date(scheduledDate).toLocaleDateString("en-NG")}`,
   });
+  notifyRepDeliveryOutcome(
+    orderId,
+    { kind: "rescheduled", date: new Date(scheduledDate) },
+    { id: session.user.id, name: session.user.name },
+  );
 
   revalidatePath("/delivery-agents");
   revalidatePath(`/delivery-agents/${orderId}`);

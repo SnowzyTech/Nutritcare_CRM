@@ -4,6 +4,7 @@ import { getSalesRepOrdersPage, type AdminOrderFilters } from "@/modules/orders/
 import { getActiveProducts } from "@/modules/orders/services/products.service";
 import { getManualOrderProductForms } from "@/modules/orders/services/form-packages.service";
 import { OrdersClient } from "./orders-client";
+import { PushPermissionCard } from "@/components/notifications/push-permission-card";
 import type { Metadata } from "next";
 import type { OrderStatus } from "@prisma/client";
 import { NO_FEEDBACK_FILTER, isOrderFeedbackOutcome } from "@/lib/orders/order-feedback";
@@ -50,20 +51,23 @@ export default async function OrdersPage({
   }));
 
   return (
-    <OrdersClient
-      orders={orderPage.rows}
-      total={orderPage.total}
-      statusCounts={orderPage.statusCounts}
-      page={pageNum}
-      userName={session.user.name ?? ""}
-      products={products}
-      productForms={productForms}
-      initialFilters={{
-        status: filters.status ?? "",
-        search: filters.search ?? "",
-        date: filters.date ?? "",
-        feedback: filters.feedback ?? "",
-      }}
-    />
+    <>
+      <PushPermissionCard variant="nudge" className="mb-4" />
+      <OrdersClient
+        orders={orderPage.rows}
+        total={orderPage.total}
+        statusCounts={orderPage.statusCounts}
+        page={pageNum}
+        userName={session.user.name ?? ""}
+        products={products}
+        productForms={productForms}
+        initialFilters={{
+          status: filters.status ?? "",
+          search: filters.search ?? "",
+          date: filters.date ?? "",
+          feedback: filters.feedback ?? "",
+        }}
+      />
+    </>
   );
 }

@@ -42,6 +42,7 @@ model User {
   invoices                Invoice[]               @relation("InvoiceCreatedBy")
   journalEntries          JournalEntry[]          @relation("JournalEntryCreator")
   notifications           Notification[]          @relation("UserNotifications")
+  pushSubscriptions       PushSubscription[]
   upsoldOrderItems        OrderItem[]             @relation("UpsoldOrderItems")
   orderFeedbacks          OrderFeedback[]         @relation("OrderFeedbackAuthor")
   orders                  Order[]                 @relation("SalesRepOrders")
@@ -1076,18 +1077,63 @@ model Notification {
   title       String
   message     String
   type        String
+  // critical | high | normal — see lib/notifications/catalog.ts. A String so new
+  // levels need no migration; drives push urgency and the SMS fallback.
+  priority    String   @default("normal")
   isRead      Boolean  @default(false)
+  readAt      DateTime?
   link        String?
   entityType  String?
   entityId    String?
+  // Structured template variables (orderNumber, product, …) the text was built from.
+  data        Json?
+  // Idempotency key per recipient: a retried action or double submit is a no-op.
+  dedupeKey   String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   recipient   User     @relation("UserNotifications", fields: [recipientId], references: [id], onDelete: Cascade)
+  deliveries  NotificationDelivery[]
 
-  @@index([recipientId])
-  @@index([isRead])
+  @@unique([recipientId, dedupeKey])
+  @@index([recipientId, isRead, createdAt(sort: Desc)])
   @@index([createdAt])
   @@map("notifications")
+}
+
+/// One browser/device registered for Web Push. The endpoint identifies a browser,
+/// not a person: upserting by endpoint hands a shared phone to whoever logged in last.
+model PushSubscription {
+  id           String   @id @default(cuid())
+  userId       String
+  endpoint     String   @unique
+  p256dh       String
+  auth         String
+  userAgent    String?
+  lastSeenAt   DateTime @default(now())
+  failureCount Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("push_subscriptions")
+}
+
+/// One out-of-band delivery attempt (realtime / push / SMS) for a notification.
+/// Used to rate-limit the SMS fallback and to answer "I never got it".
+model NotificationDelivery {
+  id             String       @id @default(cuid())
+  notificationId String
+  recipientId    String
+  channel        String // REALTIME | PUSH | SMS
+  status         String // SENT | FAILED | SKIPPED
+  error          String?
+  createdAt      DateTime     @default(now())
+  notification   Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  @@index([recipientId, channel, createdAt])
+  @@index([notificationId])
+  @@map("notification_deliveries")
 }
 
 model AuditLog {

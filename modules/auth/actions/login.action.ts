@@ -1,6 +1,7 @@
 "use server";
 
 import { auth, signIn, signOut } from "@/lib/auth/auth";
+import { forgetPushDevice } from "@/lib/notifications/push-device-cookie";
 import { getRoleHome } from "@/lib/auth/role-routes";
 import { loginSchema } from "@/lib/validations/auth";
 import { getUserByEmail } from "@/modules/auth/services/auth.service";
@@ -63,5 +64,7 @@ export async function loginAction(
 }
 
 export async function logoutAction() {
+  // Unregister this device's push alerts before the session goes (shared phones).
+  await forgetPushDevice((await auth())?.user?.id);
   await signOut({ redirectTo: "/login" });
 }

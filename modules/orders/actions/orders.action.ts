@@ -39,6 +39,13 @@ import {
   feedbackLabel,
 } from "@/lib/orders/order-feedback";
 import { z } from "zod";
+import {
+  notifyAgentAssigned,
+  notifyAgentCancelled,
+  notifyAgentItemsChanged,
+  notifyAgentNotesChanged,
+  notifyRepsOrdersAssigned,
+} from "@/modules/notifications/services/order-events.service";
 
 /** Generates a cryptographically random 6-digit numeric delivery code. */
 function generateDeliveryCode(): string {
@@ -84,6 +91,8 @@ export async function reassignOrdersAction(
     entityId: orderIds[0] ?? "bulk",
     description: await describeReassignment(orderIds, repIds),
   });
+
+  notifyRepsOrdersAssigned(orderIds, { id: session.user.id, name: session.user.name });
 
   revalidatePath("/sales-rep-manager");
   revalidatePath("/sales-rep-manager/orders");
@@ -201,6 +210,8 @@ export async function confirmOrderAction(
     description: `Order #${order.orderNumber} confirmed`,
   });
 
+  notifyAgentAssigned(orderId, { id: session.user.id, name: session.user.name });
+
   // Assigned, but the agent is now promising more of something than they hold.
   // Not an error - the order IS confirmed - but the office has to restock before
   // the delivery date or `deliverOrder` will refuse it.
@@ -270,6 +281,9 @@ export async function updateOrderNotesAction(orderId: string, notes: string) {
   if (!order || order.status !== "CONFIRMED") throw new Error("Cannot update notes for this order");
 
   await prisma.order.update({ where: { id: orderId }, data: { notes: notes || null } });
+  if ((order.notes ?? "") !== (notes || "")) {
+    notifyAgentNotesChanged(orderId, { id: session.user.id, name: session.user.name });
+  }
   revalidateOrderPaths(orderId);
 }
 
@@ -294,6 +308,10 @@ export async function cancelOrderAction(orderId: string, reason?: string) {
     entityId: orderId,
     description: `Order #${order.orderNumber} cancelled${reason?.trim() ? ` — ${reason.trim()}` : ""}`,
   });
+  // A confirmed order is already with an agent — they must not go out with it.
+  if (order.status === "CONFIRMED") {
+    notifyAgentCancelled(orderId, order.agentId, { id: session.user.id, name: session.user.name });
+  }
   revalidateOrderPaths(orderId);
 }
 
@@ -389,6 +407,10 @@ export async function reviveOrderAction(orderId: string): Promise<{ error?: stri
     entityId: orderId,
     description: `Order #${order.orderNumber} revived`,
   });
+  // A revived FAILED order goes straight back to its agent as CONFIRMED.
+  if (order.status === "FAILED") {
+    notifyAgentAssigned(orderId, { id: session.user.id, name: session.user.name });
+  }
   revalidateOrderPaths(orderId);
   return {};
 }
@@ -674,6 +696,9 @@ export async function addOrderItemsAction(
     entityId: orderId,
     description: `Added ${result.addedCount} product line${result.addedCount === 1 ? "" : "s"} to Order #${order.orderNumber}`,
   });
+
+  // An agent already carrying this order must bring the new quantities.
+  notifyAgentItemsChanged(orderId, { id: session.user.id, name: session.user.name });
 
   // Audit trail for every manually-priced (surplus) line — lets finance review
   // rep-entered unit prices (guardrail: min > 0 + audit log).

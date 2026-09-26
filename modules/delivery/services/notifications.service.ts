@@ -1,27 +1,8 @@
 import { prisma } from "@/lib/db/prisma";
+import { notify } from "@/modules/notifications/services/notify.service";
 
-export async function getUserNotifications(userId: string) {
-  return prisma.notification.findMany({
-    where: { recipientId: userId },
-    orderBy: { createdAt: "desc" },
-    take: 100,
-    select: {
-      id: true,
-      title: true,
-      message: true,
-      type: true,
-      isRead: true,
-      link: true,
-      createdAt: true,
-    },
-  });
-}
-
-export async function getUnreadNotificationCount(userId: string) {
-  return prisma.notification.count({
-    where: { recipientId: userId, isRead: false },
-  });
-}
+// The generic notification reads/writes live in modules/notifications/. This
+// file keeps only the delivery-domain alert below.
 
 /**
  * Raised when a delivery is refused because the agent's recorded stock won't
@@ -54,26 +35,20 @@ export async function notifyAgentStockShortfall(args: {
     });
     if (existing) return;
 
-    const recipients = await prisma.user.findMany({
-      where: { role: { in: ["INVENTORY_MANAGER", "LOGISTICS_MANAGER"] }, isActive: true },
-      select: { id: true },
-    });
-    if (recipients.length === 0) return;
-
     const detail = args.shortfalls
       .map((s) => `${s.productName} (need ${s.needed}, has ${s.have})`)
       .join("; ");
 
-    await prisma.notification.createMany({
-      data: recipients.map((u) => ({
-        recipientId: u.id,
+    await notify({
+      type: "agent_stock_shortfall",
+      vars: {
         title: "Delivery blocked — agent stock short",
         message: `${args.agentName ?? "An agent"} could not deliver order ${args.orderNumber}: ${detail}. Restock the agent, or correct their recorded stock under Agent Stock Correction.`,
-        type: "agent_stock_shortfall",
         link: "/inventory/agent-stock",
-        entityType: "Agent",
-        entityId: args.agentId,
-      })),
+      },
+      to: { roles: ["INVENTORY_MANAGER", "LOGISTICS_MANAGER"] },
+      entityType: "Agent",
+      entityId: args.agentId,
     });
   } catch (err) {
     console.error("[notifyAgentStockShortfall] failed:", err);

@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import Image from 'next/image';
-import { signOut } from 'next-auth/react';
+import { signOutAndUnsubscribe } from "@/lib/auth/client-sign-out";
 import {
   ShoppingBag,
   BarChart3,
@@ -20,6 +20,7 @@ import {
   Package,
   Megaphone
 } from 'lucide-react';
+import { NotificationBell } from "@/components/notifications/notification-bell";
 
 const stockLinks = [
   { href: '/data/stock', label: 'Overview' },
@@ -165,6 +166,14 @@ export function DataSidebar({ user, isTeamLead }: SidebarProps) {
       </div>
 
       <nav className={`flex-1 space-y-1 overflow-y-auto no-scrollbar ${isCollapsed ? 'px-2' : 'px-4'}`}>
+        <NotificationBell
+          label="Notifications"
+          collapsed={isCollapsed}
+          side="right"
+          align="start"
+          className="text-gray-500 hover:bg-gray-50 hover:text-gray-900 font-bold"
+          iconClassName="text-gray-400"
+        />
         <div>
           <button
             onClick={handleSalesRepClick}
@@ -363,7 +372,7 @@ export function DataSidebar({ user, isTeamLead }: SidebarProps) {
           );
         })}
         <button
-          onClick={() => signOut({ callbackUrl: '/login' })}
+          onClick={() => void signOutAndUnsubscribe({ callbackUrl: '/login' })}
           className={`w-full flex items-center ${isCollapsed ? 'justify-center px-0' : 'gap-3 px-4'} py-3 rounded-xl text-gray-400 hover:text-red-500 hover:bg-red-50 transition-all duration-200 group`}
         >
           <LogOut size={20} className="group-hover:text-red-500 transition-colors shrink-0" />

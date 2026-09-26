@@ -8,7 +8,13 @@ import {
 export type ReassignAgentResult =
   | {
       ok: true;
-      order: { orderNumber: string; salesRepId: string; previousStatus: OrderStatus };
+      order: {
+        orderNumber: string;
+        salesRepId: string;
+        previousStatus: OrderStatus;
+        /** The agent the order was taken from (null if it had none). */
+        previousAgentId: string | null;
+      };
     }
   | { ok: false; reason: "not_reassignable" | "no_stock" };
 
@@ -35,6 +41,7 @@ export async function reassignAgentForOrder(
       orderNumber: true,
       salesRepId: true,
       status: true,
+      agentId: true,
       items: { select: { productId: true, quantity: true } },
     },
   });
@@ -55,6 +62,7 @@ export async function reassignAgentForOrder(
         orderNumber: order.orderNumber,
         salesRepId: order.salesRepId,
         previousStatus: order.status,
+        previousAgentId: order.agentId,
       },
     };
   }
@@ -80,6 +88,7 @@ export async function reassignAgentForOrder(
       orderNumber: order.orderNumber,
       salesRepId: order.salesRepId,
       previousStatus: order.status,
+      previousAgentId: order.agentId,
     },
   };
 }

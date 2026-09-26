@@ -22,6 +22,11 @@ import {
   manualOrderSchema,
 } from "@/modules/orders/services/manual-order.service";
 import { reassignAgentForOrder } from "@/modules/orders/services/reassign-agent.service";
+import {
+  notifyAgentReassigned,
+  notifyRepDeliveryOutcome,
+  notifyRepNewOrder,
+} from "@/modules/notifications/services/order-events.service";
 import { resolveDeliveredDate } from "@/lib/orders/delivered-date";
 import type { RepAnalyticsData } from "@/modules/data-analysis/services/data-analysis.service";
 import { getSalesRepWeeklyAnalytics } from "@/modules/orders/services/analytics.service";
@@ -159,6 +164,7 @@ export async function markOrderDeliveredByAnalyst(
     entityId: orderId,
     description: `Order #${order.orderNumber} delivered`,
   });
+  notifyRepDeliveryOutcome(orderId, { kind: "delivered" }, { id: session.user.id, name: session.user.name });
 
   // Send WhatsApp delivery notification (fire-and-forget — never throws)
   const waPhone = order.customer.whatsappNumber || order.customer.phone;
@@ -237,6 +243,7 @@ export async function markOrderFailedByAnalyst(
     entityId: orderId,
     description: `Order #${order.orderNumber} failed — ${reason}`,
   });
+  notifyRepDeliveryOutcome(orderId, { kind: "failed", reason }, { id: session.user.id, name: session.user.name });
 
   revalidatePath("/data/order");
   revalidatePath(`/data/order/${order.orderNumber}`);
@@ -282,6 +289,12 @@ export async function reassignOrderAgentByAnalyst(
     entityId: orderId,
     description: `Order #${result.order.orderNumber} reassigned to a different delivery agent`,
   });
+  if (result.order.previousAgentId !== agentId) {
+    notifyAgentReassigned(orderId, result.order.previousAgentId, {
+      id: session.user.id,
+      name: session.user.name,
+    });
+  }
 
   revalidatePath("/data/order");
   revalidatePath(`/data/order/${result.order.orderNumber}`);
@@ -353,6 +366,8 @@ export async function createOrderByAnalystAction(
     actor: { name: session.user.name, role: session.user.role },
     onBehalfOfName: rep.name,
   });
+  // Keyed in by someone else, so the rep needs to know it is in their queue.
+  notifyRepNewOrder(result.orderId, { id: session.user.id, name: session.user.name });
 
   revalidatePath("/data/order");
   revalidatePath("/data");

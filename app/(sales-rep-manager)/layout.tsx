@@ -8,6 +8,8 @@ import { getRoleHome } from "@/lib/auth/role-routes";
 import { getTotalUnread } from "@/modules/chat/services/conversations.service";
 import { ChatUnreadProvider } from "@/components/chat/chat-unread-provider";
 import { ChatUnreadBadge } from "@/components/chat/chat-unread-badge";
+import { NotificationRoot } from "@/components/notifications/notification-root";
+import { NotificationBell } from "@/components/notifications/notification-bell";
 
 export default async function SalesRepManagerLayout({
   children,
@@ -29,39 +31,45 @@ export default async function SalesRepManagerLayout({
 
   return (
     <ChatUnreadProvider initialCount={unreadChats}>
-      <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
-        <SalesRepManagerSidebarClient
-          userName={user?.name ?? ""}
-          userRole={user?.role ?? "Sales Rep"}
-          userAvatar={userRecord?.avatarUrl ?? undefined}
-        />
-        <div className="flex flex-col flex-1 overflow-hidden relative">
-          <header className="absolute top-0 right-0 left-0 h-16 md:h-20 px-4 md:px-8 flex justify-between items-center z-10 pointer-events-none">
-            <div></div>
-            <div className="flex items-center gap-3 md:gap-4 pointer-events-auto">
-              {/* Company managers are pure oversight — no rep mode to switch to. */}
-              {!isCompanyManager && (
+      <NotificationRoot>
+        <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
+          <SalesRepManagerSidebarClient
+            userName={user?.name ?? ""}
+            userRole={user?.role ?? "Sales Rep"}
+            userAvatar={userRecord?.avatarUrl ?? undefined}
+          />
+          <div className="flex flex-col flex-1 overflow-hidden relative">
+            <header className="absolute top-0 right-0 left-0 h-16 md:h-20 px-4 md:px-8 flex justify-between items-center z-10 pointer-events-none">
+              <div></div>
+              <div className="flex items-center gap-3 md:gap-4 pointer-events-auto">
+                {/* Company managers are pure oversight — no rep mode to switch to. */}
+                {!isCompanyManager && (
+                  <Link
+                    href="/sales-rep"
+                    className="bg-gray-900 text-white px-3 md:px-4 py-2 rounded-xl text-xs md:text-sm font-semibold hover:bg-gray-800 transition flex items-center gap-2"
+                  >
+                    ← <span className="hidden sm:inline">Sales Rep Mode</span>
+                    <span className="sm:hidden">Rep Mode</span>
+                  </Link>
+                )}
+                <NotificationBell
+                  className="w-9 h-9 md:w-10 md:h-10 rounded-full bg-purple-100 text-[#A020F0] hover:bg-purple-200 hover:text-[#A020F0]"
+                  iconClassName="h-[18px] w-[18px]"
+                />
                 <Link
-                  href="/sales-rep"
-                  className="bg-gray-900 text-white px-3 md:px-4 py-2 rounded-xl text-xs md:text-sm font-semibold hover:bg-gray-800 transition flex items-center gap-2"
+                  href="/chat"
+                  className="relative w-9 h-9 md:w-10 md:h-10 bg-purple-100 text-[#A020F0] rounded-full flex items-center justify-center hover:bg-purple-200 transition"
+                  title="Chat"
                 >
-                  ← <span className="hidden sm:inline">Sales Rep Mode</span>
-                  <span className="sm:hidden">Rep Mode</span>
+                  <MessageSquare size={18} fill="currentColor" />
+                  <ChatUnreadBadge className="absolute -top-1.5 -right-1.5" />
                 </Link>
-              )}
-              <Link
-                href="/chat"
-                className="relative w-9 h-9 md:w-10 md:h-10 bg-purple-100 text-[#A020F0] rounded-full flex items-center justify-center hover:bg-purple-200 transition"
-                title="Chat"
-              >
-                <MessageSquare size={18} fill="currentColor" />
-                <ChatUnreadBadge className="absolute -top-1.5 -right-1.5" />
-              </Link>
-            </div>
-          </header>
-          <main className="flex-1 overflow-y-auto p-4 pt-20 md:p-8 pb-24 md:pb-8">{children}</main>
+              </div>
+            </header>
+            <main className="flex-1 overflow-y-auto p-4 pt-20 md:p-8 pb-24 md:pb-8">{children}</main>
+          </div>
         </div>
-      </div>
+      </NotificationRoot>
     </ChatUnreadProvider>
   );
 }

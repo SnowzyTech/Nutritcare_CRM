@@ -1,13 +1,10 @@
-import { auth } from "@/lib/auth/auth";
-import { redirect } from "next/navigation";
-import { getUserNotifications } from "@/modules/delivery/services/notifications.service";
-import { NotificationsClient } from "./notifications-client";
+import type { Metadata } from "next";
+import { NotificationsPage } from "@/components/notifications/notifications-page";
 
-export default async function NotificationsPage() {
-  const session = await auth();
-  if (!session?.user?.id) redirect("/login");
+export const metadata: Metadata = { title: "Notifications" };
 
-  const notifications = await getUserNotifications(session.user.id);
-
-  return <NotificationsClient notifications={notifications} />;
+export default function DeliveryAgentNotificationsPage() {
+  return (
+    <NotificationsPage emptyHint="You'll be notified here when a delivery is assigned to you or changes." />
+  );
 }
