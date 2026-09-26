@@ -14,10 +14,9 @@ import {
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import type { ProductBreakdownItem } from '@/modules/finance/services/inventory-accounting.service';
 import { updateProductCostPriceAction } from '@/modules/finance/actions/inventory-accounting.action';
-import { STATE_OPTION_GROUPS } from "@/lib/constants/country-states";
 
 const fallbackMainTableData: ProductRow[] = [
   { name: 'Prosxact', cost: '₦3,500', selling: '₦5,200', total: '1,200', warehouse: '800', agents: '400', value: '₦1,250,000' },
@@ -334,6 +333,13 @@ export function InventoryClient({ productList, productBreakdown, locationView }:
   );
 }
 
+const nigerianStates = [
+  'Abia', 'Adamawa', 'Akwa Ibom', 'Anambra', 'Bauchi', 'Bayelsa', 'Benue', 'Borno',
+  'Cross River', 'Delta', 'Ebonyi', 'Edo', 'Ekiti', 'Enugu', 'FCT Abuja', 'Gombe',
+  'Imo', 'Jigawa', 'Kaduna', 'Kano', 'Katsina', 'Kebbi', 'Kogi', 'Kwara',
+  'Lagos', 'Nasarawa', 'Niger', 'Ogun', 'Ondo', 'Osun', 'Oyo', 'Plateau',
+  'Rivers', 'Sokoto', 'Taraba', 'Yobe', 'Zamfara'
+];
 
 function InventoryLocationView({ locationView }: { locationView?: InventoryClientProps['locationView'] }) {
   const [search, setSearch] = useState('');
@@ -365,15 +371,10 @@ function InventoryLocationView({ locationView }: { locationView?: InventoryClien
           </SelectTrigger>
           <SelectContent className="max-h-[300px] rounded-xl">
             <SelectItem value="All" className="text-[13px] font-medium">All States</SelectItem>
-            {STATE_OPTION_GROUPS.map(group => (
-              <SelectGroup key={group.country}>
-                <SelectLabel>{group.country}</SelectLabel>
-                {group.states.map(state => (
-                  <SelectItem key={state} value={state} className="text-[13px] font-medium">
-                    {state}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
+            {nigerianStates.map(state => (
+              <SelectItem key={state} value={state} className="text-[13px] font-medium">
+                {state}
+              </SelectItem>
             ))}
           </SelectContent>
         </Select>

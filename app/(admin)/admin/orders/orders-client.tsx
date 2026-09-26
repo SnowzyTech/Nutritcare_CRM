@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useMemo, useEffect, useRef } from "react";
-import { STATE_OPTION_GROUPS, canonicalizeState } from "@/lib/constants/country-states";
 import {
   Search,
   SlidersHorizontal,
@@ -13,14 +12,51 @@ import { useRouter, usePathname } from "next/navigation";
 import {
   Select,
   SelectContent,
-  SelectGroup,
   SelectItem,
-  SelectLabel,
   SelectTrigger,
 } from "@/components/ui/select";
 import type { OrderStatus } from "@prisma/client";
 import { upsellExtraCount } from "@/lib/orders/upsell";
 
+const nigerianStates = [
+  "Abia State",
+  "Adamawa State",
+  "Akwa Ibom State",
+  "Anambra State",
+  "Bauchi State",
+  "Bayelsa State",
+  "Benue State",
+  "Borno State",
+  "Cross River State",
+  "Delta State",
+  "Ebonyi State",
+  "Edo State",
+  "Ekiti State",
+  "Enugu State",
+  "Gombe State",
+  "Imo State",
+  "Jigawa State",
+  "Kaduna State",
+  "Kano State",
+  "Katsina State",
+  "Kebbi State",
+  "Kogi State",
+  "Kwara State",
+  "Lagos State",
+  "Nasarawa State",
+  "Niger State",
+  "Ogun State",
+  "Ondo State",
+  "Osun State",
+  "Oyo State",
+  "Plateau State",
+  "Rivers State",
+  "Sokoto State",
+  "Taraba State",
+  "Yobe State",
+  "Zamfara State",
+  "Federal Capital Territory (FCT)",
+];
 
 export type AdminOrderListItem = {
   id: string;
@@ -104,9 +140,7 @@ export function AdminOrdersClient({
   const [activeTab, setActiveTab] = useState<OrderStatus | null>((initialFilters?.status || null) as OrderStatus | null);
   const [searchQuery, setSearchQuery] = useState(initialFilters?.search ?? "");
   const [selectedProduct, setSelectedProduct] = useState(initialFilters?.product || "__all__");
-  const [selectedState, setSelectedState] = useState(
-    canonicalizeState(initialFilters?.state) ?? initialFilters?.state ?? "__all__"
-  );
+  const [selectedState, setSelectedState] = useState(initialFilters?.state || "__all__");
   const [selectedTeam, setSelectedTeam] = useState(initialFilters?.team || "__all__");
   const [selectedDate, setSelectedDate] = useState(initialFilters?.date ?? "");
 
@@ -272,15 +306,10 @@ export function AdminOrdersClient({
           </SelectTrigger>
           <SelectContent className="max-h-[300px]">
             <SelectItem value="__all__">All States</SelectItem>
-            {STATE_OPTION_GROUPS.map((group) => (
-              <SelectGroup key={group.country}>
-                <SelectLabel>{group.country}</SelectLabel>
-                {group.states.map((state) => (
-                  <SelectItem key={state} value={state}>
-                    {state}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
+            {nigerianStates.map((state) => (
+              <SelectItem key={state} value={state}>
+                {state}
+              </SelectItem>
             ))}
           </SelectContent>
         </Select>

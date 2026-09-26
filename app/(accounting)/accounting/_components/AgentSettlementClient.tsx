@@ -26,7 +26,6 @@ import { format } from "date-fns";
 import { toast } from "sonner";
 import { createRemittanceAction, createSettlementAdjustmentAction } from "@/modules/finance/actions/settlements.action";
 import { fetchDeliveredOrdersAction, fetchAgentOrdersForAdjustmentAction, fetchAgentRemittancesAction, fetchAgentBalanceAction, fetchAgentAdjustmentsAction, fetchAgentLedgerRefsAction } from "@/modules/finance/actions/agent-data.action";
-import { STATE_OPTION_GROUPS, statesMatch } from "@/lib/constants/country-states";
 
 interface AgentSettlementWithId extends AgentSettlement { agentId?: string }
 type AnyLedgerEntry = Omit<AgentLedgerEntry, 'referenceType'> & { referenceType: string; agentId?: string };
@@ -1262,6 +1261,13 @@ function AgentListView({
   router,
   initialAgents,
 }: AgentListViewProps) {
+  const nigerianStates = [
+    "Abia", "Adamawa", "Akwa Ibom", "Anambra", "Bauchi", "Bayelsa", "Benue", "Borno",
+    "Cross River", "Delta", "Ebonyi", "Edo", "Ekiti", "Enugu", "FCT", "Gombe", "Imo",
+    "Jigawa", "Kaduna", "Kano", "Katsina", "Kebbi", "Kogi", "Kwara", "Lagos",
+    "Nasarawa", "Niger", "Ogun", "Ondo", "Osun", "Oyo", "Plateau", "Rivers",
+    "Sokoto", "Taraba", "Yobe", "Zamfara"
+  ];
 
   const agentTypes = ["Independent", "Logistics Partner", "In-house"];
   const statuses = ["Paid", "Underpayment", "Overpayment", "Pending"];
@@ -1269,7 +1275,7 @@ function AgentListView({
   const agentsSource: DeliveryAgentRow[] = initialAgents ?? [];
   const filtered = agentsSource.filter((a) => {
     const matchSearch = a.agentName.toLowerCase().includes(search.toLowerCase());
-    const matchState = stateFilter === 'All' || statesMatch(a.state, stateFilter);
+    const matchState = stateFilter === 'All' || a.state === stateFilter;
     const matchStatus = statusFilter === 'All' ||
       (statusFilter === 'Paid' && a.balance === '₦0') ||
       (statusFilter === 'Underpayment' && a.underpayment !== '₦0') ||
@@ -1297,20 +1303,13 @@ function AgentListView({
               >
                 All States
               </div>
-              {STATE_OPTION_GROUPS.map(group => (
-                <div key={group.country}>
-                  <div className="sticky top-0 z-10 bg-white px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-gray-400">
-                    {group.country}
-                  </div>
-                  {group.states.map(s => (
-                    <div
-                      key={s}
-                      className="px-3 py-2 text-[13px] text-gray-600 hover:bg-gray-50 rounded-lg cursor-pointer font-medium"
-                      onClick={() => { setStateFilter(s); setOpenDropdown(null); }}
-                    >
-                      {s}
-                    </div>
-                  ))}
+              {nigerianStates.map(s => (
+                <div
+                  key={s}
+                  className="px-3 py-2 text-[13px] text-gray-600 hover:bg-gray-50 rounded-lg cursor-pointer font-medium"
+                  onClick={() => { setStateFilter(s); setOpenDropdown(null); }}
+                >
+                  {s}
                 </div>
               ))}
             </div>

@@ -6,13 +6,10 @@ import { Search, SlidersHorizontal, ArrowUpDown } from "lucide-react";
 import {
   Select,
   SelectContent,
-  SelectGroup,
   SelectItem,
-  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { STATE_OPTION_GROUPS, statesMatch } from "@/lib/constants/country-states";
 
 type DeliveryAgent = {
   id: string;
@@ -24,6 +21,13 @@ type DeliveryAgent = {
   performance: number;
 };
 
+const nigerianStates = [
+  "Abia", "Adamawa", "Akwa Ibom", "Anambra", "Bauchi", "Bayelsa", "Benue",
+  "Borno", "Cross River", "Delta", "Ebonyi", "Edo", "Ekiti", "Enugu", "FCT",
+  "Gombe", "Imo", "Jigawa", "Kaduna", "Kano", "Katsina", "Kebbi", "Kogi",
+  "Kwara", "Lagos", "Nasarawa", "Niger", "Ogun", "Ondo", "Osun", "Oyo",
+  "Plateau", "Rivers", "Sokoto", "Taraba", "Yobe", "Zamfara",
+];
 
 const avatarColors = [
   "bg-purple-600", "bg-rose-500", "bg-emerald-500", "bg-amber-500",
@@ -43,7 +47,8 @@ export default function DeliveryAgentListClient({ agents }: { agents: DeliveryAg
       a.companyName.toLowerCase().includes(search.toLowerCase()) ||
       a.phone1.includes(search);
     const matchesState =
-      !stateFilter || stateFilter === "all" || statesMatch(a.state, stateFilter);
+      !stateFilter || stateFilter === "all" ||
+      (a.state ?? "").toLowerCase().includes(stateFilter.toLowerCase());
     return matchesSearch && matchesState;
   });
 
@@ -65,15 +70,8 @@ export default function DeliveryAgentListClient({ agents }: { agents: DeliveryAg
           </SelectTrigger>
           <SelectContent className="max-h-[300px]">
             <SelectItem value="all">All States</SelectItem>
-            {STATE_OPTION_GROUPS.map((group) => (
-              <SelectGroup key={group.country}>
-                <SelectLabel>{group.country}</SelectLabel>
-                {group.states.map((state) => (
-                  <SelectItem key={state} value={state}>
-                    {state}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
+            {nigerianStates.map(s => (
+              <SelectItem key={s} value={s.toLowerCase()}>{s}</SelectItem>
             ))}
           </SelectContent>
         </Select>

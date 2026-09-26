@@ -6,7 +6,6 @@ import { resolveManualOrderPriceAction } from '@/modules/orders/actions/orders.a
 import type { ProductForms, ManualForm } from '@/modules/orders/services/form-packages.service';
 import { roleLabel } from '@/lib/chat/role-label';
 import { formatCurrency } from '@/lib/utils';
-import { COUNTRIES, DEFAULT_COUNTRY, getStatesForCountry } from '@/lib/constants/country-states';
 import { Plus, X, ChevronDown, Trash2 } from 'lucide-react';
 
 /**
@@ -90,8 +89,17 @@ type RowPreview = {
   requiresUnitPrice: boolean;
 } | null;
 
-
-const COUNTRY_DEFAULT_STATE: Record<string, string> = { Nigeria: 'Lagos State' };
+// All 36 Nigerian states + FCT, each with " State" suffix to match delivery agent
+// registration format.
+const NIGERIAN_STATES = [
+  "Abia State", "Adamawa State", "Akwa Ibom State", "Anambra State", "Bauchi State",
+  "Bayelsa State", "Benue State", "Borno State", "Cross River State", "Delta State",
+  "Ebonyi State", "Edo State", "Ekiti State", "Enugu State", "Gombe State", "Imo State",
+  "Jigawa State", "Kaduna State", "Kano State", "Katsina State", "Kebbi State", "Kogi State",
+  "Kwara State", "Lagos State", "Nasarawa State", "Niger State", "Ogun State", "Ondo State",
+  "Osun State", "Oyo State", "Plateau State", "Rivers State", "Sokoto State", "Taraba State",
+  "Yobe State", "Zamfara State", "Federal Capital Territory (FCT)",
+];
 
 const FIELD_CLASS =
   'w-full bg-white border border-gray-100 shadow-[0_2px_10px_rgb(0,0,0,0.01)] rounded-xl h-10 sm:h-12 px-3 sm:px-4 text-xs text-gray-700 placeholder-gray-300 focus:outline-none focus:ring-1 focus:ring-purple-200';
@@ -146,8 +154,7 @@ export function AddOrderModal({
   const [whatsappNumber, setWhatsappNumber] = useState('');
   const [email, setEmail] = useState('');
   const [address, setAddress] = useState('');
-  const [country, setCountry] = useState<string>(DEFAULT_COUNTRY);
-  const [selectedState, setSelectedState] = useState(COUNTRY_DEFAULT_STATE[DEFAULT_COUNTRY] ?? '');
+  const [selectedState, setSelectedState] = useState('Lagos State');
   const [landmark, setLandmark] = useState('');
   const [isReorder, setIsReorder] = useState(false);
 
@@ -190,8 +197,7 @@ export function AddOrderModal({
     setWhatsappNumber('');
     setEmail('');
     setAddress('');
-    setCountry(DEFAULT_COUNTRY);
-    setSelectedState(COUNTRY_DEFAULT_STATE[DEFAULT_COUNTRY] ?? '');
+    setSelectedState('Lagos State');
     setLandmark('');
     setIsReorder(false);
     setFormProducts([makeRow()]);
@@ -435,28 +441,6 @@ export function AddOrderModal({
             </div>
 
             <div className="space-y-1 sm:space-y-1.5 text-left">
-              <label className={LABEL_CLASS}>Country</label>
-              <div className="relative">
-                <select
-                  value={country}
-                  onChange={(e) => {
-                    const next = e.target.value;
-                    setCountry(next);
-                    // Re-derive the state list; keep the country's usual default
-                    // where it has one, otherwise force a deliberate pick.
-                    setSelectedState(COUNTRY_DEFAULT_STATE[next] ?? '');
-                  }}
-                  className={SELECT_CLASS}
-                >
-                  {COUNTRIES.map((c) => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
-                </select>
-                <ChevronDown className="absolute right-3 sm:right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-              </div>
-            </div>
-
-            <div className="space-y-1 sm:space-y-1.5 text-left">
               <label className={LABEL_CLASS}>State</label>
               <div className="relative">
                 <select
@@ -464,8 +448,7 @@ export function AddOrderModal({
                   onChange={(e) => setSelectedState(e.target.value)}
                   className={SELECT_CLASS}
                 >
-                  <option value="">Select state/region</option>
-                  {getStatesForCountry(country).map((st) => (
+                  {NIGERIAN_STATES.map((st) => (
                     <option key={st} value={st}>{st}</option>
                   ))}
                 </select>

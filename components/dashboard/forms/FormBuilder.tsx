@@ -4,11 +4,6 @@ import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { MessageCircle, ChevronDown, X, Trash2 } from "lucide-react";
 import {
-  COUNTRIES,
-  DEFAULT_COUNTRY,
-  STATE_OPTION_GROUPS,
-} from "@/lib/constants/country-states";
-import {
   createFormAction,
   updateFormAction,
 } from "@/modules/admin/actions/forms.action";
@@ -336,6 +331,46 @@ function computeVariations(
   ];
 }
 
+/* ── Nigerian States List ── */
+const NIGERIAN_STATES = [
+  "Abia State",
+  "Adamawa State",
+  "Akwa Ibom State",
+  "Anambra State",
+  "Bauchi State",
+  "Bayelsa State",
+  "Benue State",
+  "Borno State",
+  "Cross River State",
+  "Delta State",
+  "Ebonyi State",
+  "Edo State",
+  "Ekiti State",
+  "Enugu State",
+  "Gombe State",
+  "Imo State",
+  "Jigawa State",
+  "Kaduna State",
+  "Kano State",
+  "Katsina State",
+  "Kebbi State",
+  "Kogi State",
+  "Kwara State",
+  "Lagos State",
+  "Nasarawa State",
+  "Niger State",
+  "Ogun State",
+  "Ondo State",
+  "Osun State",
+  "Oyo State",
+  "Plateau State",
+  "Rivers State",
+  "Sokoto State",
+  "Taraba State",
+  "Yobe State",
+  "Zamfara State",
+  "Federal Capital Territory (FCT)",
+];
 
 /* ── Custom Toggle Component ── */
 function Toggle({
@@ -459,9 +494,6 @@ export function FormBuilder({
       whatsapp: { label: "", required: true, show: false },
     },
 
-    // The market this form is built for: seeds the live form's country,
-    // its state list and its phone dial code.
-    country: DEFAULT_COUNTRY as string,
     showCountryCode: "YES",
     productQuantityDisplay: "Radio Button Option",
     typeProductText: "Choose Your Preferred Packages",
@@ -848,7 +880,6 @@ export function FormBuilder({
         phone: { label: "", required: false, show: false },
         whatsapp: { label: "", required: true, show: false },
       },
-      country: DEFAULT_COUNTRY as string,
       showCountryCode: "YES",
       productQuantityDisplay: "Radio Button Option",
       typeProductText: "Choose Your Preferred Packages",
@@ -1065,17 +1096,6 @@ export function FormBuilder({
                 value={formData.formName}
                 onChange={(e) => updateField("formName", e.target.value)}
                 className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm outline-none focus:border-purple-300"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-amber-600 mb-1">
-                Country*
-              </label>
-              <CustomSelect
-                value={formData.country}
-                onChange={(v) => updateField("country", v)}
-                options={[...COUNTRIES]}
-                placeholder="Select a Country"
               />
             </div>
             <div className="flex items-center gap-3">
@@ -2648,37 +2668,30 @@ export function FormBuilder({
                 {/* Dropdown list */}
                 {statesDropdownOpen && (
                   <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-52 overflow-y-auto">
-                    {STATE_OPTION_GROUPS.map((group) => (
-                      <div key={group.country}>
-                        <div className="sticky top-0 z-10 bg-white px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-gray-400">
-                          {group.country}
+                    {NIGERIAN_STATES.map((state) => {
+                      const selected = (
+                        formData.selectStatesExclude as string[]
+                      ).includes(state);
+                      return (
+                        <div
+                          key={state}
+                          onClick={() => toggleStateSelection(state)}
+                          className={`flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-purple-50 transition-colors ${
+                            selected
+                              ? "bg-purple-50 text-purple-700 font-medium"
+                              : "text-gray-700"
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            readOnly
+                            checked={selected}
+                            className="accent-purple-600 pointer-events-none"
+                          />
+                          {state}
                         </div>
-                        {group.states.map((state) => {
-                          const selected = (
-                            formData.selectStatesExclude as string[]
-                          ).includes(state);
-                          return (
-                            <div
-                              key={state}
-                              onClick={() => toggleStateSelection(state)}
-                              className={`flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-purple-50 transition-colors ${
-                                selected
-                                  ? "bg-purple-50 text-purple-700 font-medium"
-                                  : "text-gray-700"
-                              }`}
-                            >
-                              <input
-                                type="checkbox"
-                                readOnly
-                                checked={selected}
-                                className="accent-purple-600 pointer-events-none"
-                              />
-                              {state}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>

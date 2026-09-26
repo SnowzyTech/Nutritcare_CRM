@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 import { updateWarehouseAction } from "@/modules/inventory/actions/stock.action";
-import { COUNTRIES, isSelectableCountry } from "@/lib/constants/country-states";
 
 const inputClass =
   "w-full border border-gray-200 rounded-md px-3 py-2.5 text-sm text-gray-700 placeholder:text-gray-300 outline-none focus:border-[#9D00FF] focus:ring-1 focus:ring-[#9D00FF]/20 transition-all bg-white";
@@ -16,9 +15,6 @@ const labelClass = "block text-[11px] font-bold text-gray-500 uppercase tracking
 export default function EditWarehouseClient({ warehouse }: { warehouse: any }) {
   const router = useRouter();
   const [state, formAction, pending] = useActionState(updateWarehouseAction, null);
-  // Keep a country we no longer offer selectable, so saving this form
-  // can't silently rewrite it.
-  const storedCountry: string = warehouse.country ?? "";
 
   useEffect(() => {
     if (state?.error) toast.error(state.error);
@@ -121,12 +117,9 @@ export default function EditWarehouseClient({ warehouse }: { warehouse: any }) {
                     defaultValue={warehouse.country ?? ""}
                   >
                     <option value="">Select an Option</option>
-                    {storedCountry && !isSelectableCountry(storedCountry) && (
-                      <option value={storedCountry}>{storedCountry} (existing)</option>
-                    )}
-                    {COUNTRIES.map((c) => (
-                      <option key={c} value={c}>{c}</option>
-                    ))}
+                    <option value="Nigeria">Nigeria</option>
+                    <option value="Ghana">Ghana</option>
+                    <option value="Kenya">Kenya</option>
                   </select>
                   <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">▾</span>
                 </div>

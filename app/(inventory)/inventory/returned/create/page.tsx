@@ -3,7 +3,6 @@
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Filter, ArrowUpDown, ChevronDown, ArrowLeft, MessageCircle, Check } from "lucide-react";
-import { COUNTRIES, DEFAULT_COUNTRY, getStatesForCountry } from "@/lib/constants/country-states";
 
 const inputClass =
   "w-full border border-gray-200 rounded-md px-3 py-2.5 text-sm text-gray-700 placeholder:text-gray-300 outline-none focus:border-[#9D00FF] focus:ring-1 focus:ring-[#9D00FF]/20 transition-all bg-white";
@@ -15,7 +14,7 @@ export default function CreateReturnedStockPage() {
 
   const [form, setForm] = useState({
     state: "",
-    country: DEFAULT_COUNTRY as string,
+    country: "",
     date: "",
     product: "",
     quantity: "",
@@ -80,9 +79,8 @@ export default function CreateReturnedStockPage() {
                 className={selectClass}
               >
                 <option value="" disabled>Select an Option</option>
-                {getStatesForCountry(form.country).map((s) => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
+                <option value="lagos">Lagos</option>
+                <option value="abuja">Abuja</option>
               </select>
               <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             </div>
@@ -97,14 +95,12 @@ export default function CreateReturnedStockPage() {
               <select
                 name="country"
                 value={form.country}
-                onChange={(e) =>
-                  setForm((prev) => ({ ...prev, country: e.target.value, state: "" }))
-                }
+                onChange={handleChange}
                 className={selectClass}
               >
-                {COUNTRIES.map((c) => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
+                <option value="" disabled>Select an Option</option>
+                <option value="nigeria">Nigeria</option>
+                <option value="ghana">Ghana</option>
               </select>
               <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             </div>

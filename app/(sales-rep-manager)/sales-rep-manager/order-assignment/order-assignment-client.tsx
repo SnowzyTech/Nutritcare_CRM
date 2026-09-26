@@ -6,7 +6,6 @@ import type { TeamOrderListItem, OrderCounts } from "../orders/team-orders-clien
 import { reassignOrdersAction } from "@/modules/orders/actions/orders.action";
 import { formatDate, formatCurrency } from "@/lib/utils";
 import { Calendar } from "@/components/ui/calendar";
-import { STATE_OPTION_GROUPS, statesMatch } from "@/lib/constants/country-states";
 
 /** Local YYYY-MM-DD (avoids UTC shift from toISOString). */
 function toYMD(d: Date): string {
@@ -45,6 +44,13 @@ const TABS: Array<{ label: string; key: OrderStatus | null; countKey: keyof Orde
   { label: "Confirmed", key: "CONFIRMED", countKey: "confirmed" },
 ];
 
+const NIGERIAN_STATES = [
+  "Abia","Adamawa","Akwa Ibom","Anambra","Bauchi","Bayelsa","Benue","Borno",
+  "Cross River","Delta","Ebonyi","Edo","Ekiti","Enugu","FCT","Gombe","Imo",
+  "Jigawa","Kaduna","Kano","Katsina","Kebbi","Kogi","Kwara","Lagos","Nasarawa",
+  "Niger","Ogun","Ondo","Osun","Oyo","Plateau","Rivers","Sokoto","Taraba",
+  "Yobe","Zamfara",
+];
 
 export function OrderAssignmentClient({ orders, counts, salesReps, products = [] }: OrderAssignmentClientProps) {
   const [activeTab, setActiveTab] = useState<OrderStatus | null>(null);
@@ -74,8 +80,7 @@ export function OrderAssignmentClient({ orders, counts, salesReps, products = []
       result = result.filter(o => o.date === ymd);
     }
     if (productFilter) result = result.filter(o => o.itemNames.includes(productFilter));
-    if (stateFilter)
-      result = result.filter(o => statesMatch(o.agent?.state, stateFilter));
+    if (stateFilter) result = result.filter(o => o.agent?.state === stateFilter);
 
     const q = searchQuery.trim().toLowerCase();
     if (q) {
@@ -209,12 +214,8 @@ export function OrderAssignmentClient({ orders, counts, salesReps, products = []
             className="w-full appearance-none bg-gray-900 border border-gray-900 rounded-lg pl-4 pr-10 py-2 text-sm text-white font-medium outline-none hover:bg-gray-800 transition-colors cursor-pointer"
           >
             <option value="">State</option>
-            {STATE_OPTION_GROUPS.map((group) => (
-              <optgroup key={group.country} label={group.country}>
-                {group.states.map(s => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </optgroup>
+            {NIGERIAN_STATES.map(s => (
+              <option key={s} value={s}>{s}</option>
             ))}
           </select>
           <ChevronLeft className="-rotate-90 absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={14} />

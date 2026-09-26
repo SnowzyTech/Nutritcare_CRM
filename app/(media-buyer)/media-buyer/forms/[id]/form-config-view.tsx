@@ -72,10 +72,9 @@ export function FormConfigView({
         <Panel title="Overview">
           <Row label="Form Name" value={str(data, "formName")} />
           <Row label="Product" value={productName} />
-          <Row label="Country" value={str(data, "country") || "Nigeria"} />
           <Row label="Created" value={formatDate(new Date(createdAt))} />
           <Row
-            label="Show Country Code on Phone"
+            label="Country Code on Phone"
             value={isYes(data, "showCountryCode") ? "Enabled" : "Disabled"}
           />
         </Panel>
