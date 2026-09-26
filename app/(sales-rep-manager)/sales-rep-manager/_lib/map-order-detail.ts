@@ -1,6 +1,7 @@
 import { formatCurrency, formatDate } from "@/lib/utils";
 import type { getOrderWithDetails } from "@/modules/orders/services/orders.service";
 import type { OrderDetail } from "@/lib/mock-data/sales-rep-manager";
+import { feedbackLabel } from "@/lib/orders/order-feedback";
 
 type DbOrder = NonNullable<Awaited<ReturnType<typeof getOrderWithDetails>>>;
 
@@ -20,34 +21,52 @@ export function mapOrderToDetail(dbOrder: DbOrder, repName: string): OrderDetail
   const discountAmt = Number(dbOrder.discountAmount);
   const deliveryFeeNum = Number(dbOrder.deliveryFee);
 
-  const history: { label: string; date: string }[] = [
-    { label: "Order Created", date: orderDate },
-    { label: `Sales Rep Assigned: ${repName}`, date: orderDate },
+  // Events carry their timestamp so the rep's call feedback can be merged in
+  // chronologically; they are formatted to date strings at the end.
+  const events: { label: string; at: Date }[] = [
+    { label: "Order Created", at: dbOrder.createdAt },
+    { label: `Sales Rep Assigned: ${repName}`, at: dbOrder.createdAt },
   ];
   if (dbOrder.status !== "PENDING" && dbOrder.status !== "CANCELLED") {
-    history.push({
+    events.push({
       label: "Order Confirmed",
-      date: delivery ? formatDate(delivery.createdAt) : formatDate(dbOrder.updatedAt),
+      at: delivery ? delivery.createdAt : dbOrder.updatedAt,
     });
   }
   if (dbOrder.status !== "PENDING" && delivery && (dbOrder.notes?.trim() ?? "") !== "") {
-    history.push({ label: "Prescription Sent", date: formatDate(delivery.createdAt) });
+    events.push({ label: "Prescription Sent", at: delivery.createdAt });
   }
   if (dbOrder.agent) {
-    history.push({
+    events.push({
       label: `Delivery Agent Assigned: ${dbOrder.agent.companyName}`,
-      date: delivery ? formatDate(delivery.createdAt) : orderDate,
+      at: delivery ? delivery.createdAt : dbOrder.createdAt,
     });
   }
   if (dbOrder.status === "DELIVERED" && delivery?.deliveredTime) {
-    history.push({ label: "Order Delivered", date: formatDate(delivery.deliveredTime) });
+    events.push({ label: "Order Delivered", at: delivery.deliveredTime });
   }
   if (dbOrder.status === "FAILED" && delivery) {
-    history.push({ label: "Order Failed", date: formatDate(delivery.updatedAt) });
+    events.push({ label: "Order Failed", at: delivery.updatedAt });
   }
   if (dbOrder.status === "CANCELLED") {
-    history.push({ label: "Order Cancelled", date: formatDate(dbOrder.updatedAt) });
+    events.push({ label: "Order Cancelled", at: dbOrder.updatedAt });
   }
+
+  // Each feedback entry slots in before the first status event that happened
+  // after it (feedbacks arrive newest-first; walk them oldest-first). Status
+  // events keep their existing relative order.
+  for (const f of [...dbOrder.feedbacks].reverse()) {
+    const label = `Feedback: ${feedbackLabel(f.outcome)}${f.note ? ` — ${f.note}` : ""} (by ${f.author.name})`;
+    const idx = events.findIndex((e) => e.at.getTime() > f.createdAt.getTime());
+    const entry = { label, at: f.createdAt };
+    if (idx === -1) events.push(entry);
+    else events.splice(idx, 0, entry);
+  }
+
+  const history: { label: string; date: string }[] = events.map((e) => ({
+    label: e.label,
+    date: formatDate(e.at),
+  }));
 
   return {
     orderId: dbOrder.id,

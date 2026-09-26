@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db/prisma";
 import { Prisma, type OrderStatus } from "@prisma/client";
 import { upsellExtraCount } from "@/lib/orders/upsell";
+import { NO_FEEDBACK_FILTER } from "@/lib/orders/order-feedback";
 
 export async function getAllOrders() {
   return prisma.order.findMany({ orderBy: { createdAt: "desc" } });
@@ -145,6 +146,17 @@ export async function getOrderWithDetails(id: string) {
         orderBy: { createdAt: "desc" },
         take: 1,
       },
+      feedbacks: {
+        orderBy: { createdAt: "desc" },
+        take: 30,
+        select: {
+          id: true,
+          outcome: true,
+          note: true,
+          createdAt: true,
+          author: { select: { name: true } },
+        },
+      },
     },
   });
 }
@@ -205,6 +217,12 @@ export type AdminOrderFilters = {
   teamId?: string;
   /** "YYYY-MM-DD" — placed date (Order.createdAt), single day (admin behavior). */
   date?: string;
+  /**
+   * Latest sales-rep call feedback (`Order.lastFeedback`): an outcome from
+   * lib/orders/order-feedback.ts, or NO_FEEDBACK_FILTER for "none recorded yet".
+   * Callers validate the value before passing it.
+   */
+  feedback?: string;
 };
 
 function buildAdminOrderWhere(
@@ -231,6 +249,7 @@ function buildAdminOrderWhere(
       where.createdAt = { gte: new Date(y, m - 1, d, 0, 0, 0, 0), lt: new Date(y, m - 1, d + 1, 0, 0, 0, 0) };
     }
   }
+  if (f.feedback) where.lastFeedback = f.feedback === NO_FEEDBACK_FILTER ? null : f.feedback;
   return where;
 }
 
@@ -283,6 +302,8 @@ export type SalesRepOrderRow = {
   agent: { companyName: string; state: string | null } | null;
   items: Array<{ quantity: number; upsellQuantity: number; isUpsell: boolean; product: { name: string } }>;
   deliveryFee: number;
+  lastFeedback: string | null;
+  lastFeedbackAt: string | null;
 };
 
 const SALES_REP_ORDER_SELECT = {
@@ -294,6 +315,8 @@ const SALES_REP_ORDER_SELECT = {
   createdAt: true,
   updatedAt: true,
   deliveryFee: true,
+  lastFeedback: true,
+  lastFeedbackAt: true,
   customer: { select: { name: true, email: true } },
   agent: { select: { companyName: true, state: true } },
   items: { select: { quantity: true, upsellQuantity: true, isUpsell: true, product: { select: { name: true } } } },
@@ -314,6 +337,8 @@ function toSalesRepOrderRow(o: SalesRepOrderRaw): SalesRepOrderRow {
     agent: o.agent ? { companyName: o.agent.companyName, state: o.agent.state ?? null } : null,
     items: o.items.map((i) => ({ quantity: i.quantity, upsellQuantity: i.upsellQuantity, isUpsell: i.isUpsell, product: { name: i.product.name } })),
     deliveryFee: Number(o.deliveryFee),
+    lastFeedback: o.lastFeedback,
+    lastFeedbackAt: o.lastFeedbackAt?.toISOString() ?? null,
   };
 }
 

@@ -24,6 +24,14 @@ import {
 } from 'lucide-react';
 import type { OrderStatus } from '@prisma/client';
 import { formatCurrency } from '@/lib/utils';
+import { ChatUnreadBadge } from '@/components/chat/chat-unread-badge';
+import {
+  ORDER_FEEDBACK_OPTIONS,
+  NO_FEEDBACK_FILTER,
+  FEEDBACK_TONE_CLASSES,
+  feedbackLabel,
+  feedbackTone,
+} from '@/lib/orders/order-feedback';
 
 /** Green "Rescheduled" pill — shown for active orders whose delivery was pushed. */
 function RescheduledPill() {
@@ -39,6 +47,27 @@ function showRescheduled(o: { isRescheduled: boolean; status: OrderStatus }) {
   return o.isRescheduled && (o.status === 'PENDING' || o.status === 'CONFIRMED');
 }
 
+/** Latest call-feedback pill ("Not Picking", …). Hidden once an order is delivered. */
+function FeedbackPill({ order }: { order: Pick<OrderListItem, 'lastFeedback' | 'lastFeedbackAt' | 'status'> }) {
+  if (!order.lastFeedback || order.status === 'DELIVERED') return null;
+  const when = order.lastFeedbackAt
+    ? new Date(order.lastFeedbackAt).toLocaleString('en-NG', {
+        day: '2-digit',
+        month: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    : '';
+  return (
+    <span
+      title={when ? `Recorded ${when}` : undefined}
+      className={`inline-flex items-center text-[10px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap shrink-0 ${FEEDBACK_TONE_CLASSES[feedbackTone(order.lastFeedback)]}`}
+    >
+      {feedbackLabel(order.lastFeedback)}
+    </span>
+  );
+}
+
 export type OrderListItem = {
   id: string;
   orderNumber: string;
@@ -51,6 +80,9 @@ export type OrderListItem = {
   agent: { companyName: string; state: string | null } | null;
   items: Array<{ quantity: number; upsellQuantity: number; isUpsell: boolean; product: { name: string } }>;
      deliveryFee: number;
+  /** Latest call-feedback outcome (lib/orders/order-feedback.ts), if any. */
+  lastFeedback: string | null;
+  lastFeedbackAt: string | null; // ISO string
 };
 
 export type OrderCounts = {
@@ -81,7 +113,7 @@ interface OrdersClientProps {
   products: ProductItem[];
   productForms: ProductForms[];
   /** Filter selections parsed from the URL on the server (seed the controls). */
-  initialFilters?: { status: string; search: string; date: string };
+  initialFilters?: { status: string; search: string; date: string; feedback: string };
 }
 
 const STATUS_STYLES: Record<OrderStatus, { dot: string; bg: string; text: string; label: string }> = {
@@ -111,6 +143,9 @@ export function OrdersClient({ orders, total, statusCounts, page: pageProp, user
     initialFilters?.date ? new Date(`${initialFilters.date}T00:00:00`) : undefined
   );
 
+  // Latest call-feedback filter: an outcome value, NO_FEEDBACK_FILTER, or "" (any).
+  const [feedbackFilter, setFeedbackFilter] = useState(initialFilters?.feedback ?? '');
+
   // Manual "Add Order" modal — the form itself lives in <AddOrderModal/>.
   const [isAddOrderOpen, setIsAddOrderOpen] = useState(false);
 
@@ -134,7 +169,7 @@ export function OrdersClient({ orders, total, statusCounts, page: pageProp, user
   // Jump back to page 1 whenever a filter changes.
   useEffect(() => {
     setPage(1);
-  }, [activeTab, searchQuery, filterDate]);
+  }, [activeTab, searchQuery, filterDate, feedbackFilter]);
 
   // Sync filters → URL → server (debounced). Local state drives the controls; the
   // URL (read by the server page) drives which rows come back, so filtering +
@@ -144,6 +179,7 @@ export function OrdersClient({ orders, total, statusCounts, page: pageProp, user
     if (activeTab) p.set('status', activeTab);
     if (searchQuery.trim()) p.set('q', searchQuery.trim());
     if (filterDate) p.set('date', format(filterDate, 'yyyy-MM-dd'));
+    if (feedbackFilter) p.set('feedback', feedbackFilter);
     if (currentPage > 1) p.set('page', String(currentPage));
     return p.toString();
   })();
@@ -193,10 +229,11 @@ export function OrdersClient({ orders, total, statusCounts, page: pageProp, user
           {/* Circular Chat Button */}
           <button
             onClick={() => router.push("/chat")}
-            className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-[#A020F0] text-white flex items-center justify-center shadow-lg shadow-purple-100 hover:bg-[#8B1ED2] active:scale-95 transition-all duration-200"
+            className="relative w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-[#A020F0] text-white flex items-center justify-center shadow-lg shadow-purple-100 hover:bg-[#8B1ED2] active:scale-95 transition-all duration-200"
             title="Messages"
           >
             <MessageSquare className="w-4 h-4 sm:w-5 sm:h-5 fill-white stroke-none" />
+            <ChatUnreadBadge className="absolute -top-1.5 -right-1.5" />
           </button>
         </div>
       </div>
@@ -268,6 +305,20 @@ export function OrdersClient({ orders, total, statusCounts, page: pageProp, user
               />
             </PopoverContent>
           </Popover>
+          <select
+            value={feedbackFilter}
+            onChange={(e) => setFeedbackFilter(e.target.value)}
+            aria-label="Filter by feedback"
+            className={`px-3 py-2 bg-white rounded-lg text-sm font-medium border shadow-sm outline-none cursor-pointer min-w-0 ${
+              feedbackFilter ? 'text-purple-700 border-purple-200 bg-purple-50' : 'text-gray-600 border-gray-100'
+            }`}
+          >
+            <option value="">All feedback</option>
+            <option value={NO_FEEDBACK_FILTER}>No feedback yet</option>
+            {ORDER_FEEDBACK_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
           <button className="p-2 bg-white rounded-lg text-gray-400 shrink-0 border border-gray-100 shadow-sm">
             <ArrowUpDown size={18} />
           </button>
@@ -352,6 +403,9 @@ export function OrdersClient({ orders, total, statusCounts, page: pageProp, user
                       {order.agent && (
                         <div className="col-span-2 truncate"><span className="text-gray-400">Agent:</span> {order.agent.companyName}</div>
                       )}
+                      {order.lastFeedback && order.status !== 'DELIVERED' && (
+                        <div className="col-span-2 flex items-center gap-1.5"><span className="text-gray-400">Feedback:</span> <FeedbackPill order={order} /></div>
+                      )}
                     </div>
                   </div>
                 );
@@ -360,7 +414,7 @@ export function OrdersClient({ orders, total, statusCounts, page: pageProp, user
 
             {/* ── Desktop Table (hidden on small screens) ── */}
             <div className="hidden md:block overflow-x-auto">
-              <table className="w-full min-w-[800px]">
+              <table className="w-full min-w-[920px]">
                 <thead>
                   <tr className="border-b border-gray-100">
                     <th className="pl-6 sm:pl-12 pr-4 sm:pr-6 py-4 sm:py-5 text-left text-xs font-bold text-gray-500  tracking-wider">G-Mail</th>
@@ -370,6 +424,7 @@ export function OrdersClient({ orders, total, statusCounts, page: pageProp, user
                     <th className="px-4 sm:px-6 py-4 sm:py-5 text-center text-xs font-bold text-gray-500 tracking-wider">Quantity</th>
                     <th className="px-4 sm:px-6 py-4 sm:py-5 text-right text-xs font-bold text-gray-500 tracking-wider whitespace-nowrap">Delivery Fee</th>
                     <th className="px-4 sm:px-6 py-4 sm:py-5 text-right text-xs font-bold text-gray-500 tracking-wider">Date</th>
+                    <th className="px-4 sm:px-6 py-4 sm:py-5 text-left text-xs font-bold text-gray-500 tracking-wider">Feedback</th>
                     <th className="px-4 sm:px-6 py-4 sm:py-5 text-left text-xs font-bold text-gray-500 tracking-wider whitespace-nowrap">Status Date</th>
                   </tr>
                 </thead>
@@ -443,6 +498,13 @@ export function OrdersClient({ orders, total, statusCounts, page: pageProp, user
                         </td>
                         <td className="px-4 sm:px-6 py-4 sm:py-5 text-right">
                           <span className="text-xs sm:text-sm text-gray-500">{dateLabel}</span>
+                        </td>
+                        <td className="px-4 sm:px-6 py-4 sm:py-5">
+                          {order.lastFeedback && order.status !== 'DELIVERED' ? (
+                            <FeedbackPill order={order} />
+                          ) : (
+                            <span className="text-gray-300">—</span>
+                          )}
                         </td>
                         <td className="px-4 sm:px-6 py-4 sm:py-5 whitespace-nowrap">
                           {order.status === 'PENDING' ? (

@@ -43,6 +43,7 @@ model User {
   journalEntries          JournalEntry[]          @relation("JournalEntryCreator")
   notifications           Notification[]          @relation("UserNotifications")
   upsoldOrderItems        OrderItem[]             @relation("UpsoldOrderItems")
+  orderFeedbacks          OrderFeedback[]         @relation("OrderFeedbackAuthor")
   orders                  Order[]                 @relation("SalesRepOrders")
   discountedOrders        Order[]                 @relation("DiscountedOrders")
   pickPackAssignments     PickPack[]              @relation("PickerAssignments")
@@ -418,6 +419,12 @@ model Order {
   contactMethod      ContactMethod?
   cancellationReason String?
   formId          String?
+  // Latest sales-rep call feedback (denormalized from OrderFeedback for list
+  // display + filtering). A label only — never drives `status`. See
+  // lib/orders/order-feedback.ts.
+  lastFeedback    String?
+  lastFeedbackAt  DateTime?
+  feedbacks       OrderFeedback[]
   deliveries      Delivery[]
   invoices        Invoice[]
   items           OrderItem[]
@@ -438,7 +445,27 @@ model Order {
   @@index([createdAt])
   @@index([discountedById])
   @@index([formId])
+  @@index([salesRepId, lastFeedback])
   @@map("orders")
+}
+
+/// One sales-rep call-feedback entry on an order ("Not Picking", "Will Call
+/// Back", …). History of every attempt; the latest is mirrored onto
+/// Order.lastFeedback. `outcome` is validated against lib/orders/order-feedback.ts.
+model OrderFeedback {
+  id        String   @id @default(cuid())
+  orderId   String
+  authorId  String
+  outcome   String
+  note      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  author    User     @relation("OrderFeedbackAuthor", fields: [authorId], references: [id])
+
+  @@index([orderId, createdAt])
+  @@index([authorId])
+  @@map("order_feedback")
 }
 
 model OrderItem {

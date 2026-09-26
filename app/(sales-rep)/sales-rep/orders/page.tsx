@@ -6,6 +6,7 @@ import { getManualOrderProductForms } from "@/modules/orders/services/form-packa
 import { OrdersClient } from "./orders-client";
 import type { Metadata } from "next";
 import type { OrderStatus } from "@prisma/client";
+import { NO_FEEDBACK_FILTER, isOrderFeedbackOutcome } from "@/lib/orders/order-feedback";
 
 export const metadata: Metadata = { title: "Orders" };
 
@@ -25,10 +26,14 @@ export default async function OrdersPage({
     Array.isArray(sp[k]) ? (sp[k] as string[])[0] : (sp[k] as string | undefined);
 
   const statusRaw = get("status") ?? "";
+  const feedbackRaw = get("feedback") ?? "";
+  const feedback =
+    feedbackRaw === NO_FEEDBACK_FILTER || isOrderFeedbackOutcome(feedbackRaw) ? feedbackRaw : undefined;
   const filters: AdminOrderFilters = {
     status: STATUSES.includes(statusRaw as OrderStatus) ? (statusRaw as OrderStatus) : undefined,
     search: (get("q") ?? "").trim(),
     date: get("date") || undefined,
+    feedback,
   };
   const pageNum = Math.max(1, parseInt(get("page") ?? "1", 10) || 1);
 
@@ -57,6 +62,7 @@ export default async function OrdersPage({
         status: filters.status ?? "",
         search: filters.search ?? "",
         date: filters.date ?? "",
+        feedback: filters.feedback ?? "",
       }}
     />
   );

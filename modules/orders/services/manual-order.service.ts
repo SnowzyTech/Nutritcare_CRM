@@ -17,7 +17,17 @@ import { z } from "zod";
  * resolved server-side from the chosen FORM's package tiers via
  * `resolveUpsellPrice` — never `sellingPrice x qty` — and the caller-supplied
  * `unitPrice` only ever covers surplus units that have no exact package.
+ *
+ * Exception: on a REORDER the creator may replace a line's form price with the
+ * price agreed with the returning customer (`overrideLineTotal`, higher or
+ * lower). It becomes the authoritative `lineTotal`; the form price it replaced
+ * is recorded in the audit log by `logManualOrderCreated`.
  */
+
+/** Largest value an `OrderItem.lineTotal` (Decimal(10,2)) can hold. */
+const MAX_LINE_TOTAL = 99_999_999.99;
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
 
 /**
  * One product line carries the FORM whose package tiers price it (a product can
@@ -40,6 +50,17 @@ export const manualOrderSchema = z.object({
         formId: z.string().min(1, "Choose a form for pricing."),
         quantity: z.number().int().positive(),
         unitPrice: z.number().positive().optional(),
+        /**
+         * Rep-agreed line total that replaces the form's package price — REORDERS
+         * ONLY (enforced in `createManualOrder`, not here: this schema is
+         * `.extend()`ed by the analyst action, which Zod v4 forbids on refined
+         * schemas). May be above or below the form price; audit-logged.
+         */
+        overrideLineTotal: z
+          .number()
+          .positive("An edited price must be greater than ₦0.")
+          .max(MAX_LINE_TOTAL, "That price is too large.")
+          .optional(),
       }),
     )
     .min(1, "At least one product is required."),
@@ -56,12 +77,26 @@ export type ManualOrderSurplusLine = {
   lineTotal: number;
 };
 
+/**
+ * A reorder line whose form price the creator replaced with an agreed price —
+ * audited after the write with both prices. `formLineTotal` is null when the
+ * form had no exact package for the quantity and no surplus unit price was typed.
+ */
+export type ManualOrderPriceOverride = {
+  productId: string;
+  productName: string;
+  quantity: number;
+  formLineTotal: number | null;
+  lineTotal: number;
+};
+
 export type ManualOrderResult =
   | {
       orderId: string;
       orderNumber: string;
       totalAmount: number;
       surplusLines: ManualOrderSurplusLine[];
+      priceOverrides: ManualOrderPriceOverride[];
     }
   | { error: string };
 
@@ -81,6 +116,12 @@ export async function createManualOrder(
     customerName, phone, whatsappNumber, email, deliveryAddress,
     state, landmark, isReorder, products,
   } = input;
+
+  // An edited (agreed) price is a reorder concession only — normal orders are
+  // always priced from the form's packages.
+  if (!isReorder && products.some((p) => p.overrideLineTotal !== undefined)) {
+    return { error: "Prices can only be edited on reorders. Turn on “Mark as Reorder” or use the form price." };
+  }
 
   const cleanPhone = phone.replace(/\s+/g, "");
 
@@ -138,6 +179,7 @@ export async function createManualOrder(
     costPriceAtSale: number;
   }> = [];
   const surplusLines: ManualOrderSurplusLine[] = [];
+  const priceOverrides: ManualOrderPriceOverride[] = [];
 
   for (const item of products) {
     const product = productMap.get(item.productId);
@@ -162,6 +204,33 @@ export async function createManualOrder(
       item.unitPrice ?? 0,
       item.formId,
     );
+    // Reorder with an agreed price: the rep's line total replaces the form price
+    // outright (the typed surplus unit price is then irrelevant). The form price
+    // is kept only for the audit trail.
+    if (item.overrideLineTotal !== undefined) {
+      const lineTotal = round2(item.overrideLineTotal);
+      if (lineTotal <= 0) {
+        return { error: `The edited price for ${product.name} must be greater than ₦0.` };
+      }
+      const formPriceKnown =
+        !priced.requiresUnitPrice || (item.unitPrice !== undefined && item.unitPrice > 0);
+      orderItemsData.push({
+        productId: item.productId,
+        quantity: item.quantity,
+        unitPrice: round2(lineTotal / item.quantity),
+        lineTotal,
+        costPriceAtSale: Number(product.costPrice),
+      });
+      priceOverrides.push({
+        productId: item.productId,
+        productName: product.name,
+        quantity: item.quantity,
+        formLineTotal: formPriceKnown ? priced.lineTotal : null,
+        lineTotal,
+      });
+      continue;
+    }
+
     if (priced.requiresUnitPrice && (!item.unitPrice || item.unitPrice <= 0)) {
       return {
         error: `Enter a unit price for the extra units of ${product.name}.`,
@@ -214,6 +283,7 @@ export async function createManualOrder(
       orderNumber: order.orderNumber,
       totalAmount,
       surplusLines,
+      priceOverrides,
     };
   } catch (err) {
     console.error("[createManualOrder] Error:", err);
@@ -237,6 +307,8 @@ export async function logManualOrderCreated(params: {
   customerName: string;
   totalAmount: number;
   surplusLines: ManualOrderSurplusLine[];
+  /** Reorder lines priced at an agreed price instead of the form price. */
+  priceOverrides: ManualOrderPriceOverride[];
   /** The signed-in creator, when that is not the rep themselves. */
   actor?: { name?: string | null; role?: string | null } | null;
   /** The rep's name — only used to spell out the on-behalf-of description. */
@@ -244,7 +316,7 @@ export async function logManualOrderCreated(params: {
 }): Promise<void> {
   const {
     salesRepId, orderId, orderNumber, customerName,
-    totalAmount, surplusLines, actor, onBehalfOfName,
+    totalAmount, surplusLines, priceOverrides, actor, onBehalfOfName,
   } = params;
 
   const onBehalfOf = actor
@@ -280,6 +352,29 @@ export async function logManualOrderCreated(params: {
         amount: s.lineTotal,
         productId: s.productId,
         typedUnitPrice: s.unitPrice,
+      },
+    });
+  }
+
+  // Audit every reorder line whose form price was replaced with an agreed price,
+  // with both prices so finance can review the concession (or mark-up).
+  for (const o of priceOverrides) {
+    const formPrice = o.formLineTotal === null ? "no form package price" : formatCurrency(o.formLineTotal);
+    await logActivity({
+      userId: salesRepId,
+      actorName: actor?.name ?? null,
+      actorRole: actor?.role ?? null,
+      action: "Updated",
+      entityType: "OrderItem",
+      entityId: orderId,
+      description: `Reorder price edited for ${o.productName} (qty ${o.quantity}) on Order #${orderNumber}: ${formPrice} → ${formatCurrency(o.lineTotal)}`,
+      details: {
+        field: "price",
+        before: o.formLineTotal,
+        after: o.lineTotal,
+        amount: o.lineTotal,
+        productId: o.productId,
+        quantity: o.quantity,
       },
     });
   }

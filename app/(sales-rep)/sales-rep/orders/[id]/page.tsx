@@ -100,6 +100,13 @@ export default async function OrderDetailPage({ params }: Props) {
       updatedAt: d.updatedAt.toISOString(),
       status: d.status,
     })),
+    feedbacks: rawOrder.feedbacks.map((f) => ({
+      id: f.id,
+      outcome: f.outcome,
+      note: f.note ?? null,
+      createdAt: f.createdAt.toISOString(),
+      authorName: f.author.name,
+    })),
   };
 
   const products = rawProducts.map((p) => ({

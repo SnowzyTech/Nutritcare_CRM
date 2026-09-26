@@ -32,6 +32,12 @@ import {
   logManualOrderCreated,
   manualOrderSchema,
 } from "@/modules/orders/services/manual-order.service";
+import { recordOrderFeedback } from "@/modules/orders/services/order-feedback.service";
+import {
+  ORDER_FEEDBACK_NOTE_MAX,
+  ORDER_FEEDBACK_VALUES,
+  feedbackLabel,
+} from "@/lib/orders/order-feedback";
 import { z } from "zod";
 
 /** Generates a cryptographically random 6-digit numeric delivery code. */
@@ -410,6 +416,69 @@ export async function setOrderContactMethodAction(
   revalidateOrderPaths(orderId);
 }
 
+const orderFeedbackSchema = z
+  .object({
+    outcome: z.enum(ORDER_FEEDBACK_VALUES, { error: "Choose a feedback option." }),
+    note: z
+      .string()
+      .trim()
+      .max(ORDER_FEEDBACK_NOTE_MAX, `Keep the note under ${ORDER_FEEDBACK_NOTE_MAX} characters.`)
+      .optional(),
+  })
+  .refine((v) => v.outcome !== "OTHER" || !!v.note, {
+    message: "Add a note describing the feedback.",
+    path: ["note"],
+  });
+
+/**
+ * Records the rep's call feedback on one of their orders ("Not Picking",
+ * "Customer Will Call Back", …). A label only: it never changes the order's
+ * status — even the "Cancelled" option (the rep still uses the real Cancel
+ * button). Allowed on every status except DELIVERED, so follow-ups can be
+ * logged on pending, confirmed, failed and cancelled orders alike.
+ */
+export async function recordOrderFeedbackAction(
+  orderId: string,
+  outcome: string,
+  note?: string,
+): Promise<{ error?: string }> {
+  const session = await auth();
+  suppressCameraForRequest();
+  if (!session?.user?.id) {
+    return { error: "You are not signed in. Please refresh and try again." };
+  }
+
+  const parsed = orderFeedbackSchema.safeParse({ outcome, note });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid feedback." };
+  }
+
+  const order = await getOwnedOrder(orderId, session.user.id);
+  if (!order) return { error: "Order not found." };
+  if (order.status === "DELIVERED") {
+    return { error: "Feedback can't be added to a delivered order." };
+  }
+
+  const noteText = parsed.data.note || null;
+  await recordOrderFeedback({
+    orderId,
+    authorId: session.user.id,
+    outcome: parsed.data.outcome,
+    note: noteText,
+  });
+
+  await logActivity({
+    userId: session.user.id,
+    action: "Feedback",
+    entityType: "Order",
+    entityId: orderId,
+    description: `Order #${order.orderNumber}: ${feedbackLabel(parsed.data.outcome)}${noteText ? ` — ${noteText}` : ""}`,
+  });
+
+  revalidateOrderPaths(orderId);
+  return {};
+}
+
 /**
  * Applies a negotiated discount to an order.
  *
@@ -527,6 +596,7 @@ export async function createOrderAction(
     customerName: parsed.data.customerName,
     totalAmount: result.totalAmount,
     surplusLines: result.surplusLines,
+    priceOverrides: result.priceOverrides,
   });
 
   revalidatePath("/sales-rep/orders");

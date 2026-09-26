@@ -25,6 +25,8 @@ export type ActivityAction =
   | "Failed"
   | "Revived"
   | "Discount"
+  /** Sales-rep call feedback recorded on an order (label only, no status change). */
+  | "Feedback"
   | "Remittance"
   | "Adjustment"
   | "Reassigned"

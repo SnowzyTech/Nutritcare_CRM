@@ -385,6 +385,7 @@ export async function createOrderByAnalystAction(
     customerName: orderInput.customerName,
     totalAmount: result.totalAmount,
     surplusLines: result.surplusLines,
+    priceOverrides: result.priceOverrides,
     actor: { name: session.user.name, role: session.user.role },
     onBehalfOfName: rep.name,
   });
