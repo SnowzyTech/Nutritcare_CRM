@@ -42,8 +42,16 @@ model User {
   invoices                Invoice[]               @relation("InvoiceCreatedBy")
   journalEntries          JournalEntry[]          @relation("JournalEntryCreator")
   notifications           Notification[]          @relation("UserNotifications")
+  pushSubscriptions       PushSubscription[]
   upsoldOrderItems        OrderItem[]             @relation("UpsoldOrderItems")
+  orderFeedbacks          OrderFeedback[]         @relation("OrderFeedbackAuthor")
   orders                  Order[]                 @relation("SalesRepOrders")
+  autoAssignedOrders      Order[]                 @relation("AutoAssignedOrders")
+  salesTargetsSet         SalesTarget[]           @relation("SalesTargetSetBy")
+  salesReportsAuthored    SalesReport[]           @relation("SalesReportAuthor")
+  salesActionItems        SalesActionItem[]       @relation("SalesActionItemCreatedBy")
+  customerFeedbacks       CustomerFeedback[]      @relation("CustomerFeedbackAuthor")
+  followUpsCompleted      CustomerFollowUp[]      @relation("FollowUpCompletedBy")
   discountedOrders        Order[]                 @relation("DiscountedOrders")
   pickPackAssignments     PickPack[]              @relation("PickerAssignments")
   purchaseOrders          PurchaseOrder[]         @relation("PurchaseOrderCreatedBy")
@@ -71,6 +79,7 @@ model Team {
   createdAt  DateTime   @default(now())
   updatedAt  DateTime   @updatedAt
   members    User[]
+  salesTargets SalesTarget[]
 
   @@index([department])
   @@map("teams")
@@ -98,6 +107,10 @@ model Customer {
   lga             String
   landmark        String?
   source          String?
+  // Normalised phone (digits, 234… — lib/phone.ts toInternationalPhone). Every
+  // form order creates a fresh Customer, so this is how a returning customer /
+  // reorder is recognised (docs/sales-reporting.md).
+  phoneKey        String?
   deletedAt       DateTime?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
@@ -106,6 +119,7 @@ model Customer {
 
   @@index([email])
   @@index([state])
+  @@index([phoneKey])
   @@map("customers")
 }
 
@@ -163,6 +177,7 @@ model Product {
   stockLevels           StockLevel[]
   stockMovementItems    StockMovementItem[]
   stockTransferItems    StockTransferItem[]
+  customerFeedbacks CustomerFeedback[]
 
   @@index([categoryId])
   @@index([sku])
@@ -418,6 +433,28 @@ model Order {
   contactMethod      ContactMethod?
   cancellationReason String?
   formId          String?
+  // The rep the system's form-intake rotation originally gave this order to.
+  // Set once at intake and never changed by reassignment — it drives the even
+  // daily distribution (modules/orders/services/rep-assignment.service.ts).
+  autoAssignedToId String?
+  // Latest sales-rep call feedback (denormalized from OrderFeedback for list
+  // display + filtering). A label only — never drives `status`. See
+  // lib/orders/order-feedback.ts.
+  lastFeedback    String?
+  lastFeedbackAt  DateTime?
+  // Duplicate-order flagging (modules/orders/services/duplicate-order.service.ts).
+  // When a new order is an exact twin (same customer phoneKey + same items/qty/
+  // price/total) of an EARLIER still-open order, the new copy is auto-disabled:
+  // `duplicateOfId` points to the kept original and `duplicateDisabledAt` is set.
+  // A disabled copy is fully visible but cannot be confirmed until a data
+  // team-lead / admin / super-admin re-enables it. The kept original carries
+  // `hasDuplicates = true` so reps get a non-blocking heads-up before confirming.
+  duplicateOfId       String?
+  duplicateDisabledAt DateTime?
+  hasDuplicates       Boolean   @default(false)
+  duplicateOf     Order?      @relation("OrderDuplicates", fields: [duplicateOfId], references: [id], onDelete: SetNull)
+  duplicates      Order[]     @relation("OrderDuplicates")
+  feedbacks       OrderFeedback[]
   deliveries      Delivery[]
   invoices        Invoice[]
   items           OrderItem[]
@@ -426,6 +463,9 @@ model Order {
   salesRep        User        @relation("SalesRepOrders", fields: [salesRepId], references: [id])
   discountedBy    User?       @relation("DiscountedOrders", fields: [discountedById], references: [id])
   form            Form?       @relation("FormOrders", fields: [formId], references: [id])
+  autoAssignedTo  User?       @relation("AutoAssignedOrders", fields: [autoAssignedToId], references: [id], onDelete: SetNull)
+  customerFeedbacks CustomerFeedback[]
+  followUps       CustomerFollowUp[]
   pickPacks       PickPack[]
   messageRefs     MessageOrderRef[]
 
@@ -438,7 +478,30 @@ model Order {
   @@index([createdAt])
   @@index([discountedById])
   @@index([formId])
+  @@index([salesRepId, lastFeedback])
+  @@index([autoAssignedToId, createdAt])
+  @@index([date])
+  @@index([duplicateOfId])
   @@map("orders")
+}
+
+/// One sales-rep call-feedback entry on an order ("Not Picking", "Will Call
+/// Back", …). History of every attempt; the latest is mirrored onto
+/// Order.lastFeedback. `outcome` is validated against lib/orders/order-feedback.ts.
+model OrderFeedback {
+  id        String   @id @default(cuid())
+  orderId   String
+  authorId  String
+  outcome   String
+  note      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  author    User     @relation("OrderFeedbackAuthor", fields: [authorId], references: [id])
+
+  @@index([orderId, createdAt])
+  @@index([authorId])
+  @@map("order_feedback")
 }
 
 model OrderItem {
@@ -716,6 +779,7 @@ model Delivery {
   @@index([agentId])
   @@index([truckDriverId])
   @@index([status])
+  @@index([deliveredTime])
   @@map("deliveries")
 }
 
@@ -1049,18 +1113,63 @@ model Notification {
   title       String
   message     String
   type        String
+  // critical | high | normal — see lib/notifications/catalog.ts. A String so new
+  // levels need no migration; drives push urgency and the SMS fallback.
+  priority    String   @default("normal")
   isRead      Boolean  @default(false)
+  readAt      DateTime?
   link        String?
   entityType  String?
   entityId    String?
+  // Structured template variables (orderNumber, product, …) the text was built from.
+  data        Json?
+  // Idempotency key per recipient: a retried action or double submit is a no-op.
+  dedupeKey   String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   recipient   User     @relation("UserNotifications", fields: [recipientId], references: [id], onDelete: Cascade)
+  deliveries  NotificationDelivery[]
 
-  @@index([recipientId])
-  @@index([isRead])
+  @@unique([recipientId, dedupeKey])
+  @@index([recipientId, isRead, createdAt(sort: Desc)])
   @@index([createdAt])
   @@map("notifications")
+}
+
+/// One browser/device registered for Web Push. The endpoint identifies a browser,
+/// not a person: upserting by endpoint hands a shared phone to whoever logged in last.
+model PushSubscription {
+  id           String   @id @default(cuid())
+  userId       String
+  endpoint     String   @unique
+  p256dh       String
+  auth         String
+  userAgent    String?
+  lastSeenAt   DateTime @default(now())
+  failureCount Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("push_subscriptions")
+}
+
+/// One out-of-band delivery attempt (realtime / push / SMS) for a notification.
+/// Used to rate-limit the SMS fallback and to answer "I never got it".
+model NotificationDelivery {
+  id             String       @id @default(cuid())
+  notificationId String
+  recipientId    String
+  channel        String // REALTIME | PUSH | SMS
+  status         String // SENT | FAILED | SKIPPED
+  error          String?
+  createdAt      DateTime     @default(now())
+  notification   Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  @@index([recipientId, channel, createdAt])
+  @@index([notificationId])
+  @@map("notification_deliveries")
 }
 
 model AuditLog {
@@ -1593,4 +1702,103 @@ enum AdjustmentType {
   PAYMENT
   OVERPAYMENT
   CORRECTION
+}
+
+// ── Sales reporting (docs/sales-reporting.md, docs/CRM_Sales_Reporting_Template_.pdf) ──
+
+/// A team's target for one metric in one period. The company target is the sum
+/// of team targets. Periods are Lagos calendar periods keyed by their first day.
+model SalesTarget {
+  id          String   @id @default(cuid())
+  periodType  String // DAY | WEEK | MONTH | QUARTER
+  periodStart String // YYYY-MM-DD (Lagos) — first day of the period
+  teamId      String
+  metric      String // REVENUE | HANDLED | CONFIRMED | DELIVERED | REORDERS | UPSELLS | CROSS_SELLS
+  value       Decimal  @db.Decimal(14, 2)
+  setById     String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  team        Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  setBy       User     @relation("SalesTargetSetBy", fields: [setById], references: [id])
+
+  @@unique([periodType, periodStart, teamId, metric])
+  @@index([periodType, periodStart])
+  @@map("sales_targets")
+}
+
+/// The sales manager's report for one period: written sections (draft), and on
+/// submission a snapshot of every figure as it stood — never silently updated.
+model SalesReport {
+  id            String    @id @default(cuid())
+  periodType    String // DAY | WEEK | MONTH | QUARTER
+  periodStart   String // YYYY-MM-DD (Lagos)
+  status        String    @default("DRAFT") // DRAFT | SUBMITTED
+  narrative     Json      @default("{}")
+  figures       Json?
+  authorId      String
+  submittedAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  author        User      @relation("SalesReportAuthor", fields: [authorId], references: [id])
+
+  @@unique([periodType, periodStart])
+  @@map("sales_reports")
+}
+
+/// "Challenges / Management Action" rows — tracked until closed, across reports.
+model SalesActionItem {
+  id             String    @id @default(cuid())
+  issue          String
+  teamOrLocation String?
+  impact         String?
+  actionRequired String?
+  owner          String?
+  status         String    @default("OPEN") // OPEN | IN_PROGRESS | DONE
+  createdById    String
+  closedAt       DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  createdBy      User      @relation("SalesActionItemCreatedBy", fields: [createdById], references: [id])
+
+  @@index([status])
+  @@index([createdAt])
+  @@map("sales_action_items")
+}
+
+/// Customer / product feedback a rep records on an order (lib/orders/customer-feedback.ts).
+model CustomerFeedback {
+  id        String   @id @default(cuid())
+  orderId   String
+  productId String?
+  authorId  String
+  category  String // POSITIVE | NEGATIVE | PRODUCT_COMPLAINT | DELIVERY_COMPLAINT | OTHER
+  message   String
+  status    String   @default("OPEN") // OPEN | ACTIONED | RESOLVED
+  action    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product   Product? @relation(fields: [productId], references: [id])
+  author    User     @relation("CustomerFeedbackAuthor", fields: [authorId], references: [id])
+
+  @@index([orderId])
+  @@index([createdAt])
+  @@index([category])
+  @@map("customer_feedback")
+}
+
+/// A completed post-delivery follow-up (Customer Journey: Day 1 / 2 / 4 / 7).
+model CustomerFollowUp {
+  id            String   @id @default(cuid())
+  orderId       String
+  stage         String // DAY1 | DAY2 | DAY4 | DAY7
+  completedById String
+  completedAt   DateTime @default(now())
+  note          String?
+  order         Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  completedBy   User     @relation("FollowUpCompletedBy", fields: [completedById], references: [id])
+
+  @@unique([orderId, stage])
+  @@index([completedAt])
+  @@map("customer_follow_ups")
 }

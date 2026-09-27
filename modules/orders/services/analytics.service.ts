@@ -1,6 +1,9 @@
 import { prisma } from "@/lib/db/prisma";
 import { unstable_cache } from "next/cache";
 import { generalPerformanceScore, kpiScore } from "@/lib/performance";
+import { periodCacheKey, periodWindows } from "@/lib/staff-period";
+import type { MonthPeriod } from "@/lib/month-period";
+import type { DatePeriod } from "@/lib/date-period";
 
 export type ProductStat = { name: string; qty: number };
 
@@ -21,8 +24,6 @@ export type MonthMetrics = {
   upsoldProducts: ProductStat[];
 };
 
-export type Period = "week" | "month";
-
 export type AnalyticsData = {
   current: MonthMetrics;
   last: MonthMetrics | null;
@@ -30,12 +31,13 @@ export type AnalyticsData = {
 
 type OrderRow = Awaited<ReturnType<typeof fetchOrders>>[number];
 
+/** `to` is INCLUSIVE when given (period windows end at 23:59:59.999). */
 async function fetchOrders(salesRepId: string, from: Date, to?: Date) {
   return prisma.order.findMany({
     where: {
       salesRepId,
       deletedAt: null,
-      createdAt: { gte: from, ...(to ? { lt: to } : {}) },
+      createdAt: { gte: from, ...(to ? { lte: to } : {}) },
     },
     select: {
       status: true,
@@ -45,6 +47,8 @@ async function fetchOrders(salesRepId: string, from: Date, to?: Date) {
         select: {
           productId: true,
           quantity: true,
+          isUpsell: true,
+          upsellQuantity: true,
           product: { select: { name: true } },
         },
       },
@@ -75,12 +79,14 @@ function computeMetrics(orders: OrderRow[]): MonthMetrics {
     deliveryAttempted > 0 ? Math.round((delivered / deliveryAttempted) * 100) : 0;
   const reorderRate = total > 0 ? Math.round((reorders / total) * 100) : 0;
 
-  // Upsell = orders with >1 distinct product type (multi-item orders)
-  const multiItemOrders = orders.filter(
-    (o) => new Set(o.items.map((i) => i.productId)).size > 1
+  // Upsell = orders that carry a RECORDED upsell (rep added units/products),
+  // read from the upsell fields — NOT merely orders with >1 distinct product
+  // (which miscounts same-product upsells and multi-product/non-upsell orders).
+  const upsoldOrders = orders.filter((o) =>
+    o.items.some((i) => i.upsellQuantity > 0 || i.isUpsell)
   );
   const upsellRate =
-    total > 0 ? Math.round((multiItemOrders.length / total) * 100) : 0;
+    total > 0 ? Math.round((upsoldOrders.length / total) * 100) : 0;
 
   // No orders handled → no performance (avoid the low-cancellation baseline).
   const generalPerformance =
@@ -112,12 +118,17 @@ function computeMetrics(orders: OrderRow[]): MonthMetrics {
 
   const bestSellingProduct = topProducts[0]?.name ?? "N/A";
 
-  // Upsold products: products that appear in multi-item orders
+  // Upsold products: ranked by the units actually upsold — a whole-upsell line's
+  // full quantity, or a merged line's upsold quantity (not "any item in a
+  // multi-item order", which miscounts).
   const upsoldQty = new Map<string, number>();
-  for (const order of multiItemOrders) {
+  for (const order of orders) {
     for (const item of order.items) {
-      const name = item.product.name;
-      upsoldQty.set(name, (upsoldQty.get(name) ?? 0) + 1);
+      const upsoldUnits = item.isUpsell ? item.quantity : item.upsellQuantity;
+      if (upsoldUnits > 0) {
+        const name = item.product.name;
+        upsoldQty.set(name, (upsoldQty.get(name) ?? 0) + upsoldUnits);
+      }
     }
   }
   const upsoldProducts: ProductStat[] = [...upsoldQty.entries()]
@@ -151,43 +162,20 @@ async function _getSalesRepWeeklyAnalytics(salesRepId: string): Promise<MonthMet
   return computeMetrics(orders);
 }
 
+/**
+ * A rep's metrics for a period (from `parseStaffPeriod(...).arg`) plus the
+ * previous period for trend deltas: a day vs the day before, a Mon–Sun week vs
+ * the previous week, a calendar month vs the previous month.
+ */
 async function _getSalesRepAnalytics(
   salesRepId: string,
-  period: Period = "month",
-  targetMonth?: Date,
+  period: MonthPeriod | DatePeriod,
 ): Promise<AnalyticsData> {
-  if (period === "week") {
-    const now = new Date();
-    const currentStart = new Date(now);
-    currentStart.setDate(now.getDate() - 6);
-    currentStart.setHours(0, 0, 0, 0);
-    const currentEnd = new Date(now);
-    currentEnd.setDate(now.getDate() + 1);
-    currentEnd.setHours(0, 0, 0, 0);
-    const lastStart = new Date(now);
-    lastStart.setDate(now.getDate() - 13);
-    lastStart.setHours(0, 0, 0, 0);
-
-    const [currentOrders, lastOrders] = await Promise.all([
-      fetchOrders(salesRepId, currentStart, currentEnd),
-      fetchOrders(salesRepId, lastStart, currentStart),
-    ]);
-
-    return {
-      current: computeMetrics(currentOrders),
-      last: lastOrders.length > 0 ? computeMetrics(lastOrders) : null,
-    };
-  }
-
-  // Default: month
-  const now = targetMonth || new Date();
-  const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-  const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const { currentStart, currentEnd, prevStart, prevEnd } = periodWindows(period);
 
   const [currentOrders, lastOrders] = await Promise.all([
-    fetchOrders(salesRepId, currentMonthStart, nextMonthStart),
-    fetchOrders(salesRepId, lastMonthStart, currentMonthStart),
+    fetchOrders(salesRepId, currentStart, currentEnd),
+    fetchOrders(salesRepId, prevStart, prevEnd),
   ]);
 
   return {
@@ -218,15 +206,11 @@ export function getSalesRepWeeklyAnalytics(salesRepId: string): Promise<MonthMet
 
 export function getSalesRepAnalytics(
   salesRepId: string,
-  period: Period = "month",
-  targetMonth?: Date,
+  period: MonthPeriod | DatePeriod,
 ): Promise<AnalyticsData> {
-  const monthKey = targetMonth
-    ? `${targetMonth.getFullYear()}-${targetMonth.getMonth()}`
-    : "current";
   return unstable_cache(
-    () => _getSalesRepAnalytics(salesRepId, period, targetMonth),
-    ["rep-analytics", salesRepId, period, monthKey],
+    () => _getSalesRepAnalytics(salesRepId, period),
+    ["rep-analytics", salesRepId, periodCacheKey(period)],
     { revalidate: ANALYTICS_TTL_SECONDS }
   )();
 }

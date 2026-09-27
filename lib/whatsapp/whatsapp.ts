@@ -6,18 +6,10 @@
  *   WHATSAPP_API_TOKEN        — Permanent system-user access token
  */
 
-/**
- * Normalises a Nigerian (or other) phone number to the international format
- * WhatsApp expects: digits only, country code prefix, no leading +.
- * e.g.  "08012345678"  →  "2348012345678"
- *       "+2348163810804" →  "2348163810804"
- */
-function formatPhoneForWhatsApp(phone: string): string {
-  const digits = phone.replace(/\D/g, "");
-  if (digits.startsWith("234")) return digits;
-  if (digits.startsWith("0")) return "234" + digits.slice(1);
-  return digits;
-}
+import { toInternationalPhone } from "@/lib/phone";
+
+/** WhatsApp expects digits only with the country code and no leading +. */
+const formatPhoneForWhatsApp = toInternationalPhone;
 
 /**
  * WhatsApp template variables cannot contain newlines, tabs, or runs of more than

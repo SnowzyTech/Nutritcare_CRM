@@ -3,6 +3,9 @@ import { notFound, redirect } from "next/navigation";
 import { getOrderWithDetails } from "@/modules/orders/services/orders.service";
 import { getActiveProducts } from "@/modules/orders/services/products.service";
 import { getAgentsForReassignment } from "@/modules/delivery/services/agents.service";
+import { getOrderFeedback } from "@/modules/reports/sales/services/feedback.service";
+import { getOrderFollowUps } from "@/modules/reports/sales/services/follow-up.service";
+import { mapOrderInteraction } from "@/lib/orders/order-interaction";
 import { AdminOrderDetailClient } from "./order-detail-admin-client";
 import type { Metadata } from "next";
 
@@ -21,13 +24,17 @@ export default async function AdminOrderDetailPage({ params }: Props) {
   const session = await auth();
   if (!session?.user?.id) redirect("/login");
 
-  const [rawOrder, rawProducts, rawAgents] = await Promise.all([
+  const [rawOrder, rawProducts, rawAgents, customerFeedback, followUps] = await Promise.all([
     getOrderWithDetails(id),
     getActiveProducts(),
     getAgentsForReassignment(),
+    getOrderFeedback(id),
+    getOrderFollowUps(id),
   ]);
 
   if (!rawOrder) notFound();
+
+  const interaction = mapOrderInteraction(rawOrder.feedbacks, customerFeedback, followUps);
 
   const order = {
     id: rawOrder.id,
@@ -90,6 +97,9 @@ export default async function AdminOrderDetailPage({ params }: Props) {
       deliveredTime: d.deliveredTime?.toISOString() ?? null,
       status: d.status,
     })),
+    duplicateDisabled: rawOrder.duplicateDisabledAt !== null,
+    hasDuplicates: rawOrder.hasDuplicates,
+    duplicateOfNumber: rawOrder.duplicateOf?.orderNumber ?? null,
   };
 
   const products = rawProducts.map((p) => ({
@@ -108,5 +118,5 @@ export default async function AdminOrderDetailPage({ params }: Props) {
     totalDeliveries: a._count.deliveries,
   }));
 
-  return <AdminOrderDetailClient order={order} products={products} agents={agents} />;
+  return <AdminOrderDetailClient order={order} products={products} agents={agents} interaction={interaction} />;
 }

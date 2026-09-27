@@ -59,23 +59,44 @@ export type PublishInput = {
  * message delivery (the DB write already succeeded).
  */
 export async function publishMessageCreated(input: PublishInput): Promise<void> {
-  if (!PUBLISH_URL || !PUBLISH_SECRET) return; // realtime not configured
-  if (input.recipientUserIds.length === 0) return;
+  await publish({ event: "message.created", ...input });
+}
+
+/**
+ * Fire-and-forget publish of any non-chat event (e.g. `notification.created`).
+ * The socket server forwards any `event` to `recipientUserIds` as
+ * `{ type: event, conversationId, message }`, so non-chat events ride the same
+ * connection with an empty conversationId. Returns whether the publish was
+ * accepted (false when realtime is not configured or the server is down).
+ */
+export async function publishEvent(
+  event: string,
+  recipientUserIds: string[],
+  payload: unknown,
+): Promise<boolean> {
+  return publish({ event, conversationId: "", recipientUserIds, message: payload });
+}
+
+async function publish(body: PublishInput & { event: string }): Promise<boolean> {
+  if (!PUBLISH_URL || !PUBLISH_SECRET) return false; // realtime not configured
+  if (body.recipientUserIds.length === 0) return false;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), PUBLISH_TIMEOUT_MS);
   try {
-    await fetch(`${PUBLISH_URL}/publish`, {
+    const res = await fetch(`${PUBLISH_URL}/publish`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
         "x-publish-secret": PUBLISH_SECRET,
       },
-      body: JSON.stringify({ event: "message.created", ...input }),
+      body: JSON.stringify(body),
       signal: controller.signal,
     });
+    return res.ok;
   } catch {
     // swallow: realtime is best-effort; the DB is authoritative
+    return false;
   } finally {
     clearTimeout(timer);
   }

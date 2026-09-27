@@ -3,9 +3,9 @@ import { resolveManagerScope } from "../_lib/manager-scope";
 import { parseMonthParam } from "@/lib/month-period";
 import { calculateBonus } from "@/lib/bonus";
 import { AnalyticsDashboardClient, AnalyticsData } from "./analytics-dashboard-client";
-import { AnalyticsPeriodToggle } from "./period-toggle";
+import { StaffPeriodFilter } from "@/components/admin/staff-period-filter";
 import { TeamSelect } from "./team-select";
-import { parseRange, resolveAnalyticsPeriod } from "./analytics-period";
+import { resolveAnalyticsPeriod } from "./analytics-period";
 import { TeamAnalyticsReportButtons } from "./report-buttons";
 
 export const dynamic = "force-dynamic";
@@ -13,12 +13,12 @@ export const dynamic = "force-dynamic";
 const KPI_TARGET = "65%";
 
 export default async function TeamAnalyticsPage(props: {
-  searchParams: Promise<{ month?: string; range?: string; team?: string }>;
+  searchParams: Promise<{ g?: string; month?: string; w?: string; d?: string; team?: string }>;
 }) {
-  const { month, range: rangeParam, team: teamParam } = await props.searchParams;
-  const range = parseRange(rangeParam);
-  const { periodArg, periodText, vsLabel, bonusPeriod, bonusPeriodLabel } =
-    resolveAnalyticsPeriod(range, month);
+  const { team: teamParam, ...periodParams } = await props.searchParams;
+  const { month } = periodParams;
+  const { granularity, periodArg, periodText, vsLabel, bonusPeriod, bonusPeriodLabel } =
+    resolveAnalyticsPeriod(periodParams);
 
   const mp = parseMonthParam(month);
   const currentMonthParam =
@@ -100,11 +100,11 @@ export default async function TeamAnalyticsPage(props: {
       monthSelector={
         <div className="flex flex-wrap items-center gap-3">
           {isCompanyManager && <TeamSelect teams={salesTeams} />}
-          <AnalyticsPeriodToggle />
+          <StaffPeriodFilter />
         </div>
       }
       reportButtons={
-        range === "month" && reportMetrics ? (
+        granularity === "month" && reportMetrics ? (
           <TeamAnalyticsReportButtons
             monthlyData={reportMetrics}
             month={currentMonthParam}

@@ -1,21 +1,31 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { MessageCircle, Check, Trash2, AlertTriangle, X, ArrowLeft } from 'lucide-react';
+import { MessageCircle, Check, Trash2, AlertTriangle, X, ArrowLeft, Pencil, Repeat, Plus } from 'lucide-react';
 import Image from 'next/image';
 import { OrderDetailFull } from '@/modules/data-analysis/services/data-analysis.service';
 import { ProgressSteps } from './ProgressSteps';
 import { AgentInfoModal } from './AgentInfoModal';
 import { PrescriptionEditor } from './PrescriptionEditor';
+import { CustomerInteractionPanel } from '@/components/orders/customer-interaction-panel';
 import {
   deleteOrderPermanently,
   markOrderDeliveredByAnalyst,
   markOrderFailedByAnalyst,
   reassignOrderAgentByAnalyst,
+  addOrderItemsByAnalyst,
+  resolveUpsellPriceForAnalyst,
+  changeOrderItemQuantityByAnalyst,
+  swapOrderItemProductByAnalyst,
+  resolveLineRepriceForAnalyst,
+  applyOrderDiscountByAnalyst,
+  reenableDuplicateOrderAction,
 } from '@/modules/data-analysis/actions/data-analysis.action';
 import { toast } from 'sonner';
 import { Calendar } from '@/components/ui/calendar';
+import { EditLineModal } from '@/components/orders/edit-line-modal';
+import { DuplicateBadge } from '@/components/orders/duplicate-badge';
 
 type AgentReassignOption = {
   id: string;
@@ -30,6 +40,7 @@ interface OrderDetailClientProps {
   order: OrderDetailFull;
   canReassign: boolean;
   agents: AgentReassignOption[];
+  products?: { id: string; name: string }[];
 }
 
 const FAIL_REASONS = [
@@ -47,8 +58,24 @@ const BADGE_STYLES: Record<string, string> = {
   Failed: 'bg-[#DC3545] text-white',
 };
 
-export function OrderDetailClient({ order, canReassign, agents }: OrderDetailClientProps) {
+export function OrderDetailClient({ order, canReassign, agents, products = [] }: OrderDetailClientProps) {
   const router = useRouter();
+  // The team-lead analyst may edit a pending/confirmed order on behalf of the rep.
+  const canEdit = canReassign && (order.status === 'Pending' || order.status === 'Confirmed');
+  const [editState, setEditState] = useState<{
+    mode: 'add' | 'quantity' | 'swap';
+    line?: { id: string; productId: string; productName: string; quantity: number };
+  } | null>(null);
+  const [priceInput, setPriceInput] = useState(order.netValue != null ? String(order.netValue) : '');
+  const [discountReason, setDiscountReason] = useState('');
+  // Reset the negotiated-price box to the current net whenever it changes (e.g.
+  // after an edit that clears the discount) so the analyst re-sets the price.
+  const [lastNet, setLastNet] = useState(order.netValue);
+  if (order.netValue !== lastNet) {
+    setLastNet(order.netValue);
+    setPriceInput(order.netValue != null ? String(order.netValue) : '');
+  }
+  const [isSavingPrice, startPriceTransition] = useTransition();
   const [isAgentModalOpen, setIsAgentModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -98,6 +125,19 @@ export function OrderDetailClient({ order, canReassign, agents }: OrderDetailCli
     setIsDelivering(false);
   };
 
+  const [isReenabling, setIsReenabling] = useState(false);
+  const handleReenableDuplicate = async () => {
+    setIsReenabling(true);
+    const result = await reenableDuplicateOrderAction(order.id);
+    if (result.success) {
+      toast.success('Order re-enabled — it can now be confirmed.');
+      router.refresh();
+    } else {
+      toast.error(result.error || 'Failed to re-enable order');
+    }
+    setIsReenabling(false);
+  };
+
   const handleMarkFailed = async () => {
     const effectiveReason = customFailReason.trim() || failReason;
     if (!effectiveReason) return;
@@ -130,6 +170,31 @@ export function OrderDetailClient({ order, canReassign, agents }: OrderDetailCli
       setIsDeleting(false);
     }
   };
+
+  const handleSavePrice = () => {
+    const negotiated = parseFloat(priceInput);
+    if (!Number.isFinite(negotiated) || negotiated < 0) {
+      toast.error('Enter a valid price.');
+      return;
+    }
+    if (order.grossValue != null && negotiated > order.grossValue) {
+      toast.error('Negotiated price cannot exceed the original total.');
+      return;
+    }
+    startPriceTransition(async () => {
+      const res = await applyOrderDiscountByAnalyst(order.id, negotiated, discountReason || undefined);
+      if (res?.error) {
+        toast.error(res.error);
+        return;
+      }
+      toast.success('Price updated');
+      router.refresh();
+    });
+  };
+
+  // Non-upsell lines are editable (change qty / swap); the whole-upsell lines are
+  // shown as read-only "added product" cards below.
+  const editableLines = order.items.filter((it) => !it.isUpsell);
 
   return (
     <div className="p-8 max-w-[1400px] mx-auto space-y-10 pb-20">
@@ -166,6 +231,7 @@ export function OrderDetailClient({ order, canReassign, agents }: OrderDetailCli
           <span className={`px-4 py-1.5 rounded-lg text-xs font-bold shadow-sm ${BADGE_STYLES[order.status]}`}>
             {order.status} Order
           </span>
+          <DuplicateBadge duplicateDisabled={order.duplicateDisabled} hasDuplicates={order.hasDuplicates} />
         </div>
         <button
           onClick={() => setIsDeleteModalOpen(true)}
@@ -175,6 +241,35 @@ export function OrderDetailClient({ order, canReassign, agents }: OrderDetailCli
           Delete Order
         </button>
       </div>
+
+      {/* Duplicate banner: this copy is disabled, a team-lead can re-enable it. */}
+      {order.duplicateDisabled && (
+        <div className="mb-6 flex flex-col gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-2 text-sm text-red-800">
+            <AlertTriangle size={18} className="mt-0.5 shrink-0" />
+            <span>
+              This order was auto-disabled as a duplicate
+              {order.duplicateOfNumber ? ` of ${order.duplicateOfNumber}` : ''}. It can&apos;t be
+              confirmed or called out to a customer until it is re-enabled.
+            </span>
+          </div>
+          {canReassign && (
+            <button
+              onClick={handleReenableDuplicate}
+              disabled={isReenabling}
+              className="shrink-0 rounded-xl bg-red-600 px-4 py-2 text-xs font-bold text-white hover:bg-red-700 disabled:opacity-60"
+            >
+              {isReenabling ? 'Re-enabling…' : 'Re-enable order'}
+            </button>
+          )}
+        </div>
+      )}
+      {order.hasDuplicates && (
+        <div className="mb-6 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <AlertTriangle size={18} className="mt-0.5 shrink-0" />
+          <span>A duplicate copy of this order exists and was disabled to avoid a double delivery/confirmation.</span>
+        </div>
+      )}
 
       {/* Steps */}
       <ProgressSteps status={order.status} />
@@ -232,31 +327,90 @@ export function OrderDetailClient({ order, canReassign, agents }: OrderDetailCli
 
               {/* Product Info */}
               <div className="space-y-8 pt-6">
-                <div className="bg-gray-50/50 p-6 rounded-2xl flex items-center justify-between border border-gray-100">
-                  <div className="space-y-1">
-                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Product(s)</p>
-                    <p className="text-lg font-black text-gray-700">{order.product.name}</p>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Quantity</p>
-                    <p className="text-lg font-black text-gray-700">{order.product.quantity}</p>
-                  </div>
-                </div>
-
-                {order.upsoldProduct && (
-                  <div className="space-y-4">
-                    <p className="text-sm font-bold text-gray-400">Added Product(Upsold)</p>
-                    <div className="bg-gray-50/50 p-6 rounded-2xl flex items-center justify-between border border-gray-100">
-                      <div className="space-y-1">
-                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Product(s)</p>
-                        <p className="text-lg font-black text-gray-700">{order.upsoldProduct.name}</p>
-                      </div>
+                {editableLines.map((line) => (
+                  <div
+                    key={line.id}
+                    className="bg-gray-50/50 p-6 rounded-2xl flex items-center justify-between border border-gray-100 gap-3"
+                  >
+                    <div className="space-y-1">
+                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Product(s)</p>
+                      <p className="text-lg font-black text-gray-700">{line.name}</p>
+                    </div>
+                    <div className="flex items-center gap-3">
                       <div className="text-center">
                         <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Quantity</p>
-                        <p className="text-lg font-black text-gray-700">{order.upsoldProduct.quantity}</p>
+                        <p className="text-lg font-black text-gray-700">{line.quantity}</p>
                       </div>
+                      {canEdit && (
+                        <>
+                          <button
+                            type="button"
+                            title="Change quantity"
+                            onClick={() =>
+                              setEditState({
+                                mode: 'quantity',
+                                line: {
+                                  id: line.id,
+                                  productId: line.productId,
+                                  productName: line.name,
+                                  quantity: line.lineQuantity,
+                                },
+                              })
+                            }
+                            className="shrink-0 p-2 rounded-lg border border-purple-200 text-purple-600 hover:bg-purple-50 transition"
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            title="Change product"
+                            onClick={() =>
+                              setEditState({
+                                mode: 'swap',
+                                line: {
+                                  id: line.id,
+                                  productId: line.productId,
+                                  productName: line.name,
+                                  quantity: line.lineQuantity,
+                                },
+                              })
+                            }
+                            className="shrink-0 p-2 rounded-lg border border-purple-200 text-purple-600 hover:bg-purple-50 transition"
+                          >
+                            <Repeat className="w-4 h-4" />
+                          </button>
+                        </>
+                      )}
                     </div>
                   </div>
+                ))}
+
+                {order.items
+                  .filter((it) => it.isUpsell)
+                  .map((up) => (
+                    <div key={up.id} className="space-y-4">
+                      <p className="text-sm font-bold text-gray-400">Added Product(Upsold)</p>
+                      <div className="bg-gray-50/50 p-6 rounded-2xl flex items-center justify-between border border-gray-100">
+                        <div className="space-y-1">
+                          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Product(s)</p>
+                          <p className="text-lg font-black text-gray-700">{up.name}</p>
+                        </div>
+                        <div className="text-center">
+                          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Quantity</p>
+                          <p className="text-lg font-black text-gray-700">{up.quantity}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+
+                {canEdit && (
+                  <button
+                    type="button"
+                    onClick={() => setEditState({ mode: 'add' })}
+                    className="w-full border-2 border-purple-300 text-purple-600 py-3 rounded-2xl font-bold text-sm hover:bg-purple-50 transition flex items-center justify-center gap-2"
+                  >
+                    <Plus className="w-4 h-4" /> Add Product
+                  </button>
                 )}
               </div>
             </div>
@@ -322,6 +476,41 @@ export function OrderDetailClient({ order, canReassign, agents }: OrderDetailCli
                 <span className="text-sm font-black text-gray-800">Total Price</span>
                 <span className="text-lg font-black text-gray-900">{order.product.totalPrice}</span>
               </div>
+
+              {/* Negotiated price editor — the price-change-at-delivery case */}
+              {canEdit && (
+                <div className="border-t border-gray-50 pt-4 space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-black text-gray-800">Negotiated Price</span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-sm font-bold text-gray-400">₦</span>
+                      <input
+                        type="number"
+                        min="0"
+                        max={order.grossValue}
+                        value={priceInput}
+                        onChange={(e) => setPriceInput(e.target.value)}
+                        className="w-32 text-right text-base font-bold text-gray-900 border border-gray-200 rounded-lg px-2 py-1 outline-none focus:border-purple-400"
+                      />
+                    </div>
+                  </div>
+                  <input
+                    type="text"
+                    value={discountReason}
+                    onChange={(e) => setDiscountReason(e.target.value)}
+                    placeholder="Reason for discount (optional)"
+                    className="w-full text-xs text-gray-700 border border-gray-200 rounded-lg px-3 py-2 outline-none focus:border-purple-400 placeholder:text-gray-300"
+                  />
+                  <button
+                    type="button"
+                    disabled={isSavingPrice || priceInput === ''}
+                    onClick={handleSavePrice}
+                    className="w-full bg-purple-600 text-white text-sm font-bold py-2 rounded-lg hover:bg-purple-700 disabled:opacity-50 transition"
+                  >
+                    {isSavingPrice ? 'Saving…' : 'Save Price'}
+                  </button>
+                </div>
+              )}
 
               {order.estimatedDeliveryDate && (
                 <div className="flex items-center justify-between border-t border-gray-50 pt-4">
@@ -431,6 +620,16 @@ export function OrderDetailClient({ order, canReassign, agents }: OrderDetailCli
             )}
           </div>
         </div>
+      </div>
+
+      {/* Customer-interaction trail the sales rep recorded (read-only) */}
+      <div>
+        <h3 className="mb-4 text-sm font-bold uppercase tracking-widest text-gray-500">Customer Interaction</h3>
+        <CustomerInteractionPanel
+          callFeedback={order.callFeedback}
+          customerFeedback={order.customerFeedback}
+          followUps={order.followUps}
+        />
       </div>
 
       {order.agent && (
@@ -698,6 +897,30 @@ export function OrderDetailClient({ order, canReassign, agents }: OrderDetailCli
             </div>
           </div>
         </div>
+      )}
+
+      {/* Edit line modal (add / change quantity / swap product) */}
+      {editState && (
+        <EditLineModal
+          key={`${editState.mode}-${editState.line?.id ?? 'add'}`}
+          orderId={order.id}
+          mode={editState.mode}
+          isOpen={true}
+          onClose={() => setEditState(null)}
+          line={editState.line}
+          products={products}
+          resolvePreview={
+            editState.mode === 'add' ? resolveUpsellPriceForAnalyst : resolveLineRepriceForAnalyst
+          }
+          onSubmit={({ productId, qty, unitPrice }) => {
+            if (editState.mode === 'add')
+              return addOrderItemsByAnalyst(order.id, [{ productId, quantity: qty, unitPrice }]);
+            if (editState.mode === 'quantity')
+              return changeOrderItemQuantityByAnalyst(order.id, editState.line!.id, qty, unitPrice);
+            return swapOrderItemProductByAnalyst(order.id, editState.line!.id, productId, qty, unitPrice);
+          }}
+          onDone={() => router.refresh()}
+        />
       )}
     </div>
   );

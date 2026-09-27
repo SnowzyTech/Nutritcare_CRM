@@ -31,7 +31,22 @@ import {
   previewUpsellPrice,
   upsellOrderSelect,
 } from "@/modules/orders/services/upsell-apply.service";
+import {
+  changeItemQuantity,
+  swapItemProduct,
+  previewLineReprice,
+  reviseOrderSelect,
+} from "@/modules/orders/services/revise-order.service";
 import { undoOrderDelivery } from "@/modules/orders/services/undo-delivery.service";
+import {
+  notifyAgentAssigned,
+  notifyAgentCancelled,
+  notifyAgentItemsChanged,
+  notifyAgentNotesChanged,
+  notifyAgentReassigned,
+  notifyRepDeliveryOutcome,
+  notifyRepsOrdersAssigned,
+} from "@/modules/notifications/services/order-events.service";
 
 // Returned (not thrown) so the message survives production builds, where Next.js
 // strips messages from thrown server-action errors.
@@ -64,7 +79,7 @@ function generateDeliveryCode(): string {
 }
 
 export async function adminConfirmOrderAction(orderId: string, deliveryDate?: string): Promise<ActionResult> {
-  await checkAdmin();
+  const session = await checkAdmin();
   suppressCameraForRequest();
 
   if (!deliveryDate) return { error: "Please select a delivery date before confirming." };
@@ -91,6 +106,12 @@ export async function adminConfirmOrderAction(orderId: string, deliveryDate?: st
     },
   });
   if (!order || order.status !== "PENDING") return { error: "Cannot confirm this order" };
+  if (order.duplicateDisabledAt) {
+    return {
+      error:
+        "This order is flagged as a duplicate and has been disabled. Re-enable it first before confirming.",
+    };
+  }
 
   const selection = await findEligibleAgentForOrder(order.customer.state, order.items);
 
@@ -144,6 +165,8 @@ export async function adminConfirmOrderAction(orderId: string, deliveryDate?: st
     description: `Order #${order.orderNumber} confirmed`,
   });
 
+  notifyAgentAssigned(orderId, { id: session.user.id, name: session.user.name });
+
   let warning: string | undefined;
   if (selection.overbooked) {
     const agent = await prisma.agent.findUnique({
@@ -194,7 +217,7 @@ export async function adminConfirmOrderAction(orderId: string, deliveryDate?: st
 }
 
 export async function adminCancelOrderAction(orderId: string): Promise<ActionResult> {
-  await checkAdmin();
+  const session = await checkAdmin();
   suppressCameraForRequest();
   const order = await getOrder(orderId);
   if (!order || (order.status !== "PENDING" && order.status !== "CONFIRMED")) {
@@ -208,12 +231,15 @@ export async function adminCancelOrderAction(orderId: string): Promise<ActionRes
     entityId: orderId,
     description: `Order #${order.orderNumber} cancelled`,
   });
+  if (order.status === "CONFIRMED") {
+    notifyAgentCancelled(orderId, order.agentId, { id: session.user.id, name: session.user.name });
+  }
   revalidate(orderId);
   return { success: true };
 }
 
 export async function adminFailOrderAction(orderId: string): Promise<ActionResult> {
-  await checkAdmin();
+  const session = await checkAdmin();
   suppressCameraForRequest();
   const order = await getOrder(orderId);
   if (!order || order.status !== "CONFIRMED") return { error: "Cannot fail this order" };
@@ -225,12 +251,13 @@ export async function adminFailOrderAction(orderId: string): Promise<ActionResul
     entityId: orderId,
     description: `Order #${order.orderNumber} failed`,
   });
+  notifyRepDeliveryOutcome(orderId, { kind: "failed" }, { id: session.user.id, name: session.user.name });
   revalidate(orderId);
   return { success: true };
 }
 
 export async function adminReviveOrderAction(orderId: string): Promise<ActionResult> {
-  await checkAdmin();
+  const session = await checkAdmin();
   suppressCameraForRequest();
   const order = await getOrder(orderId);
   if (!order || (order.status !== "CANCELLED" && order.status !== "FAILED")) {
@@ -262,6 +289,10 @@ export async function adminReviveOrderAction(orderId: string): Promise<ActionRes
     entityId: orderId,
     description: `Order #${order.orderNumber} revived`,
   });
+  // A revived FAILED order goes straight back to its agent as CONFIRMED.
+  if (order.status === "FAILED") {
+    notifyAgentAssigned(orderId, { id: session.user.id, name: session.user.name });
+  }
   revalidate(orderId);
   return { success: true };
 }
@@ -316,7 +347,7 @@ export async function adminDeliverOrderAction(
   orderId: string,
   deliveredDate?: string,
 ): Promise<ActionResult> {
-  await checkAdmin();
+  const session = await checkAdmin();
   suppressCameraForRequest();
   const order = await prisma.order.findFirst({
     where: { id: orderId, deletedAt: null },
@@ -344,6 +375,7 @@ export async function adminDeliverOrderAction(
     entityId: orderId,
     description: `Order #${order.orderNumber} delivered`,
   });
+  notifyRepDeliveryOutcome(orderId, { kind: "delivered" }, { id: session.user.id, name: session.user.name });
 
   revalidate(orderId);
   return { success: true };
@@ -436,6 +468,7 @@ export async function adminReassignOrdersAction(
     entityId: orderIds[0] ?? "bulk",
     description: await describeReassignment(orderIds, salesRepIds),
   });
+  notifyRepsOrdersAssigned(orderIds, { id: session.user.id, name: session.user.name });
   revalidatePath("/admin/orders");
   revalidatePath("/admin/orders/order-assignment");
   revalidatePath("/sales-rep/orders");
@@ -456,6 +489,9 @@ export async function adminReassignOrderAgentAction(orderId: string, agentId: st
     userId: session.user.id, action: "Reassigned", entityType: "Order", entityId: orderId,
     description: `Order #${order.orderNumber} reassigned to a different delivery agent`,
   });
+  if (order.agentId !== agentId) {
+    notifyAgentReassigned(orderId, order.agentId, { id: session.user.id, name: session.user.name });
+  }
   revalidate(orderId);
   return { success: true };
 }
@@ -472,6 +508,9 @@ export async function adminUpdateOrderNotesAction(orderId: string, notes: string
     userId: session.user.id, action: "Updated", entityType: "Order", entityId: orderId,
     description: `Updated notes on Order #${order.orderNumber}`,
   });
+  if ((order.notes ?? "") !== (notes.trim() || "")) {
+    notifyAgentNotesChanged(orderId, { id: session.user.id, name: session.user.name });
+  }
   revalidate(orderId);
   return { success: true };
 }
@@ -503,6 +542,7 @@ export async function adminAddOrderItemsAction(
     entityId: orderId,
     description: `Added ${result.addedCount} product line${result.addedCount === 1 ? "" : "s"} to Order #${order.orderNumber}`,
   });
+  notifyAgentItemsChanged(orderId, { id: session.user.id, name: session.user.name });
 
   // Audit trail for every manually-priced (surplus) line.
   for (const s of result.surplusPlans) {
@@ -567,8 +607,155 @@ export async function adminResolveUpsellPriceAction(
 }
 
 /**
+ * Admin counterpart to `changeOrderItemQuantityAction` — change a line's
+ * quantity and re-price it. A customer revision (NOT an upsell).
+ */
+export async function adminChangeOrderItemQuantityAction(
+  orderId: string,
+  orderItemId: string,
+  newQuantity: number,
+  unitPrice?: number,
+): Promise<ActionResult> {
+  const session = await checkAdmin();
+  suppressCameraForRequest();
+
+  const order = await prisma.order.findFirst({
+    where: { id: orderId, deletedAt: null },
+    select: reviseOrderSelect,
+  });
+  if (!order) return { error: "Order not found" };
+
+  const result = await changeItemQuantity(order, orderItemId, newQuantity, unitPrice ?? 0);
+  if ("error" in result) return { error: result.error };
+
+  await logActivity({
+    userId: session.user.id,
+    action: "Updated",
+    entityType: "Order",
+    entityId: orderId,
+    description: `Changed ${result.productName} quantity ${result.oldQuantity} → ${result.newQuantity} on Order #${order.orderNumber}`,
+    details: {
+      field: "quantity",
+      before: result.oldQuantity,
+      after: result.newQuantity,
+      amount: result.newLineTotal,
+    },
+  });
+  if (result.surplus) {
+    await logActivity({
+      userId: session.user.id,
+      action: "Updated",
+      entityType: "OrderItem",
+      entityId: orderId,
+      description: `Manual unit price ${formatCurrency(result.surplus.typedUnitPrice)} used for ${result.surplus.productName} (qty ${result.surplus.quantity}) on Order #${order.orderNumber}`,
+      details: {
+        field: "unitPrice",
+        amount: result.surplus.lineTotal,
+        productId: result.surplus.productId,
+        typedUnitPrice: result.surplus.typedUnitPrice,
+      },
+    });
+  }
+
+  revalidate(orderId);
+  return { success: true };
+}
+
+/**
+ * Admin counterpart to `swapOrderItemProductAction` — replace a line's product
+ * with a different one, re-priced from its form. A customer revision (NOT an upsell).
+ */
+export async function adminSwapOrderItemProductAction(
+  orderId: string,
+  orderItemId: string,
+  newProductId: string,
+  newQuantity: number,
+  unitPrice?: number,
+): Promise<ActionResult> {
+  const session = await checkAdmin();
+  suppressCameraForRequest();
+
+  const order = await prisma.order.findFirst({
+    where: { id: orderId, deletedAt: null },
+    select: reviseOrderSelect,
+  });
+  if (!order) return { error: "Order not found" };
+
+  const result = await swapItemProduct(
+    order,
+    orderItemId,
+    newProductId,
+    newQuantity,
+    unitPrice ?? 0,
+    session.user.id,
+  );
+  if ("error" in result) return { error: result.error };
+
+  await logActivity({
+    userId: session.user.id,
+    action: "Updated",
+    entityType: "Order",
+    entityId: orderId,
+    description: `Swapped ${result.oldProductName} → ${result.newProductName} (qty ${result.newQuantity}) on Order #${order.orderNumber}`,
+    details: {
+      field: "product",
+      before: result.oldProductName,
+      after: result.newProductName,
+      amount: result.newLineTotal,
+    },
+  });
+  if (result.surplus) {
+    await logActivity({
+      userId: session.user.id,
+      action: "Updated",
+      entityType: "OrderItem",
+      entityId: orderId,
+      description: `Manual unit price ${formatCurrency(result.surplus.typedUnitPrice)} used for ${result.surplus.productName} (qty ${result.surplus.quantity}) on Order #${order.orderNumber}`,
+      details: {
+        field: "unitPrice",
+        amount: result.surplus.lineTotal,
+        productId: result.surplus.productId,
+        typedUnitPrice: result.surplus.typedUnitPrice,
+      },
+    });
+  }
+
+  revalidate(orderId);
+  return { success: true };
+}
+
+/**
+ * Live price preview for the admin Edit-line popup (admin counterpart to
+ * `resolveLineRepriceAction`). Prices an ABSOLUTE quantity. Read-only.
+ */
+export async function adminResolveLineRepriceAction(
+  orderId: string,
+  productId: string,
+  absoluteQty: number,
+  typedUnitPrice?: number,
+): Promise<
+  | {
+      lineTotal: number;
+      unitPrice: number;
+      source: "package" | "surplus";
+      requiresUnitPrice: boolean;
+      mergedQty: number;
+    }
+  | { error: string }
+> {
+  await checkAdmin();
+  const order = await prisma.order.findFirst({
+    where: { id: orderId, deletedAt: null },
+    select: { formId: true },
+  });
+  if (!order) return { error: "Order not found." };
+
+  return previewLineReprice(order.formId, productId, absoluteQty, typedUnitPrice ?? 0);
+}
+
+/**
  * Admin counterpart to `removeOrderItemAction` — hard-deletes a product line
- * from a pending order and recomputes totals (preserving the discount amount).
+ * from a pending order and recomputes totals, clearing any prior discount.
  */
 export async function adminRemoveOrderItemAction(orderId: string, itemId: string): Promise<ActionResult> {
   const session = await checkAdmin();
@@ -588,16 +775,22 @@ export async function adminRemoveOrderItemAction(orderId: string, itemId: string
     Math.round(
       order.items.filter((i) => i.id !== itemId).reduce((s, i) => s + Number(i.lineTotal), 0) * 100,
     ) / 100;
-  const discountAmount = Math.min(Number(order.discountAmount), remainingGross);
-  const netAmount = Math.round((remainingGross - discountAmount) * 100) / 100;
-  const discountPercent =
-    remainingGross > 0 ? Math.round((discountAmount / remainingGross) * 10000) / 100 : 0;
 
   await prisma.$transaction([
     prisma.orderItem.delete({ where: { id: itemId } }),
     prisma.order.update({
       where: { id: orderId },
-      data: { totalAmount: remainingGross, netAmount, discountAmount, discountPercent },
+      // Removing a product CLEARS any prior negotiated discount — the price is
+      // re-set after the change (net resets to the new full gross).
+      data: {
+        totalAmount: remainingGross,
+        netAmount: remainingGross,
+        discountAmount: 0,
+        discountPercent: 0,
+        discountedById: null,
+        discountReason: null,
+        discountedAt: null,
+      },
     }),
   ]);
 

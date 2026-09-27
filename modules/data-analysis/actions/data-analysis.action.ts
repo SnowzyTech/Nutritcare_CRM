@@ -13,8 +13,6 @@ import { suppressCameraForRequest } from "@/lib/audit/context";
 import { sendOrderDeliveredTemplate } from "@/lib/whatsapp/whatsapp";
 import {
   getSalesRepAnalyticsForUI,
-  getTeamsAnalytics,
-  getCompanyAnalytics,
   hardDeleteOrder,
 } from "@/modules/data-analysis/services/data-analysis.service";
 import { isUserTeamLead } from "@/modules/users/services/users.service";
@@ -24,11 +22,29 @@ import {
   manualOrderSchema,
 } from "@/modules/orders/services/manual-order.service";
 import { reassignAgentForOrder } from "@/modules/orders/services/reassign-agent.service";
+import { reenableDuplicateOrder } from "@/modules/orders/services/duplicate-order.service";
+import {
+  notifyAgentReassigned,
+  notifyRepDeliveryOutcome,
+  notifyRepNewOrder,
+} from "@/modules/notifications/services/order-events.service";
 import { resolveDeliveredDate } from "@/lib/orders/delivered-date";
+import { formatCurrency } from "@/lib/utils";
+import {
+  applyUpsellItems,
+  previewUpsellPrice,
+  upsellOrderSelect,
+} from "@/modules/orders/services/upsell-apply.service";
+import {
+  changeItemQuantity,
+  swapItemProduct,
+  previewLineReprice,
+  reviseOrderSelect,
+} from "@/modules/orders/services/revise-order.service";
+import { applyOrderNegotiatedPrice } from "@/modules/orders/services/apply-discount.service";
 import type {
   RepAnalyticsData,
   TeamAnalyticsEntry,
-  Period,
 } from "@/modules/data-analysis/services/data-analysis.service";
 import { getSalesRepWeeklyAnalytics } from "@/modules/orders/services/analytics.service";
 import type { MonthMetrics } from "@/modules/orders/services/analytics.service";
@@ -40,28 +56,6 @@ export async function fetchAnalyticsForMonth(
   year: number
 ): Promise<RepAnalyticsData> {
   return getSalesRepAnalyticsForUI(salesRepId, { month, year });
-}
-
-export async function fetchTeamsAnalyticsForMonth(
-  month: number,
-  year: number
-): Promise<TeamAnalyticsEntry[]> {
-  return getTeamsAnalytics({ month, year, period: "month" });
-}
-
-export async function fetchCompanyAnalyticsForMonth(
-  month: number,
-  year: number
-): Promise<RepAnalyticsData> {
-  return getCompanyAnalytics({ month, year, period: "month" });
-}
-
-export async function fetchTeamsAnalyticsForPeriod(
-  period: Period,
-  month?: number,
-  year?: number
-): Promise<TeamAnalyticsEntry[]> {
-  return getTeamsAnalytics({ month, year, period });
 }
 
 /**
@@ -76,14 +70,6 @@ export async function fetchRepWeeklyAnalytics(
   } catch {
     return { error: "Failed to generate weekly report" };
   }
-}
-
-export async function fetchCompanyAnalyticsForPeriod(
-  period: Period,
-  month?: number,
-  year?: number
-): Promise<RepAnalyticsData> {
-  return getCompanyAnalytics({ month, year, period });
 }
 
 /**
@@ -195,6 +181,7 @@ export async function markOrderDeliveredByAnalyst(
     entityId: orderId,
     description: `Order #${order.orderNumber} delivered`,
   });
+  notifyRepDeliveryOutcome(orderId, { kind: "delivered" }, { id: session.user.id, name: session.user.name });
 
   // Send WhatsApp delivery notification (fire-and-forget — never throws)
   const waPhone = order.customer.whatsappNumber || order.customer.phone;
@@ -221,6 +208,253 @@ export async function markOrderDeliveredByAnalyst(
   revalidatePath(`/data/order/${order.orderNumber}`);
   revalidatePath("/data");
   return { success: true };
+}
+
+// ── Order editing (on behalf of the rep) ─────────────────────────────────────
+// Data-analyst team lead can revise a rep's order (add / change qty / swap /
+// discount), logged under the rep with the analyst shown as actor. Money math is
+// the shared services; these add only auth + logging + revalidation.
+
+type AnalystPreviewResult =
+  | {
+      lineTotal: number;
+      unitPrice: number;
+      source: "package" | "surplus";
+      requiresUnitPrice: boolean;
+      mergedQty: number;
+    }
+  | { error: string };
+
+async function requireAnalystLead() {
+  const session = await auth();
+  if (!session?.user?.id) return { ok: false as const, error: "Unauthorized" };
+  if (session.user.role !== "DATA_ANALYST") return { ok: false as const, error: "Forbidden" };
+  if (!(await isUserTeamLead(session.user.id))) {
+    return { ok: false as const, error: "Only the Data Analyst team lead can edit orders" };
+  }
+  return { ok: true as const, session };
+}
+
+function revalidateAnalystOrder(orderNumber: string, salesRepId: string) {
+  revalidatePath("/data/order");
+  revalidatePath(`/data/order/${orderNumber}`);
+  revalidatePath(`/data/sales-reps/${salesRepId}/order/${orderNumber}`);
+  revalidatePath("/data");
+  revalidatePath("/data/history");
+}
+
+/** Add product(s) to an order — recorded as an upsell (rep add-on). */
+export async function addOrderItemsByAnalyst(
+  orderId: string,
+  items: Array<{ productId: string; quantity: number; unitPrice?: number }>,
+): Promise<{ error?: string }> {
+  const gate = await requireAnalystLead();
+  if (!gate.ok) return { error: gate.error };
+  const { session } = gate;
+  suppressCameraForRequest();
+
+  const order = await prisma.order.findFirst({
+    where: { id: orderId, deletedAt: null },
+    select: { ...upsellOrderSelect, salesRepId: true },
+  });
+  if (!order) return { error: "Order not found." };
+
+  const result = await applyUpsellItems(order, items, session.user.id);
+  if ("error" in result) return { error: result.error };
+
+  await logActivity({
+    userId: order.salesRepId,
+    actorName: session.user.name,
+    actorRole: session.user.role,
+    action: "Updated",
+    entityType: "Order",
+    entityId: orderId,
+    description: `Added ${result.addedCount} product line${result.addedCount === 1 ? "" : "s"} to Order #${order.orderNumber}`,
+  });
+  for (const s of result.surplusPlans) {
+    await logActivity({
+      userId: order.salesRepId,
+      actorName: session.user.name,
+      actorRole: session.user.role,
+      action: "Updated",
+      entityType: "OrderItem",
+      entityId: orderId,
+      description: `Manual unit price ${formatCurrency(s.typedUnitPrice)} used for ${s.productName} (qty ${s.mergedQty}) on Order #${order.orderNumber}`,
+      details: { field: "unitPrice", amount: s.lineTotal, productId: s.productId, typedUnitPrice: s.typedUnitPrice },
+    });
+  }
+
+  revalidateAnalystOrder(order.orderNumber, order.salesRepId);
+  return {};
+}
+
+/** Live price preview for the analyst Add-Product popup (merge-aware). */
+export async function resolveUpsellPriceForAnalyst(
+  orderId: string,
+  productId: string,
+  addedQty: number,
+  typedUnitPrice?: number,
+): Promise<AnalystPreviewResult> {
+  const gate = await requireAnalystLead();
+  if (!gate.ok) return { error: gate.error };
+
+  const order = await prisma.order.findFirst({
+    where: { id: orderId, deletedAt: null },
+    select: { formId: true, items: { where: { productId }, select: { quantity: true } } },
+  });
+  if (!order) return { error: "Order not found." };
+  return previewUpsellPrice(order.formId, order.items, productId, addedQty, typedUnitPrice ?? 0);
+}
+
+/** Change a line's quantity and re-price it — a customer revision (not upsell). */
+export async function changeOrderItemQuantityByAnalyst(
+  orderId: string,
+  orderItemId: string,
+  newQuantity: number,
+  unitPrice?: number,
+): Promise<{ error?: string }> {
+  const gate = await requireAnalystLead();
+  if (!gate.ok) return { error: gate.error };
+  const { session } = gate;
+  suppressCameraForRequest();
+
+  const order = await prisma.order.findFirst({
+    where: { id: orderId, deletedAt: null },
+    select: { ...reviseOrderSelect, salesRepId: true },
+  });
+  if (!order) return { error: "Order not found." };
+
+  const result = await changeItemQuantity(order, orderItemId, newQuantity, unitPrice ?? 0);
+  if ("error" in result) return { error: result.error };
+
+  await logActivity({
+    userId: order.salesRepId,
+    actorName: session.user.name,
+    actorRole: session.user.role,
+    action: "Updated",
+    entityType: "Order",
+    entityId: orderId,
+    description: `Changed ${result.productName} quantity ${result.oldQuantity} → ${result.newQuantity} on Order #${order.orderNumber}`,
+    details: { field: "quantity", before: result.oldQuantity, after: result.newQuantity, amount: result.newLineTotal },
+  });
+  if (result.surplus) {
+    await logActivity({
+      userId: order.salesRepId,
+      actorName: session.user.name,
+      actorRole: session.user.role,
+      action: "Updated",
+      entityType: "OrderItem",
+      entityId: orderId,
+      description: `Manual unit price ${formatCurrency(result.surplus.typedUnitPrice)} used for ${result.surplus.productName} (qty ${result.surplus.quantity}) on Order #${order.orderNumber}`,
+      details: { field: "unitPrice", amount: result.surplus.lineTotal, productId: result.surplus.productId, typedUnitPrice: result.surplus.typedUnitPrice },
+    });
+  }
+
+  revalidateAnalystOrder(order.orderNumber, order.salesRepId);
+  return {};
+}
+
+/** Replace a line's product with a different one — a customer revision (not upsell). */
+export async function swapOrderItemProductByAnalyst(
+  orderId: string,
+  orderItemId: string,
+  newProductId: string,
+  newQuantity: number,
+  unitPrice?: number,
+): Promise<{ error?: string }> {
+  const gate = await requireAnalystLead();
+  if (!gate.ok) return { error: gate.error };
+  const { session } = gate;
+  suppressCameraForRequest();
+
+  const order = await prisma.order.findFirst({
+    where: { id: orderId, deletedAt: null },
+    select: { ...reviseOrderSelect, salesRepId: true },
+  });
+  if (!order) return { error: "Order not found." };
+
+  const result = await swapItemProduct(order, orderItemId, newProductId, newQuantity, unitPrice ?? 0, session.user.id);
+  if ("error" in result) return { error: result.error };
+
+  await logActivity({
+    userId: order.salesRepId,
+    actorName: session.user.name,
+    actorRole: session.user.role,
+    action: "Updated",
+    entityType: "Order",
+    entityId: orderId,
+    description: `Swapped ${result.oldProductName} → ${result.newProductName} (qty ${result.newQuantity}) on Order #${order.orderNumber}`,
+    details: { field: "product", before: result.oldProductName, after: result.newProductName, amount: result.newLineTotal },
+  });
+  if (result.surplus) {
+    await logActivity({
+      userId: order.salesRepId,
+      actorName: session.user.name,
+      actorRole: session.user.role,
+      action: "Updated",
+      entityType: "OrderItem",
+      entityId: orderId,
+      description: `Manual unit price ${formatCurrency(result.surplus.typedUnitPrice)} used for ${result.surplus.productName} (qty ${result.surplus.quantity}) on Order #${order.orderNumber}`,
+      details: { field: "unitPrice", amount: result.surplus.lineTotal, productId: result.surplus.productId, typedUnitPrice: result.surplus.typedUnitPrice },
+    });
+  }
+
+  revalidateAnalystOrder(order.orderNumber, order.salesRepId);
+  return {};
+}
+
+/** Live price preview for the analyst Edit-line popup (absolute quantity). */
+export async function resolveLineRepriceForAnalyst(
+  orderId: string,
+  productId: string,
+  absoluteQty: number,
+  typedUnitPrice?: number,
+): Promise<AnalystPreviewResult> {
+  const gate = await requireAnalystLead();
+  if (!gate.ok) return { error: gate.error };
+
+  const order = await prisma.order.findFirst({
+    where: { id: orderId, deletedAt: null },
+    select: { formId: true },
+  });
+  if (!order) return { error: "Order not found." };
+  return previewLineReprice(order.formId, productId, absoluteQty, typedUnitPrice ?? 0);
+}
+
+/** Apply a negotiated (discounted) price — the price-change-at-delivery case. */
+export async function applyOrderDiscountByAnalyst(
+  orderId: string,
+  negotiatedPrice: number,
+  reason?: string,
+): Promise<{ error?: string; discountAmount?: number; discountPercent?: number; netAmount?: number; totalAmount?: number }> {
+  const gate = await requireAnalystLead();
+  if (!gate.ok) return { error: gate.error };
+  const { session } = gate;
+  suppressCameraForRequest();
+
+  const result = await applyOrderNegotiatedPrice(orderId, negotiatedPrice, reason, session.user.id);
+  if ("error" in result) return { error: result.error };
+
+  if (result.hasDiscount) {
+    await logActivity({
+      userId: result.salesRepId,
+      actorName: session.user.name,
+      actorRole: session.user.role,
+      action: "Discount",
+      entityType: "Order",
+      entityId: orderId,
+      description: `Discount of ${formatCurrency(result.discountAmount)} (${result.discountPercent}%) applied to Order #${result.orderNumber}`,
+      details: { before: formatCurrency(result.gross), after: formatCurrency(result.negotiatedPrice), field: "price", amount: result.discountAmount },
+    });
+  }
+
+  revalidateAnalystOrder(result.orderNumber, result.salesRepId);
+  return {
+    discountAmount: result.discountAmount,
+    discountPercent: result.discountPercent,
+    netAmount: result.negotiatedPrice,
+    totalAmount: result.gross,
+  };
 }
 
 /**
@@ -273,6 +507,7 @@ export async function markOrderFailedByAnalyst(
     entityId: orderId,
     description: `Order #${order.orderNumber} failed — ${reason}`,
   });
+  notifyRepDeliveryOutcome(orderId, { kind: "failed", reason }, { id: session.user.id, name: session.user.name });
 
   revalidatePath("/data/order");
   revalidatePath(`/data/order/${order.orderNumber}`);
@@ -318,10 +553,56 @@ export async function reassignOrderAgentByAnalyst(
     entityId: orderId,
     description: `Order #${result.order.orderNumber} reassigned to a different delivery agent`,
   });
+  if (result.order.previousAgentId !== agentId) {
+    notifyAgentReassigned(orderId, result.order.previousAgentId, {
+      id: session.user.id,
+      name: session.user.name,
+    });
+  }
 
   revalidatePath("/data/order");
   revalidatePath(`/data/order/${result.order.orderNumber}`);
   revalidatePath("/data");
+  return { success: true };
+}
+
+/**
+ * Re-enable a disabled duplicate order so it can be processed normally.
+ *
+ * Authorised for the data-team lead (the role that reviews duplicates), plus
+ * ADMIN and SUPER_ADMIN oversight. Clears the duplicate markers on the order and
+ * — if no other disabled duplicates of the original remain — the original's
+ * `hasDuplicates` flag.
+ */
+export async function reenableDuplicateOrderAction(
+  orderId: string,
+): Promise<{ success: boolean; error?: string }> {
+  const session = await auth();
+  if (!session?.user?.id) return { success: false, error: "Unauthorized" };
+
+  const role = session.user.role;
+  const isDataTeamLead =
+    role === "DATA_ANALYST" && (await isUserTeamLead(session.user.id));
+  if (role !== "SUPER_ADMIN" && role !== "ADMIN" && !isDataTeamLead) {
+    return {
+      success: false,
+      error: "Only a data team-lead, admin or super-admin can re-enable a duplicate order.",
+    };
+  }
+  suppressCameraForRequest();
+
+  const result = await reenableDuplicateOrder(orderId, {
+    id: session.user.id,
+    name: session.user.name,
+    role: session.user.role,
+  });
+  if (!result.ok) return { success: false, error: result.error };
+
+  revalidatePath("/data/order");
+  revalidatePath(`/data/order/${orderId}`);
+  revalidatePath("/data");
+  revalidatePath("/admin/orders");
+  revalidatePath(`/admin/orders/${orderId}`);
   return { success: true };
 }
 
@@ -385,9 +666,12 @@ export async function createOrderByAnalystAction(
     customerName: orderInput.customerName,
     totalAmount: result.totalAmount,
     surplusLines: result.surplusLines,
+    priceOverrides: result.priceOverrides,
     actor: { name: session.user.name, role: session.user.role },
     onBehalfOfName: rep.name,
   });
+  // Keyed in by someone else, so the rep needs to know it is in their queue.
+  notifyRepNewOrder(result.orderId, { id: session.user.id, name: session.user.name });
 
   revalidatePath("/data/order");
   revalidatePath("/data");

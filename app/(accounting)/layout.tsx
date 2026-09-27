@@ -4,6 +4,7 @@ import { getUserById } from "@/modules/auth/services/auth.service";
 import { getInitials } from "@/lib/utils";
 import { getAccountingAccess } from "@/lib/auth/accounting-access";
 import { AccountingSidebar } from "./accounting/_components/AccountingSidebar";
+import { NotificationRoot } from "@/components/notifications/notification-root";
 
 export const metadata: Metadata = {
   title: {
@@ -39,11 +40,13 @@ export default async function AccountingLayout({
   };
 
   return (
-    <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
-      <AccountingSidebar user={user} />
-      <div className="flex flex-col flex-1 overflow-hidden relative">
-        <main className="flex-1 overflow-y-auto no-scrollbar">{children}</main>
+    <NotificationRoot>
+      <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
+        <AccountingSidebar user={user} />
+        <div className="flex flex-col flex-1 overflow-hidden relative">
+          <main className="flex-1 overflow-y-auto no-scrollbar">{children}</main>
+        </div>
       </div>
-    </div>
+    </NotificationRoot>
   );
 }

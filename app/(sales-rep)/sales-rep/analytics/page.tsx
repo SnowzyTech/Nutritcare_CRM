@@ -1,9 +1,10 @@
 import { auth } from "@/lib/auth/auth";
 import { redirect } from "next/navigation";
 import { getSalesRepAnalytics } from "@/modules/orders/services/analytics.service";
-import type { MonthMetrics, Period } from "@/modules/orders/services/analytics.service";
-import { calculateBonus, KPI_TARGET } from "@/lib/bonus";
-import { PeriodFilter } from "./period-filter";
+import type { MonthMetrics } from "@/modules/orders/services/analytics.service";
+import { calculateBonus, KPI_TARGET, type BonusPeriod } from "@/lib/bonus";
+import { parseStaffPeriod, type StaffPeriodParams } from "@/lib/staff-period";
+import { StaffPeriodFilter } from "@/components/admin/staff-period-filter";
 import { AnalyticsReportButtons } from "./report-buttons";
 import type { Metadata } from "next";
 
@@ -50,16 +51,20 @@ function WeeklyBonusCard({
   bonus,
   kpi,
   lastKpi,
-  period,
+  bonusPeriod,
+  vsLabel,
 }: {
   bonus: { amount: number; eligible: boolean; reason?: string };
   kpi: number;
   lastKpi: number | null;
-  period: Period;
+  /** null on the Day view — bonuses are weekly/monthly only. */
+  bonusPeriod: BonusPeriod | null;
+  vsLabel: string;
 }) {
   const delta = lastKpi !== null ? kpi - lastKpi : 0;
   const deltaStr = delta >= 0 ? `+${delta}%` : `${delta}%`;
-  const periodWord = period === "week" ? "week" : "month";
+  const title =
+    bonusPeriod === "week" ? "Weekly Bonus" : bonusPeriod === "month" ? "Monthly Bonus" : "Bonus";
 
   return (
     <div className={`rounded-xl p-5 border shadow-[0_2px_10px_rgb(0,0,0,0.01)] flex flex-col justify-between h-full ${
@@ -68,9 +73,7 @@ function WeeklyBonusCard({
         : "bg-gray-50 border-gray-200"
     }`}>
       <div className="flex justify-between items-start mb-4">
-        <span className="text-sm font-bold text-gray-900">
-          {period === "week" ? "Weekly" : "Monthly"} Bonus
-        </span>
+        <span className="text-sm font-bold text-gray-900">{title}</span>
         {bonus.eligible && (
           <span className="text-[10px] font-bold text-green-600 bg-green-100 px-2 py-0.5 rounded-full">
             Eligible
@@ -86,7 +89,7 @@ function WeeklyBonusCard({
             <div className="text-right">
               <p className="text-base font-bold text-green-500">{kpi}%</p>
               <p className="text-[10px] font-bold text-gray-500">
-                <span className={delta >= 0 ? "text-green-500" : "text-red-500"}>{deltaStr}</span> vs last {periodWord}
+                <span className={delta >= 0 ? "text-green-500" : "text-red-500"}>{deltaStr}</span> {vsLabel}
               </p>
             </div>
           </>
@@ -108,39 +111,32 @@ function WeeklyBonusCard({
 }
 
 export default async function AnalyticsPage(props: {
-  searchParams: Promise<{ month?: string; period?: string }>;
+  searchParams: Promise<StaffPeriodParams>;
 }) {
   const searchParams = await props.searchParams;
   const session = await auth();
   if (!session?.user?.id) redirect("/login");
 
-  const period: Period = searchParams.period === "week" ? "week" : "month";
+  // Day / Week (Mon–Sun) / Month — shared with every analytics screen.
+  const sp = parseStaffPeriod(searchParams);
 
   const now = new Date();
   const currentMonthParam =
     searchParams.month ?? `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-  const targetMonth =
-    period === "month" && searchParams.month
-      ? new Date(`${searchParams.month}-01T00:00:00`)
-      : undefined;
 
-  const { current: cur, last } = await getSalesRepAnalytics(
-    session.user.id,
-    period,
-    targetMonth,
-  );
+  const { current: cur, last } = await getSalesRepAnalytics(session.user.id, sp.arg);
 
   const l = last as MonthMetrics | null;
   const noLast = l === null;
 
-  const periodWord = period === "week" ? "week" : "month";
-  const vsLabel = `vs last ${periodWord}`;
+  const vsLabel = sp.comparisonLabel;
+  const periodText = sp.periodText;
 
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <h1 className="text-2xl font-bold text-gray-900">Analytics</h1>
-        <PeriodFilter />
+        <StaffPeriodFilter />
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -160,7 +156,7 @@ export default async function AnalyticsPage(props: {
           label="Best Selling Product"
           value={cur.bestSellingProduct}
           delta={noLast ? "N/A" : cur.bestSellingProduct === l!.bestSellingProduct ? "Same" : "Changed"}
-          vsLabel={`since last ${periodWord}`}
+          vsLabel={vsLabel}
         />
       </div>
 
@@ -209,7 +205,10 @@ export default async function AnalyticsPage(props: {
       <div className="flex flex-col sm:flex-row gap-4 items-stretch">
         {(() => {
           const kpiMet = cur.kpi >= KPI_TARGET;
-          const bonus = calculateBonus(cur.kpi, cur.totalOrders, period);
+          // Bonuses are weekly/monthly only — the Day view shows "not applicable".
+          const bonus = sp.bonusPeriod
+            ? calculateBonus(cur.kpi, cur.totalOrders, sp.bonusPeriod)
+            : { amount: 0, eligible: false, reason: "Bonuses apply to weekly/monthly periods" };
           return (
             <>
               <div className={`rounded-xl p-6 text-white w-full sm:max-w-xs flex flex-col justify-between ${
@@ -226,8 +225,8 @@ export default async function AnalyticsPage(props: {
                   <p className="text-4xl font-extrabold tracking-tight mb-2">{cur.kpi}%</p>
                   <div className="text-sm font-medium mb-1">
                     {cur.totalOrders > 0
-                      ? `${cur.ordersDelivered} delivered of ${cur.totalOrders} handled this ${periodWord}`
-                      : `No orders handled this ${periodWord}`}
+                      ? `${cur.ordersDelivered} delivered of ${cur.totalOrders} handled ${periodText}`
+                      : `No orders handled ${periodText}`}
                   </div>
                   {!kpiMet && (
                     <div className="text-xs font-medium text-red-200 mt-1">
@@ -246,7 +245,8 @@ export default async function AnalyticsPage(props: {
                     bonus={bonus}
                     kpi={cur.kpi}
                     lastKpi={l?.kpi ?? null}
-                    period={period}
+                    bonusPeriod={sp.bonusPeriod}
+                    vsLabel={vsLabel}
                   />
                 </div>
               </div>
@@ -270,7 +270,7 @@ export default async function AnalyticsPage(props: {
           </div>
           {cur.topProducts.length === 0 ? (
             <p className="text-sm text-gray-400 py-4 text-center">
-              No delivered orders yet this {periodWord}
+              No delivered orders yet {periodText}
             </p>
           ) : (
             <table className="w-full text-sm">
@@ -300,7 +300,7 @@ export default async function AnalyticsPage(props: {
           </div>
           {cur.upsoldProducts.length === 0 ? (
             <p className="text-sm text-gray-400 py-4 text-center">
-              No multi-item orders this {periodWord}
+              No multi-item orders {periodText}
             </p>
           ) : (
             <table className="w-full text-sm">

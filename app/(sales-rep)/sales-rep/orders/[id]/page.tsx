@@ -3,6 +3,9 @@ import { notFound, redirect } from "next/navigation";
 import { getOrderWithDetails } from "@/modules/orders/services/orders.service";
 import { getActiveProducts } from "@/modules/orders/services/products.service";
 import { OrderDetailClient } from "./order-detail-client";
+import { CustomerCarePanel } from "./customer-care-panel";
+import { getOrderFeedback } from "@/modules/reports/sales/services/feedback.service";
+import { getOrderFollowUps } from "@/modules/reports/sales/services/follow-up.service";
 import { isAdmin } from "@/lib/auth/role-routes";
 import type { Metadata } from "next";
 
@@ -21,9 +24,11 @@ export default async function OrderDetailPage({ params }: Props) {
   const session = await auth();
   if (!session?.user?.id) redirect("/login");
 
-  const [rawOrder, rawProducts] = await Promise.all([
+  const [rawOrder, rawProducts, customerFeedback, followUps] = await Promise.all([
     getOrderWithDetails(id),
     getActiveProducts(),
+    getOrderFeedback(id),
+    getOrderFollowUps(id),
   ]);
 
   if (!rawOrder) notFound();
@@ -100,6 +105,16 @@ export default async function OrderDetailPage({ params }: Props) {
       updatedAt: d.updatedAt.toISOString(),
       status: d.status,
     })),
+    feedbacks: rawOrder.feedbacks.map((f) => ({
+      id: f.id,
+      outcome: f.outcome,
+      note: f.note ?? null,
+      createdAt: f.createdAt.toISOString(),
+      authorName: f.author.name,
+    })),
+    duplicateDisabled: rawOrder.duplicateDisabledAt !== null,
+    hasDuplicates: rawOrder.hasDuplicates,
+    duplicateOfNumber: rawOrder.duplicateOf?.orderNumber ?? null,
   };
 
   const products = rawProducts.map((p) => ({
@@ -109,5 +124,44 @@ export default async function OrderDetailPage({ params }: Props) {
     sku: p.sku,
   }));
 
-  return <OrderDetailClient order={order} products={products} />;
+  // Distinct products on the order, for tagging customer feedback.
+  const orderProducts = [...new Map(rawOrder.items.map((i) => [i.product.id, i.product.name])).entries()].map(
+    ([pid, name]) => ({ id: pid, name }),
+  );
+  const deliveredAt =
+    rawOrder.status === "DELIVERED"
+      ? (rawOrder.deliveries
+          .map((d) => d.deliveredTime)
+          .filter((t): t is Date => t !== null)
+          .sort((a, b) => b.getTime() - a.getTime())[0]
+          ?.toISOString() ?? null)
+      : null;
+
+  return (
+    <>
+      <OrderDetailClient order={order} products={products} />
+      <CustomerCarePanel
+        orderId={rawOrder.id}
+        products={orderProducts}
+        deliveredAt={deliveredAt}
+        canEdit={rawOrder.salesRepId === session.user.id}
+        feedback={customerFeedback.map((f) => ({
+          id: f.id,
+          category: f.category,
+          message: f.message,
+          status: f.status,
+          action: f.action,
+          product: f.product?.name ?? null,
+          author: f.author.name,
+          createdAt: f.createdAt.toISOString(),
+        }))}
+        followUps={followUps.map((f) => ({
+          stage: f.stage,
+          completedAt: f.completedAt.toISOString(),
+          by: f.completedBy.name,
+          note: f.note,
+        }))}
+      />
+    </>
+  );
 }

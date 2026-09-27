@@ -11,6 +11,7 @@ import { getActiveProducts } from "@/modules/orders/services/products.service";
 import { getManualOrderProductForms } from "@/modules/orders/services/form-packages.service";
 import { auth } from "@/lib/auth/auth";
 import type { OrderStatus } from "@prisma/client";
+import { NO_FEEDBACK_FILTER, isOrderFeedbackOutcome } from "@/lib/orders/order-feedback";
 
 const PAGE_SIZE = 15;
 
@@ -58,12 +59,19 @@ export default async function OrderPage({
   const search = (get("q") ?? "").trim();
   const fromStr = get("from") ?? null;
   const toStr = get("to") ?? null;
+  const feedbackRaw = get("feedback") ?? "";
+  const feedback =
+    feedbackRaw === NO_FEEDBACK_FILTER || isOrderFeedbackOutcome(feedbackRaw) ? feedbackRaw : undefined;
+  const duplicatesOnly = get("duplicates") === "1";
   const pageNum = Math.max(1, parseInt(get("page") ?? "1", 10) || 1);
 
   const filters: OrderListFilters = {
-    status: statusLabels
-      .map((l) => STATUS_LABEL_TO_ENUM[l])
-      .filter((s): s is OrderStatus => Boolean(s)),
+    // The Duplicates view is its own dimension — ignore any status selection while it's on.
+    status: duplicatesOnly
+      ? []
+      : statusLabels
+          .map((l) => STATUS_LABEL_TO_ENUM[l])
+          .filter((s): s is OrderStatus => Boolean(s)),
     search,
     productNames: products,
     states,
@@ -72,6 +80,8 @@ export default async function OrderPage({
     salesRepIds: csAgents,
     from: parseDay(fromStr, false),
     to: parseDay(toStr, true),
+    feedback,
+    duplicatesOnly,
   };
 
   const [session, orderPage, deliveryAgents, salesReps, salesTeams, productNames, catalog, productForms] =
@@ -94,6 +104,7 @@ export default async function OrderPage({
       initialOrders={orderPage.rows}
       total={orderPage.total}
       statusCounts={orderPage.statusCounts}
+      duplicateCount={orderPage.duplicateCount}
       page={pageNum}
       initialFilters={{
         statuses: statusLabels,
@@ -105,6 +116,8 @@ export default async function OrderPage({
         csAgents,
         from: fromStr,
         to: toStr,
+        feedback: feedbackRaw || undefined,
+        duplicatesOnly,
       }}
       deliveryAgents={deliveryAgents}
       salesReps={salesReps}

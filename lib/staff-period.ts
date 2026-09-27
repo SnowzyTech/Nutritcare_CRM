@@ -1,8 +1,10 @@
 /**
- * Day / Week / Month period filter for the admin staff analytics pages.
+ * Day / Week / Month period filter — the ONE period model shared by every
+ * analytics screen: admin staff pages, the sales rep's own analytics, the team
+ * lead / sales manager dashboards and the data analyst's analytics. The UI is
+ * `components/admin/staff-period-filter.tsx` (`StaffPeriodFilter`).
  *
- * These pages historically filtered "by month" only. This adds Day and Week
- * granularities while keeping Month as the default (unchanged behaviour):
+ * Month is the default, so bare `?month=YYYY-MM` links keep working:
  *
  *   - Month → `?g=month&month=YYYY-MM` → a full calendar month vs the full
  *     previous month (reuses {@link MonthPeriod} / `monthRanges`).
@@ -16,9 +18,31 @@
  */
 
 import { parseMonthParam, monthLabel, monthRanges, type MonthPeriod } from "@/lib/month-period";
-import { toDateParam, type DatePeriod } from "@/lib/date-period";
+import { dateRanges, toDateParam, type DatePeriod } from "@/lib/date-period";
+import type { BonusPeriod } from "@/lib/bonus";
 
 export type StaffGranularity = "day" | "week" | "month";
+
+/**
+ * Current + previous windows for a service period arg. Month → the calendar
+ * month vs the previous calendar month; Day/Week (a DatePeriod) → that window vs
+ * the immediately-preceding window of equal length (previous day / previous
+ * Mon–Sun). Both bounds are INCLUSIVE — query with `gte` / `lte`.
+ */
+export function periodWindows(arg: MonthPeriod | DatePeriod): {
+  currentStart: Date;
+  currentEnd: Date;
+  prevStart: Date;
+  prevEnd: Date;
+} {
+  return "from" in arg ? dateRanges(arg) : monthRanges(arg);
+}
+
+/** Stable, serialisable `unstable_cache` key segment for a service period arg. */
+export function periodCacheKey(arg: MonthPeriod | DatePeriod): string {
+  if ("from" in arg) return `d:${+arg.from}:${+arg.to}`;
+  return `m:${arg.year}-${arg.month}`;
+}
 
 export type StaffPeriod = {
   granularity: StaffGranularity;
@@ -30,6 +54,10 @@ export type StaffPeriod = {
   comparisonLabel: string;
   /** Human label for the selected period, e.g. "Today", "This Month". */
   valueLabel: string;
+  /** Lower-case phrase for sentences, e.g. "today", "on 12 Sep 2026", "this week", "in July 2026". */
+  periodText: string;
+  /** Bonus tier period (lib/bonus.ts); null for Day — bonuses are weekly/monthly only. */
+  bonusPeriod: BonusPeriod | null;
 };
 
 export type StaffPeriodParams = { g?: string | null; month?: string | null; w?: string | null; d?: string | null };
@@ -83,6 +111,8 @@ export function parseStaffPeriod(params: StaffPeriodParams, now = new Date()): S
       range: { gte: from, lte: to },
       comparisonLabel: "vs previous day",
       valueLabel: label,
+      periodText: isToday ? "today" : isYesterday ? "yesterday" : `on ${label}`,
+      bonusPeriod: null,
     };
   }
 
@@ -102,16 +132,21 @@ export function parseStaffPeriod(params: StaffPeriodParams, now = new Date()): S
       range: { gte: from, lte: to },
       comparisonLabel: "vs last week",
       valueLabel: label,
+      periodText: isThisWeek ? "this week" : `in the week of ${fmt.format(monday)}`,
+      bonusPeriod: "week",
     };
   }
 
   const mp = parseMonthParam(params.month);
   const mr = monthRanges(mp);
+  const ml = monthLabel(mp);
   return {
     granularity: "month",
     arg: mp,
     range: { gte: mr.currentStart, lte: mr.currentEnd },
     comparisonLabel: "vs last month",
-    valueLabel: monthLabel(mp),
+    valueLabel: ml,
+    periodText: ml === "This Month" ? "this month" : `in ${ml}`,
+    bonusPeriod: "month",
   };
 }

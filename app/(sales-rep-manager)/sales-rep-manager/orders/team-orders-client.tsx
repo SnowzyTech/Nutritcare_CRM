@@ -6,6 +6,9 @@ import { Search, SlidersHorizontal, ArrowUpDown, ChevronLeft, ChevronDown, Calen
 import { formatDate, formatCurrency } from "@/lib/utils";
 import { Calendar } from "@/components/ui/calendar";
 import { useBasePath } from "../_lib/base-path";
+import { ORDER_FEEDBACK_OPTIONS, NO_FEEDBACK_FILTER } from "@/lib/orders/order-feedback";
+import { FeedbackPill } from "@/components/orders/feedback-pill";
+import { DuplicateBadge } from "@/components/orders/duplicate-badge";
 
 /** Local YYYY-MM-DD (avoids UTC shift from toISOString). */
 function toYMD(d: Date): string {
@@ -34,6 +37,10 @@ export type TeamOrderListItem = {
   date: string; // ISO date: YYYY-MM-DD (order created date)
   statusDate: string; // ISO date: YYYY-MM-DD (last status change / updatedAt)
   deliveryFee: number;
+  lastFeedback: string | null; // latest sales-rep call outcome
+  lastFeedbackAt: string | null; // ISO string
+  duplicateDisabled: boolean;
+  hasDuplicates: boolean;
 };
 
 export type OrderCounts = {
@@ -52,12 +59,14 @@ interface TeamOrdersClientProps {
   total: number;
   /** Per-status counts (every filter except status), for the tab badges. */
   statusCounts: Record<string, number>;
+  /** Count of orders involved in a duplicate, for the Duplicates tab badge. */
+  duplicateCount?: number;
   /** Current 1-based page. */
   page: number;
   products?: string[];
   teams?: { id: string; name: string }[];
   /** Filter selections parsed from the URL on the server (seed the controls). */
-  initialFilters?: { status: string; search: string; product: string; state: string; team: string; date: string };
+  initialFilters?: { status: string; search: string; product: string; state: string; team: string; date: string; feedback?: string; duplicatesOnly?: boolean };
 }
 
 const STATUS_STYLES: Record<OrderStatus, { dot: string; bg: string; text: string; label: string }> = {
@@ -85,17 +94,19 @@ const NIGERIAN_STATES = [
   "Yobe","Zamfara",
 ];
 
-export function TeamOrdersClient({ orders, total, statusCounts, page: pageProp, products = [], teams = [], initialFilters }: TeamOrdersClientProps) {
+export function TeamOrdersClient({ orders, total, statusCounts, duplicateCount = 0, page: pageProp, products = [], teams = [], initialFilters }: TeamOrdersClientProps) {
   const router = useRouter();
   const pathname = usePathname();
   const base = useBasePath();
   const [activeTab, setActiveTab] = useState<OrderStatus | null>((initialFilters?.status || null) as OrderStatus | null);
+  const [duplicatesOnly, setDuplicatesOnly] = useState<boolean>(initialFilters?.duplicatesOnly ?? false);
   const [searchQuery, setSearchQuery] = useState(initialFilters?.search ?? "");
   const [dateValue, setDateValue] = useState<Date | undefined>(initialFilters?.date ? new Date(`${initialFilters.date}T00:00:00`) : undefined);
   const [isDateOpen, setIsDateOpen] = useState(false);
   const [productFilter, setProductFilter] = useState(initialFilters?.product ?? "");
   const [stateFilter, setStateFilter] = useState(initialFilters?.state ?? "");
   const [teamFilter, setTeamFilter] = useState(initialFilters?.team ?? "");
+  const [feedbackFilter, setFeedbackFilter] = useState(initialFilters?.feedback ?? "");
   // Only the company manager sees orders spanning multiple teams; show the team
   // filter only when there's more than one team to choose between.
   const showTeamFilter = teams.length > 1;
@@ -126,18 +137,20 @@ export function TeamOrdersClient({ orders, total, statusCounts, page: pageProp, 
   // Jump back to page 1 whenever a filter changes.
   useEffect(() => {
     setPage(1);
-  }, [activeTab, searchQuery, dateValue, productFilter, stateFilter, teamFilter]);
+  }, [activeTab, duplicatesOnly, searchQuery, dateValue, productFilter, stateFilter, teamFilter, feedbackFilter]);
 
   // Sync filters → URL → server (debounced). Local state drives the controls; the
   // URL (read by the server page) drives which rows come back, so filtering +
   // pagination happen in the database.
   const query = (() => {
     const p = new URLSearchParams();
-    if (activeTab) p.set("status", activeTab);
+    if (duplicatesOnly) p.set("duplicates", "1");
+    else if (activeTab) p.set("status", activeTab);
     if (searchQuery.trim()) p.set("q", searchQuery.trim());
     if (productFilter) p.set("product", productFilter);
     if (stateFilter) p.set("state", stateFilter);
     if (teamFilter) p.set("team", teamFilter);
+    if (feedbackFilter) p.set("feedback", feedbackFilter);
     if (dateValue) p.set("date", toYMD(dateValue));
     if (currentPage > 1) p.set("page", String(currentPage));
     return p.toString();
@@ -152,13 +165,14 @@ export function TeamOrdersClient({ orders, total, statusCounts, page: pageProp, 
     return () => clearTimeout(handle);
   }, [query, pathname, router]);
 
-  const hasActiveFilters = dateValue || productFilter || stateFilter || teamFilter;
+  const hasActiveFilters = dateValue || productFilter || stateFilter || teamFilter || feedbackFilter;
 
   function clearFilters() {
     setDateValue(undefined);
     setProductFilter("");
     setStateFilter("");
     setTeamFilter("");
+    setFeedbackFilter("");
   }
 
   return (
@@ -170,12 +184,12 @@ export function TeamOrdersClient({ orders, total, statusCounts, page: pageProp, 
       {/* Tabs */}
       <div className="flex items-center gap-6 border-b border-gray-100 pb-4 overflow-x-auto no-scrollbar">
         {TABS.map(tab => {
-          const isActive = activeTab === tab.key;
+          const isActive = !duplicatesOnly && activeTab === tab.key;
           const count = counts[tab.countKey];
           return (
             <button
               key={tab.key ?? "all"}
-              onClick={() => setActiveTab(tab.key)}
+              onClick={() => { setDuplicatesOnly(false); setActiveTab(tab.key); }}
               className={`flex items-center gap-2 px-6 py-3 rounded-xl text-sm transition-all ${
                 isActive
                   ? "bg-[#FAF5FF] text-gray-900 font-bold shadow-sm"
@@ -195,6 +209,22 @@ export function TeamOrdersClient({ orders, total, statusCounts, page: pageProp, 
             </button>
           );
         })}
+        {/* Duplicates view — flagged orders (disabled copy + kept original). */}
+        <button
+          onClick={() => { setDuplicatesOnly(true); setActiveTab(null); }}
+          className={`flex items-center gap-2 px-6 py-3 rounded-xl text-sm transition-all ${
+            duplicatesOnly
+              ? "bg-[#FDECEC] text-[#B42318] font-bold shadow-sm"
+              : "text-gray-500 font-medium hover:text-gray-900"
+          }`}
+        >
+          <span>Duplicates</span>
+          {duplicateCount > 0 && (
+            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-lg ${duplicatesOnly ? "bg-[#FDA29B] text-white" : "text-gray-400"}`}>
+              {duplicatesOnly ? duplicateCount : `(${duplicateCount})`}
+            </span>
+          )}
+        </button>
       </div>
 
       {/* Filter Bar */}
@@ -300,6 +330,28 @@ export function TeamOrdersClient({ orders, total, statusCounts, page: pageProp, 
           />
         </div>
 
+        {/* Feedback (latest sales-rep call outcome) */}
+        <div className="relative min-w-[120px]">
+          <select
+            value={feedbackFilter}
+            onChange={e => setFeedbackFilter(e.target.value)}
+            aria-label="Filter by feedback"
+            className="w-full appearance-none bg-gray-900 border border-gray-900 rounded-lg pl-4 pr-10 py-2 text-sm text-white font-medium outline-none hover:bg-gray-800 transition-colors cursor-pointer"
+          >
+            <option value="">Feedback</option>
+            <option value={NO_FEEDBACK_FILTER}>No feedback yet</option>
+            {ORDER_FEEDBACK_OPTIONS.map(o => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+          <ChevronLeft
+            className="-rotate-90 absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
+            size={14}
+          />
+        </div>
+
         {hasActiveFilters && (
           <button
             onClick={clearFilters}
@@ -364,11 +416,14 @@ export function TeamOrdersClient({ orders, total, statusCounts, page: pageProp, 
                         </span>
                       )}
                     </div>
-                    {style && (
-                      <span className={`${style.bg} ${style.text} text-[10px] font-bold px-2.5 py-1 rounded-full shrink-0`}>
-                        {style.label}
-                      </span>
-                    )}
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <DuplicateBadge duplicateDisabled={order.duplicateDisabled} hasDuplicates={order.hasDuplicates} />
+                      {style && (
+                        <span className={`${style.bg} ${style.text} text-[10px] font-bold px-2.5 py-1 rounded-full shrink-0`}>
+                          {style.label}
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <div className="grid grid-cols-2 gap-y-1.5 gap-x-3 text-xs text-gray-500">
                     <div className="truncate col-span-2"><span className="text-gray-400">Email:</span> {order.email}</div>
@@ -386,6 +441,7 @@ export function TeamOrdersClient({ orders, total, statusCounts, page: pageProp, 
                     <div className="text-right"><span className="text-gray-400">Date:</span> {formatDate(order.date)}</div>
                     <div className="truncate col-span-2"><span className="text-gray-400">Delivery Fee:</span> {formatCurrency(order.deliveryFee)}</div>
                     <div className="truncate col-span-2"><span className="text-gray-400">Agent:</span> {order.agent ? `${order.agent.name} (${order.agent.state})` : "—"}</div>
+                    <div className="col-span-2 flex items-center gap-1.5"><span className="text-gray-400">Feedback:</span> <FeedbackPill lastFeedback={order.lastFeedback} lastFeedbackAt={order.lastFeedbackAt} status={order.status as OrderStatus} /></div>
                   </div>
                 </div>
               );
@@ -406,6 +462,7 @@ export function TeamOrdersClient({ orders, total, statusCounts, page: pageProp, 
                 <th className="px-6 py-4 font-bold text-gray-500 text-sm text-right whitespace-nowrap">Delivery Fee</th>
                 <th className="px-6 py-4 font-bold text-gray-500 text-sm text-right">Date</th>
                 <th className="px-6 py-4 font-bold text-gray-500 text-sm whitespace-nowrap">Status Date</th>
+                <th className="px-6 py-4 font-bold text-gray-500 text-sm whitespace-nowrap">Feedback</th>
               </tr>
             </thead>
             <tbody>
@@ -437,6 +494,7 @@ export function TeamOrdersClient({ orders, total, statusCounts, page: pageProp, 
                             <RotateCcw size={10} /> Reorder
                           </span>
                         )}
+                        <DuplicateBadge duplicateDisabled={order.duplicateDisabled} hasDuplicates={order.hasDuplicates} className="mt-0.5" />
                       </div>
                     </td>
                     <td className="px-6 py-4 text-gray-500">
@@ -487,6 +545,13 @@ export function TeamOrdersClient({ orders, total, statusCounts, page: pageProp, 
                           <span className="text-gray-700 font-medium">{formatDate(order.statusDate)}</span>
                         </div>
                       )}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <FeedbackPill
+                        lastFeedback={order.lastFeedback}
+                        lastFeedbackAt={order.lastFeedbackAt}
+                        status={order.status as OrderStatus}
+                      />
                     </td>
                   </tr>
                 );

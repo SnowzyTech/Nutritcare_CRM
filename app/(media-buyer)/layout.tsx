@@ -2,6 +2,7 @@ import { auth } from "@/lib/auth/auth";
 import type { Metadata } from "next";
 import { MediaBuyerSidebarClient } from "./media-buyer/sidebar-client";
 import { getSelfProfile } from "@/modules/users/services/users.service";
+import { NotificationRoot } from "@/components/notifications/notification-root";
 
 export const metadata: Metadata = {
   title: {
@@ -23,19 +24,21 @@ export default async function MediaBuyerLayout({
     : null;
 
   return (
-    <div className="flex h-screen bg-white font-sans overflow-hidden text-slate-900">
-      <MediaBuyerSidebarClient
-        user={{
-          name: session?.user?.name,
-          email: session?.user?.email,
-          image: profile?.avatarUrl ?? null,
-        }}
-      />
+    <NotificationRoot>
+      <div className="flex h-screen bg-white font-sans overflow-hidden text-slate-900">
+        <MediaBuyerSidebarClient
+          user={{
+            name: session?.user?.name,
+            email: session?.user?.email,
+            image: profile?.avatarUrl ?? null,
+          }}
+        />
 
-      {/* Main area */}
-      <div className="flex flex-col flex-1 overflow-hidden">
-        <main className="flex-1 overflow-y-auto p-8">{children}</main>
+        {/* Main area */}
+        <div className="flex flex-col flex-1 overflow-hidden">
+          <main className="flex-1 overflow-y-auto p-8">{children}</main>
+        </div>
       </div>
-    </div>
+    </NotificationRoot>
   );
 }

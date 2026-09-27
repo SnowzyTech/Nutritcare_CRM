@@ -3,11 +3,13 @@
 import React, { useRef, useState, useTransition } from "react";
 import { useUpsellPreview } from "@/lib/orders/use-upsell-preview";
 import { useRouter } from "next/navigation";
-import { X, Trash2, RotateCcw, Phone, CalendarClock } from "lucide-react";
+import { X, Trash2, RotateCcw, Phone, CalendarClock, Pencil, Repeat, AlertTriangle } from "lucide-react";
+import { DuplicateBadge } from "@/components/orders/duplicate-badge";
 import Image from "next/image";
 import { toast } from "sonner";
 import type { OrderStatus } from "@prisma/client";
 import { AgentInfoDrawer } from "@/components/ui/agent-info-drawer";
+import { EditLineModal } from "@/components/orders/edit-line-modal";
 import {
   confirmOrderAction,
   cancelOrderAction,
@@ -20,7 +22,19 @@ import {
   applyOrderDiscountAction,
   setOrderContactMethodAction,
   reviveOrderAction,
+  changeOrderItemQuantityAction,
+  swapOrderItemProductAction,
+  resolveLineRepriceAction,
+  recordOrderFeedbackAction,
 } from "@/modules/orders/actions/orders.action";
+import {
+  ORDER_FEEDBACK_OPTIONS,
+  ORDER_FEEDBACK_NOTE_MAX,
+  FEEDBACK_TONE_CLASSES,
+  feedbackLabel,
+  feedbackTone,
+  type OrderFeedbackOutcome,
+} from "@/lib/orders/order-feedback";
 
 // Serialized types (Decimals as strings, Dates as ISO strings)
 export type SerializedOrder = {
@@ -80,6 +94,17 @@ export type SerializedOrder = {
     updatedAt: string;
     status: string;
   }>;
+  /** Call-feedback history, newest first. */
+  feedbacks: Array<{
+    id: string;
+    outcome: string;
+    note: string | null;
+    createdAt: string;
+    authorName: string;
+  }>;
+  duplicateDisabled: boolean;
+  hasDuplicates: boolean;
+  duplicateOfNumber: string | null;
 };
 
 export type ProductOption = {
@@ -265,6 +290,10 @@ export function OrderDetailClient({ order, products }: OrderDetailClientProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [isAddProductOpen, setIsAddProductOpen] = useState(false);
+  const [editState, setEditState] = useState<{
+    line: { id: string; productId: string; productName: string; quantity: number };
+    mode: "quantity" | "swap";
+  } | null>(null);
   const [isAgentDrawerOpen, setIsAgentDrawerOpen] = useState(false);
   const [isCancelOpen, setIsCancelOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState(""); // a preset reason, or ""
@@ -275,10 +304,19 @@ export function OrderDetailClient({ order, products }: OrderDetailClientProps) {
   const [prescription, setPrescription] = useState(order.notes ?? "");
   const [contactMethod, setContactMethod] = useState<"PHONE" | "WHATSAPP" | null>(order.contactMethod);
   const [deliveryDate, setDeliveryDate] = useState("");
+  const [feedbackOutcome, setFeedbackOutcome] = useState<OrderFeedbackOutcome | null>(null);
+  const [feedbackNote, setFeedbackNote] = useState("");
   // Negotiated final price (for goods, excluding delivery fee). Defaults to the
   // current net so re-opening the editor shows the price already agreed.
   const [priceInput, setPriceInput] = useState(order.netAmount);
   const [discountReason, setDiscountReason] = useState(order.discountReason ?? "");
+  // When the order's net changes (e.g. after an edit that clears the discount),
+  // reset the negotiated-price box to the new total so the rep re-sets the price.
+  const [lastNet, setLastNet] = useState(order.netAmount);
+  if (order.netAmount !== lastNet) {
+    setLastNet(order.netAmount);
+    setPriceInput(order.netAmount);
+  }
   // Monotonic id source for product rows — avoids calling Date.now() during render.
   const rowIdRef = useRef(1);
   const [productRows, setProductRows] = useState(() => [
@@ -437,20 +475,28 @@ export function OrderDetailClient({ order, products }: OrderDetailClientProps) {
       });
       const res = await addOrderItemsAction(order.id, items);
       if (res?.error) return res; // surface error, skip the UI updates below
-      // Bump the negotiated-price input by the true gross increase (new merged
-      // line total − the product's existing line total) so any discount stays
-      // intact. Uses the live preview totals the rep already saw.
-      const added = activeRows.reduce((sum, r) => {
-        const pv = previews[r.id];
-        if (!pv) return sum;
-        const oldProductTotal = order.items
-          .filter((i) => i.product.id === r.productId)
-          .reduce((s, i) => s + Number(i.lineTotal), 0);
-        return sum + Math.max(0, pv.lineTotal - oldProductTotal);
-      }, 0);
-      setPriceInput(String(Number(priceInput) + added));
+      // Adding a product clears any prior discount server-side; the negotiated-
+      // price box auto-resets to the new full total (see the net-change reset
+      // above), so the rep re-sets the price.
       setIsAddProductOpen(false);
     }, "Products added to order");
+  }
+
+  function handleSaveFeedback() {
+    if (!feedbackOutcome) {
+      toast.warning("Choose a feedback option first.");
+      return;
+    }
+    if (feedbackOutcome === "OTHER" && !feedbackNote.trim()) {
+      toast.warning("Add a note describing the feedback.");
+      return;
+    }
+    handleAction(async () => {
+      const res = await recordOrderFeedbackAction(order.id, feedbackOutcome, feedbackNote.trim() || undefined);
+      if (res.error) return res;
+      setFeedbackOutcome(null);
+      setFeedbackNote("");
+    }, "Feedback saved");
   }
 
   function handleContactMethod(method: "PHONE" | "WHATSAPP") {
@@ -504,8 +550,28 @@ export function OrderDetailClient({ order, products }: OrderDetailClientProps) {
               Reorder
             </span>
           )}
+          <DuplicateBadge duplicateDisabled={order.duplicateDisabled} hasDuplicates={order.hasDuplicates} />
         </div>
       </div>
+
+      {/* Duplicate notice: this copy is disabled — don't call/confirm it. */}
+      {order.duplicateDisabled && (
+        <div className="flex items-start gap-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          <AlertTriangle size={18} className="mt-0.5 shrink-0" />
+          <span>
+            This order was flagged as a duplicate
+            {order.duplicateOfNumber ? ` of ${order.duplicateOfNumber}` : ""} and disabled, so you
+            don&apos;t call the customer or confirm it twice. If it&apos;s genuinely a separate
+            order, ask a data team-lead to re-enable it.
+          </span>
+        </div>
+      )}
+      {order.hasDuplicates && (
+        <div className="flex items-start gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <AlertTriangle size={18} className="mt-0.5 shrink-0" />
+          <span>A duplicate copy of this order came in and was disabled. This is the active copy — confirm this one.</span>
+        </div>
+      )}
 
       {/* Steps */}
       <div className="bg-white p-4 sm:p-8 rounded-2xl border border-gray-100 flex flex-row items-start justify-between sm:justify-start gap-2 sm:gap-4 overflow-x-auto">
@@ -586,6 +652,48 @@ export function OrderDetailClient({ order, products }: OrderDetailClientProps) {
                       </p>
                     </div>
                     <div className="text-left sm:text-right flex items-center gap-2 sm:justify-end">
+                      {(order.status === "PENDING" || order.status === "CONFIRMED") && (
+                        <>
+                          <button
+                            type="button"
+                            disabled={isPending}
+                            title="Change quantity"
+                            onClick={() =>
+                              setEditState({
+                                line: {
+                                  id: item.id,
+                                  productId: item.product.id,
+                                  productName: item.product.name,
+                                  quantity: item.quantity,
+                                },
+                                mode: "quantity",
+                              })
+                            }
+                            className="shrink-0 p-2 rounded-lg border border-purple-100 text-purple-600 hover:bg-purple-50 disabled:opacity-50 transition"
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            disabled={isPending}
+                            title="Change product"
+                            onClick={() =>
+                              setEditState({
+                                line: {
+                                  id: item.id,
+                                  productId: item.product.id,
+                                  productName: item.product.name,
+                                  quantity: item.quantity,
+                                },
+                                mode: "swap",
+                              })
+                            }
+                            className="shrink-0 p-2 rounded-lg border border-purple-100 text-purple-600 hover:bg-purple-50 disabled:opacity-50 transition"
+                          >
+                            <Repeat className="w-4 h-4" />
+                          </button>
+                        </>
+                      )}
                       {order.status === "PENDING" && order.items.length > 1 && (
                         <button
                           type="button"
@@ -907,6 +1015,94 @@ export function OrderDetailClient({ order, products }: OrderDetailClientProps) {
                 />
                 <span className="text-sm font-semibold text-gray-500 group-hover:text-gray-700">WhatsApp</span>
               </label>
+            </div>
+          </div>
+
+          {/* Customer call feedback — a label only; never changes the order status */}
+          <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden mt-4 shadow-sm">
+            <h4 className="text-sm font-bold text-gray-700 bg-gray-50 px-5 py-3.5 border-b border-gray-200">
+              Customer Feedback
+            </h4>
+            <div className="p-4 flex flex-col gap-4">
+              {order.status !== "DELIVERED" && (
+                <div className="flex flex-col gap-3">
+                  <div className="flex flex-wrap gap-2">
+                    {ORDER_FEEDBACK_OPTIONS.map((opt) => {
+                      const selected = feedbackOutcome === opt.value;
+                      return (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          disabled={isPending}
+                          aria-pressed={selected}
+                          onClick={() => setFeedbackOutcome(selected ? null : opt.value)}
+                          className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition disabled:opacity-50 ${
+                            selected
+                              ? "bg-[#A855F7] border-[#A855F7] text-white"
+                              : "bg-white border-gray-200 text-gray-600 hover:border-[#A855F7] hover:text-[#9333EA]"
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {feedbackOutcome === "CANCELLED" && (
+                    <p className="text-[11px] text-gray-400">
+                      Records feedback only — use Cancel to cancel the order.
+                    </p>
+                  )}
+                  {feedbackOutcome && (
+                    <>
+                      <textarea
+                        value={feedbackNote}
+                        onChange={(e) => setFeedbackNote(e.target.value)}
+                        maxLength={ORDER_FEEDBACK_NOTE_MAX}
+                        placeholder={feedbackOutcome === "OTHER" ? "Describe the feedback (required)" : "Add a note (optional)"}
+                        className="w-full min-h-[64px] border-2 border-[#E9D5FF] focus:border-[#A855F7] rounded-xl px-4 py-3 text-xs font-semibold text-gray-600 resize-none outline-none transition"
+                      />
+                      <button
+                        type="button"
+                        disabled={isPending}
+                        onClick={handleSaveFeedback}
+                        className="w-full bg-purple-600 text-white px-4 py-2 rounded-lg font-semibold text-sm hover:bg-purple-700 transition disabled:opacity-50"
+                      >
+                        Save Feedback
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {order.feedbacks.length > 0 ? (
+                <ul className="flex flex-col gap-3">
+                  {order.feedbacks.map((f) => (
+                    <li key={f.id} className="flex flex-col gap-1 border-l-2 border-purple-100 pl-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span
+                          className={`inline-flex items-center text-[10px] font-bold px-2 py-0.5 rounded-full ${FEEDBACK_TONE_CLASSES[feedbackTone(f.outcome)]}`}
+                        >
+                          {feedbackLabel(f.outcome)}
+                        </span>
+                        <span className="text-[11px] text-gray-400">
+                          {new Date(f.createdAt).toLocaleString("en-NG", {
+                            day: "2-digit",
+                            month: "short",
+                            year: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                          {" · "}
+                          {f.authorName}
+                        </span>
+                      </div>
+                      {f.note && <p className="text-xs text-gray-600 break-words">{f.note}</p>}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-xs text-gray-400 italic">No feedback recorded yet.</p>
+              )}
             </div>
           </div>
 
@@ -1397,6 +1593,26 @@ export function OrderDetailClient({ order, products }: OrderDetailClientProps) {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Edit line modal (change quantity / swap product) */}
+      {editState && (
+        <EditLineModal
+          key={`${editState.mode}-${editState.line.id}`}
+          orderId={order.id}
+          mode={editState.mode}
+          isOpen={true}
+          onClose={() => setEditState(null)}
+          line={editState.line}
+          products={products}
+          resolvePreview={resolveLineRepriceAction}
+          onSubmit={({ productId, qty, unitPrice }) =>
+            editState.mode === "quantity"
+              ? changeOrderItemQuantityAction(order.id, editState.line.id, qty, unitPrice)
+              : swapOrderItemProductAction(order.id, editState.line.id, productId, qty, unitPrice)
+          }
+          onDone={() => router.refresh()}
+        />
       )}
     </div>
   );

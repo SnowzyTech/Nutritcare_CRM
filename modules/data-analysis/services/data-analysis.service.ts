@@ -2,6 +2,17 @@ import { prisma } from "@/lib/db/prisma";
 import { unstable_cache } from "next/cache";
 import { OrderStatus, Prisma } from "@prisma/client";
 import { generalPerformanceScore, kpiScore } from "@/lib/performance";
+import { parseMonthParam, type MonthPeriod } from "@/lib/month-period";
+import type { DatePeriod } from "@/lib/date-period";
+import { periodCacheKey, periodWindows } from "@/lib/staff-period";
+import { NO_FEEDBACK_FILTER } from "@/lib/orders/order-feedback";
+import { getOrderFeedback } from "@/modules/reports/sales/services/feedback.service";
+import { getOrderFollowUps } from "@/modules/reports/sales/services/follow-up.service";
+import type {
+  PanelCallFeedback,
+  PanelCustomerFeedback,
+  PanelFollowUp,
+} from "@/components/orders/customer-interaction-panel";
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
 
@@ -58,7 +69,7 @@ function avatarUrl(name: string, url: string | null): string {
 // score as the sales-rep analytics page (lib/performance.ts) so the rep summary
 // cards agree with the full analytics view.
 function computePerformance(
-  orders: { status: OrderStatus; createdAt: Date; isReorder: boolean; items: { productId: string }[] }[],
+  orders: { status: OrderStatus; createdAt: Date; isReorder: boolean; items: { productId: string; isUpsell: boolean; upsellQuantity: number }[] }[],
 ): number {
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -69,8 +80,9 @@ function computePerformance(
   const failed = monthOrders.filter((o) => o.status === "FAILED").length;
   const cancelled = monthOrders.filter((o) => o.status === "CANCELLED").length;
   const reorders = monthOrders.filter((o) => o.isReorder).length;
+  // Upsell = orders with a RECORDED upsell, not merely >1 distinct product.
   const multiItem = monthOrders.filter(
-    (o) => new Set(o.items.map((i) => i.productId)).size > 1,
+    (o) => o.items.some((i) => i.upsellQuantity > 0 || i.isUpsell),
   ).length;
 
   const deliveryRate = kpiScore(delivered, total);
@@ -122,6 +134,10 @@ export type OrderRow = {
   statusDate: string | null;  // Date when status changed (null for PENDING)
   formId: string | null;      // set when the order came from a media buyer's form
   formName: string | null;
+  lastFeedback: string | null;    // latest sales-rep call outcome (lib/orders/order-feedback.ts)
+  lastFeedbackAt: string | null;  // ISO string
+  duplicateDisabled: boolean;     // disabled because it duplicates an earlier still-open order
+  hasDuplicates: boolean;         // kept original that has a duplicate copy
 };
 
 export type OrderDetailFull = {
@@ -148,6 +164,18 @@ export type OrderDetailFull = {
     totalPrice: string;
   };
   upsoldProduct?: { name: string; quantity: number };
+  // Per-line breakdown (real order) — enables the team-lead edit controls.
+  items: {
+    id: string;
+    productId: string;
+    name: string;
+    quantity: number; // base qty (line qty minus upsold) for display
+    lineQuantity: number; // full line qty an edit operates on
+    isUpsell: boolean;
+    upsellQuantity: number;
+  }[];
+  grossValue: number;
+  netValue: number;
   deliveryFee?: string;
   estimatedDeliveryDate?: string;
   agent?: {
@@ -169,6 +197,15 @@ export type OrderDetailFull = {
     repName?: string;
     agentName?: string;
   }>;
+  // Sales-rep customer-interaction trail (read-only) — rendered by
+  // components/orders/customer-interaction-panel.tsx.
+  callFeedback: PanelCallFeedback[];
+  customerFeedback: PanelCustomerFeedback[];
+  followUps: PanelFollowUp[];
+  // Duplicate-order flagging (modules/orders/services/duplicate-order.service.ts).
+  duplicateDisabled: boolean;       // this copy is disabled; a team-lead can re-enable
+  hasDuplicates: boolean;           // kept original that has a duplicate copy
+  duplicateOfNumber: string | null; // the earlier order this one duplicates
 };
 
 export type SalesRepProfile = {
@@ -257,7 +294,7 @@ type OrderForMetrics = {
   status: OrderStatus;
   customerId: string;
   isReorder: boolean;
-  items: { productId: string; quantity: number; product: { name: string } }[];
+  items: { productId: string; quantity: number; isUpsell: boolean; upsellQuantity: number; product: { name: string } }[];
 };
 
 function computeMetrics(orders: OrderForMetrics[]) {
@@ -288,8 +325,9 @@ function computeMetrics(orders: OrderForMetrics[]) {
     .sort((a, b) => b[1] - a[1])
     .map(([name, qty]) => ({ name, qty }));
 
-  const multiItemOrders = orders.filter(
-    (o) => new Set(o.items.map((i) => i.productId)).size > 1
+  // Upsell = orders with a RECORDED upsell, not merely >1 distinct product.
+  const multiItemOrders = orders.filter((o) =>
+    o.items.some((i) => i.upsellQuantity > 0 || i.isUpsell)
   );
   const upsellRate = total > 0 ? Math.round((multiItemOrders.length / total) * 100) : 0;
 
@@ -297,10 +335,16 @@ function computeMetrics(orders: OrderForMetrics[]) {
   const reorders = orders.filter((o) => o.isReorder).length;
   const reorderRate = total > 0 ? Math.round((reorders / total) * 100) : 0;
 
+  // Upsold products: ranked by the units actually upsold — a whole-upsell line's
+  // full quantity, or a merged line's upsold quantity (not "any item in a
+  // multi-item order", which miscounts).
   const upsoldQty = new Map<string, number>();
-  for (const o of multiItemOrders) {
+  for (const o of orders) {
     for (const item of o.items) {
-      upsoldQty.set(item.product.name, (upsoldQty.get(item.product.name) ?? 0) + 1);
+      const upsoldUnits = item.isUpsell ? item.quantity : item.upsellQuantity;
+      if (upsoldUnits > 0) {
+        upsoldQty.set(item.product.name, (upsoldQty.get(item.product.name) ?? 0) + upsoldUnits);
+      }
     }
   }
   const upsoldProducts = [...upsoldQty.entries()]
@@ -442,6 +486,8 @@ async function fetchOrdersForMetrics(where: object): Promise<OrderForMetrics[]> 
         select: {
           productId: true,
           quantity: true,
+          isUpsell: true,
+          upsellQuantity: true,
           product: { select: { name: true } },
         },
       },
@@ -642,7 +688,7 @@ export async function getSalesRepsList(): Promise<SalesRepItem[]> {
           status: true,
           createdAt: true,
           isReorder: true,
-          items: { select: { productId: true } },
+          items: { select: { productId: true, isUpsell: true, upsellQuantity: true } },
         },
       },
     },
@@ -658,7 +704,7 @@ export async function getSalesRepsList(): Promise<SalesRepItem[]> {
     avatarUrl: avatarUrl(u.name, u.avatarUrl),
     teamName: u.team?.name ?? "No Team",
     pendingOrderCount: u.orders.filter((o) => o.status === "PENDING").length,
-    generalPerformance: computePerformance(u.orders as any),
+    generalPerformance: computePerformance(u.orders),
   }));
 }
 
@@ -677,6 +723,10 @@ const ORDER_ROW_SELECT = {
   createdAt: true,
   updatedAt: true,
   formId: true,
+  lastFeedback: true,
+  lastFeedbackAt: true,
+  duplicateDisabledAt: true,
+  hasDuplicates: true,
   form: { select: { name: true } },
   customer: { select: { name: true, email: true, state: true } },
   agent: { select: { id: true, companyName: true, state: true } },
@@ -731,6 +781,10 @@ function toOrderRow(o: OrderRowRaw): OrderRow {
     statusDate: statusSrc ? fmtDate(statusSrc) : null,
     formId: o.formId,
     formName: o.form?.name ?? null,
+    lastFeedback: o.lastFeedback,
+    lastFeedbackAt: o.lastFeedbackAt?.toISOString() ?? null,
+    duplicateDisabled: o.duplicateDisabledAt !== null,
+    hasDuplicates: o.hasDuplicates,
   };
 }
 
@@ -768,6 +822,12 @@ export type OrderListFilters = {
    *  per-status date; this server version filters by placed date — see the plan. */
   from?: Date;
   to?: Date;
+  /** Latest sales-rep call feedback (`Order.lastFeedback`): an outcome from
+   *  lib/orders/order-feedback.ts, or NO_FEEDBACK_FILTER for "none recorded yet".
+   *  Callers validate the value before passing it. */
+  feedback?: string;
+  /** Only orders involved in a duplicate: the disabled copy OR its kept original. */
+  duplicatesOnly?: boolean;
 };
 
 export function buildOrderWhere(f: OrderListFilters): Prisma.OrderWhereInput {
@@ -791,6 +851,7 @@ export function buildOrderWhere(f: OrderListFilters): Prisma.OrderWhereInput {
   if (f.teamIds?.length) where.salesRep = { is: { teamId: { in: f.teamIds } } };
   if (f.agentIds?.length) where.agentId = { in: f.agentIds };
   if (f.salesRepIds?.length) where.salesRepId = { in: f.salesRepIds };
+  if (f.feedback) where.lastFeedback = f.feedback === NO_FEEDBACK_FILTER ? null : f.feedback;
 
   // Date filter matches each order by the date it reached its CURRENT status — the
   // SAME source the displayed statusDate uses (see toOrderRow): delivered →
@@ -825,6 +886,17 @@ export function buildOrderWhere(f: OrderListFilters): Prisma.OrderWhereInput {
       : ["PENDING", "CONFIRMED", "DELIVERED", "CANCELLED", "FAILED"];
     where.AND = [{ OR: statuses.map((s) => ({ status: s, ...branchFor[s] })) }];
   }
+
+  // Duplicates view: the disabled copy OR its kept original (so both show side by
+  // side for review). Added as an AND clause so it composes with the date OR above.
+  if (f.duplicatesOnly) {
+    const clause: Prisma.OrderWhereInput = {
+      OR: [{ duplicateDisabledAt: { not: null } }, { hasDuplicates: true }],
+    };
+    where.AND = where.AND
+      ? [...(Array.isArray(where.AND) ? where.AND : [where.AND]), clause]
+      : [clause];
+  }
   return where;
 }
 
@@ -837,12 +909,16 @@ export async function getOrdersPage(
   filters: OrderListFilters,
   page: number,
   pageSize = 15,
-): Promise<{ rows: OrderRow[]; total: number; statusCounts: Record<string, number> }> {
+): Promise<{ rows: OrderRow[]; total: number; statusCounts: Record<string, number>; duplicateCount: number }> {
   const where = buildOrderWhere(filters);
-  const whereNoStatus = buildOrderWhere({ ...filters, status: undefined });
+  // Status tab counts ignore both `status` AND the duplicates view, so they stay
+  // stable no matter which tab is open.
+  const whereNoStatus = buildOrderWhere({ ...filters, status: undefined, duplicatesOnly: false });
+  // Duplicates tab count: the other filters + the duplicate condition, ignoring status.
+  const dupWhere = buildOrderWhere({ ...filters, status: undefined, duplicatesOnly: true });
   const safePage = Math.max(1, Math.floor(page) || 1);
 
-  const [orders, total, grouped] = await Promise.all([
+  const [orders, total, grouped, duplicateCount] = await Promise.all([
     prisma.order.findMany({
       where,
       orderBy: { createdAt: "desc" },
@@ -852,12 +928,13 @@ export async function getOrdersPage(
     }),
     prisma.order.count({ where }),
     prisma.order.groupBy({ by: ["status"], where: whereNoStatus, _count: { _all: true } }),
+    prisma.order.count({ where: dupWhere }),
   ]);
 
   const statusCounts: Record<string, number> = {};
   for (const g of grouped) statusCounts[g.status] = g._count._all;
 
-  return { rows: orders.map(toOrderRow), total, statusCounts };
+  return { rows: orders.map(toOrderRow), total, statusCounts, duplicateCount };
 }
 
 export async function getOrderByOrderNumber(orderNumber: string): Promise<OrderDetailFull | null> {
@@ -885,10 +962,28 @@ export async function getOrderByOrderNumber(orderNumber: string): Promise<OrderD
         orderBy: { createdAt: "asc" },
       },
       deliveries: { orderBy: { createdAt: "asc" } },
+      feedbacks: {
+        orderBy: { createdAt: "desc" },
+        take: 30,
+        select: {
+          id: true,
+          outcome: true,
+          note: true,
+          createdAt: true,
+          author: { select: { name: true } },
+        },
+      },
     },
   });
 
   if (!order) return null;
+
+  // The rep's customer-interaction trail — fetched with the existing read
+  // services (same shape the sales-rep detail page uses).
+  const [customerFeedbackRows, followUpRows] = await Promise.all([
+    getOrderFeedback(order.id),
+    getOrderFollowUps(order.id),
+  ]);
 
   const firstItem = order.items[0];
   const upsoldItem = order.items[1];
@@ -950,6 +1045,15 @@ export async function getOrderByOrderNumber(orderNumber: string): Promise<OrderD
     history.push({ event: "Order Cancelled", date: fmtDateTime(order.updatedAt), repName: order.salesRep.name });
   }
 
+  const duplicateOfNumber = order.duplicateOfId
+    ? (
+        await prisma.order.findUnique({
+          where: { id: order.duplicateOfId },
+          select: { orderNumber: true },
+        })
+      )?.orderNumber ?? null
+    : null;
+
   return {
     id: order.id,
     orderId: order.orderNumber,
@@ -976,6 +1080,18 @@ export async function getOrderByOrderNumber(orderNumber: string): Promise<OrderD
     upsoldProduct: upsoldItem
       ? { name: upsoldItem.product.name, quantity: upsoldItem.quantity }
       : undefined,
+    items: order.items.map((it) => ({
+      id: it.id,
+      productId: it.productId,
+      name: it.product.name,
+      quantity:
+        !it.isUpsell && it.upsellQuantity > 0 ? it.quantity - it.upsellQuantity : it.quantity,
+      lineQuantity: it.quantity,
+      isUpsell: it.isUpsell,
+      upsellQuantity: it.upsellQuantity,
+    })),
+    grossValue: Number(order.totalAmount),
+    netValue: Number(order.netAmount),
     deliveryFee: Number(order.deliveryFee) > 0
       ? `₦${Number(order.deliveryFee).toLocaleString("en-NG")}`
       : undefined,
@@ -1007,6 +1123,32 @@ export async function getOrderByOrderNumber(orderNumber: string): Promise<OrderD
     source: order.customer.source ?? "Direct",
     orderDate: fmtDate(order.createdAt),
     history,
+    callFeedback: order.feedbacks.map((f) => ({
+      id: f.id,
+      outcome: f.outcome,
+      note: f.note ?? null,
+      authorName: f.author.name,
+      at: f.createdAt.toISOString(),
+    })),
+    customerFeedback: customerFeedbackRows.map((f) => ({
+      id: f.id,
+      category: f.category,
+      message: f.message,
+      status: f.status,
+      action: f.action ?? null,
+      productName: f.product?.name ?? null,
+      authorName: f.author.name,
+      at: f.createdAt.toISOString(),
+    })),
+    followUps: followUpRows.map((f) => ({
+      stage: f.stage,
+      note: f.note ?? null,
+      completedByName: f.completedBy.name,
+      at: f.completedAt.toISOString(),
+    })),
+    duplicateDisabled: order.duplicateDisabledAt !== null,
+    hasDuplicates: order.hasDuplicates,
+    duplicateOfNumber,
   };
 }
 
@@ -1027,7 +1169,7 @@ export async function getSalesRepProfile(userId: string): Promise<SalesRepProfil
           status: true,
           createdAt: true,
           isReorder: true,
-          items: { select: { productId: true } },
+          items: { select: { productId: true, isUpsell: true, upsellQuantity: true } },
         },
       },
     },
@@ -1061,7 +1203,7 @@ export async function getSalesRepProfile(userId: string): Promise<SalesRepProfil
     avatarUrl: avatarUrl(user.name, user.avatarUrl),
     teamName: user.team?.name ?? "No Team",
     orderCounts,
-    generalPerformance: computePerformance(orders as any),
+    generalPerformance: computePerformance(orders),
     kpiAchievement,
   };
 }
@@ -1103,53 +1245,16 @@ async function _getSalesRepAnalyticsForUI(
   return toRepAnalyticsData(current, last);
 }
 
-export type Period = "day" | "week" | "month";
-
 /**
- * Resolves a Period (+ optional month/year for month mode) into the current
- * window and the prior window's start (used for trend deltas). Shared by
- * getTeamsAnalytics and getCompanyAnalytics so they stay in lockstep.
- *  • day   → today vs yesterday
- *  • week  → last 7 days vs the prior 7
- *  • month → calendar month vs the prior month
+ * Period options for the team / company rollups. `period` comes from
+ * `parseStaffPeriod(...).arg` (lib/staff-period.ts): a day, a Mon–Sun week or a
+ * calendar month, compared with the previous window of the same kind. Omitted →
+ * the current calendar month.
  */
-function resolvePeriodWindow(
-  period: Period,
-  month?: number,
-  year?: number,
-): { currentStart: Date; currentEnd: Date; lastStart: Date } {
-  const now = new Date();
+export type AnalyticsPeriodOptions = { period?: MonthPeriod | DatePeriod };
 
-  if (period === "day") {
-    const currentStart = new Date(now);
-    currentStart.setHours(0, 0, 0, 0);
-    const currentEnd = new Date(currentStart);
-    currentEnd.setDate(currentStart.getDate() + 1);
-    const lastStart = new Date(currentStart);
-    lastStart.setDate(currentStart.getDate() - 1);
-    return { currentStart, currentEnd, lastStart };
-  }
-
-  if (period === "week") {
-    const currentStart = new Date(now);
-    currentStart.setDate(now.getDate() - 6);
-    currentStart.setHours(0, 0, 0, 0);
-    const currentEnd = new Date(now);
-    currentEnd.setDate(now.getDate() + 1);
-    currentEnd.setHours(0, 0, 0, 0);
-    const lastStart = new Date(now);
-    lastStart.setDate(now.getDate() - 13);
-    lastStart.setHours(0, 0, 0, 0);
-    return { currentStart, currentEnd, lastStart };
-  }
-
-  const m = month ?? now.getMonth();
-  const y = year ?? now.getFullYear();
-  return {
-    currentStart: new Date(y, m, 1),
-    currentEnd: new Date(y, m + 1, 1),
-    lastStart: new Date(y, m - 1, 1),
-  };
+function resolvePeriod(options?: AnalyticsPeriodOptions): MonthPeriod | DatePeriod {
+  return options?.period ?? parseMonthParam();
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -1163,15 +1268,11 @@ function resolvePeriodWindow(
    ──────────────────────────────────────────────────────────────────────────── */
 const DATA_ANALYTICS_TTL_SECONDS = 120;
 
-function analyticsOptionsKey(o?: { month?: number; year?: number; period?: Period }): string {
-  return `${o?.period ?? "month"}:${o?.year ?? ""}:${o?.month ?? ""}`;
+function analyticsOptionsKey(o?: AnalyticsPeriodOptions): string {
+  return periodCacheKey(resolvePeriod(o));
 }
 
-export function getTeamsAnalytics(options?: {
-  month?: number;
-  year?: number;
-  period?: Period;
-}): Promise<TeamAnalyticsEntry[]> {
+export function getTeamsAnalytics(options?: AnalyticsPeriodOptions): Promise<TeamAnalyticsEntry[]> {
   return unstable_cache(
     () => _getTeamsAnalytics(options),
     ["data-teams-analytics", analyticsOptionsKey(options)],
@@ -1179,11 +1280,7 @@ export function getTeamsAnalytics(options?: {
   )();
 }
 
-export function getCompanyAnalytics(options?: {
-  month?: number;
-  year?: number;
-  period?: Period;
-}): Promise<RepAnalyticsData> {
+export function getCompanyAnalytics(options?: AnalyticsPeriodOptions): Promise<RepAnalyticsData> {
   return unstable_cache(
     () => _getCompanyAnalytics(options),
     ["data-company-analytics", analyticsOptionsKey(options)],
@@ -1207,11 +1304,7 @@ export function getMonthlyOrderVolume(year: number): Promise<ChartPoint[]> {
   )();
 }
 
-async function _getTeamsAnalytics(options?: {
-  month?: number;
-  year?: number;
-  period?: Period;
-}): Promise<TeamAnalyticsEntry[]> {
+async function _getTeamsAnalytics(options?: AnalyticsPeriodOptions): Promise<TeamAnalyticsEntry[]> {
   const teams = await prisma.team.findMany({
     where: { department: "SALES" },
     select: {
@@ -1222,11 +1315,7 @@ async function _getTeamsAnalytics(options?: {
     orderBy: { name: "asc" },
   });
 
-  const { currentStart, currentEnd, lastStart } = resolvePeriodWindow(
-    options?.period ?? "month",
-    options?.month,
-    options?.year,
-  );
+  const { currentStart, currentEnd, prevStart, prevEnd } = periodWindows(resolvePeriod(options));
 
   const results: TeamAnalyticsEntry[] = [];
 
@@ -1243,8 +1332,8 @@ async function _getTeamsAnalytics(options?: {
     }
 
     const [currentOrders, lastOrders] = await Promise.all([
-      fetchOrdersForMetrics({ salesRepId: { in: repIds }, createdAt: { gte: currentStart, lt: currentEnd } }),
-      fetchOrdersForMetrics({ salesRepId: { in: repIds }, createdAt: { gte: lastStart, lt: currentStart } }),
+      fetchOrdersForMetrics({ salesRepId: { in: repIds }, createdAt: { gte: currentStart, lte: currentEnd } }),
+      fetchOrdersForMetrics({ salesRepId: { in: repIds }, createdAt: { gte: prevStart, lte: prevEnd } }),
     ]);
 
     const current = computeMetrics(currentOrders);
@@ -1259,16 +1348,8 @@ async function _getTeamsAnalytics(options?: {
   return results;
 }
 
-async function _getCompanyAnalytics(options?: {
-  month?: number;
-  year?: number;
-  period?: Period;
-}): Promise<RepAnalyticsData> {
-  const { currentStart, currentEnd, lastStart } = resolvePeriodWindow(
-    options?.period ?? "month",
-    options?.month,
-    options?.year,
-  );
+async function _getCompanyAnalytics(options?: AnalyticsPeriodOptions): Promise<RepAnalyticsData> {
+  const { currentStart, currentEnd, prevStart, prevEnd } = periodWindows(resolvePeriod(options));
 
   // Count all sales reps in the company
   const salesRepCount = await prisma.user.count({
@@ -1276,8 +1357,8 @@ async function _getCompanyAnalytics(options?: {
   });
 
   const [currentOrders, lastOrders] = await Promise.all([
-    fetchOrdersForMetrics({ createdAt: { gte: currentStart, lt: currentEnd } }),
-    fetchOrdersForMetrics({ createdAt: { gte: lastStart, lt: currentStart } }),
+    fetchOrdersForMetrics({ createdAt: { gte: currentStart, lte: currentEnd } }),
+    fetchOrdersForMetrics({ createdAt: { gte: prevStart, lte: prevEnd } }),
   ]);
 
   const current = computeMetrics(currentOrders);

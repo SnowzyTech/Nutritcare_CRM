@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { signOut } from "next-auth/react";
+import { signOutAndUnsubscribe } from "@/lib/auth/client-sign-out";
 import { LogOut } from "lucide-react";
 
 /**
@@ -12,7 +12,7 @@ import { LogOut } from "lucide-react";
  */
 export function ForceLogout() {
   useEffect(() => {
-    signOut({ callbackUrl: "/login" });
+    void signOutAndUnsubscribe({ callbackUrl: "/login" });
   }, []);
 
   return (

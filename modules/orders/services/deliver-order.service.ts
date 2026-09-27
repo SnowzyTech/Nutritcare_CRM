@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db/prisma";
 import { lockAgent } from "@/modules/delivery/services/agents.service";
 import { notifyAgentStockShortfall } from "@/modules/delivery/services/notifications.service";
+import { notifyRepDeliveryOutcome } from "@/modules/notifications/services/order-events.service";
 import { debitAgentForDelivery } from "@/modules/inventory/services/stock-level.service";
 import { recordDeliveryFeeEntry } from "@/modules/finance/services/agent-settlement.service";
 
@@ -129,6 +130,8 @@ export async function deliverOrder(args: {
         orderNumber: order.orderNumber,
         shortfalls: outcome.shortfalls,
       });
+      // …and the rep whose customer is waiting.
+      notifyRepDeliveryOutcome(order.id, { kind: "blocked" });
     }
     return outcome;
   }

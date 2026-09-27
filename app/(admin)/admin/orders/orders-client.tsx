@@ -17,6 +17,9 @@ import {
 } from "@/components/ui/select";
 import type { OrderStatus } from "@prisma/client";
 import { upsellExtraCount } from "@/lib/orders/upsell";
+import { ORDER_FEEDBACK_OPTIONS, NO_FEEDBACK_FILTER } from "@/lib/orders/order-feedback";
+import { FeedbackPill } from "@/components/orders/feedback-pill";
+import { DuplicateBadge } from "@/components/orders/duplicate-badge";
 
 const nigerianStates = [
   "Abia State",
@@ -69,6 +72,10 @@ export type AdminOrderListItem = {
   items: Array<{ quantity: number; upsellQuantity: number; isUpsell: boolean; product: { name: string } }>;
   salesRep: { name: string };
   team?: { id: string; name: string } | null;
+  lastFeedback: string | null;
+  lastFeedbackAt: string | null;
+  duplicateDisabled: boolean;
+  hasDuplicates: boolean;
 };
 
 export type AdminOrderCounts = {
@@ -87,13 +94,16 @@ interface AdminOrdersClientProps {
   total: number;
   /** Per-status counts (every filter except status), for the tab badges. */
   statusCounts: Record<string, number>;
+  /** Count of orders involved in a duplicate, for the Duplicates tab badge. */
+  duplicateCount?: number;
   /** Current 1-based page. */
   page: number;
   products: Array<{ id: string; name: string }>;
   teams?: Array<{ id: string; name: string }>;
   /** Filter selections parsed from the URL on the server (seed the controls). */
   initialFilters?: {
-    status: string; search: string; product: string; state: string; team: string; date: string;
+    status: string; search: string; product: string; state: string; team: string; date: string; feedback?: string;
+    duplicatesOnly?: boolean;
   };
 }
 
@@ -130,6 +140,7 @@ export function AdminOrdersClient({
   orders,
   total,
   statusCounts,
+  duplicateCount = 0,
   page: pageProp,
   products,
   teams = [],
@@ -138,11 +149,14 @@ export function AdminOrdersClient({
   const router = useRouter();
   const pathname = usePathname();
   const [activeTab, setActiveTab] = useState<OrderStatus | null>((initialFilters?.status || null) as OrderStatus | null);
+  // Duplicates view — its own tab, mutually exclusive with the status tabs.
+  const [duplicatesOnly, setDuplicatesOnly] = useState<boolean>(initialFilters?.duplicatesOnly ?? false);
   const [searchQuery, setSearchQuery] = useState(initialFilters?.search ?? "");
   const [selectedProduct, setSelectedProduct] = useState(initialFilters?.product || "__all__");
   const [selectedState, setSelectedState] = useState(initialFilters?.state || "__all__");
   const [selectedTeam, setSelectedTeam] = useState(initialFilters?.team || "__all__");
   const [selectedDate, setSelectedDate] = useState(initialFilters?.date ?? "");
+  const [selectedFeedback, setSelectedFeedback] = useState(initialFilters?.feedback || "__all__");
 
   // Tab badges come from the server (counts for every filter EXCEPT status, so
   // switching tabs still makes sense).
@@ -165,7 +179,7 @@ export function AdminOrdersClient({
   // Jump back to the first page whenever a filter changes.
   useEffect(() => {
     setPage(1);
-  }, [activeTab, searchQuery, selectedProduct, selectedState, selectedTeam, selectedDate]);
+  }, [activeTab, duplicatesOnly, searchQuery, selectedProduct, selectedState, selectedTeam, selectedDate, selectedFeedback]);
 
   // Sync filters → URL → server. Local state drives the controls; the URL (read by
   // the server page) drives which rows come back, so filtering + pagination happen
@@ -173,11 +187,13 @@ export function AdminOrdersClient({
   // main /admin/orders AND the scoped per-rep / per-agent pages.
   const query = (() => {
     const p = new URLSearchParams();
-    if (activeTab) p.set("status", activeTab);
+    if (duplicatesOnly) p.set("duplicates", "1");
+    else if (activeTab) p.set("status", activeTab);
     if (searchQuery.trim()) p.set("q", searchQuery.trim());
     if (selectedProduct !== "__all__") p.set("product", selectedProduct);
     if (selectedState !== "__all__") p.set("state", selectedState);
     if (selectedTeam !== "__all__") p.set("team", selectedTeam);
+    if (selectedFeedback !== "__all__") p.set("feedback", selectedFeedback);
     if (selectedDate) p.set("date", selectedDate);
     if (currentPage > 1) p.set("page", String(currentPage));
     return p.toString();
@@ -215,12 +231,12 @@ export function AdminOrdersClient({
       {/* Status Tabs */}
       <div className="bg-white rounded-xl p-2 flex items-center justify-center gap-6 sm:gap-10 mb-6 shadow-sm border border-gray-100">
         {TABS.map((tab) => {
-          const isActive = activeTab === tab.key;
+          const isActive = !duplicatesOnly && activeTab === tab.key;
           const count = counts[tab.countKey];
           return (
             <button
               key={tab.key ?? "all"}
-              onClick={() => setActiveTab(tab.key)}
+              onClick={() => { setDuplicatesOnly(false); setActiveTab(tab.key); }}
               className={`flex items-center gap-1 whitespace-nowrap px-4 sm:px-6 py-3 rounded-lg transition-all ${
                 isActive
                   ? "bg-purple-50"
@@ -248,6 +264,22 @@ export function AdminOrdersClient({
             </button>
           );
         })}
+        {/* Duplicates view — flagged orders (disabled copy + kept original). */}
+        <button
+          onClick={() => { setDuplicatesOnly(true); setActiveTab(null); }}
+          className={`flex items-center gap-1 whitespace-nowrap px-4 sm:px-6 py-3 rounded-lg transition-all ${
+            duplicatesOnly ? "bg-red-50" : "hover:bg-gray-50"
+          }`}
+        >
+          <span className={`text-sm sm:text-base font-bold ${duplicatesOnly ? "text-red-700" : "text-gray-500"}`}>
+            Duplicates
+          </span>
+          {duplicatesOnly ? (
+            <span className="bg-red-200 text-red-700 text-xs font-bold px-1.5 py-0.5 rounded">{duplicateCount}</span>
+          ) : (
+            <span className="text-gray-400 text-sm font-medium">({duplicateCount})</span>
+          )}
+        </button>
       </div>
 
       {/* Filter Bar */}
@@ -336,6 +368,31 @@ export function AdminOrdersClient({
           </SelectContent>
         </Select>
 
+        {/* Feedback dropdown (latest sales-rep call outcome) */}
+        <Select
+          value={selectedFeedback}
+          onValueChange={(v) => setSelectedFeedback(v ?? "__all__")}
+        >
+          <SelectTrigger className="w-[130px] h-[36px] bg-gray-900 text-white border-0 rounded-lg text-xs font-semibold shadow-sm px-3 [&>span]:text-white">
+            <span className="flex-1 text-left truncate">
+              {selectedFeedback === "__all__"
+                ? "All Feedback"
+                : selectedFeedback === NO_FEEDBACK_FILTER
+                  ? "No feedback yet"
+                  : ORDER_FEEDBACK_OPTIONS.find((o) => o.value === selectedFeedback)?.label ?? "All Feedback"}
+            </span>
+          </SelectTrigger>
+          <SelectContent className="max-h-[300px]">
+            <SelectItem value="__all__">All Feedback</SelectItem>
+            <SelectItem value={NO_FEEDBACK_FILTER}>No feedback yet</SelectItem>
+            {ORDER_FEEDBACK_OPTIONS.map((o) => (
+              <SelectItem key={o.value} value={o.value}>
+                {o.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
         <button className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-gray-400 hover:bg-gray-50 transition-all">
           <ArrowUpDown size={16} />
         </button>
@@ -375,7 +432,7 @@ export function AdminOrdersClient({
       {/* Table */}
       <div className="bg-gray-50/50 rounded-2xl overflow-hidden">
         {/* Header row */}
-        <div className="grid grid-cols-[2fr_1.2fr_1.2fr_1fr_1fr_1.2fr_0.8fr_1fr_1.2fr] px-6 sm:px-8 py-4 border-b border-gray-100 bg-gray-50">
+        <div className="grid grid-cols-[2fr_1.2fr_1.2fr_1fr_1fr_1.2fr_0.8fr_1fr_1.2fr_1.2fr] px-6 sm:px-8 py-4 border-b border-gray-100 bg-gray-50">
           {[
             "G-Mail",
             "Name",
@@ -386,6 +443,7 @@ export function AdminOrdersClient({
             "Quantity",
             "Date",
             "Status Date",
+            "Feedback",
           ].map((h, i) => (
             <span
               key={i}
@@ -414,7 +472,7 @@ export function AdminOrdersClient({
                 <Link
                   href={`/admin/orders/${order.id}`}
                   key={order.id}
-                  className={`grid grid-cols-[2fr_1.2fr_1.2fr_1fr_1fr_1.2fr_0.8fr_1fr_1.2fr] px-6 sm:px-8 py-4 items-center border-b border-gray-50 last:border-0 transition-colors ${
+                  className={`grid grid-cols-[2fr_1.2fr_1.2fr_1fr_1fr_1.2fr_0.8fr_1fr_1.2fr_1.2fr] px-6 sm:px-8 py-4 items-center border-b border-gray-50 last:border-0 transition-colors ${
                     isEvenRow ? "bg-white" : "bg-gray-50"
                   } hover:bg-gray-100/50`}
                 >
@@ -433,6 +491,13 @@ export function AdminOrdersClient({
                     <p className="text-sm font-medium text-gray-700">
                       {order.customer.name}
                     </p>
+                    {(order.duplicateDisabled || order.hasDuplicates) && (
+                      <DuplicateBadge
+                        duplicateDisabled={order.duplicateDisabled}
+                        hasDuplicates={order.hasDuplicates}
+                        className="mt-1"
+                      />
+                    )}
                   </div>
 
                   {/* Agent */}
@@ -498,6 +563,15 @@ export function AdminOrdersClient({
                         </span>
                       </div>
                     )}
+                  </div>
+
+                  {/* Feedback */}
+                  <div>
+                    <FeedbackPill
+                      lastFeedback={order.lastFeedback}
+                      lastFeedbackAt={order.lastFeedbackAt}
+                      status={order.status}
+                    />
                   </div>
                 </Link>
               );

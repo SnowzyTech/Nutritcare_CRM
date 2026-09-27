@@ -11,7 +11,7 @@ export type PerformanceRates = {
   deliveryRate: number;
   /** delivered / (delivered + failed) — success once a delivery was attempted */
   recoveryRate: number;
-  /** share of orders with more than one distinct product */
+  /** share of orders that carry a recorded upsell (upsellQuantity > 0 or isUpsell) */
   upsellRate: number;
   /** share of orders flagged as reorders */
   reorderRate: number;
