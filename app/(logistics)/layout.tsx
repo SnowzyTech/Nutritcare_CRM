@@ -2,6 +2,7 @@ import { auth } from "@/lib/auth/auth";
 import type { Metadata } from "next";
 import { LogisticsSidebarClient } from "./logistics/sidebar-client";
 import { getSelfProfile, isUserTeamLead } from "@/modules/users/services/users.service";
+import { NotificationRoot } from "@/components/notifications/notification-root";
 
 export const metadata: Metadata = {
   title: {
@@ -22,21 +23,23 @@ export default async function LogisticsLayout({
   const isHead = session?.user?.id ? await isUserTeamLead(session.user.id) : false;
 
   return (
-    <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
-      <LogisticsSidebarClient
-        user={{
-          name: session?.user?.name,
-          email: session?.user?.email,
-          image: profile?.avatarUrl ?? null,
-        }}
-        isHead={isHead}
-      />
+    <NotificationRoot>
+      <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
+        <LogisticsSidebarClient
+          user={{
+            name: session?.user?.name,
+            email: session?.user?.email,
+            image: profile?.avatarUrl ?? null,
+          }}
+          isHead={isHead}
+        />
 
-      {/* Main area */}
-      <div className="flex flex-col flex-1 overflow-hidden">
-        {/* Page content */}
-        <main className="flex-1 overflow-y-auto p-8">{children}</main>
+        {/* Main area */}
+        <div className="flex flex-col flex-1 overflow-hidden">
+          {/* Page content */}
+          <main className="flex-1 overflow-y-auto p-8">{children}</main>
+        </div>
       </div>
-    </div>
+    </NotificationRoot>
   );
 }

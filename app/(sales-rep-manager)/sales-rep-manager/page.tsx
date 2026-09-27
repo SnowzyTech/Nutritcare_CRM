@@ -6,14 +6,14 @@ import {
   getCompanyOrderStatusCounts,
   getSalesTeamLeads,
 } from "@/modules/users/services/users.service";
-import { parseRange, resolveAnalyticsPeriod } from "./analytics/analytics-period";
+import { resolveAnalyticsPeriod } from "./analytics/analytics-period";
 
 export const dynamic = "force-dynamic";
 
 export default async function SalesRepManagerPage({
   searchParams,
 }: {
-  searchParams: Promise<{ range?: string; month?: string }>;
+  searchParams: Promise<{ g?: string; month?: string; w?: string; d?: string }>;
 }) {
   const { isCompanyManager, reps, teamName } = await resolveManagerScope();
 
@@ -21,9 +21,7 @@ export default async function SalesRepManagerPage({
     return <TeamRepsClient reps={reps} teamName={teamName} />;
   }
 
-  const { range: rangeParam, month } = await searchParams;
-  const range = parseRange(rangeParam);
-  const { periodArg, periodText } = resolveAnalyticsPeriod(range, month);
+  const { periodArg, periodText } = resolveAnalyticsPeriod(await searchParams);
 
   const [analytics, pipeline, salesLeads] = await Promise.all([
     getCompanyAnalytics(periodArg),

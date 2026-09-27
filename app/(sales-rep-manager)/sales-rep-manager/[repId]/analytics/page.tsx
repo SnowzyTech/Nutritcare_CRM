@@ -2,8 +2,8 @@ import { notFound } from "next/navigation";
 import { getSalesRepById, getSalesRepAnalytics } from "@/modules/users/services/users.service";
 import { getTeamOrders } from "@/modules/orders/services/orders.service";
 import { calculateBonus } from "@/lib/bonus";
-import { AnalyticsPeriodToggle } from "../../analytics/period-toggle";
-import { parseRange, resolveAnalyticsPeriod } from "../../analytics/analytics-period";
+import { StaffPeriodFilter } from "@/components/admin/staff-period-filter";
+import { resolveAnalyticsPeriod } from "../../analytics/analytics-period";
 import { AnalyticsDashboardClient, AnalyticsData } from "../../analytics/analytics-dashboard-client";
 
 export const dynamic = "force-dynamic";
@@ -46,28 +46,23 @@ export default async function RepAnalyticsPage({
   searchParams,
 }: {
   params: Promise<{ repId: string }>;
-  searchParams: Promise<{ month?: string; range?: string }>;
+  searchParams: Promise<{ g?: string; month?: string; w?: string; d?: string }>;
 }) {
   const { repId } = await params;
-  const { month, range: rangeParam } = await searchParams;
-  const range = parseRange(rangeParam);
   const { periodArg, currentStart, currentEnd, periodText, vsLabel, bonusPeriod, bonusPeriodLabel } =
-    resolveAnalyticsPeriod(range, month);
+    resolveAnalyticsPeriod(await searchParams);
   const rep = await getSalesRepById(repId);
 
   if (!rep) notFound();
 
-  const [analytics, dbOrders] = await Promise.all([
+  // Product tables are scoped to the selected window (in the query, not in
+  // memory) so they match the stat cards.
+  const [analytics, periodOrders] = await Promise.all([
     getSalesRepAnalytics(repId, periodArg),
-    getTeamOrders([repId]),
+    getTeamOrders([repId], { gte: currentStart, lte: currentEnd }),
   ]);
 
   const { current, trends } = analytics;
-
-  // Scope the product tables to the selected window so they match the stat cards.
-  const periodOrders = dbOrders.filter(
-    o => o.createdAt >= currentStart && o.createdAt <= currentEnd
-  );
   const tables = computeProductTables(periodOrders);
 
   const data: AnalyticsData = {
@@ -133,7 +128,7 @@ export default async function RepAnalyticsPage({
         repTeam: rep.team?.name ?? "No Team",
       }}
       data={data}
-      monthSelector={<AnalyticsPeriodToggle />}
+      monthSelector={<StaffPeriodFilter />}
     />
   );
 }

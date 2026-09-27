@@ -20,6 +20,7 @@ import {
   MessageCircle
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { NotificationBell } from "@/components/notifications/notification-bell";
 
 const menuItems = [
   { label: "Dashboard", href: "/inventory", icon: LayoutDashboard },
@@ -110,6 +111,13 @@ export function InventorySidebarClient({ user, onLogout }: InventorySidebarClien
 
       {/* Navigation Menu */}
       <nav className="flex-1 space-y-2">
+        <NotificationBell
+          label="Notifications"
+          collapsed={isCollapsed}
+          side="right"
+          align="start"
+          className="py-3.5 text-gray-400 hover:bg-gray-50 hover:text-gray-600"
+        />
         {menuItems.map((item) => {
           const isActive =
             item.href === "/inventory"

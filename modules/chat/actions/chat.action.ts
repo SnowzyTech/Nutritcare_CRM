@@ -18,6 +18,7 @@ import {
 import {
   getOrCreateDirectConversation,
   getConversationListItem,
+  getTotalUnread,
   searchDirectory,
   type ConversationListItem,
   type DirectoryUser,
@@ -61,6 +62,19 @@ export async function sendMessageAction(
     return { ok: true, data: message };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Failed to send" };
+  }
+}
+
+/**
+ * The signed-in user's total unread chat messages across every conversation —
+ * drives the Chat icon badge outside /chat. Read-only; one indexed aggregate.
+ */
+export async function getMyUnreadChatCountAction(): Promise<Result<number>> {
+  try {
+    const userId = await requireUserId();
+    return { ok: true, data: await getTotalUnread(userId) };
+  } catch {
+    return { ok: false, error: "Failed" };
   }
 }
 

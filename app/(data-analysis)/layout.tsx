@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { getUserById } from "@/modules/auth/services/auth.service";
 import { isUserTeamLead } from "@/modules/users/services/users.service";
 import { DataSidebar } from "./data/_components/Sidebar";
+import { NotificationRoot } from "@/components/notifications/notification-root";
 
 export const metadata: Metadata = {
   title: {
@@ -30,13 +31,15 @@ export default async function DataAnalysisLayout({
   };
 
   return (
-    <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
-      <DataSidebar user={user} isTeamLead={isTeamLead} />
+    <NotificationRoot>
+      <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
+        <DataSidebar user={user} isTeamLead={isTeamLead} />
       
-      {/* Main area */}
-      <div className="flex flex-col flex-1 overflow-hidden relative">
-        <main className="flex-1 overflow-y-auto no-scrollbar">{children}</main>
+        {/* Main area */}
+        <div className="flex flex-col flex-1 overflow-hidden relative">
+          <main className="flex-1 overflow-y-auto no-scrollbar">{children}</main>
+        </div>
       </div>
-    </div>
+    </NotificationRoot>
   );
 }

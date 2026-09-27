@@ -1,6 +1,9 @@
 import { prisma } from "@/lib/db/prisma";
 import { unstable_cache } from "next/cache";
 import { generalPerformanceScore, kpiScore } from "@/lib/performance";
+import { periodCacheKey, periodWindows } from "@/lib/staff-period";
+import type { MonthPeriod } from "@/lib/month-period";
+import type { DatePeriod } from "@/lib/date-period";
 
 export type ProductStat = { name: string; qty: number };
 
@@ -21,8 +24,6 @@ export type MonthMetrics = {
   upsoldProducts: ProductStat[];
 };
 
-export type Period = "week" | "month";
-
 export type AnalyticsData = {
   current: MonthMetrics;
   last: MonthMetrics | null;
@@ -30,12 +31,13 @@ export type AnalyticsData = {
 
 type OrderRow = Awaited<ReturnType<typeof fetchOrders>>[number];
 
+/** `to` is INCLUSIVE when given (period windows end at 23:59:59.999). */
 async function fetchOrders(salesRepId: string, from: Date, to?: Date) {
   return prisma.order.findMany({
     where: {
       salesRepId,
       deletedAt: null,
-      createdAt: { gte: from, ...(to ? { lt: to } : {}) },
+      createdAt: { gte: from, ...(to ? { lte: to } : {}) },
     },
     select: {
       status: true,
@@ -151,43 +153,20 @@ async function _getSalesRepWeeklyAnalytics(salesRepId: string): Promise<MonthMet
   return computeMetrics(orders);
 }
 
+/**
+ * A rep's metrics for a period (from `parseStaffPeriod(...).arg`) plus the
+ * previous period for trend deltas: a day vs the day before, a Mon–Sun week vs
+ * the previous week, a calendar month vs the previous month.
+ */
 async function _getSalesRepAnalytics(
   salesRepId: string,
-  period: Period = "month",
-  targetMonth?: Date,
+  period: MonthPeriod | DatePeriod,
 ): Promise<AnalyticsData> {
-  if (period === "week") {
-    const now = new Date();
-    const currentStart = new Date(now);
-    currentStart.setDate(now.getDate() - 6);
-    currentStart.setHours(0, 0, 0, 0);
-    const currentEnd = new Date(now);
-    currentEnd.setDate(now.getDate() + 1);
-    currentEnd.setHours(0, 0, 0, 0);
-    const lastStart = new Date(now);
-    lastStart.setDate(now.getDate() - 13);
-    lastStart.setHours(0, 0, 0, 0);
-
-    const [currentOrders, lastOrders] = await Promise.all([
-      fetchOrders(salesRepId, currentStart, currentEnd),
-      fetchOrders(salesRepId, lastStart, currentStart),
-    ]);
-
-    return {
-      current: computeMetrics(currentOrders),
-      last: lastOrders.length > 0 ? computeMetrics(lastOrders) : null,
-    };
-  }
-
-  // Default: month
-  const now = targetMonth || new Date();
-  const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-  const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const { currentStart, currentEnd, prevStart, prevEnd } = periodWindows(period);
 
   const [currentOrders, lastOrders] = await Promise.all([
-    fetchOrders(salesRepId, currentMonthStart, nextMonthStart),
-    fetchOrders(salesRepId, lastMonthStart, currentMonthStart),
+    fetchOrders(salesRepId, currentStart, currentEnd),
+    fetchOrders(salesRepId, prevStart, prevEnd),
   ]);
 
   return {
@@ -218,15 +197,11 @@ export function getSalesRepWeeklyAnalytics(salesRepId: string): Promise<MonthMet
 
 export function getSalesRepAnalytics(
   salesRepId: string,
-  period: Period = "month",
-  targetMonth?: Date,
+  period: MonthPeriod | DatePeriod,
 ): Promise<AnalyticsData> {
-  const monthKey = targetMonth
-    ? `${targetMonth.getFullYear()}-${targetMonth.getMonth()}`
-    : "current";
   return unstable_cache(
-    () => _getSalesRepAnalytics(salesRepId, period, targetMonth),
-    ["rep-analytics", salesRepId, period, monthKey],
+    () => _getSalesRepAnalytics(salesRepId, period),
+    ["rep-analytics", salesRepId, periodCacheKey(period)],
     { revalidate: ANALYTICS_TTL_SECONDS }
   )();
 }

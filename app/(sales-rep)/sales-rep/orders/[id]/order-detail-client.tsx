@@ -20,7 +20,16 @@ import {
   applyOrderDiscountAction,
   setOrderContactMethodAction,
   reviveOrderAction,
+  recordOrderFeedbackAction,
 } from "@/modules/orders/actions/orders.action";
+import {
+  ORDER_FEEDBACK_OPTIONS,
+  ORDER_FEEDBACK_NOTE_MAX,
+  FEEDBACK_TONE_CLASSES,
+  feedbackLabel,
+  feedbackTone,
+  type OrderFeedbackOutcome,
+} from "@/lib/orders/order-feedback";
 
 // Serialized types (Decimals as strings, Dates as ISO strings)
 export type SerializedOrder = {
@@ -79,6 +88,14 @@ export type SerializedOrder = {
     createdAt: string;
     updatedAt: string;
     status: string;
+  }>;
+  /** Call-feedback history, newest first. */
+  feedbacks: Array<{
+    id: string;
+    outcome: string;
+    note: string | null;
+    createdAt: string;
+    authorName: string;
   }>;
 };
 
@@ -275,6 +292,8 @@ export function OrderDetailClient({ order, products }: OrderDetailClientProps) {
   const [prescription, setPrescription] = useState(order.notes ?? "");
   const [contactMethod, setContactMethod] = useState<"PHONE" | "WHATSAPP" | null>(order.contactMethod);
   const [deliveryDate, setDeliveryDate] = useState("");
+  const [feedbackOutcome, setFeedbackOutcome] = useState<OrderFeedbackOutcome | null>(null);
+  const [feedbackNote, setFeedbackNote] = useState("");
   // Negotiated final price (for goods, excluding delivery fee). Defaults to the
   // current net so re-opening the editor shows the price already agreed.
   const [priceInput, setPriceInput] = useState(order.netAmount);
@@ -451,6 +470,23 @@ export function OrderDetailClient({ order, products }: OrderDetailClientProps) {
       setPriceInput(String(Number(priceInput) + added));
       setIsAddProductOpen(false);
     }, "Products added to order");
+  }
+
+  function handleSaveFeedback() {
+    if (!feedbackOutcome) {
+      toast.warning("Choose a feedback option first.");
+      return;
+    }
+    if (feedbackOutcome === "OTHER" && !feedbackNote.trim()) {
+      toast.warning("Add a note describing the feedback.");
+      return;
+    }
+    handleAction(async () => {
+      const res = await recordOrderFeedbackAction(order.id, feedbackOutcome, feedbackNote.trim() || undefined);
+      if (res.error) return res;
+      setFeedbackOutcome(null);
+      setFeedbackNote("");
+    }, "Feedback saved");
   }
 
   function handleContactMethod(method: "PHONE" | "WHATSAPP") {
@@ -907,6 +943,94 @@ export function OrderDetailClient({ order, products }: OrderDetailClientProps) {
                 />
                 <span className="text-sm font-semibold text-gray-500 group-hover:text-gray-700">WhatsApp</span>
               </label>
+            </div>
+          </div>
+
+          {/* Customer call feedback — a label only; never changes the order status */}
+          <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden mt-4 shadow-sm">
+            <h4 className="text-sm font-bold text-gray-700 bg-gray-50 px-5 py-3.5 border-b border-gray-200">
+              Customer Feedback
+            </h4>
+            <div className="p-4 flex flex-col gap-4">
+              {order.status !== "DELIVERED" && (
+                <div className="flex flex-col gap-3">
+                  <div className="flex flex-wrap gap-2">
+                    {ORDER_FEEDBACK_OPTIONS.map((opt) => {
+                      const selected = feedbackOutcome === opt.value;
+                      return (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          disabled={isPending}
+                          aria-pressed={selected}
+                          onClick={() => setFeedbackOutcome(selected ? null : opt.value)}
+                          className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition disabled:opacity-50 ${
+                            selected
+                              ? "bg-[#A855F7] border-[#A855F7] text-white"
+                              : "bg-white border-gray-200 text-gray-600 hover:border-[#A855F7] hover:text-[#9333EA]"
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {feedbackOutcome === "CANCELLED" && (
+                    <p className="text-[11px] text-gray-400">
+                      Records feedback only — use Cancel to cancel the order.
+                    </p>
+                  )}
+                  {feedbackOutcome && (
+                    <>
+                      <textarea
+                        value={feedbackNote}
+                        onChange={(e) => setFeedbackNote(e.target.value)}
+                        maxLength={ORDER_FEEDBACK_NOTE_MAX}
+                        placeholder={feedbackOutcome === "OTHER" ? "Describe the feedback (required)" : "Add a note (optional)"}
+                        className="w-full min-h-[64px] border-2 border-[#E9D5FF] focus:border-[#A855F7] rounded-xl px-4 py-3 text-xs font-semibold text-gray-600 resize-none outline-none transition"
+                      />
+                      <button
+                        type="button"
+                        disabled={isPending}
+                        onClick={handleSaveFeedback}
+                        className="w-full bg-purple-600 text-white px-4 py-2 rounded-lg font-semibold text-sm hover:bg-purple-700 transition disabled:opacity-50"
+                      >
+                        Save Feedback
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {order.feedbacks.length > 0 ? (
+                <ul className="flex flex-col gap-3">
+                  {order.feedbacks.map((f) => (
+                    <li key={f.id} className="flex flex-col gap-1 border-l-2 border-purple-100 pl-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span
+                          className={`inline-flex items-center text-[10px] font-bold px-2 py-0.5 rounded-full ${FEEDBACK_TONE_CLASSES[feedbackTone(f.outcome)]}`}
+                        >
+                          {feedbackLabel(f.outcome)}
+                        </span>
+                        <span className="text-[11px] text-gray-400">
+                          {new Date(f.createdAt).toLocaleString("en-NG", {
+                            day: "2-digit",
+                            month: "short",
+                            year: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                          {" · "}
+                          {f.authorName}
+                        </span>
+                      </div>
+                      {f.note && <p className="text-xs text-gray-600 break-words">{f.note}</p>}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-xs text-gray-400 italic">No feedback recorded yet.</p>
+              )}
             </div>
           </div>
 

@@ -2,6 +2,9 @@ import { prisma } from "@/lib/db/prisma";
 import { unstable_cache } from "next/cache";
 import { OrderStatus, Prisma } from "@prisma/client";
 import { generalPerformanceScore, kpiScore } from "@/lib/performance";
+import { parseMonthParam, type MonthPeriod } from "@/lib/month-period";
+import type { DatePeriod } from "@/lib/date-period";
+import { periodCacheKey, periodWindows } from "@/lib/staff-period";
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
 
@@ -1103,53 +1106,16 @@ async function _getSalesRepAnalyticsForUI(
   return toRepAnalyticsData(current, last);
 }
 
-export type Period = "day" | "week" | "month";
-
 /**
- * Resolves a Period (+ optional month/year for month mode) into the current
- * window and the prior window's start (used for trend deltas). Shared by
- * getTeamsAnalytics and getCompanyAnalytics so they stay in lockstep.
- *  • day   → today vs yesterday
- *  • week  → last 7 days vs the prior 7
- *  • month → calendar month vs the prior month
+ * Period options for the team / company rollups. `period` comes from
+ * `parseStaffPeriod(...).arg` (lib/staff-period.ts): a day, a Mon–Sun week or a
+ * calendar month, compared with the previous window of the same kind. Omitted →
+ * the current calendar month.
  */
-function resolvePeriodWindow(
-  period: Period,
-  month?: number,
-  year?: number,
-): { currentStart: Date; currentEnd: Date; lastStart: Date } {
-  const now = new Date();
+export type AnalyticsPeriodOptions = { period?: MonthPeriod | DatePeriod };
 
-  if (period === "day") {
-    const currentStart = new Date(now);
-    currentStart.setHours(0, 0, 0, 0);
-    const currentEnd = new Date(currentStart);
-    currentEnd.setDate(currentStart.getDate() + 1);
-    const lastStart = new Date(currentStart);
-    lastStart.setDate(currentStart.getDate() - 1);
-    return { currentStart, currentEnd, lastStart };
-  }
-
-  if (period === "week") {
-    const currentStart = new Date(now);
-    currentStart.setDate(now.getDate() - 6);
-    currentStart.setHours(0, 0, 0, 0);
-    const currentEnd = new Date(now);
-    currentEnd.setDate(now.getDate() + 1);
-    currentEnd.setHours(0, 0, 0, 0);
-    const lastStart = new Date(now);
-    lastStart.setDate(now.getDate() - 13);
-    lastStart.setHours(0, 0, 0, 0);
-    return { currentStart, currentEnd, lastStart };
-  }
-
-  const m = month ?? now.getMonth();
-  const y = year ?? now.getFullYear();
-  return {
-    currentStart: new Date(y, m, 1),
-    currentEnd: new Date(y, m + 1, 1),
-    lastStart: new Date(y, m - 1, 1),
-  };
+function resolvePeriod(options?: AnalyticsPeriodOptions): MonthPeriod | DatePeriod {
+  return options?.period ?? parseMonthParam();
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -1163,15 +1129,11 @@ function resolvePeriodWindow(
    ──────────────────────────────────────────────────────────────────────────── */
 const DATA_ANALYTICS_TTL_SECONDS = 120;
 
-function analyticsOptionsKey(o?: { month?: number; year?: number; period?: Period }): string {
-  return `${o?.period ?? "month"}:${o?.year ?? ""}:${o?.month ?? ""}`;
+function analyticsOptionsKey(o?: AnalyticsPeriodOptions): string {
+  return periodCacheKey(resolvePeriod(o));
 }
 
-export function getTeamsAnalytics(options?: {
-  month?: number;
-  year?: number;
-  period?: Period;
-}): Promise<TeamAnalyticsEntry[]> {
+export function getTeamsAnalytics(options?: AnalyticsPeriodOptions): Promise<TeamAnalyticsEntry[]> {
   return unstable_cache(
     () => _getTeamsAnalytics(options),
     ["data-teams-analytics", analyticsOptionsKey(options)],
@@ -1179,11 +1141,7 @@ export function getTeamsAnalytics(options?: {
   )();
 }
 
-export function getCompanyAnalytics(options?: {
-  month?: number;
-  year?: number;
-  period?: Period;
-}): Promise<RepAnalyticsData> {
+export function getCompanyAnalytics(options?: AnalyticsPeriodOptions): Promise<RepAnalyticsData> {
   return unstable_cache(
     () => _getCompanyAnalytics(options),
     ["data-company-analytics", analyticsOptionsKey(options)],
@@ -1207,11 +1165,7 @@ export function getMonthlyOrderVolume(year: number): Promise<ChartPoint[]> {
   )();
 }
 
-async function _getTeamsAnalytics(options?: {
-  month?: number;
-  year?: number;
-  period?: Period;
-}): Promise<TeamAnalyticsEntry[]> {
+async function _getTeamsAnalytics(options?: AnalyticsPeriodOptions): Promise<TeamAnalyticsEntry[]> {
   const teams = await prisma.team.findMany({
     where: { department: "SALES" },
     select: {
@@ -1222,11 +1176,7 @@ async function _getTeamsAnalytics(options?: {
     orderBy: { name: "asc" },
   });
 
-  const { currentStart, currentEnd, lastStart } = resolvePeriodWindow(
-    options?.period ?? "month",
-    options?.month,
-    options?.year,
-  );
+  const { currentStart, currentEnd, prevStart, prevEnd } = periodWindows(resolvePeriod(options));
 
   const results: TeamAnalyticsEntry[] = [];
 
@@ -1243,8 +1193,8 @@ async function _getTeamsAnalytics(options?: {
     }
 
     const [currentOrders, lastOrders] = await Promise.all([
-      fetchOrdersForMetrics({ salesRepId: { in: repIds }, createdAt: { gte: currentStart, lt: currentEnd } }),
-      fetchOrdersForMetrics({ salesRepId: { in: repIds }, createdAt: { gte: lastStart, lt: currentStart } }),
+      fetchOrdersForMetrics({ salesRepId: { in: repIds }, createdAt: { gte: currentStart, lte: currentEnd } }),
+      fetchOrdersForMetrics({ salesRepId: { in: repIds }, createdAt: { gte: prevStart, lte: prevEnd } }),
     ]);
 
     const current = computeMetrics(currentOrders);
@@ -1259,16 +1209,8 @@ async function _getTeamsAnalytics(options?: {
   return results;
 }
 
-async function _getCompanyAnalytics(options?: {
-  month?: number;
-  year?: number;
-  period?: Period;
-}): Promise<RepAnalyticsData> {
-  const { currentStart, currentEnd, lastStart } = resolvePeriodWindow(
-    options?.period ?? "month",
-    options?.month,
-    options?.year,
-  );
+async function _getCompanyAnalytics(options?: AnalyticsPeriodOptions): Promise<RepAnalyticsData> {
+  const { currentStart, currentEnd, prevStart, prevEnd } = periodWindows(resolvePeriod(options));
 
   // Count all sales reps in the company
   const salesRepCount = await prisma.user.count({
@@ -1276,8 +1218,8 @@ async function _getCompanyAnalytics(options?: {
   });
 
   const [currentOrders, lastOrders] = await Promise.all([
-    fetchOrdersForMetrics({ createdAt: { gte: currentStart, lt: currentEnd } }),
-    fetchOrdersForMetrics({ createdAt: { gte: lastStart, lt: currentStart } }),
+    fetchOrdersForMetrics({ createdAt: { gte: currentStart, lte: currentEnd } }),
+    fetchOrdersForMetrics({ createdAt: { gte: prevStart, lte: prevEnd } }),
   ]);
 
   const current = computeMetrics(currentOrders);
