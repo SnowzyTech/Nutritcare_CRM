@@ -44,7 +44,6 @@ import { applyOrderNegotiatedPrice } from "@/modules/orders/services/apply-disco
 import type {
   RepAnalyticsData,
   TeamAnalyticsEntry,
-  Period,
 } from "@/modules/data-analysis/services/data-analysis.service";
 import { getSalesRepWeeklyAnalytics } from "@/modules/orders/services/analytics.service";
 import type { MonthMetrics } from "@/modules/orders/services/analytics.service";
