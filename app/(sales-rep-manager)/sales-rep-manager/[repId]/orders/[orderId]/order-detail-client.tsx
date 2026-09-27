@@ -1,10 +1,13 @@
 "use client";
 
-import React, { useState, useTransition } from "react";
+
+
+import React, { useMemo, useState, useTransition } from "react";
+import { ArrowLeft, CheckCircle2, XCircle, X, Pencil, Repeat, Plus, Search } from "lucide-react";
+import { toast } from "sonner";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, CheckCircle2, XCircle, X, Pencil, Repeat, Plus } from "lucide-react";
-import { toast } from "sonner";
+
 import { OrderDetail } from "@/lib/mock-data/sales-rep-manager";
 import { useBasePath, useCanManage } from "../../../_lib/base-path";
 import { EditLineModal } from "@/components/orders/edit-line-modal";
@@ -28,6 +31,20 @@ type AgentReassignOption = {
   activeOrders: number;
   totalDeliveries: number;
 };
+
+/**
+ * Case-insensitive match of an agent against the reassign search box: company
+ * name, state, or phone. Phone is compared digits-only so "0803 123" finds
+ * "08031234567".
+ */
+function agentMatches(agent: AgentReassignOption, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  if (agent.companyName.toLowerCase().includes(q)) return true;
+  if ((agent.state ?? "").toLowerCase().includes(q)) return true;
+  const qDigits = q.replace(/\D/g, "");
+  return qDigits.length > 0 && agent.phone.replace(/\D/g, "").includes(qDigits);
+}
 
 interface OrderDetailClientProps {
   repId: string;
@@ -195,6 +212,12 @@ export function OrderDetailClient({ repName, order, agents, products = [] }: Ord
   const [selectedAgentId, setSelectedAgentId] = useState("");
   const [reassignBusy, setReassignBusy] = useState(false);
   const [reassignError, setReassignError] = useState<string | null>(null);
+  const [agentQuery, setAgentQuery] = useState("");
+  const filteredAgents = useMemo(
+    () => agents.filter((a) => agentMatches(a, agentQuery)),
+    [agents, agentQuery],
+  );
+  const selectedAgent = agents.find((a) => a.id === selectedAgentId) ?? null;
   // Actual delivery date used when marking delivered (defaults today).
   const [deliveredOn, setDeliveredOn] = useState(() => new Date().toISOString().split("T")[0]);
 
@@ -226,6 +249,13 @@ export function OrderDetailClient({ repName, order, agents, products = [] }: Ord
     } else {
       setError(res.error ?? "Failed to mark as failed");
     }
+  }
+
+  function openReassign() {
+    setSelectedAgentId("");
+    setAgentQuery("");
+    setReassignError(null);
+    setIsReassignOpen(true);
   }
 
   async function handleReassign() {
@@ -571,7 +601,7 @@ export function OrderDetailClient({ repName, order, agents, products = [] }: Ord
               </div>
               {canReassign && (
                 <button
-                  onClick={() => { setSelectedAgentId(""); setReassignError(null); setIsReassignOpen(true); }}
+                  onClick={openReassign}
                   type="button"
                   className="w-full bg-purple-100 border border-purple-200 px-4 py-2 rounded-lg text-purple-600 font-semibold text-sm hover:bg-purple-50 transition"
                 >
@@ -583,7 +613,7 @@ export function OrderDetailClient({ repName, order, agents, products = [] }: Ord
 
           {canReassign && order.status === "FAILED" && !order.agent && (
             <button
-              onClick={() => { setSelectedAgentId(""); setReassignError(null); setIsReassignOpen(true); }}
+              onClick={openReassign}
               type="button"
               className="w-full bg-purple-100 border border-purple-200 px-4 py-2 rounded-lg text-purple-600 font-semibold text-sm hover:bg-purple-50 transition"
             >
@@ -766,11 +796,37 @@ export function OrderDetailClient({ repName, order, agents, products = [] }: Ord
               )}
             </p>
 
+            {agents.length > 0 && (
+              <div className="relative mb-4">
+                <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                <input
+                  type="search"
+                  autoFocus
+                  value={agentQuery}
+                  onChange={(e) => setAgentQuery(e.target.value)}
+                  placeholder="Search by agent name, state or phone"
+                  aria-label="Search delivery agents"
+                  className="w-full h-12 pl-11 pr-4 rounded-2xl border-2 border-slate-100 bg-slate-50 text-sm text-slate-700 placeholder-slate-400 outline-none focus:border-purple-300 focus:bg-white transition"
+                />
+              </div>
+            )}
+
+            {selectedAgent && !filteredAgents.some((a) => a.id === selectedAgent.id) && (
+              <p className="text-xs text-purple-600 font-semibold mb-3">
+                Selected: {selectedAgent.companyName}
+              </p>
+            )}
+
             <div className="flex flex-col gap-3 max-h-[320px] overflow-y-auto pr-1 mb-8">
               {agents.length === 0 && (
                 <p className="text-sm text-gray-400 text-center py-6">No active agents available.</p>
               )}
-              {agents.map((agent) => (
+              {agents.length > 0 && filteredAgents.length === 0 && (
+                <p className="text-sm text-gray-400 text-center py-6">
+                  No agents match &ldquo;{agentQuery.trim()}&rdquo;.
+                </p>
+              )}
+              {filteredAgents.map((agent) => (
                 <button
                   key={agent.id}
                   onClick={() => setSelectedAgentId(agent.id)}

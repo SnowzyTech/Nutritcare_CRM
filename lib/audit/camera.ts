@@ -45,6 +45,8 @@ const IGNORED_MODELS = new Set<string>([
   "ProductGift",
   // High-churn / system bookkeeping
   "Notification",
+  "NotificationDelivery",
+  "PushSubscription",
   "Delivery",
   "AgentLedgerEntry",
   "PickPack",

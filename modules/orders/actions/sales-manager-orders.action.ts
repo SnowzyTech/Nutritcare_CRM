@@ -44,6 +44,10 @@ function revalidateManagerOrder(orderId: string, salesRepId: string) {
   revalidatePath(`/sales-manager/${salesRepId}/orders/${orderId}`);
   revalidatePath("/sales-manager");
 }
+import {
+  notifyAgentReassigned,
+  notifyRepDeliveryOutcome,
+} from "@/modules/notifications/services/order-events.service";
 
 /**
  * Company Sales Manager marks a confirmed order as delivered — a one-click
@@ -107,6 +111,7 @@ export async function markOrderDeliveredByManager(
     entityId: orderId,
     description: `Order #${order.orderNumber} delivered`,
   });
+  notifyRepDeliveryOutcome(orderId, { kind: "delivered" }, { id: session.user.id, name: session.user.name });
 
   // Send WhatsApp delivery notification (fire-and-forget — never throws)
   const waPhone = order.customer.whatsappNumber || order.customer.phone;
@@ -170,6 +175,12 @@ export async function reassignOrderAgentByManager(
     entityId: orderId,
     description: `Order #${result.order.orderNumber} reassigned to a different delivery agent`,
   });
+  if (result.order.previousAgentId !== agentId) {
+    notifyAgentReassigned(orderId, result.order.previousAgentId, {
+      id: session.user.id,
+      name: session.user.name,
+    });
+  }
 
   revalidatePath("/sales-manager/orders");
   revalidatePath(`/sales-manager/orders/${orderId}`);
@@ -450,6 +461,7 @@ export async function markOrderFailedByManager(
     entityId: orderId,
     description: `Order #${order.orderNumber} failed — ${reason}`,
   });
+  notifyRepDeliveryOutcome(orderId, { kind: "failed", reason }, { id: session.user.id, name: session.user.name });
 
   revalidatePath("/sales-manager/orders");
   revalidatePath(`/sales-manager/orders/${orderId}`);

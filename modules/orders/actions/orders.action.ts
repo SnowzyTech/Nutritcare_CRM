@@ -38,7 +38,20 @@ import {
   logManualOrderCreated,
   manualOrderSchema,
 } from "@/modules/orders/services/manual-order.service";
+import { recordOrderFeedback } from "@/modules/orders/services/order-feedback.service";
+import {
+  ORDER_FEEDBACK_NOTE_MAX,
+  ORDER_FEEDBACK_VALUES,
+  feedbackLabel,
+} from "@/lib/orders/order-feedback";
 import { z } from "zod";
+import {
+  notifyAgentAssigned,
+  notifyAgentCancelled,
+  notifyAgentItemsChanged,
+  notifyAgentNotesChanged,
+  notifyRepsOrdersAssigned,
+} from "@/modules/notifications/services/order-events.service";
 
 /** Generates a cryptographically random 6-digit numeric delivery code. */
 function generateDeliveryCode(): string {
@@ -84,6 +97,8 @@ export async function reassignOrdersAction(
     entityId: orderIds[0] ?? "bulk",
     description: await describeReassignment(orderIds, repIds),
   });
+
+  notifyRepsOrdersAssigned(orderIds, { id: session.user.id, name: session.user.name });
 
   revalidatePath("/sales-rep-manager");
   revalidatePath("/sales-rep-manager/orders");
@@ -201,6 +216,8 @@ export async function confirmOrderAction(
     description: `Order #${order.orderNumber} confirmed`,
   });
 
+  notifyAgentAssigned(orderId, { id: session.user.id, name: session.user.name });
+
   // Assigned, but the agent is now promising more of something than they hold.
   // Not an error - the order IS confirmed - but the office has to restock before
   // the delivery date or `deliverOrder` will refuse it.
@@ -270,6 +287,9 @@ export async function updateOrderNotesAction(orderId: string, notes: string) {
   if (!order || order.status !== "CONFIRMED") throw new Error("Cannot update notes for this order");
 
   await prisma.order.update({ where: { id: orderId }, data: { notes: notes || null } });
+  if ((order.notes ?? "") !== (notes || "")) {
+    notifyAgentNotesChanged(orderId, { id: session.user.id, name: session.user.name });
+  }
   revalidateOrderPaths(orderId);
 }
 
@@ -294,6 +314,10 @@ export async function cancelOrderAction(orderId: string, reason?: string) {
     entityId: orderId,
     description: `Order #${order.orderNumber} cancelled${reason?.trim() ? ` — ${reason.trim()}` : ""}`,
   });
+  // A confirmed order is already with an agent — they must not go out with it.
+  if (order.status === "CONFIRMED") {
+    notifyAgentCancelled(orderId, order.agentId, { id: session.user.id, name: session.user.name });
+  }
   revalidateOrderPaths(orderId);
 }
 
@@ -389,6 +413,10 @@ export async function reviveOrderAction(orderId: string): Promise<{ error?: stri
     entityId: orderId,
     description: `Order #${order.orderNumber} revived`,
   });
+  // A revived FAILED order goes straight back to its agent as CONFIRMED.
+  if (order.status === "FAILED") {
+    notifyAgentAssigned(orderId, { id: session.user.id, name: session.user.name });
+  }
   revalidateOrderPaths(orderId);
   return {};
 }
@@ -414,6 +442,69 @@ export async function setOrderContactMethodAction(
     data: { contactMethod: method },
   });
   revalidateOrderPaths(orderId);
+}
+
+const orderFeedbackSchema = z
+  .object({
+    outcome: z.enum(ORDER_FEEDBACK_VALUES, { error: "Choose a feedback option." }),
+    note: z
+      .string()
+      .trim()
+      .max(ORDER_FEEDBACK_NOTE_MAX, `Keep the note under ${ORDER_FEEDBACK_NOTE_MAX} characters.`)
+      .optional(),
+  })
+  .refine((v) => v.outcome !== "OTHER" || !!v.note, {
+    message: "Add a note describing the feedback.",
+    path: ["note"],
+  });
+
+/**
+ * Records the rep's call feedback on one of their orders ("Not Picking",
+ * "Customer Will Call Back", …). A label only: it never changes the order's
+ * status — even the "Cancelled" option (the rep still uses the real Cancel
+ * button). Allowed on every status except DELIVERED, so follow-ups can be
+ * logged on pending, confirmed, failed and cancelled orders alike.
+ */
+export async function recordOrderFeedbackAction(
+  orderId: string,
+  outcome: string,
+  note?: string,
+): Promise<{ error?: string }> {
+  const session = await auth();
+  suppressCameraForRequest();
+  if (!session?.user?.id) {
+    return { error: "You are not signed in. Please refresh and try again." };
+  }
+
+  const parsed = orderFeedbackSchema.safeParse({ outcome, note });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid feedback." };
+  }
+
+  const order = await getOwnedOrder(orderId, session.user.id);
+  if (!order) return { error: "Order not found." };
+  if (order.status === "DELIVERED") {
+    return { error: "Feedback can't be added to a delivered order." };
+  }
+
+  const noteText = parsed.data.note || null;
+  await recordOrderFeedback({
+    orderId,
+    authorId: session.user.id,
+    outcome: parsed.data.outcome,
+    note: noteText,
+  });
+
+  await logActivity({
+    userId: session.user.id,
+    action: "Feedback",
+    entityType: "Order",
+    entityId: orderId,
+    description: `Order #${order.orderNumber}: ${feedbackLabel(parsed.data.outcome)}${noteText ? ` — ${noteText}` : ""}`,
+  });
+
+  revalidateOrderPaths(orderId);
+  return {};
 }
 
 /**
@@ -533,6 +624,7 @@ export async function createOrderAction(
     customerName: parsed.data.customerName,
     totalAmount: result.totalAmount,
     surplusLines: result.surplusLines,
+    priceOverrides: result.priceOverrides,
   });
 
   revalidatePath("/sales-rep/orders");
@@ -610,6 +702,9 @@ export async function addOrderItemsAction(
     entityId: orderId,
     description: `Added ${result.addedCount} product line${result.addedCount === 1 ? "" : "s"} to Order #${order.orderNumber}`,
   });
+
+  // An agent already carrying this order must bring the new quantities.
+  notifyAgentItemsChanged(orderId, { id: session.user.id, name: session.user.name });
 
   // Audit trail for every manually-priced (surplus) line — lets finance review
   // rep-entered unit prices (guardrail: min > 0 + audit log).

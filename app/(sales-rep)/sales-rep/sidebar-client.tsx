@@ -4,17 +4,25 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import Image from 'next/image';
-import { signOut } from 'next-auth/react';
+import { signOutAndUnsubscribe } from "@/lib/auth/client-sign-out";
 import {
   BarChart3,
+  Bell,
+  CalendarCheck,
   Clock,
   Settings,
   LogOut,
   ShoppingBag,
   Menu,
   MessageCircle,
+  type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useChatUnreadCount } from '@/components/chat/chat-unread-provider';
+import { useNotifications } from '@/components/notifications/notification-provider';
+
+/** Badge text for a count: caps at "99+". */
+const badgeLabel = (n: number) => (n > 99 ? '99+' : String(n));
 
 interface SidebarProps {
   user?: {
@@ -35,7 +43,7 @@ function SalesRepNavLink({
   isCollapsed,
 }: {
   href: string;
-  icon: any;
+  icon: LucideIcon;
   label: string;
   isActive: boolean;
   badge?: number;
@@ -59,10 +67,10 @@ function SalesRepNavLink({
       </div>
       {!isCollapsed && badge !== undefined && (
         <span className={cn(
-          "flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold",
+          "flex items-center justify-center min-w-5 h-5 px-1 rounded-full text-[10px] font-bold",
           isActive ? 'bg-white text-[#A020F0]' : 'bg-red-500 text-white'
         )}>
-          {badge}
+          {badgeLabel(badge)}
         </span>
       )}
       {isCollapsed && badge !== undefined && (
@@ -78,11 +86,13 @@ function BottomTabLink({
   icon: Icon,
   label,
   isActive,
+  badge,
 }: {
   href: string;
-  icon: any;
+  icon: LucideIcon;
   label: string;
   isActive: boolean;
+  badge?: number;
 }) {
   return (
     <Link
@@ -95,7 +105,14 @@ function BottomTabLink({
       {isActive && (
         <span className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-[3px] rounded-full bg-[#A020F0]" />
       )}
-      <Icon size={20} strokeWidth={isActive ? 2.5 : 2} />
+      <span className="relative">
+        <Icon size={20} strokeWidth={isActive ? 2.5 : 2} />
+        {badge !== undefined && (
+          <span className="absolute -top-1.5 -right-2.5 flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold leading-none border-2 border-white">
+            {badgeLabel(badge)}
+          </span>
+        )}
+      </span>
       <span className={cn("text-[10px] font-semibold", isActive ? "text-[#A020F0]" : "text-gray-400")}>
         {label}
       </span>
@@ -107,6 +124,10 @@ export function SalesRepSidebarClient({ user }: SidebarProps) {
   const pathname = usePathname();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const avatarSrc = user?.avatarUrl || user?.image;
+  const unreadChats = useChatUnreadCount();
+  const chatBadge = unreadChats > 0 ? unreadChats : undefined;
+  const { unreadCount } = useNotifications();
+  const notificationBadge = unreadCount > 0 ? unreadCount : undefined;
 
   return (
     <>
@@ -179,10 +200,26 @@ export function SalesRepSidebarClient({ user }: SidebarProps) {
             isCollapsed={isCollapsed}
           />
           <SalesRepNavLink
+            href="/sales-rep/follow-ups"
+            icon={CalendarCheck}
+            label="Follow-ups"
+            isActive={pathname === '/sales-rep/follow-ups'}
+            isCollapsed={isCollapsed}
+          />
+          <SalesRepNavLink
+            href="/sales-rep/notifications"
+            icon={Bell}
+            label="Notifications"
+            isActive={pathname === '/sales-rep/notifications'}
+            badge={notificationBadge}
+            isCollapsed={isCollapsed}
+          />
+          <SalesRepNavLink
             href="/chat"
             icon={MessageCircle}
             label="Chat"
             isActive={pathname.startsWith('/chat')}
+            badge={chatBadge}
             isCollapsed={isCollapsed}
           />
           <SalesRepNavLink
@@ -211,7 +248,7 @@ export function SalesRepSidebarClient({ user }: SidebarProps) {
             isCollapsed={isCollapsed}
           />
           <button
-            onClick={() => signOut({ callbackUrl: '/login' })}
+            onClick={() => void signOutAndUnsubscribe({ callbackUrl: '/login' })}
             className={cn(
               "w-full flex items-center rounded-xl text-gray-400 hover:text-red-500 hover:bg-red-50 transition-all duration-200 group mt-2 cursor-pointer",
               isCollapsed ? "justify-center py-3.5 px-0" : "gap-3 px-4 py-3"
@@ -238,6 +275,7 @@ export function SalesRepSidebarClient({ user }: SidebarProps) {
             icon={MessageCircle}
             label="Chat"
             isActive={pathname.startsWith('/chat')}
+            badge={chatBadge}
           />
           <BottomTabLink
             href="/sales-rep/analytics"
@@ -258,7 +296,7 @@ export function SalesRepSidebarClient({ user }: SidebarProps) {
             isActive={pathname === '/sales-rep/settings'}
           />
           <button
-            onClick={() => signOut({ callbackUrl: '/login' })}
+            onClick={() => void signOutAndUnsubscribe({ callbackUrl: '/login' })}
             className="flex flex-col items-center justify-center gap-0.5 flex-1 py-2 text-gray-400 transition-colors"
           >
             <LogOut size={20} strokeWidth={2} />

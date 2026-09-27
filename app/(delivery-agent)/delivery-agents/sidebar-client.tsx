@@ -3,7 +3,8 @@
 import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { signOut } from "next-auth/react";
+import { signOutAndUnsubscribe } from "@/lib/auth/client-sign-out";
+import { useNotifications } from "@/components/notifications/notification-provider";
 import {
   ClipboardList,
   MessageCircle,
@@ -22,11 +23,12 @@ interface SidebarClientProps {
     image?: string | null;
   } | undefined;
   pendingCount: number;
-  unreadNotifications: number;
 }
 
-export function DeliveryAgentSidebarClient({ user, pendingCount, unreadNotifications }: SidebarClientProps) {
+export function DeliveryAgentSidebarClient({ user, pendingCount }: SidebarClientProps) {
   const pathname = usePathname();
+  // Live count (realtime + poll), not the layout's render-time snapshot.
+  const { unreadCount: unreadNotifications } = useNotifications();
 
   const navItems = [
     { label: "Order", icon: ClipboardList, href: "/delivery-agents", badge: pendingCount || undefined },
@@ -90,7 +92,7 @@ export function DeliveryAgentSidebarClient({ user, pendingCount, unreadNotificat
 
         <div className="p-4 mt-auto space-y-2">
           <button
-            onClick={() => signOut({ callbackUrl: "/login" })}
+            onClick={() => void signOutAndUnsubscribe({ callbackUrl: "/login" })}
             className="flex items-center gap-3 px-4 py-3 text-red-500 hover:text-red-700 w-full transition-colors font-bold text-sm rounded-xl hover:bg-red-50"
           >
             <LogOut className="w-5 h-5" />

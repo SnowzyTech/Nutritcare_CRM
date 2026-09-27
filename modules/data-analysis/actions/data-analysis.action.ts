@@ -13,8 +13,6 @@ import { suppressCameraForRequest } from "@/lib/audit/context";
 import { sendOrderDeliveredTemplate } from "@/lib/whatsapp/whatsapp";
 import {
   getSalesRepAnalyticsForUI,
-  getTeamsAnalytics,
-  getCompanyAnalytics,
   hardDeleteOrder,
 } from "@/modules/data-analysis/services/data-analysis.service";
 import { isUserTeamLead } from "@/modules/users/services/users.service";
@@ -24,6 +22,11 @@ import {
   manualOrderSchema,
 } from "@/modules/orders/services/manual-order.service";
 import { reassignAgentForOrder } from "@/modules/orders/services/reassign-agent.service";
+import {
+  notifyAgentReassigned,
+  notifyRepDeliveryOutcome,
+  notifyRepNewOrder,
+} from "@/modules/notifications/services/order-events.service";
 import { resolveDeliveredDate } from "@/lib/orders/delivered-date";
 import { formatCurrency } from "@/lib/utils";
 import {
@@ -55,28 +58,6 @@ export async function fetchAnalyticsForMonth(
   return getSalesRepAnalyticsForUI(salesRepId, { month, year });
 }
 
-export async function fetchTeamsAnalyticsForMonth(
-  month: number,
-  year: number
-): Promise<TeamAnalyticsEntry[]> {
-  return getTeamsAnalytics({ month, year, period: "month" });
-}
-
-export async function fetchCompanyAnalyticsForMonth(
-  month: number,
-  year: number
-): Promise<RepAnalyticsData> {
-  return getCompanyAnalytics({ month, year, period: "month" });
-}
-
-export async function fetchTeamsAnalyticsForPeriod(
-  period: Period,
-  month?: number,
-  year?: number
-): Promise<TeamAnalyticsEntry[]> {
-  return getTeamsAnalytics({ month, year, period });
-}
-
 /**
  * Weekly analytics for a specific sales rep — used by the data analyst's
  * per-rep analytics report (weekly PDF) so it reflects that rep, not the viewer.
@@ -89,14 +70,6 @@ export async function fetchRepWeeklyAnalytics(
   } catch {
     return { error: "Failed to generate weekly report" };
   }
-}
-
-export async function fetchCompanyAnalyticsForPeriod(
-  period: Period,
-  month?: number,
-  year?: number
-): Promise<RepAnalyticsData> {
-  return getCompanyAnalytics({ month, year, period });
 }
 
 /**
@@ -208,6 +181,7 @@ export async function markOrderDeliveredByAnalyst(
     entityId: orderId,
     description: `Order #${order.orderNumber} delivered`,
   });
+  notifyRepDeliveryOutcome(orderId, { kind: "delivered" }, { id: session.user.id, name: session.user.name });
 
   // Send WhatsApp delivery notification (fire-and-forget — never throws)
   const waPhone = order.customer.whatsappNumber || order.customer.phone;
@@ -533,6 +507,7 @@ export async function markOrderFailedByAnalyst(
     entityId: orderId,
     description: `Order #${order.orderNumber} failed — ${reason}`,
   });
+  notifyRepDeliveryOutcome(orderId, { kind: "failed", reason }, { id: session.user.id, name: session.user.name });
 
   revalidatePath("/data/order");
   revalidatePath(`/data/order/${order.orderNumber}`);
@@ -578,6 +553,12 @@ export async function reassignOrderAgentByAnalyst(
     entityId: orderId,
     description: `Order #${result.order.orderNumber} reassigned to a different delivery agent`,
   });
+  if (result.order.previousAgentId !== agentId) {
+    notifyAgentReassigned(orderId, result.order.previousAgentId, {
+      id: session.user.id,
+      name: session.user.name,
+    });
+  }
 
   revalidatePath("/data/order");
   revalidatePath(`/data/order/${result.order.orderNumber}`);
@@ -645,9 +626,12 @@ export async function createOrderByAnalystAction(
     customerName: orderInput.customerName,
     totalAmount: result.totalAmount,
     surplusLines: result.surplusLines,
+    priceOverrides: result.priceOverrides,
     actor: { name: session.user.name, role: session.user.role },
     onBehalfOfName: rep.name,
   });
+  // Keyed in by someone else, so the rep needs to know it is in their queue.
+  notifyRepNewOrder(result.orderId, { id: session.user.id, name: session.user.name });
 
   revalidatePath("/data/order");
   revalidatePath("/data");

@@ -17,7 +17,9 @@ import { Plus, X, ChevronDown, Trash2 } from 'lucide-react';
  *
  * Pricing is never computed here: every line total comes from
  * `resolveManualOrderPriceAction`, and the server re-prices authoritatively on
- * submit (docs/upsell-package-pricing.md).
+ * submit (docs/upsell-package-pricing.md). The one exception: on a REORDER the
+ * creator may type the price agreed with the returning customer for a line
+ * (`overrideLineTotal`), which the server accepts as-is and audit-logs.
  */
 
 export type AddOrderProduct = { id: string; name: string };
@@ -27,6 +29,8 @@ export type AddOrderLine = {
   formId: string;
   quantity: number;
   unitPrice?: number;
+  /** Reorders only: agreed line total replacing the form price. */
+  overrideLineTotal?: number;
 };
 
 export type AddOrderPayload = {
@@ -69,6 +73,8 @@ type ProductRow = {
   /** Raw text so the field can be cleared while typing; parsed on submit. */
   quantity: string;
   unitPrice: string; // typed price-of-one for surplus units; empty when unused
+  /** Reorder agreed line total (raw text); null = use the form price. */
+  customPrice: string | null;
 };
 
 // Monotonic id source for product rows (stable keys for React + preview map).
@@ -78,6 +84,13 @@ const nextRowId = () => rowSeq++;
 /** Positive-integer quantity for a row, or null while the field is empty/invalid. */
 const parseQty = (raw: string): number | null => {
   const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+};
+
+/** A row's agreed reorder price, or null when not editing / not a valid amount. */
+const parseCustomPrice = (row: { customPrice: string | null }): number | null => {
+  if (row.customPrice === null) return null;
+  const n = Number.parseFloat(row.customPrice);
   return Number.isFinite(n) && n > 0 ? n : null;
 };
 
@@ -143,6 +156,7 @@ export function AddOrderModal({
         formId: forms[0]?.formId ?? '',
         quantity: String(forms[0]?.packages[0]?.quantity ?? 1),
         unitPrice: '',
+        customPrice: null,
       };
     },
     [firstProductWithForms, formsByProduct],
@@ -184,11 +198,20 @@ export function AddOrderModal({
       formId: forms[0]?.formId ?? '',
       quantity: String(forms[0]?.packages[0]?.quantity ?? 1),
       unitPrice: '',
+      customPrice: null,
     });
   };
 
   // Switching form clears the typed unit price (a different form's packages).
   const changeForm = (id: number, formId: string) => patchRow(id, { formId, unitPrice: '' });
+
+  // Edited prices are a reorder-only concession: turning Reorder off drops them
+  // so every line goes back to its form price.
+  const toggleReorder = () => {
+    const next = !isReorder;
+    setIsReorder(next);
+    if (!next) setFormProducts((rows) => rows.map((r) => ({ ...r, customPrice: null })));
+  };
 
   const resetForm = () => {
     setSalesRepId('');
@@ -254,6 +277,7 @@ export function AddOrderModal({
   const orderTotal = useMemo(
     () =>
       formProducts.reduce((sum, r) => {
+        if (r.customPrice !== null) return sum + (parseCustomPrice(r) ?? 0);
         const p = previews[r.id];
         return sum + (p && !p.loading ? p.lineTotal : 0);
       }, 0),
@@ -294,6 +318,14 @@ export function AddOrderModal({
         fail(`Enter a quantity of at least 1 for ${productName}.`);
         return;
       }
+      if (r.customPrice !== null) {
+        if (parseCustomPrice(r) === null) {
+          fail(`Enter the agreed price for ${productName} (more than ₦0), or use the form price.`);
+          return;
+        }
+        parsedRows.push({ row: r, quantity });
+        continue;
+      }
       const preview = previews[r.id];
       if (preview?.requiresUnitPrice && !(parseFloat(r.unitPrice) > 0)) {
         fail(`Enter a unit price for the extra units of ${productName}.`);
@@ -317,6 +349,9 @@ export function AddOrderModal({
         formId: row.formId,
         quantity,
         unitPrice: parseFloat(row.unitPrice) > 0 ? parseFloat(row.unitPrice) : undefined,
+        ...(isReorder && row.customPrice !== null
+          ? { overrideLineTotal: parseCustomPrice(row) ?? undefined }
+          : {}),
       })),
     };
 
@@ -486,14 +521,14 @@ export function AddOrderModal({
             <div className="text-left pr-2">
               <p className="text-xs sm:text-sm font-bold text-gray-800">Mark as Reorder</p>
               <p className="text-[10px] sm:text-[11px] text-gray-400 mt-0.5 hidden sm:block">
-                Turn on if the customer sent this order in manually (e.g. via WhatsApp).
+                Turn on if the customer sent this order in manually (e.g. via WhatsApp). Reorders can have their prices edited.
               </p>
             </div>
             <button
               type="button"
               role="switch"
               aria-checked={isReorder}
-              onClick={() => setIsReorder((v) => !v)}
+              onClick={toggleReorder}
               className={`relative inline-flex h-6 sm:h-7 w-10 sm:w-12 shrink-0 items-center rounded-full transition-colors duration-200 ${
                 isReorder ? 'bg-[#A020F0]' : 'bg-gray-200'
               }`}
@@ -512,9 +547,13 @@ export function AddOrderModal({
               const rowForms = formsByProduct.get(item.productId) ?? [];
               const hasForms = rowForms.length > 0;
               const preview = previews[item.id];
-              const needsUnit = preview?.requiresUnitPrice ?? false;
+              const isCustom = item.customPrice !== null;
+              // An agreed reorder price replaces the whole line, so the surplus
+              // unit price is not needed while one is set.
+              const needsUnit = !isCustom && (preview?.requiresUnitPrice ?? false);
               const unitTyped = parseFloat(item.unitPrice) > 0;
               const qtyValid = parseQty(item.quantity) !== null;
+              const customValue = parseCustomPrice(item);
               return (
                 <div key={item.id} className="bg-white/60 rounded-xl border border-purple-100/40 p-3 sm:p-4 space-y-3 animate-fadeIn">
 
@@ -606,19 +645,73 @@ export function AddOrderModal({
                         </div>
                       )}
 
+                      {/* Reorder: agreed price replacing the form price for this line */}
+                      {isCustom && (
+                        <div className="space-y-1 sm:space-y-1.5 text-left">
+                          <label className={LABEL_CLASS}>Agreed price for this line (₦)</label>
+                          <input
+                            type="number"
+                            min={0}
+                            step="any"
+                            autoFocus
+                            value={item.customPrice ?? ''}
+                            placeholder="e.g. 4500"
+                            onChange={(e) => patchRow(item.id, { customPrice: e.target.value })}
+                            className="w-full bg-white border border-purple-200 shadow-[0_2px_10px_rgb(0,0,0,0.01)] rounded-xl h-10 sm:h-12 px-3 sm:px-4 text-xs text-gray-700 placeholder-gray-300 focus:outline-none focus:ring-1 focus:ring-purple-300"
+                          />
+                          <div className="flex items-center justify-between gap-2 text-[10px]">
+                            <span className="text-gray-400">
+                              Form price:{' '}
+                              {preview && !preview.loading && !preview.requiresUnitPrice
+                                ? formatCurrency(preview.lineTotal)
+                                : '—'}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => patchRow(item.id, { customPrice: null })}
+                              className="font-bold text-[#A020F0] hover:underline"
+                            >
+                              Use form price
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
                       {/* Line total */}
                       <div className="flex items-center justify-between text-xs pt-0.5">
-                        <span className="font-semibold text-gray-400 uppercase tracking-wider text-[10px]">Line total</span>
-                        <span className="font-bold text-gray-800">
-                          {!qtyValid
-                            ? 'Enter quantity'
-                            : preview?.loading
-                            ? 'Calculating…'
-                            : needsUnit && !unitTyped
-                            ? 'Enter unit price'
-                            : preview
-                            ? formatCurrency(preview.lineTotal)
-                            : '—'}
+                        <span className="font-semibold text-gray-400 uppercase tracking-wider text-[10px]">
+                          Line total{isCustom ? ' (edited)' : ''}
+                        </span>
+                        <span className="flex items-center gap-3">
+                          {isReorder && !isCustom && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                patchRow(item.id, {
+                                  customPrice:
+                                    preview && !preview.loading && !needsUnit ? String(preview.lineTotal) : '',
+                                })
+                              }
+                              className="text-[10px] font-bold text-[#A020F0] hover:underline"
+                            >
+                              Edit price
+                            </button>
+                          )}
+                          <span className="font-bold text-gray-800">
+                            {!qtyValid
+                              ? 'Enter quantity'
+                              : isCustom
+                              ? customValue !== null
+                                ? formatCurrency(customValue)
+                                : 'Enter price'
+                              : preview?.loading
+                              ? 'Calculating…'
+                              : needsUnit && !unitTyped
+                              ? 'Enter unit price'
+                              : preview
+                              ? formatCurrency(preview.lineTotal)
+                              : '—'}
+                          </span>
                         </span>
                       </div>
                     </>

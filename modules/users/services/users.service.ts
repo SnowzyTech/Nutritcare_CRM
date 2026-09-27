@@ -3,6 +3,7 @@ import { unstable_cache } from "next/cache";
 import { Prisma, type UserRole } from "@prisma/client";
 import { monthRanges, parseMonthParam, type MonthPeriod } from "@/lib/month-period";
 import { dateRanges, type DatePeriod } from "@/lib/date-period";
+import { periodCacheKey } from "@/lib/staff-period";
 import { generalPerformanceScore, kpiScore } from "@/lib/performance";
 import type { MonthMetrics } from "@/modules/orders/services/analytics.service";
 import { addUserToAllAgentGroups } from "@/modules/chat/services/conversations.service";
@@ -21,9 +22,7 @@ import { addUserToAllAgentGroups } from "@/modules/chat/services/conversations.s
 const USER_ANALYTICS_TTL_SECONDS = 120;
 
 function analyticsPeriodKey(period?: MonthPeriod | DatePeriod): string {
-  if (!period) return "default";
-  if ("from" in period) return `d:${+period.from}:${+period.to}`;
-  return `m:${period.year}-${period.month}`;
+  return period ? periodCacheKey(period) : "default";
 }
 
 export function getSalesRepAnalytics(salesRepId: string, period?: MonthPeriod | DatePeriod) {
