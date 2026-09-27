@@ -11,6 +11,7 @@ import { getActiveProducts } from "@/modules/orders/services/products.service";
 import { getManualOrderProductForms } from "@/modules/orders/services/form-packages.service";
 import { auth } from "@/lib/auth/auth";
 import type { OrderStatus } from "@prisma/client";
+import { NO_FEEDBACK_FILTER, isOrderFeedbackOutcome } from "@/lib/orders/order-feedback";
 
 const PAGE_SIZE = 15;
 
@@ -58,6 +59,9 @@ export default async function OrderPage({
   const search = (get("q") ?? "").trim();
   const fromStr = get("from") ?? null;
   const toStr = get("to") ?? null;
+  const feedbackRaw = get("feedback") ?? "";
+  const feedback =
+    feedbackRaw === NO_FEEDBACK_FILTER || isOrderFeedbackOutcome(feedbackRaw) ? feedbackRaw : undefined;
   const pageNum = Math.max(1, parseInt(get("page") ?? "1", 10) || 1);
 
   const filters: OrderListFilters = {
@@ -72,6 +76,7 @@ export default async function OrderPage({
     salesRepIds: csAgents,
     from: parseDay(fromStr, false),
     to: parseDay(toStr, true),
+    feedback,
   };
 
   const [session, orderPage, deliveryAgents, salesReps, salesTeams, productNames, catalog, productForms] =
@@ -105,6 +110,7 @@ export default async function OrderPage({
         csAgents,
         from: fromStr,
         to: toStr,
+        feedback: feedbackRaw || undefined,
       }}
       deliveryAgents={deliveryAgents}
       salesReps={salesReps}

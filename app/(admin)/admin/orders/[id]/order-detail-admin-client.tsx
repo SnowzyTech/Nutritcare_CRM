@@ -6,6 +6,8 @@ import { ChevronLeft, MessageCircle, X, Trash2, RotateCcw, Undo2, AlertTriangle,
 import { toast } from "sonner";
 import { AgentInfoDrawer } from "@/components/ui/agent-info-drawer";
 import { EditLineModal } from "@/components/orders/edit-line-modal";
+import { CustomerInteractionPanel } from "@/components/orders/customer-interaction-panel";
+import type { OrderInteraction } from "@/lib/orders/order-interaction";
 import Image from "next/image";
 import type { OrderStatus } from "@prisma/client";
 import {
@@ -101,6 +103,7 @@ interface AdminOrderDetailClientProps {
   order: SerializedOrder;
   products: ProductOption[];
   agents: AgentOption[];
+  interaction: OrderInteraction;
 }
 
 const STATUS_BADGE: Record<OrderStatus, { bg: string; text: string; label: string }> = {
@@ -176,6 +179,7 @@ export function AdminOrderDetailClient({
   order,
   products,
   agents,
+  interaction,
 }: AdminOrderDetailClientProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -628,6 +632,18 @@ export function AdminOrderDetailClient({
                 />
               )}
             </div>
+          </div>
+
+          {/* Customer-interaction trail the sales rep recorded (read-only) */}
+          <div className="flex flex-col gap-4">
+            <h4 className="text-sm font-bold text-slate-700 uppercase tracking-tight">
+              Customer Interaction
+            </h4>
+            <CustomerInteractionPanel
+              callFeedback={interaction.callFeedback}
+              customerFeedback={interaction.customerFeedback}
+              followUps={interaction.followUps}
+            />
           </div>
         </div>
 

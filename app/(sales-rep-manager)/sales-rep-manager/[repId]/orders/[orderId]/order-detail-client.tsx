@@ -11,6 +11,8 @@ import { useRouter } from "next/navigation";
 import { OrderDetail } from "@/lib/mock-data/sales-rep-manager";
 import { useBasePath, useCanManage } from "../../../_lib/base-path";
 import { EditLineModal } from "@/components/orders/edit-line-modal";
+import { CustomerInteractionPanel } from "@/components/orders/customer-interaction-panel";
+import type { OrderInteraction } from "@/lib/orders/order-interaction";
 import {
   markOrderDeliveredByManager,
   markOrderFailedByManager,
@@ -50,6 +52,7 @@ interface OrderDetailClientProps {
   repId: string;
   repName: string;
   order: OrderDetail;
+  interaction: OrderInteraction;
   agents: AgentReassignOption[];
   products?: { id: string; name: string }[];
 }
@@ -162,7 +165,7 @@ const FAIL_REASONS = [
   "Could not reach customer",
 ];
 
-export function OrderDetailClient({ repName, order, agents, products = [] }: OrderDetailClientProps) {
+export function OrderDetailClient({ repName, order, interaction, agents, products = [] }: OrderDetailClientProps) {
   const router = useRouter();
   const base = useBasePath();
   const canManage = useCanManage();
@@ -864,6 +867,16 @@ export function OrderDetailClient({ repName, order, agents, products = [] }: Ord
       )}
 
       {/* Edit line modal (add / change quantity / swap product) */}
+      {/* Customer-interaction trail the sales rep recorded (read-only) */}
+      <div>
+        <h3 className="mb-4 text-sm font-bold uppercase tracking-widest text-gray-500">Customer Interaction</h3>
+        <CustomerInteractionPanel
+          callFeedback={interaction.callFeedback}
+          customerFeedback={interaction.customerFeedback}
+          followUps={interaction.followUps}
+        />
+      </div>
+
       {editState && (
         <EditLineModal
           key={`${editState.mode}-${editState.line?.id ?? "add"}`}

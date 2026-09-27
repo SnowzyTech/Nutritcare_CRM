@@ -6,6 +6,8 @@ import { Search, SlidersHorizontal, ArrowUpDown, ChevronLeft, ChevronDown, Calen
 import { formatDate, formatCurrency } from "@/lib/utils";
 import { Calendar } from "@/components/ui/calendar";
 import { useBasePath } from "../_lib/base-path";
+import { ORDER_FEEDBACK_OPTIONS, NO_FEEDBACK_FILTER } from "@/lib/orders/order-feedback";
+import { FeedbackPill } from "@/components/orders/feedback-pill";
 
 /** Local YYYY-MM-DD (avoids UTC shift from toISOString). */
 function toYMD(d: Date): string {
@@ -34,6 +36,8 @@ export type TeamOrderListItem = {
   date: string; // ISO date: YYYY-MM-DD (order created date)
   statusDate: string; // ISO date: YYYY-MM-DD (last status change / updatedAt)
   deliveryFee: number;
+  lastFeedback: string | null; // latest sales-rep call outcome
+  lastFeedbackAt: string | null; // ISO string
 };
 
 export type OrderCounts = {
@@ -57,7 +61,7 @@ interface TeamOrdersClientProps {
   products?: string[];
   teams?: { id: string; name: string }[];
   /** Filter selections parsed from the URL on the server (seed the controls). */
-  initialFilters?: { status: string; search: string; product: string; state: string; team: string; date: string };
+  initialFilters?: { status: string; search: string; product: string; state: string; team: string; date: string; feedback?: string };
 }
 
 const STATUS_STYLES: Record<OrderStatus, { dot: string; bg: string; text: string; label: string }> = {
@@ -96,6 +100,7 @@ export function TeamOrdersClient({ orders, total, statusCounts, page: pageProp, 
   const [productFilter, setProductFilter] = useState(initialFilters?.product ?? "");
   const [stateFilter, setStateFilter] = useState(initialFilters?.state ?? "");
   const [teamFilter, setTeamFilter] = useState(initialFilters?.team ?? "");
+  const [feedbackFilter, setFeedbackFilter] = useState(initialFilters?.feedback ?? "");
   // Only the company manager sees orders spanning multiple teams; show the team
   // filter only when there's more than one team to choose between.
   const showTeamFilter = teams.length > 1;
@@ -126,7 +131,7 @@ export function TeamOrdersClient({ orders, total, statusCounts, page: pageProp, 
   // Jump back to page 1 whenever a filter changes.
   useEffect(() => {
     setPage(1);
-  }, [activeTab, searchQuery, dateValue, productFilter, stateFilter, teamFilter]);
+  }, [activeTab, searchQuery, dateValue, productFilter, stateFilter, teamFilter, feedbackFilter]);
 
   // Sync filters → URL → server (debounced). Local state drives the controls; the
   // URL (read by the server page) drives which rows come back, so filtering +
@@ -138,6 +143,7 @@ export function TeamOrdersClient({ orders, total, statusCounts, page: pageProp, 
     if (productFilter) p.set("product", productFilter);
     if (stateFilter) p.set("state", stateFilter);
     if (teamFilter) p.set("team", teamFilter);
+    if (feedbackFilter) p.set("feedback", feedbackFilter);
     if (dateValue) p.set("date", toYMD(dateValue));
     if (currentPage > 1) p.set("page", String(currentPage));
     return p.toString();
@@ -152,13 +158,14 @@ export function TeamOrdersClient({ orders, total, statusCounts, page: pageProp, 
     return () => clearTimeout(handle);
   }, [query, pathname, router]);
 
-  const hasActiveFilters = dateValue || productFilter || stateFilter || teamFilter;
+  const hasActiveFilters = dateValue || productFilter || stateFilter || teamFilter || feedbackFilter;
 
   function clearFilters() {
     setDateValue(undefined);
     setProductFilter("");
     setStateFilter("");
     setTeamFilter("");
+    setFeedbackFilter("");
   }
 
   return (
@@ -300,6 +307,28 @@ export function TeamOrdersClient({ orders, total, statusCounts, page: pageProp, 
           />
         </div>
 
+        {/* Feedback (latest sales-rep call outcome) */}
+        <div className="relative min-w-[120px]">
+          <select
+            value={feedbackFilter}
+            onChange={e => setFeedbackFilter(e.target.value)}
+            aria-label="Filter by feedback"
+            className="w-full appearance-none bg-gray-900 border border-gray-900 rounded-lg pl-4 pr-10 py-2 text-sm text-white font-medium outline-none hover:bg-gray-800 transition-colors cursor-pointer"
+          >
+            <option value="">Feedback</option>
+            <option value={NO_FEEDBACK_FILTER}>No feedback yet</option>
+            {ORDER_FEEDBACK_OPTIONS.map(o => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+          <ChevronLeft
+            className="-rotate-90 absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
+            size={14}
+          />
+        </div>
+
         {hasActiveFilters && (
           <button
             onClick={clearFilters}
@@ -386,6 +415,7 @@ export function TeamOrdersClient({ orders, total, statusCounts, page: pageProp, 
                     <div className="text-right"><span className="text-gray-400">Date:</span> {formatDate(order.date)}</div>
                     <div className="truncate col-span-2"><span className="text-gray-400">Delivery Fee:</span> {formatCurrency(order.deliveryFee)}</div>
                     <div className="truncate col-span-2"><span className="text-gray-400">Agent:</span> {order.agent ? `${order.agent.name} (${order.agent.state})` : "—"}</div>
+                    <div className="col-span-2 flex items-center gap-1.5"><span className="text-gray-400">Feedback:</span> <FeedbackPill lastFeedback={order.lastFeedback} lastFeedbackAt={order.lastFeedbackAt} status={order.status as OrderStatus} /></div>
                   </div>
                 </div>
               );
@@ -406,6 +436,7 @@ export function TeamOrdersClient({ orders, total, statusCounts, page: pageProp, 
                 <th className="px-6 py-4 font-bold text-gray-500 text-sm text-right whitespace-nowrap">Delivery Fee</th>
                 <th className="px-6 py-4 font-bold text-gray-500 text-sm text-right">Date</th>
                 <th className="px-6 py-4 font-bold text-gray-500 text-sm whitespace-nowrap">Status Date</th>
+                <th className="px-6 py-4 font-bold text-gray-500 text-sm whitespace-nowrap">Feedback</th>
               </tr>
             </thead>
             <tbody>
@@ -487,6 +518,13 @@ export function TeamOrdersClient({ orders, total, statusCounts, page: pageProp, 
                           <span className="text-gray-700 font-medium">{formatDate(order.statusDate)}</span>
                         </div>
                       )}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <FeedbackPill
+                        lastFeedback={order.lastFeedback}
+                        lastFeedbackAt={order.lastFeedbackAt}
+                        status={order.status as OrderStatus}
+                      />
                     </td>
                   </tr>
                 );

@@ -4,6 +4,7 @@ import { getAllTeams } from "@/modules/users/services/users.service";
 import { TeamOrdersClient } from "./team-orders-client";
 import { resolveManagerScope } from "../_lib/manager-scope";
 import type { OrderStatus } from "@prisma/client";
+import { NO_FEEDBACK_FILTER, isOrderFeedbackOutcome } from "@/lib/orders/order-feedback";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +24,9 @@ export default async function TeamOrdersPage({
   const memberIds = reps.map((m) => m.id);
 
   const statusRaw = get("status") ?? "";
+  const feedbackRaw = get("feedback") ?? "";
+  const feedback =
+    feedbackRaw === NO_FEEDBACK_FILTER || isOrderFeedbackOutcome(feedbackRaw) ? feedbackRaw : undefined;
   const filters: TeamOrderFilters = {
     status: STATUSES.includes(statusRaw as OrderStatus) ? (statusRaw as OrderStatus) : undefined,
     search: (get("q") ?? "").trim(),
@@ -30,6 +34,7 @@ export default async function TeamOrdersPage({
     agentState: get("state") || undefined,
     teamId: get("team") || undefined,
     date: get("date") || undefined,
+    feedback,
   };
   const pageNum = Math.max(1, parseInt(get("page") ?? "1", 10) || 1);
 
@@ -62,6 +67,7 @@ export default async function TeamOrdersPage({
         state: filters.agentState ?? "",
         team: filters.teamId ?? "",
         date: filters.date ?? "",
+        feedback: feedbackRaw,
       }}
     />
   );

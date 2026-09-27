@@ -16,6 +16,7 @@ import {
   Plus
 } from 'lucide-react';
 import { OrderRow } from '@/modules/data-analysis/services/data-analysis.service';
+import type { OrderStatus } from '@prisma/client';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { Calendar } from '@/components/ui/calendar';
@@ -27,6 +28,8 @@ import { AddOrderModal } from '@/components/orders/add-order-modal';
 import type { AddOrderProduct, AddOrderPayload } from '@/components/orders/add-order-modal';
 import type { ProductForms } from '@/modules/orders/services/form-packages.service';
 import { toast } from 'sonner';
+import { ORDER_FEEDBACK_OPTIONS, NO_FEEDBACK_FILTER } from '@/lib/orders/order-feedback';
+import { FeedbackPill } from '@/components/orders/feedback-pill';
 
 const STATUS_STYLES: Record<string, { dot: string; bg: string; text: string; label: string }> = {
   Pending: { dot: 'bg-yellow-400', bg: 'bg-[#FFF3CD]', text: 'text-[#856404]', label: 'Pending' },
@@ -37,6 +40,15 @@ const STATUS_STYLES: Record<string, { dot: string; bg: string; text: string; lab
 };
 
 const TABS = ['All', 'Pending', 'Confirmed', 'Delivered', 'Cancelled', 'Failed'];
+
+// Rows carry a display status ("Delivered"); the FeedbackPill wants the enum.
+const STATUS_LABEL_TO_ENUM_CLIENT: Record<string, OrderStatus> = {
+  Pending: 'PENDING',
+  Confirmed: 'CONFIRMED',
+  Delivered: 'DELIVERED',
+  Cancelled: 'CANCELLED',
+  Failed: 'FAILED',
+};
 
 // Orders shown per page in the list.
 const PAGE_SIZE = 15;
@@ -86,6 +98,7 @@ interface OrdersClientProps {
     statuses: string[]; search: string; products: string[]; states: string[];
     teams: string[]; agents: string[]; csAgents: string[];
     from: string | null; to: string | null;
+    feedback?: string;
   };
   deliveryAgents?: AgentItem[];
   salesReps?: AgentItem[];
@@ -108,6 +121,8 @@ export function OrdersClient({ initialOrders = [], total = 0, statusCounts = {},
   const [pendingStatuses, setPendingStatuses] = useState<string[]>([]);
   const [isStatusOpen, setIsStatusOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState(initialFilters?.search ?? '');
+  // Latest call-feedback filter: an outcome value, NO_FEEDBACK_FILTER, or "" (any).
+  const [feedbackFilter, setFeedbackFilter] = useState(initialFilters?.feedback ?? '');
   const [currentPage, setCurrentPage] = useState(pageProp);
 
   // Manual "Add Order" modal — the analyst keys in an order on a rep's behalf.
@@ -237,7 +252,7 @@ export function OrdersClient({ initialOrders = [], total = 0, statusCounts = {},
   // (not in an effect) per React's "you might not need an effect" guidance.
   const filterKey = JSON.stringify([
     selectedStatuses, searchQuery, selectedProducts, selectedStates,
-    selectedTeams, selectedDelAgents, selectedCSAgents,
+    selectedTeams, selectedDelAgents, selectedCSAgents, feedbackFilter,
     startDate?.getTime() ?? null, endDate?.getTime() ?? null,
   ]);
   const [prevFilterKey, setPrevFilterKey] = useState(filterKey);
@@ -268,6 +283,7 @@ export function OrdersClient({ initialOrders = [], total = 0, statusCounts = {},
     if (selectedTeams.length) p.set('team', selectedTeams.join(','));
     if (selectedDelAgents.length) p.set('agent', selectedDelAgents.join(','));
     if (selectedCSAgents.length) p.set('rep', selectedCSAgents.join(','));
+    if (feedbackFilter) p.set('feedback', feedbackFilter);
     if (startDate) p.set('from', ymd(startDate));
     if (endDate) p.set('to', ymd(endDate));
     if (page > 1) p.set('page', String(page));
@@ -712,6 +728,22 @@ export function OrdersClient({ initialOrders = [], total = 0, statusCounts = {},
           </button>
         </div>
 
+        {/* ── Feedback Filter (latest sales-rep call outcome) ── */}
+        <select
+          value={feedbackFilter}
+          onChange={(e) => setFeedbackFilter(e.target.value)}
+          aria-label="Filter by feedback"
+          className={`px-3 py-1.5 rounded-lg text-xs font-medium border outline-none cursor-pointer ${
+            feedbackFilter ? 'text-purple-700 border-purple-200 bg-purple-50' : 'text-gray-600 border-gray-200 bg-white'
+          }`}
+        >
+          <option value="">All feedback</option>
+          <option value={NO_FEEDBACK_FILTER}>No feedback yet</option>
+          {ORDER_FEEDBACK_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+
         <button className="p-2 text-gray-400 hover:text-gray-600">
           <ArrowUpDown size={18} />
         </button>
@@ -1001,6 +1033,7 @@ export function OrdersClient({ initialOrders = [], total = 0, statusCounts = {},
               <th className="px-6 py-4 text-[11px] font-bold text-gray-500 uppercase tracking-wider text-center">Quantity</th>
               <th className="px-6 py-4 text-[11px] font-bold text-gray-500 uppercase tracking-wider text-right whitespace-nowrap">Date</th>
               <th className="px-6 py-4 text-[11px] font-bold text-gray-500 uppercase tracking-wider whitespace-nowrap">Status Date</th>
+              <th className="px-6 py-4 text-[11px] font-bold text-gray-500 uppercase tracking-wider whitespace-nowrap">Feedback</th>
             </tr>
           </thead>
           <tbody className="bg-white">
@@ -1084,6 +1117,13 @@ export function OrdersClient({ initialOrders = [], total = 0, statusCounts = {},
                         </span>
                       </div>
                     )}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <FeedbackPill
+                      lastFeedback={order.lastFeedback}
+                      lastFeedbackAt={order.lastFeedbackAt}
+                      status={STATUS_LABEL_TO_ENUM_CLIENT[order.status]}
+                    />
                   </td>
                 </tr>
               );

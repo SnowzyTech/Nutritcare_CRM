@@ -17,6 +17,8 @@ import {
 } from "@/components/ui/select";
 import type { OrderStatus } from "@prisma/client";
 import { upsellExtraCount } from "@/lib/orders/upsell";
+import { ORDER_FEEDBACK_OPTIONS, NO_FEEDBACK_FILTER } from "@/lib/orders/order-feedback";
+import { FeedbackPill } from "@/components/orders/feedback-pill";
 
 const nigerianStates = [
   "Abia State",
@@ -69,6 +71,8 @@ export type AdminOrderListItem = {
   items: Array<{ quantity: number; upsellQuantity: number; isUpsell: boolean; product: { name: string } }>;
   salesRep: { name: string };
   team?: { id: string; name: string } | null;
+  lastFeedback: string | null;
+  lastFeedbackAt: string | null;
 };
 
 export type AdminOrderCounts = {
@@ -93,7 +97,7 @@ interface AdminOrdersClientProps {
   teams?: Array<{ id: string; name: string }>;
   /** Filter selections parsed from the URL on the server (seed the controls). */
   initialFilters?: {
-    status: string; search: string; product: string; state: string; team: string; date: string;
+    status: string; search: string; product: string; state: string; team: string; date: string; feedback?: string;
   };
 }
 
@@ -143,6 +147,7 @@ export function AdminOrdersClient({
   const [selectedState, setSelectedState] = useState(initialFilters?.state || "__all__");
   const [selectedTeam, setSelectedTeam] = useState(initialFilters?.team || "__all__");
   const [selectedDate, setSelectedDate] = useState(initialFilters?.date ?? "");
+  const [selectedFeedback, setSelectedFeedback] = useState(initialFilters?.feedback || "__all__");
 
   // Tab badges come from the server (counts for every filter EXCEPT status, so
   // switching tabs still makes sense).
@@ -165,7 +170,7 @@ export function AdminOrdersClient({
   // Jump back to the first page whenever a filter changes.
   useEffect(() => {
     setPage(1);
-  }, [activeTab, searchQuery, selectedProduct, selectedState, selectedTeam, selectedDate]);
+  }, [activeTab, searchQuery, selectedProduct, selectedState, selectedTeam, selectedDate, selectedFeedback]);
 
   // Sync filters → URL → server. Local state drives the controls; the URL (read by
   // the server page) drives which rows come back, so filtering + pagination happen
@@ -178,6 +183,7 @@ export function AdminOrdersClient({
     if (selectedProduct !== "__all__") p.set("product", selectedProduct);
     if (selectedState !== "__all__") p.set("state", selectedState);
     if (selectedTeam !== "__all__") p.set("team", selectedTeam);
+    if (selectedFeedback !== "__all__") p.set("feedback", selectedFeedback);
     if (selectedDate) p.set("date", selectedDate);
     if (currentPage > 1) p.set("page", String(currentPage));
     return p.toString();
@@ -336,6 +342,31 @@ export function AdminOrdersClient({
           </SelectContent>
         </Select>
 
+        {/* Feedback dropdown (latest sales-rep call outcome) */}
+        <Select
+          value={selectedFeedback}
+          onValueChange={(v) => setSelectedFeedback(v ?? "__all__")}
+        >
+          <SelectTrigger className="w-[130px] h-[36px] bg-gray-900 text-white border-0 rounded-lg text-xs font-semibold shadow-sm px-3 [&>span]:text-white">
+            <span className="flex-1 text-left truncate">
+              {selectedFeedback === "__all__"
+                ? "All Feedback"
+                : selectedFeedback === NO_FEEDBACK_FILTER
+                  ? "No feedback yet"
+                  : ORDER_FEEDBACK_OPTIONS.find((o) => o.value === selectedFeedback)?.label ?? "All Feedback"}
+            </span>
+          </SelectTrigger>
+          <SelectContent className="max-h-[300px]">
+            <SelectItem value="__all__">All Feedback</SelectItem>
+            <SelectItem value={NO_FEEDBACK_FILTER}>No feedback yet</SelectItem>
+            {ORDER_FEEDBACK_OPTIONS.map((o) => (
+              <SelectItem key={o.value} value={o.value}>
+                {o.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
         <button className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-gray-400 hover:bg-gray-50 transition-all">
           <ArrowUpDown size={16} />
         </button>
@@ -375,7 +406,7 @@ export function AdminOrdersClient({
       {/* Table */}
       <div className="bg-gray-50/50 rounded-2xl overflow-hidden">
         {/* Header row */}
-        <div className="grid grid-cols-[2fr_1.2fr_1.2fr_1fr_1fr_1.2fr_0.8fr_1fr_1.2fr] px-6 sm:px-8 py-4 border-b border-gray-100 bg-gray-50">
+        <div className="grid grid-cols-[2fr_1.2fr_1.2fr_1fr_1fr_1.2fr_0.8fr_1fr_1.2fr_1.2fr] px-6 sm:px-8 py-4 border-b border-gray-100 bg-gray-50">
           {[
             "G-Mail",
             "Name",
@@ -386,6 +417,7 @@ export function AdminOrdersClient({
             "Quantity",
             "Date",
             "Status Date",
+            "Feedback",
           ].map((h, i) => (
             <span
               key={i}
@@ -414,7 +446,7 @@ export function AdminOrdersClient({
                 <Link
                   href={`/admin/orders/${order.id}`}
                   key={order.id}
-                  className={`grid grid-cols-[2fr_1.2fr_1.2fr_1fr_1fr_1.2fr_0.8fr_1fr_1.2fr] px-6 sm:px-8 py-4 items-center border-b border-gray-50 last:border-0 transition-colors ${
+                  className={`grid grid-cols-[2fr_1.2fr_1.2fr_1fr_1fr_1.2fr_0.8fr_1fr_1.2fr_1.2fr] px-6 sm:px-8 py-4 items-center border-b border-gray-50 last:border-0 transition-colors ${
                     isEvenRow ? "bg-white" : "bg-gray-50"
                   } hover:bg-gray-100/50`}
                 >
@@ -498,6 +530,15 @@ export function AdminOrdersClient({
                         </span>
                       </div>
                     )}
+                  </div>
+
+                  {/* Feedback */}
+                  <div>
+                    <FeedbackPill
+                      lastFeedback={order.lastFeedback}
+                      lastFeedbackAt={order.lastFeedbackAt}
+                      status={order.status}
+                    />
                   </div>
                 </Link>
               );

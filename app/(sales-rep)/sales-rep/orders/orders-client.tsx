@@ -25,13 +25,8 @@ import {
 import type { OrderStatus } from '@prisma/client';
 import { formatCurrency } from '@/lib/utils';
 import { ChatUnreadBadge } from '@/components/chat/chat-unread-badge';
-import {
-  ORDER_FEEDBACK_OPTIONS,
-  NO_FEEDBACK_FILTER,
-  FEEDBACK_TONE_CLASSES,
-  feedbackLabel,
-  feedbackTone,
-} from '@/lib/orders/order-feedback';
+import { ORDER_FEEDBACK_OPTIONS, NO_FEEDBACK_FILTER } from '@/lib/orders/order-feedback';
+import { FeedbackPill } from '@/components/orders/feedback-pill';
 
 /** Green "Rescheduled" pill — shown for active orders whose delivery was pushed. */
 function RescheduledPill() {
@@ -45,27 +40,6 @@ function RescheduledPill() {
 /** True when an order should surface the Rescheduled tag (still awaiting delivery). */
 function showRescheduled(o: { isRescheduled: boolean; status: OrderStatus }) {
   return o.isRescheduled && (o.status === 'PENDING' || o.status === 'CONFIRMED');
-}
-
-/** Latest call-feedback pill ("Not Picking", …). Hidden once an order is delivered. */
-function FeedbackPill({ order }: { order: Pick<OrderListItem, 'lastFeedback' | 'lastFeedbackAt' | 'status'> }) {
-  if (!order.lastFeedback || order.status === 'DELIVERED') return null;
-  const when = order.lastFeedbackAt
-    ? new Date(order.lastFeedbackAt).toLocaleString('en-NG', {
-        day: '2-digit',
-        month: 'short',
-        hour: '2-digit',
-        minute: '2-digit',
-      })
-    : '';
-  return (
-    <span
-      title={when ? `Recorded ${when}` : undefined}
-      className={`inline-flex items-center text-[10px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap shrink-0 ${FEEDBACK_TONE_CLASSES[feedbackTone(order.lastFeedback)]}`}
-    >
-      {feedbackLabel(order.lastFeedback)}
-    </span>
-  );
 }
 
 export type OrderListItem = {
@@ -404,7 +378,7 @@ export function OrdersClient({ orders, total, statusCounts, page: pageProp, user
                         <div className="col-span-2 truncate"><span className="text-gray-400">Agent:</span> {order.agent.companyName}</div>
                       )}
                       {order.lastFeedback && order.status !== 'DELIVERED' && (
-                        <div className="col-span-2 flex items-center gap-1.5"><span className="text-gray-400">Feedback:</span> <FeedbackPill order={order} /></div>
+                        <div className="col-span-2 flex items-center gap-1.5"><span className="text-gray-400">Feedback:</span> <FeedbackPill lastFeedback={order.lastFeedback} lastFeedbackAt={order.lastFeedbackAt} status={order.status} /></div>
                       )}
                     </div>
                   </div>
@@ -501,7 +475,7 @@ export function OrdersClient({ orders, total, statusCounts, page: pageProp, user
                         </td>
                         <td className="px-4 sm:px-6 py-4 sm:py-5">
                           {order.lastFeedback && order.status !== 'DELIVERED' ? (
-                            <FeedbackPill order={order} />
+                            <FeedbackPill lastFeedback={order.lastFeedback} lastFeedbackAt={order.lastFeedbackAt} status={order.status} />
                           ) : (
                             <span className="text-gray-300">—</span>
                           )}

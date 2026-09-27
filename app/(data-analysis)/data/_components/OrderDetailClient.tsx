@@ -8,6 +8,7 @@ import { OrderDetailFull } from '@/modules/data-analysis/services/data-analysis.
 import { ProgressSteps } from './ProgressSteps';
 import { AgentInfoModal } from './AgentInfoModal';
 import { PrescriptionEditor } from './PrescriptionEditor';
+import { CustomerInteractionPanel } from '@/components/orders/customer-interaction-panel';
 import {
   deleteOrderPermanently,
   markOrderDeliveredByAnalyst,
@@ -574,6 +575,16 @@ export function OrderDetailClient({ order, canReassign, agents, products = [] }:
             )}
           </div>
         </div>
+      </div>
+
+      {/* Customer-interaction trail the sales rep recorded (read-only) */}
+      <div>
+        <h3 className="mb-4 text-sm font-bold uppercase tracking-widest text-gray-500">Customer Interaction</h3>
+        <CustomerInteractionPanel
+          callFeedback={order.callFeedback}
+          customerFeedback={order.customerFeedback}
+          followUps={order.followUps}
+        />
       </div>
 
       {order.agent && (

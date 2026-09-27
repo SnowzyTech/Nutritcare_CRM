@@ -5,6 +5,14 @@ import { generalPerformanceScore, kpiScore } from "@/lib/performance";
 import { parseMonthParam, type MonthPeriod } from "@/lib/month-period";
 import type { DatePeriod } from "@/lib/date-period";
 import { periodCacheKey, periodWindows } from "@/lib/staff-period";
+import { NO_FEEDBACK_FILTER } from "@/lib/orders/order-feedback";
+import { getOrderFeedback } from "@/modules/reports/sales/services/feedback.service";
+import { getOrderFollowUps } from "@/modules/reports/sales/services/follow-up.service";
+import type {
+  PanelCallFeedback,
+  PanelCustomerFeedback,
+  PanelFollowUp,
+} from "@/components/orders/customer-interaction-panel";
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
 
@@ -126,6 +134,8 @@ export type OrderRow = {
   statusDate: string | null;  // Date when status changed (null for PENDING)
   formId: string | null;      // set when the order came from a media buyer's form
   formName: string | null;
+  lastFeedback: string | null;    // latest sales-rep call outcome (lib/orders/order-feedback.ts)
+  lastFeedbackAt: string | null;  // ISO string
 };
 
 export type OrderDetailFull = {
@@ -185,6 +195,11 @@ export type OrderDetailFull = {
     repName?: string;
     agentName?: string;
   }>;
+  // Sales-rep customer-interaction trail (read-only) — rendered by
+  // components/orders/customer-interaction-panel.tsx.
+  callFeedback: PanelCallFeedback[];
+  customerFeedback: PanelCustomerFeedback[];
+  followUps: PanelFollowUp[];
 };
 
 export type SalesRepProfile = {
@@ -702,6 +717,8 @@ const ORDER_ROW_SELECT = {
   createdAt: true,
   updatedAt: true,
   formId: true,
+  lastFeedback: true,
+  lastFeedbackAt: true,
   form: { select: { name: true } },
   customer: { select: { name: true, email: true, state: true } },
   agent: { select: { id: true, companyName: true, state: true } },
@@ -756,6 +773,8 @@ function toOrderRow(o: OrderRowRaw): OrderRow {
     statusDate: statusSrc ? fmtDate(statusSrc) : null,
     formId: o.formId,
     formName: o.form?.name ?? null,
+    lastFeedback: o.lastFeedback,
+    lastFeedbackAt: o.lastFeedbackAt?.toISOString() ?? null,
   };
 }
 
@@ -793,6 +812,10 @@ export type OrderListFilters = {
    *  per-status date; this server version filters by placed date — see the plan. */
   from?: Date;
   to?: Date;
+  /** Latest sales-rep call feedback (`Order.lastFeedback`): an outcome from
+   *  lib/orders/order-feedback.ts, or NO_FEEDBACK_FILTER for "none recorded yet".
+   *  Callers validate the value before passing it. */
+  feedback?: string;
 };
 
 export function buildOrderWhere(f: OrderListFilters): Prisma.OrderWhereInput {
@@ -816,6 +839,7 @@ export function buildOrderWhere(f: OrderListFilters): Prisma.OrderWhereInput {
   if (f.teamIds?.length) where.salesRep = { is: { teamId: { in: f.teamIds } } };
   if (f.agentIds?.length) where.agentId = { in: f.agentIds };
   if (f.salesRepIds?.length) where.salesRepId = { in: f.salesRepIds };
+  if (f.feedback) where.lastFeedback = f.feedback === NO_FEEDBACK_FILTER ? null : f.feedback;
 
   // Date filter matches each order by the date it reached its CURRENT status — the
   // SAME source the displayed statusDate uses (see toOrderRow): delivered →
@@ -910,10 +934,28 @@ export async function getOrderByOrderNumber(orderNumber: string): Promise<OrderD
         orderBy: { createdAt: "asc" },
       },
       deliveries: { orderBy: { createdAt: "asc" } },
+      feedbacks: {
+        orderBy: { createdAt: "desc" },
+        take: 30,
+        select: {
+          id: true,
+          outcome: true,
+          note: true,
+          createdAt: true,
+          author: { select: { name: true } },
+        },
+      },
     },
   });
 
   if (!order) return null;
+
+  // The rep's customer-interaction trail — fetched with the existing read
+  // services (same shape the sales-rep detail page uses).
+  const [customerFeedbackRows, followUpRows] = await Promise.all([
+    getOrderFeedback(order.id),
+    getOrderFollowUps(order.id),
+  ]);
 
   const firstItem = order.items[0];
   const upsoldItem = order.items[1];
@@ -1044,6 +1086,29 @@ export async function getOrderByOrderNumber(orderNumber: string): Promise<OrderD
     source: order.customer.source ?? "Direct",
     orderDate: fmtDate(order.createdAt),
     history,
+    callFeedback: order.feedbacks.map((f) => ({
+      id: f.id,
+      outcome: f.outcome,
+      note: f.note ?? null,
+      authorName: f.author.name,
+      at: f.createdAt.toISOString(),
+    })),
+    customerFeedback: customerFeedbackRows.map((f) => ({
+      id: f.id,
+      category: f.category,
+      message: f.message,
+      status: f.status,
+      action: f.action ?? null,
+      productName: f.product?.name ?? null,
+      authorName: f.author.name,
+      at: f.createdAt.toISOString(),
+    })),
+    followUps: followUpRows.map((f) => ({
+      stage: f.stage,
+      note: f.note ?? null,
+      completedByName: f.completedBy.name,
+      at: f.completedAt.toISOString(),
+    })),
   };
 }
 

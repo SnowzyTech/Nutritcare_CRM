@@ -185,6 +185,8 @@ export type AdminOrderRow = {
   items: Array<{ quantity: number; upsellQuantity: number; isUpsell: boolean; product: { name: string } }>;
   salesRep: { name: string };
   team?: { id: string; name: string } | null;
+  lastFeedback: string | null;
+  lastFeedbackAt: string | null;
 };
 
 const ADMIN_ORDER_SELECT = {
@@ -193,6 +195,8 @@ const ADMIN_ORDER_SELECT = {
   status: true,
   createdAt: true,
   updatedAt: true,
+  lastFeedback: true,
+  lastFeedbackAt: true,
   customer: { select: { name: true, email: true, state: true } },
   agent: { select: { companyName: true, state: true } },
   items: { select: { quantity: true, upsellQuantity: true, isUpsell: true, product: { select: { name: true } } } },
@@ -213,6 +217,8 @@ function toAdminOrderRow(o: AdminOrderRaw): AdminOrderRow {
     items: o.items.map((i) => ({ quantity: i.quantity, upsellQuantity: i.upsellQuantity, isUpsell: i.isUpsell, product: { name: i.product.name } })),
     salesRep: { name: o.salesRep.name },
     team: o.salesRep.team ? { id: o.salesRep.team.id, name: o.salesRep.team.name } : null,
+    lastFeedback: o.lastFeedback,
+    lastFeedbackAt: o.lastFeedbackAt?.toISOString() ?? null,
   };
 }
 
@@ -401,6 +407,8 @@ export type TeamOrderRow = {
   date: string;
   statusDate: string;
   deliveryFee: number;
+  lastFeedback: string | null;
+  lastFeedbackAt: string | null;
 };
 
 const TEAM_ORDER_SELECT = {
@@ -410,6 +418,8 @@ const TEAM_ORDER_SELECT = {
   createdAt: true,
   updatedAt: true,
   deliveryFee: true,
+  lastFeedback: true,
+  lastFeedbackAt: true,
   customer: { select: { name: true, email: true } },
   agent: { select: { companyName: true, state: true } },
   salesRep: { select: { name: true, team: { select: { id: true, name: true } } } },
@@ -436,6 +446,8 @@ function toTeamOrderRow(o: TeamOrderRaw): TeamOrderRow {
     date: o.createdAt.toISOString().split("T")[0],
     statusDate: o.updatedAt.toISOString().split("T")[0],
     deliveryFee: Number(o.deliveryFee),
+    lastFeedback: o.lastFeedback,
+    lastFeedbackAt: o.lastFeedbackAt?.toISOString() ?? null,
   };
 }
 
@@ -449,6 +461,9 @@ export type TeamOrderFilters = {
   teamId?: string;
   /** "YYYY-MM-DD" placed date, single day. */
   date?: string;
+  /** Latest sales-rep call feedback (`Order.lastFeedback`): an outcome from
+   *  lib/orders/order-feedback.ts, or NO_FEEDBACK_FILTER for "none recorded yet". */
+  feedback?: string;
 };
 
 function buildTeamOrderWhere(f: TeamOrderFilters, base: Prisma.OrderWhereInput): Prisma.OrderWhereInput {
@@ -466,6 +481,7 @@ function buildTeamOrderWhere(f: TeamOrderFilters, base: Prisma.OrderWhereInput):
   if (f.productName) where.items = { some: { product: { name: f.productName } } };
   if (f.agentState) where.agent = { is: { state: { equals: f.agentState, mode: "insensitive" } } };
   if (f.teamId) where.salesRep = { is: { teamId: f.teamId } };
+  if (f.feedback) where.lastFeedback = f.feedback === NO_FEEDBACK_FILTER ? null : f.feedback;
   if (f.date) {
     const [y, m, d] = f.date.split("-").map(Number);
     if (y && m && d) {

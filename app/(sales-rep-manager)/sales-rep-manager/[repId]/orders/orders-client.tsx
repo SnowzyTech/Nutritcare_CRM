@@ -5,6 +5,8 @@ import { useRouter, usePathname } from "next/navigation";
 import { Search, SlidersHorizontal, ArrowUpDown, ChevronLeft, RotateCcw } from "lucide-react";
 import { formatDate,formatCurrency } from "@/lib/utils";
 import { useBasePath } from "../../_lib/base-path";
+import { ORDER_FEEDBACK_OPTIONS, NO_FEEDBACK_FILTER } from "@/lib/orders/order-feedback";
+import { FeedbackPill } from "@/components/orders/feedback-pill";
 
 type OrderStatus = "PENDING" | "CONFIRMED" | "DELIVERED" | "CANCELLED" | "FAILED";
 
@@ -21,6 +23,8 @@ export type OrderListItem = {
   extraCount: number; // extra products + merged upsells (drives the +N badge)
   date: string; // ISO date: YYYY-MM-DD
   deliveryFee: number;
+  lastFeedback: string | null; // latest sales-rep call outcome
+  lastFeedbackAt: string | null; // ISO string
 };
 
 export type OrderCounts = {
@@ -45,7 +49,7 @@ interface OrdersClientProps {
   page: number;
   products?: string[];
   /** Filter selections parsed from the URL on the server (seed the controls). */
-  initialFilters?: { status: string; search: string; product: string; state: string; date: string };
+  initialFilters?: { status: string; search: string; product: string; state: string; date: string; feedback?: string };
 }
 
 const STATUS_STYLES: Record<OrderStatus, { dot: string; bg: string; text: string; label: string }> = {
@@ -82,6 +86,7 @@ export function OrdersClient({ repId, repName, orders, total, statusCounts, page
   const [dateFilter, setDateFilter] = useState(initialFilters?.date ?? "");
   const [productFilter, setProductFilter] = useState(initialFilters?.product ?? "");
   const [stateFilter, setStateFilter] = useState(initialFilters?.state ?? "");
+  const [feedbackFilter, setFeedbackFilter] = useState(initialFilters?.feedback ?? "");
 
   // Full catalog when provided; otherwise fall back to products seen in the orders
   // (each order can carry several products, so flatten itemNames — not just the first).
@@ -110,7 +115,7 @@ export function OrdersClient({ repId, repName, orders, total, statusCounts, page
   // Jump back to page 1 whenever a filter changes.
   useEffect(() => {
     setPage(1);
-  }, [activeTab, searchQuery, dateFilter, productFilter, stateFilter]);
+  }, [activeTab, searchQuery, dateFilter, productFilter, stateFilter, feedbackFilter]);
 
   // Sync filters → URL → server (debounced). Local state drives the controls; the
   // URL (read by the server page) drives which rows come back.
@@ -120,6 +125,7 @@ export function OrdersClient({ repId, repName, orders, total, statusCounts, page
     if (searchQuery.trim()) p.set("q", searchQuery.trim());
     if (productFilter) p.set("product", productFilter);
     if (stateFilter) p.set("state", stateFilter);
+    if (feedbackFilter) p.set("feedback", feedbackFilter);
     if (dateFilter) p.set("date", dateFilter);
     if (currentPage > 1) p.set("page", String(currentPage));
     return p.toString();
@@ -134,7 +140,7 @@ export function OrdersClient({ repId, repName, orders, total, statusCounts, page
     return () => clearTimeout(handle);
   }, [query, pathname, router]);
 
-  const hasActiveFilters = dateFilter || productFilter || stateFilter;
+  const hasActiveFilters = dateFilter || productFilter || stateFilter || feedbackFilter;
 
   return (
     <div className="max-w-6xl mx-auto flex flex-col gap-6">
@@ -213,9 +219,26 @@ export function OrdersClient({ repId, repName, orders, total, statusCounts, page
           <ChevronLeft className="-rotate-90 absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={14} />
         </div>
 
+        {/* Feedback (latest sales-rep call outcome) */}
+        <div className="relative">
+          <select
+            value={feedbackFilter}
+            onChange={e => setFeedbackFilter(e.target.value)}
+            aria-label="Filter by feedback"
+            className="appearance-none bg-gray-50 border border-gray-200 rounded-lg pl-3 pr-8 py-2 text-sm text-gray-700 font-medium outline-none hover:bg-gray-100 transition-colors cursor-pointer"
+          >
+            <option value="">Feedback</option>
+            <option value={NO_FEEDBACK_FILTER}>No feedback yet</option>
+            {ORDER_FEEDBACK_OPTIONS.map(o => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+          <ChevronLeft className="-rotate-90 absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={14} />
+        </div>
+
         {hasActiveFilters && (
           <button
-            onClick={() => { setDateFilter(""); setProductFilter(""); setStateFilter(""); }}
+            onClick={() => { setDateFilter(""); setProductFilter(""); setStateFilter(""); setFeedbackFilter(""); }}
             className="text-xs text-purple-600 font-semibold hover:underline"
           >
             Clear
@@ -298,6 +321,7 @@ export function OrdersClient({ repId, repName, orders, total, statusCounts, page
                     <div className="truncate"><span className="text-gray-400">Delivery Fee:</span> {formatCurrency(order.deliveryFee)}</div>
                     <div className="text-right"><span className="text-gray-400">Date:</span> {formatDate(order.date)}</div>
                     <div className="truncate col-span-2"><span className="text-gray-400">Agent:</span> {order.agent ? `${order.agent.name} (${order.agent.state})` : "—"}</div>
+                    <div className="col-span-2 flex items-center gap-1.5"><span className="text-gray-400">Feedback:</span> <FeedbackPill lastFeedback={order.lastFeedback} lastFeedbackAt={order.lastFeedbackAt} status={order.status as OrderStatus} /></div>
                   </div>
                 </div>
               );
@@ -317,6 +341,7 @@ export function OrdersClient({ repId, repName, orders, total, statusCounts, page
                 <th className="px-6 py-4 font-bold text-gray-500 uppercase tracking-wider text-[11px] text-center">Status</th>
                 <th className="px-6 py-4 font-bold text-gray-500 uppercase tracking-wider text-[11px] text-right whitespace-nowrap">Delivery Fee</th>
                 <th className="px-6 py-4 font-bold text-gray-500 uppercase tracking-wider text-[11px] text-right">Date</th>
+                <th className="px-6 py-4 font-bold text-gray-500 uppercase tracking-wider text-[11px] whitespace-nowrap">Feedback</th>
               </tr>
             </thead>
             <tbody>
@@ -386,6 +411,13 @@ export function OrdersClient({ repId, repName, orders, total, statusCounts, page
                     </td>
                     <td className="px-6 py-4 text-right font-medium text-gray-500">
                       {formatDate(order.date)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <FeedbackPill
+                        lastFeedback={order.lastFeedback}
+                        lastFeedbackAt={order.lastFeedbackAt}
+                        status={order.status as OrderStatus}
+                      />
                     </td>
                   </tr>
                 );
