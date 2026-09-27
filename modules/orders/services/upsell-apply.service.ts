@@ -156,11 +156,9 @@ export async function applyUpsellItems(
     );
     gross = gross - replaced + p.priced.lineTotal;
   }
+  // Adding a product CLEARS any prior negotiated discount — the rep re-sets the
+  // price after the change (net resets to the new full gross).
   const newGross = Math.round(gross * 100) / 100;
-  const discountAmount = Math.min(Number(order.discountAmount), newGross);
-  const netAmount = Math.round((newGross - discountAmount) * 100) / 100;
-  const discountPercent =
-    newGross > 0 ? Math.round((discountAmount / newGross) * 10000) / 100 : 0;
 
   let capacityHit = false;
   await prisma.$transaction(async (tx) => {
@@ -245,7 +243,15 @@ export async function applyUpsellItems(
     }
     await tx.order.update({
       where: { id: order.id },
-      data: { totalAmount: newGross, netAmount, discountAmount, discountPercent },
+      data: {
+        totalAmount: newGross,
+        netAmount: newGross,
+        discountAmount: 0,
+        discountPercent: 0,
+        discountedById: null,
+        discountReason: null,
+        discountedAt: null,
+      },
     });
   });
 

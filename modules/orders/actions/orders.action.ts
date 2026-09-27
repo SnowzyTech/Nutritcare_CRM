@@ -28,6 +28,12 @@ import {
 } from "@/modules/orders/services/upsell-apply.service";
 import { resolveUpsellPrice } from "@/modules/orders/services/tier-pricing.service";
 import {
+  changeItemQuantity,
+  swapItemProduct,
+  previewLineReprice,
+  reviseOrderSelect,
+} from "@/modules/orders/services/revise-order.service";
+import {
   createManualOrder,
   logManualOrderCreated,
   manualOrderSchema,
@@ -768,10 +774,170 @@ export async function resolveUpsellPriceAction(
 }
 
 /**
+ * Change the quantity of an existing product line on the rep's own order and
+ * re-price it via the per-form packages. A customer revision (NOT an upsell) —
+ * the line's upsell tracking is cleared. Works on pending or confirmed orders.
+ */
+export async function changeOrderItemQuantityAction(
+  orderId: string,
+  orderItemId: string,
+  newQuantity: number,
+  unitPrice?: number,
+): Promise<{ error?: string }> {
+  const session = await auth();
+  suppressCameraForRequest();
+  if (!session?.user?.id) {
+    return { error: "You are not signed in. Please refresh and try again." };
+  }
+
+  const order = await prisma.order.findFirst({
+    where: { id: orderId, salesRepId: session.user.id, deletedAt: null },
+    select: reviseOrderSelect,
+  });
+  if (!order) return { error: "Order not found." };
+
+  const result = await changeItemQuantity(order, orderItemId, newQuantity, unitPrice ?? 0);
+  if ("error" in result) return { error: result.error };
+
+  await logActivity({
+    userId: session.user.id,
+    action: "Updated",
+    entityType: "Order",
+    entityId: orderId,
+    description: `Changed ${result.productName} quantity ${result.oldQuantity} → ${result.newQuantity} on Order #${order.orderNumber}`,
+    details: {
+      field: "quantity",
+      before: result.oldQuantity,
+      after: result.newQuantity,
+      amount: result.newLineTotal,
+    },
+  });
+  if (result.surplus) {
+    await logActivity({
+      userId: session.user.id,
+      action: "Updated",
+      entityType: "OrderItem",
+      entityId: orderId,
+      description: `Manual unit price ${formatCurrency(result.surplus.typedUnitPrice)} used for ${result.surplus.productName} (qty ${result.surplus.quantity}) on Order #${order.orderNumber}`,
+      details: {
+        field: "unitPrice",
+        amount: result.surplus.lineTotal,
+        productId: result.surplus.productId,
+        typedUnitPrice: result.surplus.typedUnitPrice,
+      },
+    });
+  }
+
+  revalidateOrderPaths(orderId);
+  return {};
+}
+
+/**
+ * Replace a product line on the rep's own order with a different product,
+ * re-priced from the new product's form. A customer revision (NOT an upsell).
+ * Works on pending or confirmed orders.
+ */
+export async function swapOrderItemProductAction(
+  orderId: string,
+  orderItemId: string,
+  newProductId: string,
+  newQuantity: number,
+  unitPrice?: number,
+): Promise<{ error?: string }> {
+  const session = await auth();
+  suppressCameraForRequest();
+  if (!session?.user?.id) {
+    return { error: "You are not signed in. Please refresh and try again." };
+  }
+
+  const order = await prisma.order.findFirst({
+    where: { id: orderId, salesRepId: session.user.id, deletedAt: null },
+    select: reviseOrderSelect,
+  });
+  if (!order) return { error: "Order not found." };
+
+  const result = await swapItemProduct(
+    order,
+    orderItemId,
+    newProductId,
+    newQuantity,
+    unitPrice ?? 0,
+    session.user.id,
+  );
+  if ("error" in result) return { error: result.error };
+
+  await logActivity({
+    userId: session.user.id,
+    action: "Updated",
+    entityType: "Order",
+    entityId: orderId,
+    description: `Swapped ${result.oldProductName} → ${result.newProductName} (qty ${result.newQuantity}) on Order #${order.orderNumber}`,
+    details: {
+      field: "product",
+      before: result.oldProductName,
+      after: result.newProductName,
+      amount: result.newLineTotal,
+    },
+  });
+  if (result.surplus) {
+    await logActivity({
+      userId: session.user.id,
+      action: "Updated",
+      entityType: "OrderItem",
+      entityId: orderId,
+      description: `Manual unit price ${formatCurrency(result.surplus.typedUnitPrice)} used for ${result.surplus.productName} (qty ${result.surplus.quantity}) on Order #${order.orderNumber}`,
+      details: {
+        field: "unitPrice",
+        amount: result.surplus.lineTotal,
+        productId: result.surplus.productId,
+        typedUnitPrice: result.surplus.typedUnitPrice,
+      },
+    });
+  }
+
+  revalidateOrderPaths(orderId);
+  return {};
+}
+
+/**
+ * Live price preview for the Edit-line popup (change quantity / swap). Prices an
+ * ABSOLUTE quantity of a product from the order's form — read-only, writes
+ * nothing. Signature matches `resolveUpsellPriceAction` so the shared preview
+ * hook can drive it.
+ */
+export async function resolveLineRepriceAction(
+  orderId: string,
+  productId: string,
+  absoluteQty: number,
+  typedUnitPrice?: number,
+): Promise<
+  | {
+      lineTotal: number;
+      unitPrice: number;
+      source: "package" | "surplus";
+      requiresUnitPrice: boolean;
+      mergedQty: number;
+    }
+  | { error: string }
+> {
+  const session = await auth();
+  if (!session?.user?.id) return { error: "Not signed in." };
+
+  const order = await prisma.order.findFirst({
+    where: { id: orderId, salesRepId: session.user.id, deletedAt: null },
+    select: { formId: true },
+  });
+  if (!order) return { error: "Order not found." };
+
+  return previewLineReprice(order.formId, productId, absoluteQty, typedUnitPrice ?? 0);
+}
+
+/**
  * Permanently removes a product line from an order (hard delete — the
  * OrderItem row is deleted, not soft-deleted). Only allowed on pending orders,
  * and an order must always keep at least one product. Order totals are
- * recomputed from the remaining items, preserving any applied discount amount.
+ * recomputed from the remaining items, and any prior negotiated discount is
+ * cleared (the price is re-set after the change).
  */
 export async function removeOrderItemAction(orderId: string, itemId: string) {
   const session = await auth();
@@ -792,16 +958,22 @@ export async function removeOrderItemAction(orderId: string, itemId: string) {
     Math.round(
       order.items.filter((i) => i.id !== itemId).reduce((s, i) => s + Number(i.lineTotal), 0) * 100,
     ) / 100;
-  const discountAmount = Math.min(Number(order.discountAmount), remainingGross);
-  const netAmount = Math.round((remainingGross - discountAmount) * 100) / 100;
-  const discountPercent =
-    remainingGross > 0 ? Math.round((discountAmount / remainingGross) * 10000) / 100 : 0;
 
   await prisma.$transaction([
     prisma.orderItem.delete({ where: { id: itemId } }),
     prisma.order.update({
       where: { id: orderId },
-      data: { totalAmount: remainingGross, netAmount, discountAmount, discountPercent },
+      // Removing a product CLEARS any prior negotiated discount — the rep re-sets
+      // the price after the change (net resets to the new full gross).
+      data: {
+        totalAmount: remainingGross,
+        netAmount: remainingGross,
+        discountAmount: 0,
+        discountPercent: 0,
+        discountedById: null,
+        discountReason: null,
+        discountedAt: null,
+      },
     }),
   ]);
 
@@ -820,7 +992,7 @@ export async function removeOrderItemAction(orderId: string, itemId: string) {
  * Removes the sales-rep-upsold portion of a merged line, reverting it to the
  * original order (quantity, price, and the upsell tracking fields). If the whole
  * line was an upsell, the line is deleted outright (keeping ≥1 product). Only
- * pending orders; totals recomputed, preserving any discount.
+ * pending orders; totals recomputed, and any prior discount is cleared.
  */
 export async function removeUpsellFromItemAction(orderId: string, itemId: string) {
   const session = await auth();
@@ -869,10 +1041,6 @@ export async function removeUpsellFromItemAction(orderId: string, itemId: string
     return sum + (deleteLine ? 0 : originalLineTotal);
   }, 0);
   const newGross = Math.round(remainingGross * 100) / 100;
-  const discountAmount = Math.min(Number(order.discountAmount), newGross);
-  const netAmount = Math.round((newGross - discountAmount) * 100) / 100;
-  const discountPercent =
-    newGross > 0 ? Math.round((discountAmount / newGross) * 10000) / 100 : 0;
 
   await prisma.$transaction([
     deleteLine
@@ -889,7 +1057,17 @@ export async function removeUpsellFromItemAction(orderId: string, itemId: string
         }),
     prisma.order.update({
       where: { id: orderId },
-      data: { totalAmount: newGross, netAmount, discountAmount, discountPercent },
+      // Removing the upsold portion CLEARS any prior negotiated discount — the rep
+      // re-sets the price after the change (net resets to the new full gross).
+      data: {
+        totalAmount: newGross,
+        netAmount: newGross,
+        discountAmount: 0,
+        discountPercent: 0,
+        discountedById: null,
+        discountReason: null,
+        discountedAt: null,
+      },
     }),
   ]);
 

@@ -2,9 +2,10 @@
 
 import React, { useState, useTransition, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, MessageCircle, X, Trash2, RotateCcw, Undo2, AlertTriangle } from "lucide-react";
+import { ChevronLeft, MessageCircle, X, Trash2, RotateCcw, Undo2, AlertTriangle, Pencil, Repeat } from "lucide-react";
 import { toast } from "sonner";
 import { AgentInfoDrawer } from "@/components/ui/agent-info-drawer";
+import { EditLineModal } from "@/components/orders/edit-line-modal";
 import Image from "next/image";
 import type { OrderStatus } from "@prisma/client";
 import {
@@ -20,6 +21,9 @@ import {
   adminApplyOrderDiscountAction,
   adminReassignOrderAgentAction,
   adminUpdateOrderNotesAction,
+  adminChangeOrderItemQuantityAction,
+  adminSwapOrderItemProductAction,
+  adminResolveLineRepriceAction,
 } from "@/modules/orders/actions/admin-orders.action";
 import { useUpsellPreview } from "@/lib/orders/use-upsell-preview";
 
@@ -176,11 +180,22 @@ export function AdminOrderDetailClient({
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [isAddProductOpen, setIsAddProductOpen] = useState(false);
+  const [editState, setEditState] = useState<{
+    line: { id: string; productId: string; productName: string; quantity: number };
+    mode: "quantity" | "swap";
+  } | null>(null);
   const [isAgentDrawerOpen, setIsAgentDrawerOpen] = useState(false);
   const [isReassignOpen, setIsReassignOpen] = useState(false);
   const [selectedAgentId, setSelectedAgentId] = useState("");
   const [priceInput, setPriceInput] = useState(order.netAmount);
   const [discountReason, setDiscountReason] = useState(order.discountReason ?? "");
+  // Reset the negotiated-price box to the current net whenever it changes (e.g.
+  // after an edit that clears the discount) so the admin re-sets the price.
+  const [lastNet, setLastNet] = useState(order.netAmount);
+  if (order.netAmount !== lastNet) {
+    setLastNet(order.netAmount);
+    setPriceInput(order.netAmount);
+  }
   const [prescription, setPrescription] = useState(order.notes ?? "");
   const [deliveryDate, setDeliveryDate] = useState("");
   // Actual delivery date used when marking a confirmed order delivered (defaults today).
@@ -465,6 +480,48 @@ export function AdminOrderDetailClient({
                               : item.quantity}
                           </p>
                         </div>
+                        {(order.status === "PENDING" || order.status === "CONFIRMED") && (
+                          <>
+                            <button
+                              type="button"
+                              disabled={isPending}
+                              title="Change quantity"
+                              onClick={() =>
+                                setEditState({
+                                  line: {
+                                    id: item.id,
+                                    productId: item.product.id,
+                                    productName: item.product.name,
+                                    quantity: item.quantity,
+                                  },
+                                  mode: "quantity",
+                                })
+                              }
+                              className="shrink-0 p-2 rounded-lg border border-purple-100 text-purple-600 hover:bg-purple-50 disabled:opacity-50 transition"
+                            >
+                              <Pencil className="w-5 h-5" />
+                            </button>
+                            <button
+                              type="button"
+                              disabled={isPending}
+                              title="Change product"
+                              onClick={() =>
+                                setEditState({
+                                  line: {
+                                    id: item.id,
+                                    productId: item.product.id,
+                                    productName: item.product.name,
+                                    quantity: item.quantity,
+                                  },
+                                  mode: "swap",
+                                })
+                              }
+                              className="shrink-0 p-2 rounded-lg border border-purple-100 text-purple-600 hover:bg-purple-50 disabled:opacity-50 transition"
+                            >
+                              <Repeat className="w-5 h-5" />
+                            </button>
+                          </>
+                        )}
                         {order.status === "PENDING" && order.items.length > 1 && (
                           <button
                             type="button"
@@ -1202,6 +1259,26 @@ export function AdminOrderDetailClient({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Edit line modal (change quantity / swap product) */}
+      {editState && (
+        <EditLineModal
+          key={`${editState.mode}-${editState.line.id}`}
+          orderId={order.id}
+          mode={editState.mode}
+          isOpen={true}
+          onClose={() => setEditState(null)}
+          line={editState.line}
+          products={products}
+          resolvePreview={adminResolveLineRepriceAction}
+          onSubmit={({ productId, qty, unitPrice }) =>
+            editState.mode === "quantity"
+              ? adminChangeOrderItemQuantityAction(order.id, editState.line.id, qty, unitPrice)
+              : adminSwapOrderItemProductAction(order.id, editState.line.id, productId, qty, unitPrice)
+          }
+          onDone={() => router.refresh()}
+        />
       )}
     </div>
   );

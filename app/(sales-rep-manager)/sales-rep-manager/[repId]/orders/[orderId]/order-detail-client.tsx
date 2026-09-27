@@ -1,15 +1,26 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+
+
+import React, { useMemo, useState, useTransition } from "react";
+import { ArrowLeft, CheckCircle2, XCircle, X, Pencil, Repeat, Plus, Search } from "lucide-react";
+import { toast } from "sonner";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, CheckCircle2, XCircle, X, Search } from "lucide-react";
+
 import { OrderDetail } from "@/lib/mock-data/sales-rep-manager";
 import { useBasePath, useCanManage } from "../../../_lib/base-path";
+import { EditLineModal } from "@/components/orders/edit-line-modal";
 import {
   markOrderDeliveredByManager,
   markOrderFailedByManager,
   reassignOrderAgentByManager,
+  addOrderItemsByManager,
+  resolveUpsellPriceForManager,
+  changeOrderItemQuantityByManager,
+  swapOrderItemProductByManager,
+  resolveLineRepriceForManager,
+  applyOrderDiscountByManager,
 } from "@/modules/orders/actions/sales-manager-orders.action";
 
 type AgentReassignOption = {
@@ -40,6 +51,7 @@ interface OrderDetailClientProps {
   repName: string;
   order: OrderDetail;
   agents: AgentReassignOption[];
+  products?: { id: string; name: string }[];
 }
 
 // Each step is coloured by the stage it represents: pending stays orange,
@@ -150,12 +162,37 @@ const FAIL_REASONS = [
   "Could not reach customer",
 ];
 
-export function OrderDetailClient({ repName, order, agents }: OrderDetailClientProps) {
+export function OrderDetailClient({ repName, order, agents, products = [] }: OrderDetailClientProps) {
   const router = useRouter();
   const base = useBasePath();
   const canManage = useCanManage();
   const steps = getSteps(order.status);
   const badge = getStatusBadge(order.status);
+
+  // The company sales-manager (at /sales-manager) may edit a pending/confirmed
+  // order on behalf of the rep — add products, change quantity, swap a product,
+  // or negotiate the price. The read-only team-lead view (/sales-rep-manager) and
+  // super-admin oversight (canManage=false) never see these controls.
+  const canEdit =
+    base === "/sales-manager" &&
+    canManage &&
+    (order.status === "PENDING" || order.status === "CONFIRMED");
+  const [editState, setEditState] = useState<{
+    mode: "add" | "quantity" | "swap";
+    line?: { id: string; productId: string; productName: string; quantity: number };
+  } | null>(null);
+  const [priceInput, setPriceInput] = useState(
+    order.netValue != null ? String(order.netValue) : "",
+  );
+  const [discountReason, setDiscountReason] = useState("");
+  // Reset the negotiated-price box to the current net whenever it changes (e.g.
+  // after an edit that clears the discount) so the manager re-sets the price.
+  const [lastNet, setLastNet] = useState(order.netValue);
+  if (order.netValue !== lastNet) {
+    setLastNet(order.netValue);
+    setPriceInput(order.netValue != null ? String(order.netValue) : "");
+  }
+  const [isSavingPrice, startPriceTransition] = useTransition();
 
   // The company sales-manager (only, at /sales-manager) may mark a confirmed
   // order delivered or failed — the same authority the data analyst has. A
@@ -235,6 +272,31 @@ export function OrderDetailClient({ repName, order, agents }: OrderDetailClientP
     }
   }
 
+  function handleSavePrice() {
+    const negotiated = parseFloat(priceInput);
+    if (!Number.isFinite(negotiated) || negotiated < 0) {
+      toast.error("Enter a valid price.");
+      return;
+    }
+    if (order.grossValue != null && negotiated > order.grossValue) {
+      toast.error("Negotiated price cannot exceed the original total.");
+      return;
+    }
+    startPriceTransition(async () => {
+      const res = await applyOrderDiscountByManager(
+        order.orderId,
+        negotiated,
+        discountReason || undefined,
+      );
+      if (res?.error) {
+        toast.error(res.error);
+        return;
+      }
+      toast.success("Price updated");
+      router.refresh();
+    });
+  }
+
   return (
     <div className="max-w-6xl mx-auto flex flex-col gap-6">
       {/* Back button */}
@@ -298,14 +360,56 @@ export function OrderDetailClient({ repName, order, agents }: OrderDetailClientP
               <React.Fragment key={i}>
                 {/* Original (non-upsell) portion of the line */}
                 {!it.isUpsell && (
-                  <div className="bg-purple-50 p-4 rounded-xl border border-purple-100 flex justify-between items-center">
+                  <div className="bg-purple-50 p-4 rounded-xl border border-purple-100 flex justify-between items-center gap-3">
                     <div>
                       <p className="text-[10px] uppercase tracking-wider text-purple-400 font-bold">Product(s)</p>
                       <p className="text-sm font-bold text-purple-900 mt-1">{it.product}</p>
                     </div>
-                    <div className="text-right">
-                      <p className="text-[10px] uppercase tracking-wider text-purple-400 font-bold">Quantity</p>
-                      <p className="text-sm font-bold text-purple-900 mt-1">{it.quantity}</p>
+                    <div className="flex items-center gap-3">
+                      <div className="text-right">
+                        <p className="text-[10px] uppercase tracking-wider text-purple-400 font-bold">Quantity</p>
+                        <p className="text-sm font-bold text-purple-900 mt-1">{it.quantity}</p>
+                      </div>
+                      {canEdit && it.id && it.productId && (
+                        <>
+                          <button
+                            type="button"
+                            title="Change quantity"
+                            onClick={() =>
+                              setEditState({
+                                mode: "quantity",
+                                line: {
+                                  id: it.id!,
+                                  productId: it.productId!,
+                                  productName: it.product,
+                                  quantity: it.lineQuantity ?? it.quantity,
+                                },
+                              })
+                            }
+                            className="shrink-0 p-2 rounded-lg border border-purple-200 text-purple-600 hover:bg-purple-100 transition"
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            title="Change product"
+                            onClick={() =>
+                              setEditState({
+                                mode: "swap",
+                                line: {
+                                  id: it.id!,
+                                  productId: it.productId!,
+                                  productName: it.product,
+                                  quantity: it.lineQuantity ?? it.quantity,
+                                },
+                              })
+                            }
+                            className="shrink-0 p-2 rounded-lg border border-purple-200 text-purple-600 hover:bg-purple-100 transition"
+                          >
+                            <Repeat className="w-4 h-4" />
+                          </button>
+                        </>
+                      )}
                     </div>
                   </div>
                 )}
@@ -331,6 +435,15 @@ export function OrderDetailClient({ repName, order, agents }: OrderDetailClientP
                 )}
               </React.Fragment>
             ))}
+            {canEdit && (
+              <button
+                type="button"
+                onClick={() => setEditState({ mode: "add" })}
+                className="w-full border-2 border-purple-300 text-purple-600 py-3 rounded-xl font-bold text-sm hover:bg-purple-50 transition flex items-center justify-center gap-2"
+              >
+                <Plus className="w-4 h-4" /> Add Product
+              </button>
+            )}
           </div>
 
           <div className="mt-auto">
@@ -419,6 +532,49 @@ export function OrderDetailClient({ repName, order, agents }: OrderDetailClientP
               </div>
             )}
           </div>
+
+          {/* Negotiated price editor — the price-change-at-delivery case */}
+          {canEdit && (
+            <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm flex flex-col gap-3">
+              <div className="flex justify-between items-center">
+                <span className="text-[10px] uppercase tracking-wider font-bold text-gray-400">
+                  Original Total
+                </span>
+                <span className="text-sm font-bold text-gray-700">
+                  {order.pricing?.original ?? order.totalPrice}
+                </span>
+              </div>
+              <div className="flex justify-between items-center gap-2">
+                <span className="text-sm font-bold text-gray-800">Negotiated Price</span>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-sm font-bold text-gray-400">₦</span>
+                  <input
+                    type="number"
+                    min="0"
+                    max={order.grossValue}
+                    value={priceInput}
+                    onChange={(e) => setPriceInput(e.target.value)}
+                    className="w-32 text-right text-base font-bold text-gray-900 border border-gray-200 rounded-lg px-2 py-1 outline-none focus:border-purple-400"
+                  />
+                </div>
+              </div>
+              <input
+                type="text"
+                value={discountReason}
+                onChange={(e) => setDiscountReason(e.target.value)}
+                placeholder="Reason for discount (optional)"
+                className="w-full text-xs text-gray-700 border border-gray-200 rounded-lg px-3 py-2 outline-none focus:border-purple-400 placeholder:text-gray-300"
+              />
+              <button
+                type="button"
+                disabled={isSavingPrice || priceInput === ""}
+                onClick={handleSavePrice}
+                className="w-full bg-purple-600 text-white text-sm font-bold py-2 rounded-lg hover:bg-purple-700 disabled:opacity-50 transition"
+              >
+                {isSavingPrice ? "Saving…" : "Save Price"}
+              </button>
+            </div>
+          )}
 
           {order.status !== "PENDING" && order.agent && (
             <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm flex flex-col gap-3">
@@ -705,6 +861,45 @@ export function OrderDetailClient({ repName, order, agents }: OrderDetailClientP
             </button>
           </div>
         </div>
+      )}
+
+      {/* Edit line modal (add / change quantity / swap product) */}
+      {editState && (
+        <EditLineModal
+          key={`${editState.mode}-${editState.line?.id ?? "add"}`}
+          orderId={order.orderId}
+          mode={editState.mode}
+          isOpen={true}
+          onClose={() => setEditState(null)}
+          line={editState.line}
+          products={products}
+          resolvePreview={
+            editState.mode === "add"
+              ? resolveUpsellPriceForManager
+              : resolveLineRepriceForManager
+          }
+          onSubmit={({ productId, qty, unitPrice }) => {
+            if (editState.mode === "add")
+              return addOrderItemsByManager(order.orderId, [
+                { productId, quantity: qty, unitPrice },
+              ]);
+            if (editState.mode === "quantity")
+              return changeOrderItemQuantityByManager(
+                order.orderId,
+                editState.line!.id,
+                qty,
+                unitPrice,
+              );
+            return swapOrderItemProductByManager(
+              order.orderId,
+              editState.line!.id,
+              productId,
+              qty,
+              unitPrice,
+            );
+          }}
+          onDone={() => router.refresh()}
+        />
       )}
     </div>
   );

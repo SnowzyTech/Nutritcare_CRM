@@ -71,7 +71,7 @@ function computeRepMetrics(orders: Array<{
   status: string;
   customerId: string;
   isReorder: boolean;
-  items: Array<{ productId: string; quantity: number; product: { name: string } }>;
+  items: Array<{ productId: string; quantity: number; isUpsell: boolean; upsellQuantity: number; product: { name: string } }>;
 }>) {
   const total = orders.length;
   const delivered = orders.filter(o => o.status === "DELIVERED").length;
@@ -92,11 +92,12 @@ function computeRepMetrics(orders: Array<{
   const cancellationRate = total > 0 ? Math.round((cancelled / total) * 100) : 0;
   const reorderRate = total > 0 ? Math.round((reorders / total) * 100) : 0;
 
-  const multiItemOrders = orders.filter(o => {
-    const uniqueProducts = new Set(o.items.map(i => i.productId));
-    return uniqueProducts.size > 1;
-  }).length;
-  const upsellRate = total > 0 ? Math.round((multiItemOrders / total) * 100) : 0;
+  // Upsell = orders with a RECORDED upsell (rep added units/products), read from
+  // the upsell fields — not merely orders with >1 distinct product.
+  const upsoldOrders = orders.filter(o =>
+    o.items.some(i => i.upsellQuantity > 0 || i.isUpsell)
+  ).length;
+  const upsellRate = total > 0 ? Math.round((upsoldOrders / total) * 100) : 0;
 
   // Weighted general performance + KPI, shared with the sales-rep portal.
   // No orders handled → no performance (avoid the low-cancellation baseline).
@@ -345,7 +346,7 @@ async function _getSalesRepAnalytics(salesRepId: string, period?: MonthPeriod | 
     where: { salesRepId, deletedAt: null },
     select: {
       status: true, customerId: true, createdAt: true, isReorder: true,
-      items: { select: { productId: true, quantity: true, product: { select: { name: true } } } },
+      items: { select: { productId: true, quantity: true, isUpsell: true, upsellQuantity: true, product: { select: { name: true } } } },
     },
   });
 
@@ -402,7 +403,7 @@ async function _getSalesRepOverview(period: DatePeriod) {
           customerId: true,
           createdAt: true,
           isReorder: true,
-          items: { select: { productId: true, quantity: true, product: { select: { name: true } } } },
+          items: { select: { productId: true, quantity: true, isUpsell: true, upsellQuantity: true, product: { select: { name: true } } } },
         },
       })
     : [];
@@ -637,7 +638,7 @@ export async function getSalesTeamLeads() {
 
 function computeProductTables(orders: Array<{
   status: string;
-  items: Array<{ productId: string; quantity: number; product: { name: string } }>;
+  items: Array<{ productId: string; quantity: number; isUpsell: boolean; upsellQuantity: number; product: { name: string } }>;
 }>) {
   const deliveredOrders = orders.filter(o => o.status === "DELIVERED");
   const productSales: Record<string, { name: string; qty: number }> = {};
@@ -652,12 +653,15 @@ function computeProductTables(orders: Array<{
     .slice(0, 10)
     .map(p => ({ product: p.name, amountSold: p.qty }));
 
+  // Count the units actually upsold per product (whole-upsell line's quantity, or
+  // a merged line's upsold quantity) — not "every item in a multi-item order".
   const upsellCounts: Record<string, { name: string; count: number }> = {};
   orders.forEach(o => {
-    if (o.items.length <= 1) return;
     o.items.forEach(item => {
+      const upsoldUnits = item.isUpsell ? item.quantity : item.upsellQuantity;
+      if (upsoldUnits <= 0) return;
       if (!upsellCounts[item.productId]) upsellCounts[item.productId] = { name: item.product.name, count: 0 };
-      upsellCounts[item.productId].count++;
+      upsellCounts[item.productId].count += upsoldUnits;
     });
   });
   const upsellingTable = Object.values(upsellCounts)
@@ -686,7 +690,7 @@ async function repMetricsByRep(memberIds: string[]) {
     where: { salesRepId: { in: memberIds }, deletedAt: null },
     select: {
       salesRepId: true, status: true, customerId: true, isReorder: true,
-      items: { select: { productId: true, quantity: true, product: { select: { name: true } } } },
+      items: { select: { productId: true, quantity: true, isUpsell: true, upsellQuantity: true, product: { select: { name: true } } } },
     },
   });
 
@@ -781,7 +785,7 @@ type ReportOrder = {
   status: string;
   customerId: string;
   isReorder: boolean;
-  items: Array<{ productId: string; quantity: number; product: { name: string } }>;
+  items: Array<{ productId: string; quantity: number; isUpsell: boolean; upsellQuantity: number; product: { name: string } }>;
 };
 
 /** Builds a MonthMetrics-shaped object (for PDF reports) from a set of orders. */
@@ -847,7 +851,7 @@ async function _getTeamAnalytics(teamId: string, period?: MonthPeriod | DatePeri
     where: { salesRepId: { in: memberIds }, deletedAt: null },
     select: {
       status: true, customerId: true, createdAt: true, isReorder: true,
-      items: { select: { productId: true, quantity: true, product: { select: { name: true } } } },
+      items: { select: { productId: true, quantity: true, isUpsell: true, upsellQuantity: true, product: { select: { name: true } } } },
     },
   });
 
@@ -925,7 +929,7 @@ async function _getCompanyAnalytics(period?: MonthPeriod | DatePeriod) {
     where: { salesRepId: { in: memberIds }, deletedAt: null },
     select: {
       status: true, customerId: true, createdAt: true, isReorder: true,
-      items: { select: { productId: true, quantity: true, product: { select: { name: true } } } },
+      items: { select: { productId: true, quantity: true, isUpsell: true, upsellQuantity: true, product: { select: { name: true } } } },
     },
   });
 
@@ -975,7 +979,7 @@ export async function getTeamWeeklyReport(teamId: string): Promise<MonthMetrics>
     where: { salesRepId: { in: memberIds }, deletedAt: null, createdAt: { gte: weekStart } },
     select: {
       status: true, customerId: true, createdAt: true, isReorder: true,
-      items: { select: { productId: true, quantity: true, product: { select: { name: true } } } },
+      items: { select: { productId: true, quantity: true, isUpsell: true, upsellQuantity: true, product: { select: { name: true } } } },
     },
   });
 

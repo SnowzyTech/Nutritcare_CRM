@@ -3,11 +3,12 @@
 import React, { useRef, useState, useTransition } from "react";
 import { useUpsellPreview } from "@/lib/orders/use-upsell-preview";
 import { useRouter } from "next/navigation";
-import { X, Trash2, RotateCcw, Phone, CalendarClock } from "lucide-react";
+import { X, Trash2, RotateCcw, Phone, CalendarClock, Pencil, Repeat } from "lucide-react";
 import Image from "next/image";
 import { toast } from "sonner";
 import type { OrderStatus } from "@prisma/client";
 import { AgentInfoDrawer } from "@/components/ui/agent-info-drawer";
+import { EditLineModal } from "@/components/orders/edit-line-modal";
 import {
   confirmOrderAction,
   cancelOrderAction,
@@ -20,6 +21,9 @@ import {
   applyOrderDiscountAction,
   setOrderContactMethodAction,
   reviveOrderAction,
+  changeOrderItemQuantityAction,
+  swapOrderItemProductAction,
+  resolveLineRepriceAction,
   recordOrderFeedbackAction,
 } from "@/modules/orders/actions/orders.action";
 import {
@@ -282,6 +286,10 @@ export function OrderDetailClient({ order, products }: OrderDetailClientProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [isAddProductOpen, setIsAddProductOpen] = useState(false);
+  const [editState, setEditState] = useState<{
+    line: { id: string; productId: string; productName: string; quantity: number };
+    mode: "quantity" | "swap";
+  } | null>(null);
   const [isAgentDrawerOpen, setIsAgentDrawerOpen] = useState(false);
   const [isCancelOpen, setIsCancelOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState(""); // a preset reason, or ""
@@ -298,6 +306,13 @@ export function OrderDetailClient({ order, products }: OrderDetailClientProps) {
   // current net so re-opening the editor shows the price already agreed.
   const [priceInput, setPriceInput] = useState(order.netAmount);
   const [discountReason, setDiscountReason] = useState(order.discountReason ?? "");
+  // When the order's net changes (e.g. after an edit that clears the discount),
+  // reset the negotiated-price box to the new total so the rep re-sets the price.
+  const [lastNet, setLastNet] = useState(order.netAmount);
+  if (order.netAmount !== lastNet) {
+    setLastNet(order.netAmount);
+    setPriceInput(order.netAmount);
+  }
   // Monotonic id source for product rows — avoids calling Date.now() during render.
   const rowIdRef = useRef(1);
   const [productRows, setProductRows] = useState(() => [
@@ -456,18 +471,9 @@ export function OrderDetailClient({ order, products }: OrderDetailClientProps) {
       });
       const res = await addOrderItemsAction(order.id, items);
       if (res?.error) return res; // surface error, skip the UI updates below
-      // Bump the negotiated-price input by the true gross increase (new merged
-      // line total − the product's existing line total) so any discount stays
-      // intact. Uses the live preview totals the rep already saw.
-      const added = activeRows.reduce((sum, r) => {
-        const pv = previews[r.id];
-        if (!pv) return sum;
-        const oldProductTotal = order.items
-          .filter((i) => i.product.id === r.productId)
-          .reduce((s, i) => s + Number(i.lineTotal), 0);
-        return sum + Math.max(0, pv.lineTotal - oldProductTotal);
-      }, 0);
-      setPriceInput(String(Number(priceInput) + added));
+      // Adding a product clears any prior discount server-side; the negotiated-
+      // price box auto-resets to the new full total (see the net-change reset
+      // above), so the rep re-sets the price.
       setIsAddProductOpen(false);
     }, "Products added to order");
   }
@@ -622,6 +628,48 @@ export function OrderDetailClient({ order, products }: OrderDetailClientProps) {
                       </p>
                     </div>
                     <div className="text-left sm:text-right flex items-center gap-2 sm:justify-end">
+                      {(order.status === "PENDING" || order.status === "CONFIRMED") && (
+                        <>
+                          <button
+                            type="button"
+                            disabled={isPending}
+                            title="Change quantity"
+                            onClick={() =>
+                              setEditState({
+                                line: {
+                                  id: item.id,
+                                  productId: item.product.id,
+                                  productName: item.product.name,
+                                  quantity: item.quantity,
+                                },
+                                mode: "quantity",
+                              })
+                            }
+                            className="shrink-0 p-2 rounded-lg border border-purple-100 text-purple-600 hover:bg-purple-50 disabled:opacity-50 transition"
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            disabled={isPending}
+                            title="Change product"
+                            onClick={() =>
+                              setEditState({
+                                line: {
+                                  id: item.id,
+                                  productId: item.product.id,
+                                  productName: item.product.name,
+                                  quantity: item.quantity,
+                                },
+                                mode: "swap",
+                              })
+                            }
+                            className="shrink-0 p-2 rounded-lg border border-purple-100 text-purple-600 hover:bg-purple-50 disabled:opacity-50 transition"
+                          >
+                            <Repeat className="w-4 h-4" />
+                          </button>
+                        </>
+                      )}
                       {order.status === "PENDING" && order.items.length > 1 && (
                         <button
                           type="button"
@@ -1521,6 +1569,26 @@ export function OrderDetailClient({ order, products }: OrderDetailClientProps) {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Edit line modal (change quantity / swap product) */}
+      {editState && (
+        <EditLineModal
+          key={`${editState.mode}-${editState.line.id}`}
+          orderId={order.id}
+          mode={editState.mode}
+          isOpen={true}
+          onClose={() => setEditState(null)}
+          line={editState.line}
+          products={products}
+          resolvePreview={resolveLineRepriceAction}
+          onSubmit={({ productId, qty, unitPrice }) =>
+            editState.mode === "quantity"
+              ? changeOrderItemQuantityAction(order.id, editState.line.id, qty, unitPrice)
+              : swapOrderItemProductAction(order.id, editState.line.id, productId, qty, unitPrice)
+          }
+          onDone={() => router.refresh()}
+        />
       )}
     </div>
   );
