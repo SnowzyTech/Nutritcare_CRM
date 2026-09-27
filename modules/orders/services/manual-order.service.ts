@@ -4,6 +4,7 @@ import { resolveUpsellPrice } from "@/modules/orders/services/tier-pricing.servi
 import { logActivity } from "@/modules/audit/services/audit-log.service";
 import { formatCurrency } from "@/lib/utils";
 import { z } from "zod";
+import { toInternationalPhone } from "@/lib/phone";
 
 /**
  * Shared write path for MANUAL order creation (i.e. not a public form submission).
@@ -124,6 +125,8 @@ export async function createManualOrder(
   }
 
   const cleanPhone = phone.replace(/\s+/g, "");
+  // Normalised phone — how reports recognise a returning customer (docs/sales-reporting.md).
+  const phoneKey = toInternationalPhone(cleanPhone) || null;
 
   let customer = await prisma.customer.findFirst({ where: { phone: cleanPhone } });
   if (customer) {
@@ -131,6 +134,7 @@ export async function createManualOrder(
       where: { id: customer.id },
       data: {
         name: customerName,
+        phoneKey,
         whatsappNumber: whatsappNumber || null,
         email: email || null,
         deliveryAddress,
@@ -143,6 +147,7 @@ export async function createManualOrder(
       data: {
         name: customerName,
         phone: cleanPhone,
+        phoneKey,
         whatsappNumber: whatsappNumber || null,
         email: email || null,
         deliveryAddress,

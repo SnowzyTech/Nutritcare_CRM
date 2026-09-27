@@ -47,6 +47,11 @@ model User {
   orderFeedbacks          OrderFeedback[]         @relation("OrderFeedbackAuthor")
   orders                  Order[]                 @relation("SalesRepOrders")
   autoAssignedOrders      Order[]                 @relation("AutoAssignedOrders")
+  salesTargetsSet         SalesTarget[]           @relation("SalesTargetSetBy")
+  salesReportsAuthored    SalesReport[]           @relation("SalesReportAuthor")
+  salesActionItems        SalesActionItem[]       @relation("SalesActionItemCreatedBy")
+  customerFeedbacks       CustomerFeedback[]      @relation("CustomerFeedbackAuthor")
+  followUpsCompleted      CustomerFollowUp[]      @relation("FollowUpCompletedBy")
   discountedOrders        Order[]                 @relation("DiscountedOrders")
   pickPackAssignments     PickPack[]              @relation("PickerAssignments")
   purchaseOrders          PurchaseOrder[]         @relation("PurchaseOrderCreatedBy")
@@ -74,6 +79,7 @@ model Team {
   createdAt  DateTime   @default(now())
   updatedAt  DateTime   @updatedAt
   members    User[]
+  salesTargets SalesTarget[]
 
   @@index([department])
   @@map("teams")
@@ -101,6 +107,10 @@ model Customer {
   lga             String
   landmark        String?
   source          String?
+  // Normalised phone (digits, 234… — lib/phone.ts toInternationalPhone). Every
+  // form order creates a fresh Customer, so this is how a returning customer /
+  // reorder is recognised (docs/sales-reporting.md).
+  phoneKey        String?
   deletedAt       DateTime?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
@@ -109,6 +119,7 @@ model Customer {
 
   @@index([email])
   @@index([state])
+  @@index([phoneKey])
   @@map("customers")
 }
 
@@ -166,6 +177,7 @@ model Product {
   stockLevels           StockLevel[]
   stockMovementItems    StockMovementItem[]
   stockTransferItems    StockTransferItem[]
+  customerFeedbacks CustomerFeedback[]
 
   @@index([categoryId])
   @@index([sku])
@@ -440,6 +452,8 @@ model Order {
   discountedBy    User?       @relation("DiscountedOrders", fields: [discountedById], references: [id])
   form            Form?       @relation("FormOrders", fields: [formId], references: [id])
   autoAssignedTo  User?       @relation("AutoAssignedOrders", fields: [autoAssignedToId], references: [id], onDelete: SetNull)
+  customerFeedbacks CustomerFeedback[]
+  followUps       CustomerFollowUp[]
   pickPacks       PickPack[]
   messageRefs     MessageOrderRef[]
 
@@ -454,6 +468,7 @@ model Order {
   @@index([formId])
   @@index([salesRepId, lastFeedback])
   @@index([autoAssignedToId, createdAt])
+  @@index([date])
   @@map("orders")
 }
 
@@ -751,6 +766,7 @@ model Delivery {
   @@index([agentId])
   @@index([truckDriverId])
   @@index([status])
+  @@index([deliveredTime])
   @@map("deliveries")
 }
 
@@ -1673,4 +1689,103 @@ enum AdjustmentType {
   PAYMENT
   OVERPAYMENT
   CORRECTION
+}
+
+// ── Sales reporting (docs/sales-reporting.md, docs/CRM_Sales_Reporting_Template_.pdf) ──
+
+/// A team's target for one metric in one period. The company target is the sum
+/// of team targets. Periods are Lagos calendar periods keyed by their first day.
+model SalesTarget {
+  id          String   @id @default(cuid())
+  periodType  String // DAY | WEEK | MONTH | QUARTER
+  periodStart String // YYYY-MM-DD (Lagos) — first day of the period
+  teamId      String
+  metric      String // REVENUE | HANDLED | CONFIRMED | DELIVERED | REORDERS | UPSELLS | CROSS_SELLS
+  value       Decimal  @db.Decimal(14, 2)
+  setById     String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  team        Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  setBy       User     @relation("SalesTargetSetBy", fields: [setById], references: [id])
+
+  @@unique([periodType, periodStart, teamId, metric])
+  @@index([periodType, periodStart])
+  @@map("sales_targets")
+}
+
+/// The sales manager's report for one period: written sections (draft), and on
+/// submission a snapshot of every figure as it stood — never silently updated.
+model SalesReport {
+  id            String    @id @default(cuid())
+  periodType    String // DAY | WEEK | MONTH | QUARTER
+  periodStart   String // YYYY-MM-DD (Lagos)
+  status        String    @default("DRAFT") // DRAFT | SUBMITTED
+  narrative     Json      @default("{}")
+  figures       Json?
+  authorId      String
+  submittedAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  author        User      @relation("SalesReportAuthor", fields: [authorId], references: [id])
+
+  @@unique([periodType, periodStart])
+  @@map("sales_reports")
+}
+
+/// "Challenges / Management Action" rows — tracked until closed, across reports.
+model SalesActionItem {
+  id             String    @id @default(cuid())
+  issue          String
+  teamOrLocation String?
+  impact         String?
+  actionRequired String?
+  owner          String?
+  status         String    @default("OPEN") // OPEN | IN_PROGRESS | DONE
+  createdById    String
+  closedAt       DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  createdBy      User      @relation("SalesActionItemCreatedBy", fields: [createdById], references: [id])
+
+  @@index([status])
+  @@index([createdAt])
+  @@map("sales_action_items")
+}
+
+/// Customer / product feedback a rep records on an order (lib/orders/customer-feedback.ts).
+model CustomerFeedback {
+  id        String   @id @default(cuid())
+  orderId   String
+  productId String?
+  authorId  String
+  category  String // POSITIVE | NEGATIVE | PRODUCT_COMPLAINT | DELIVERY_COMPLAINT | OTHER
+  message   String
+  status    String   @default("OPEN") // OPEN | ACTIONED | RESOLVED
+  action    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product   Product? @relation(fields: [productId], references: [id])
+  author    User     @relation("CustomerFeedbackAuthor", fields: [authorId], references: [id])
+
+  @@index([orderId])
+  @@index([createdAt])
+  @@index([category])
+  @@map("customer_feedback")
+}
+
+/// A completed post-delivery follow-up (Customer Journey: Day 1 / 2 / 4 / 7).
+model CustomerFollowUp {
+  id            String   @id @default(cuid())
+  orderId       String
+  stage         String // DAY1 | DAY2 | DAY4 | DAY7
+  completedById String
+  completedAt   DateTime @default(now())
+  note          String?
+  order         Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  completedBy   User     @relation("FollowUpCompletedBy", fields: [completedById], references: [id])
+
+  @@unique([orderId, stage])
+  @@index([completedAt])
+  @@map("customer_follow_ups")
 }

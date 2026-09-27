@@ -8,6 +8,7 @@ import { signOutAndUnsubscribe } from "@/lib/auth/client-sign-out";
 import {
   BarChart3,
   Bell,
+  CalendarCheck,
   Clock,
   Settings,
   LogOut,
@@ -196,6 +197,13 @@ export function SalesRepSidebarClient({ user }: SidebarProps) {
             icon={ShoppingBag}
             label="Order"
             isActive={pathname.startsWith('/sales-rep/orders')}
+            isCollapsed={isCollapsed}
+          />
+          <SalesRepNavLink
+            href="/sales-rep/follow-ups"
+            icon={CalendarCheck}
+            label="Follow-ups"
+            isActive={pathname === '/sales-rep/follow-ups'}
             isCollapsed={isCollapsed}
           />
           <SalesRepNavLink

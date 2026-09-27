@@ -70,6 +70,7 @@ Nutricare sells nutrition/wellness products (Prosxact, Shred Belly, Trim & Tone,
 
 - **Order lifecycle:** Order in → Confirm stock → Pick & Pack → Dispatch → Delivered. Actual `OrderStatus`: `PENDING | CONFIRMED | DELIVERED | CANCELLED | FAILED` (there is no CREATED/ASSIGNED/COMPLETED — `docs/architecture.md` is stale on this).
 - **Rep distribution:** public form orders go to reps by a strict even rotation — the eligible rep (active + APPROVED `SALES_REP`) who has gone longest without an auto-assigned order gets the next one, so daily shares differ by at most one (`modules/orders/services/rep-assignment.service.ts`, picked under an advisory lock inside the create transaction). `Order.autoAssignedToId` records who the system gave the order to and is **never changed by reassignment**; don't use `salesRepId` for distribution fairness. Manual/analyst-keyed orders aren't distributed.
+- **Sales reports** follow `docs/CRM_Sales_Reporting_Template_.pdf` exactly (`docs/sales-reporting.md`). Figures are cohort-based (orders received in the Lagos period), every figure is one SQL predicate shared by its count and its drill-down list (`modules/reports/sales/metrics.ts` / `views.ts`), and submitted reports freeze their figures. Returning customers / reorders match on `Customer.phoneKey` — set it on every customer create.
 - **Order numbers:** per-product-prefix sequences via `OrderCounter` (e.g. `NEURO-001`), *not* `ORD-1001` (docs that say `ORD-XXXX` are stale).
 - **Branding is inconsistent in the codebase** — *Nutricare*, *Nuycle*, and *Nucle* all appear (logos `nucle-logo.png` / `nuycle-logo.png`), and accounting treats **Nucle** and **Nutriticare** as two separate payroll companies (`SalaryRecord.company`). The installed PWA / app name is **"Nucle CRM"** (owner's current name). Don't blindly find-replace one name for another.
 - Deeper domain reference (per-screen fields, the 21 business rules): `docs/business-context.md`.
@@ -109,7 +110,7 @@ Each domain lives under `modules/{feature}/` with `actions/*.action.ts` and `ser
 | `audit` | audit-log, audit-query, whatsapp-audit services; audit-export action |
 | `chat` | chat.action; conversations, messages, tags services |
 | `notifications` | notifications.action (list/count/mark-read/push subscribe/test); services: notify (single entry point), dispatch (realtime/push/SMS), recipients, order-events (rep + agent order lifecycle), push-subscriptions, notifications (reads) |
-| `reports` | executive narrative report `definitions.ts`, `types.ts`, `period.service.ts` |
+| `reports` | **sales**: `reports/sales/*` — the CRM Sales Reporting Template (daily/weekly/monthly/quarterly, targets, data checks, saved reports; see `docs/sales-reporting.md`). **Logistics**: executive narrative `definitions.ts`, `types.ts`, `period.service.ts` |
 
 ### Auth (Two-File Pattern)
 
@@ -258,6 +259,7 @@ The company expects high order volume. Already scale-ready: Neon pooled Postgres
 - `upsell-display-rollout.md` — where upsell cards/badges show per role.
 - `agent-stock-commitment.md` — how orders lay claim to agent stock, the tiered agent selection, and the delivery-time zero floor.
 - `scale-considerations.md` — what to make query-based before high volume.
+- `sales-reporting.md` — sales reports built on `CRM_Sales_Reporting_Template_.pdf`: metric definitions (cohort-based), Lagos periods, targets, snapshots, data checks, traceability.
 - `notifications.md` — the notification pipeline, event catalog, channels (in-app / realtime / push / SMS) and how to add an event.
 
 *(The early one-off build prompts `schema-prompt.md`, `schema-updates.md`, `batch-2-auth-fixes.md`, and `inventory-forms-updates.md` were deleted — fully superseded by the code.)*

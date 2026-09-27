@@ -23,7 +23,7 @@ export type RecordOrderFeedbackInput = {
  * The mirror write is raw SQL on purpose: a Prisma `order.update` would bump
  * `Order.updatedAt` (`@updatedAt`), which the app treats as the STATUS-change
  * time (list "Status Date", cancelled/failed dates, delivered-in-range reports
- * in sales-report.service / agents.service). Feedback is not a status change.
+ * in modules/reports/sales / agents.service). Feedback is not a status change.
  */
 export async function recordOrderFeedback(
   input: RecordOrderFeedbackInput,

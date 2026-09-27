@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db/prisma";
 import { nextOrderNumber } from "@/modules/orders/services/order-number.service";
 import { notifyRepNewOrder } from "@/modules/notifications/services/order-events.service";
 import { pickRepForNewOrder } from "@/modules/orders/services/rep-assignment.service";
+import { toInternationalPhone } from "@/lib/phone";
 
 /** Thrown inside the create transaction when no rep can take the order. */
 class NoRepAvailableError extends Error {}
@@ -131,6 +132,8 @@ export async function POST(req: NextRequest) {
       data: {
         name: customerName.trim(),
         phone: cleanPhone,
+        // Normalised phone — how reports recognise a returning customer (docs/sales-reporting.md).
+        phoneKey: toInternationalPhone(cleanPhone) || null,
         whatsappNumber: cleanWhatsapp || null,
         email: customerEmail?.trim() || null,
         deliveryAddress: deliveryAddress?.trim() || "",
