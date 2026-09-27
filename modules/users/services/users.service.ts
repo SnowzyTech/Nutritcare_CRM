@@ -639,7 +639,7 @@ export async function getSalesTeamLeads() {
 
 function computeProductTables(orders: Array<{
   status: string;
-  items: Array<{ productId: string; quantity: number; product: { name: string } }>;
+  items: Array<{ productId: string; quantity: number; isUpsell: boolean; upsellQuantity: number; product: { name: string } }>;
 }>) {
   const deliveredOrders = orders.filter(o => o.status === "DELIVERED");
   const productSales: Record<string, { name: string; qty: number }> = {};
@@ -654,12 +654,15 @@ function computeProductTables(orders: Array<{
     .slice(0, 10)
     .map(p => ({ product: p.name, amountSold: p.qty }));
 
+  // Count the units actually upsold per product (whole-upsell line's quantity, or
+  // a merged line's upsold quantity) — not "every item in a multi-item order".
   const upsellCounts: Record<string, { name: string; count: number }> = {};
   orders.forEach(o => {
-    if (o.items.length <= 1) return;
     o.items.forEach(item => {
+      const upsoldUnits = item.isUpsell ? item.quantity : item.upsellQuantity;
+      if (upsoldUnits <= 0) return;
       if (!upsellCounts[item.productId]) upsellCounts[item.productId] = { name: item.product.name, count: 0 };
-      upsellCounts[item.productId].count++;
+      upsellCounts[item.productId].count += upsoldUnits;
     });
   });
   const upsellingTable = Object.values(upsellCounts)

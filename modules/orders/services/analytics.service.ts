@@ -116,12 +116,17 @@ function computeMetrics(orders: OrderRow[]): MonthMetrics {
 
   const bestSellingProduct = topProducts[0]?.name ?? "N/A";
 
-  // Upsold products: products that appear in multi-item orders
+  // Upsold products: ranked by the units actually upsold — a whole-upsell line's
+  // full quantity, or a merged line's upsold quantity (not "any item in a
+  // multi-item order", which miscounts).
   const upsoldQty = new Map<string, number>();
-  for (const order of multiItemOrders) {
+  for (const order of orders) {
     for (const item of order.items) {
-      const name = item.product.name;
-      upsoldQty.set(name, (upsoldQty.get(name) ?? 0) + 1);
+      const upsoldUnits = item.isUpsell ? item.quantity : item.upsellQuantity;
+      if (upsoldUnits > 0) {
+        const name = item.product.name;
+        upsoldQty.set(name, (upsoldQty.get(name) ?? 0) + upsoldUnits);
+      }
     }
   }
   const upsoldProducts: ProductStat[] = [...upsoldQty.entries()]

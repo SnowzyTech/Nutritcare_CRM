@@ -311,10 +311,16 @@ function computeMetrics(orders: OrderForMetrics[]) {
   const reorders = orders.filter((o) => o.isReorder).length;
   const reorderRate = total > 0 ? Math.round((reorders / total) * 100) : 0;
 
+  // Upsold products: ranked by the units actually upsold — a whole-upsell line's
+  // full quantity, or a merged line's upsold quantity (not "any item in a
+  // multi-item order", which miscounts).
   const upsoldQty = new Map<string, number>();
-  for (const o of multiItemOrders) {
+  for (const o of orders) {
     for (const item of o.items) {
-      upsoldQty.set(item.product.name, (upsoldQty.get(item.product.name) ?? 0) + 1);
+      const upsoldUnits = item.isUpsell ? item.quantity : item.upsellQuantity;
+      if (upsoldUnits > 0) {
+        upsoldQty.set(item.product.name, (upsoldQty.get(item.product.name) ?? 0) + upsoldUnits);
+      }
     }
   }
   const upsoldProducts = [...upsoldQty.entries()]
