@@ -62,12 +62,16 @@ export default async function OrderPage({
   const feedbackRaw = get("feedback") ?? "";
   const feedback =
     feedbackRaw === NO_FEEDBACK_FILTER || isOrderFeedbackOutcome(feedbackRaw) ? feedbackRaw : undefined;
+  const duplicatesOnly = get("duplicates") === "1";
   const pageNum = Math.max(1, parseInt(get("page") ?? "1", 10) || 1);
 
   const filters: OrderListFilters = {
-    status: statusLabels
-      .map((l) => STATUS_LABEL_TO_ENUM[l])
-      .filter((s): s is OrderStatus => Boolean(s)),
+    // The Duplicates view is its own dimension — ignore any status selection while it's on.
+    status: duplicatesOnly
+      ? []
+      : statusLabels
+          .map((l) => STATUS_LABEL_TO_ENUM[l])
+          .filter((s): s is OrderStatus => Boolean(s)),
     search,
     productNames: products,
     states,
@@ -77,6 +81,7 @@ export default async function OrderPage({
     from: parseDay(fromStr, false),
     to: parseDay(toStr, true),
     feedback,
+    duplicatesOnly,
   };
 
   const [session, orderPage, deliveryAgents, salesReps, salesTeams, productNames, catalog, productForms] =
@@ -99,6 +104,7 @@ export default async function OrderPage({
       initialOrders={orderPage.rows}
       total={orderPage.total}
       statusCounts={orderPage.statusCounts}
+      duplicateCount={orderPage.duplicateCount}
       page={pageNum}
       initialFilters={{
         statuses: statusLabels,
@@ -111,6 +117,7 @@ export default async function OrderPage({
         from: fromStr,
         to: toStr,
         feedback: feedbackRaw || undefined,
+        duplicatesOnly,
       }}
       deliveryAgents={deliveryAgents}
       salesReps={salesReps}

@@ -180,6 +180,44 @@ export function notifyRepDeliveryOutcome(
   });
 }
 
+/**
+ * An order was auto-flagged as an exact duplicate of an earlier still-open order
+ * and disabled. Tell the owning rep so they know why it can't be confirmed (the
+ * data team sees it via the duplicate badge in their order list).
+ */
+export function notifyOrderDuplicateFlagged(
+  orderId: string,
+  originalId: string,
+  actor?: Actor,
+): void {
+  safely("notifyOrderDuplicateFlagged", async () => {
+    const [order, original] = await Promise.all([
+      prisma.order.findUnique({
+        where: { id: orderId },
+        select: { id: true, orderNumber: true, salesRepId: true },
+      }),
+      prisma.order.findUnique({
+        where: { id: originalId },
+        select: { orderNumber: true },
+      }),
+    ]);
+    if (!order) return;
+    await notify({
+      type: "order.duplicate_flagged",
+      vars: {
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        duplicateOfNumber: original?.orderNumber ?? "another order",
+      },
+      to: { userIds: [order.salesRepId] },
+      actorId: actor?.id,
+      entityType: "Order",
+      entityId: order.id,
+      dedupeKey: `order.duplicate_flagged:${order.id}`,
+    });
+  });
+}
+
 // ── Delivery agent ─────────────────────────────────────────────────────────
 
 /** An order is now this agent's to deliver (confirm, revive, or reassigned to them). */

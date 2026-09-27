@@ -30,6 +30,7 @@ import type { ProductForms } from '@/modules/orders/services/form-packages.servi
 import { toast } from 'sonner';
 import { ORDER_FEEDBACK_OPTIONS, NO_FEEDBACK_FILTER } from '@/lib/orders/order-feedback';
 import { FeedbackPill } from '@/components/orders/feedback-pill';
+import { DuplicateBadge } from '@/components/orders/duplicate-badge';
 
 const STATUS_STYLES: Record<string, { dot: string; bg: string; text: string; label: string }> = {
   Pending: { dot: 'bg-yellow-400', bg: 'bg-[#FFF3CD]', text: 'text-[#856404]', label: 'Pending' },
@@ -91,6 +92,8 @@ interface OrdersClientProps {
   total?: number;
   /** Per-status counts (every filter except status), for the tab badges. */
   statusCounts?: Record<string, number>;
+  /** Count of orders involved in a duplicate, for the Duplicates tab badge. */
+  duplicateCount?: number;
   /** Current 1-based page. */
   page?: number;
   /** Filter selections parsed from the URL on the server (seed the controls). */
@@ -99,6 +102,7 @@ interface OrdersClientProps {
     teams: string[]; agents: string[]; csAgents: string[];
     from: string | null; to: string | null;
     feedback?: string;
+    duplicatesOnly?: boolean;
   };
   deliveryAgents?: AgentItem[];
   salesReps?: AgentItem[];
@@ -112,12 +116,14 @@ interface OrdersClientProps {
   userName?: string | null;
 }
 
-export function OrdersClient({ initialOrders = [], total = 0, statusCounts = {}, page: pageProp = 1, initialFilters, deliveryAgents = [], salesReps = [], teams = [], products = [], catalogProducts = [], productForms = [], userName = null }: OrdersClientProps) {
+export function OrdersClient({ initialOrders = [], total = 0, statusCounts = {}, duplicateCount = 0, page: pageProp = 1, initialFilters, deliveryAgents = [], salesReps = [], teams = [], products = [], catalogProducts = [], productForms = [], userName = null }: OrdersClientProps) {
   const firstName = userName?.trim().split(/\s+/)[0] ?? "";
   const router = useRouter();
   // Multi-select status filter — drives BOTH the tabs and the Status dropdown.
   // [] means "All" (no status restriction).
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>(initialFilters?.statuses ?? []);
+  // Duplicates view — its own tab, mutually exclusive with the status tabs.
+  const [duplicatesOnly, setDuplicatesOnly] = useState<boolean>(initialFilters?.duplicatesOnly ?? false);
   const [pendingStatuses, setPendingStatuses] = useState<string[]>([]);
   const [isStatusOpen, setIsStatusOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState(initialFilters?.search ?? '');
@@ -253,7 +259,7 @@ export function OrdersClient({ initialOrders = [], total = 0, statusCounts = {},
   const filterKey = JSON.stringify([
     selectedStatuses, searchQuery, selectedProducts, selectedStates,
     selectedTeams, selectedDelAgents, selectedCSAgents, feedbackFilter,
-    startDate?.getTime() ?? null, endDate?.getTime() ?? null,
+    startDate?.getTime() ?? null, endDate?.getTime() ?? null, duplicatesOnly,
   ]);
   const [prevFilterKey, setPrevFilterKey] = useState(filterKey);
   if (filterKey !== prevFilterKey) {
@@ -276,7 +282,8 @@ export function OrdersClient({ initialOrders = [], total = 0, statusCounts = {},
   // matching page — so filtering + pagination happen in the database, not here.
   const query = (() => {
     const p = new URLSearchParams();
-    if (selectedStatuses.length) p.set('status', selectedStatuses.join(','));
+    if (duplicatesOnly) p.set('duplicates', '1');
+    else if (selectedStatuses.length) p.set('status', selectedStatuses.join(','));
     if (searchQuery.trim()) p.set('q', searchQuery.trim());
     if (selectedProducts.length) p.set('product', selectedProducts.join(','));
     if (selectedStates.length) p.set('state', selectedStates.join(','));
@@ -349,15 +356,18 @@ export function OrdersClient({ initialOrders = [], total = 0, statusCounts = {},
       <div className="flex items-center justify-between mb-6 bg-white rounded-xl shadow-sm p-1.5 overflow-x-auto no-scrollbar gap-2 w-full">
         {TABS.map((tab) => {
           // Tabs stay in sync with the multi-select: "All" is active when nothing is
-          // selected; a status tab is active only when it's the sole selection.
-          const isActive = tab === 'All'
-            ? selectedStatuses.length === 0
-            : (selectedStatuses.length === 1 && selectedStatuses[0] === tab);
+          // selected; a status tab is active only when it's the sole selection. No
+          // status tab is active while the Duplicates view is on.
+          const isActive = duplicatesOnly
+            ? false
+            : tab === 'All'
+              ? selectedStatuses.length === 0
+              : (selectedStatuses.length === 1 && selectedStatuses[0] === tab);
           const count = (counts as any)[tab];
           return (
             <button
               key={tab}
-              onClick={() => setSelectedStatuses(tab === 'All' ? [] : [tab])}
+              onClick={() => { setDuplicatesOnly(false); setSelectedStatuses(tab === 'All' ? [] : [tab]); }}
               className={`relative px-6 py-2.5 rounded-lg transition-all duration-200 flex items-center justify-center gap-1.5 whitespace-nowrap flex-1 hover:cursor-pointer ${
                 isActive ? 'bg-[#F9F5FF] text-[#6941C6]' : 'text-gray-500 hover:bg-gray-50'
               }`}
@@ -374,6 +384,18 @@ export function OrdersClient({ initialOrders = [], total = 0, statusCounts = {},
             </button>
           );
         })}
+        {/* Duplicates view — flagged orders (disabled copy + kept original). */}
+        <button
+          onClick={() => { setDuplicatesOnly(true); setSelectedStatuses([]); }}
+          className={`relative px-6 py-2.5 rounded-lg transition-all duration-200 flex items-center justify-center gap-1.5 whitespace-nowrap flex-1 hover:cursor-pointer ${
+            duplicatesOnly ? 'bg-[#FDECEC] text-[#B42318]' : 'text-gray-500 hover:bg-gray-50'
+          }`}
+        >
+          <span className={`text-sm font-medium ${duplicatesOnly ? 'text-[#B42318] font-bold' : 'text-gray-500'}`}>
+            Duplicates
+            {!duplicatesOnly && duplicateCount > 0 ? `(${duplicateCount})` : ''}
+          </span>
+        </button>
       </div>
 
       {/* Filter Bar */}
@@ -1068,6 +1090,7 @@ export function OrdersClient({ initialOrders = [], total = 0, statusCounts = {},
                           <RotateCcw size={10} /> Reorder
                         </span>
                       )}
+                      <DuplicateBadge duplicateDisabled={order.duplicateDisabled} hasDuplicates={order.hasDuplicates} />
                     </div>
                   </td>
                   <td className="px-6 py-4">

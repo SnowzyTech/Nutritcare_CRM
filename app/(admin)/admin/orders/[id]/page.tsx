@@ -97,6 +97,9 @@ export default async function AdminOrderDetailPage({ params }: Props) {
       deliveredTime: d.deliveredTime?.toISOString() ?? null,
       status: d.status,
     })),
+    duplicateDisabled: rawOrder.duplicateDisabledAt !== null,
+    hasDuplicates: rawOrder.hasDuplicates,
+    duplicateOfNumber: rawOrder.duplicateOf?.orderNumber ?? null,
   };
 
   const products = rawProducts.map((p) => ({

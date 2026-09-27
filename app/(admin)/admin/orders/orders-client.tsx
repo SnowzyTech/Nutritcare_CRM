@@ -19,6 +19,7 @@ import type { OrderStatus } from "@prisma/client";
 import { upsellExtraCount } from "@/lib/orders/upsell";
 import { ORDER_FEEDBACK_OPTIONS, NO_FEEDBACK_FILTER } from "@/lib/orders/order-feedback";
 import { FeedbackPill } from "@/components/orders/feedback-pill";
+import { DuplicateBadge } from "@/components/orders/duplicate-badge";
 
 const nigerianStates = [
   "Abia State",
@@ -73,6 +74,8 @@ export type AdminOrderListItem = {
   team?: { id: string; name: string } | null;
   lastFeedback: string | null;
   lastFeedbackAt: string | null;
+  duplicateDisabled: boolean;
+  hasDuplicates: boolean;
 };
 
 export type AdminOrderCounts = {
@@ -91,6 +94,8 @@ interface AdminOrdersClientProps {
   total: number;
   /** Per-status counts (every filter except status), for the tab badges. */
   statusCounts: Record<string, number>;
+  /** Count of orders involved in a duplicate, for the Duplicates tab badge. */
+  duplicateCount?: number;
   /** Current 1-based page. */
   page: number;
   products: Array<{ id: string; name: string }>;
@@ -98,6 +103,7 @@ interface AdminOrdersClientProps {
   /** Filter selections parsed from the URL on the server (seed the controls). */
   initialFilters?: {
     status: string; search: string; product: string; state: string; team: string; date: string; feedback?: string;
+    duplicatesOnly?: boolean;
   };
 }
 
@@ -134,6 +140,7 @@ export function AdminOrdersClient({
   orders,
   total,
   statusCounts,
+  duplicateCount = 0,
   page: pageProp,
   products,
   teams = [],
@@ -142,6 +149,8 @@ export function AdminOrdersClient({
   const router = useRouter();
   const pathname = usePathname();
   const [activeTab, setActiveTab] = useState<OrderStatus | null>((initialFilters?.status || null) as OrderStatus | null);
+  // Duplicates view — its own tab, mutually exclusive with the status tabs.
+  const [duplicatesOnly, setDuplicatesOnly] = useState<boolean>(initialFilters?.duplicatesOnly ?? false);
   const [searchQuery, setSearchQuery] = useState(initialFilters?.search ?? "");
   const [selectedProduct, setSelectedProduct] = useState(initialFilters?.product || "__all__");
   const [selectedState, setSelectedState] = useState(initialFilters?.state || "__all__");
@@ -170,7 +179,7 @@ export function AdminOrdersClient({
   // Jump back to the first page whenever a filter changes.
   useEffect(() => {
     setPage(1);
-  }, [activeTab, searchQuery, selectedProduct, selectedState, selectedTeam, selectedDate, selectedFeedback]);
+  }, [activeTab, duplicatesOnly, searchQuery, selectedProduct, selectedState, selectedTeam, selectedDate, selectedFeedback]);
 
   // Sync filters → URL → server. Local state drives the controls; the URL (read by
   // the server page) drives which rows come back, so filtering + pagination happen
@@ -178,7 +187,8 @@ export function AdminOrdersClient({
   // main /admin/orders AND the scoped per-rep / per-agent pages.
   const query = (() => {
     const p = new URLSearchParams();
-    if (activeTab) p.set("status", activeTab);
+    if (duplicatesOnly) p.set("duplicates", "1");
+    else if (activeTab) p.set("status", activeTab);
     if (searchQuery.trim()) p.set("q", searchQuery.trim());
     if (selectedProduct !== "__all__") p.set("product", selectedProduct);
     if (selectedState !== "__all__") p.set("state", selectedState);
@@ -221,12 +231,12 @@ export function AdminOrdersClient({
       {/* Status Tabs */}
       <div className="bg-white rounded-xl p-2 flex items-center justify-center gap-6 sm:gap-10 mb-6 shadow-sm border border-gray-100">
         {TABS.map((tab) => {
-          const isActive = activeTab === tab.key;
+          const isActive = !duplicatesOnly && activeTab === tab.key;
           const count = counts[tab.countKey];
           return (
             <button
               key={tab.key ?? "all"}
-              onClick={() => setActiveTab(tab.key)}
+              onClick={() => { setDuplicatesOnly(false); setActiveTab(tab.key); }}
               className={`flex items-center gap-1 whitespace-nowrap px-4 sm:px-6 py-3 rounded-lg transition-all ${
                 isActive
                   ? "bg-purple-50"
@@ -254,6 +264,22 @@ export function AdminOrdersClient({
             </button>
           );
         })}
+        {/* Duplicates view — flagged orders (disabled copy + kept original). */}
+        <button
+          onClick={() => { setDuplicatesOnly(true); setActiveTab(null); }}
+          className={`flex items-center gap-1 whitespace-nowrap px-4 sm:px-6 py-3 rounded-lg transition-all ${
+            duplicatesOnly ? "bg-red-50" : "hover:bg-gray-50"
+          }`}
+        >
+          <span className={`text-sm sm:text-base font-bold ${duplicatesOnly ? "text-red-700" : "text-gray-500"}`}>
+            Duplicates
+          </span>
+          {duplicatesOnly ? (
+            <span className="bg-red-200 text-red-700 text-xs font-bold px-1.5 py-0.5 rounded">{duplicateCount}</span>
+          ) : (
+            <span className="text-gray-400 text-sm font-medium">({duplicateCount})</span>
+          )}
+        </button>
       </div>
 
       {/* Filter Bar */}
@@ -465,6 +491,13 @@ export function AdminOrdersClient({
                     <p className="text-sm font-medium text-gray-700">
                       {order.customer.name}
                     </p>
+                    {(order.duplicateDisabled || order.hasDuplicates) && (
+                      <DuplicateBadge
+                        duplicateDisabled={order.duplicateDisabled}
+                        hasDuplicates={order.hasDuplicates}
+                        className="mt-1"
+                      />
+                    )}
                   </div>
 
                   {/* Agent */}

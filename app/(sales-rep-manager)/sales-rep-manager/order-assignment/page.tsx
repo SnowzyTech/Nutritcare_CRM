@@ -39,6 +39,8 @@ export default async function OrderAssignmentPage() {
     deliveryFee: Number(o.deliveryFee),
     lastFeedback: o.lastFeedback,
     lastFeedbackAt: o.lastFeedbackAt?.toISOString() ?? null,
+    duplicateDisabled: o.duplicateDisabledAt !== null,
+    hasDuplicates: o.hasDuplicates,
   }));
 
   const salesReps = members.map(m => ({

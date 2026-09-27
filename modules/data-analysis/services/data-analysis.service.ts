@@ -136,6 +136,8 @@ export type OrderRow = {
   formName: string | null;
   lastFeedback: string | null;    // latest sales-rep call outcome (lib/orders/order-feedback.ts)
   lastFeedbackAt: string | null;  // ISO string
+  duplicateDisabled: boolean;     // disabled because it duplicates an earlier still-open order
+  hasDuplicates: boolean;         // kept original that has a duplicate copy
 };
 
 export type OrderDetailFull = {
@@ -200,6 +202,10 @@ export type OrderDetailFull = {
   callFeedback: PanelCallFeedback[];
   customerFeedback: PanelCustomerFeedback[];
   followUps: PanelFollowUp[];
+  // Duplicate-order flagging (modules/orders/services/duplicate-order.service.ts).
+  duplicateDisabled: boolean;       // this copy is disabled; a team-lead can re-enable
+  hasDuplicates: boolean;           // kept original that has a duplicate copy
+  duplicateOfNumber: string | null; // the earlier order this one duplicates
 };
 
 export type SalesRepProfile = {
@@ -719,6 +725,8 @@ const ORDER_ROW_SELECT = {
   formId: true,
   lastFeedback: true,
   lastFeedbackAt: true,
+  duplicateDisabledAt: true,
+  hasDuplicates: true,
   form: { select: { name: true } },
   customer: { select: { name: true, email: true, state: true } },
   agent: { select: { id: true, companyName: true, state: true } },
@@ -775,6 +783,8 @@ function toOrderRow(o: OrderRowRaw): OrderRow {
     formName: o.form?.name ?? null,
     lastFeedback: o.lastFeedback,
     lastFeedbackAt: o.lastFeedbackAt?.toISOString() ?? null,
+    duplicateDisabled: o.duplicateDisabledAt !== null,
+    hasDuplicates: o.hasDuplicates,
   };
 }
 
@@ -816,6 +826,8 @@ export type OrderListFilters = {
    *  lib/orders/order-feedback.ts, or NO_FEEDBACK_FILTER for "none recorded yet".
    *  Callers validate the value before passing it. */
   feedback?: string;
+  /** Only orders involved in a duplicate: the disabled copy OR its kept original. */
+  duplicatesOnly?: boolean;
 };
 
 export function buildOrderWhere(f: OrderListFilters): Prisma.OrderWhereInput {
@@ -874,6 +886,17 @@ export function buildOrderWhere(f: OrderListFilters): Prisma.OrderWhereInput {
       : ["PENDING", "CONFIRMED", "DELIVERED", "CANCELLED", "FAILED"];
     where.AND = [{ OR: statuses.map((s) => ({ status: s, ...branchFor[s] })) }];
   }
+
+  // Duplicates view: the disabled copy OR its kept original (so both show side by
+  // side for review). Added as an AND clause so it composes with the date OR above.
+  if (f.duplicatesOnly) {
+    const clause: Prisma.OrderWhereInput = {
+      OR: [{ duplicateDisabledAt: { not: null } }, { hasDuplicates: true }],
+    };
+    where.AND = where.AND
+      ? [...(Array.isArray(where.AND) ? where.AND : [where.AND]), clause]
+      : [clause];
+  }
   return where;
 }
 
@@ -886,12 +909,16 @@ export async function getOrdersPage(
   filters: OrderListFilters,
   page: number,
   pageSize = 15,
-): Promise<{ rows: OrderRow[]; total: number; statusCounts: Record<string, number> }> {
+): Promise<{ rows: OrderRow[]; total: number; statusCounts: Record<string, number>; duplicateCount: number }> {
   const where = buildOrderWhere(filters);
-  const whereNoStatus = buildOrderWhere({ ...filters, status: undefined });
+  // Status tab counts ignore both `status` AND the duplicates view, so they stay
+  // stable no matter which tab is open.
+  const whereNoStatus = buildOrderWhere({ ...filters, status: undefined, duplicatesOnly: false });
+  // Duplicates tab count: the other filters + the duplicate condition, ignoring status.
+  const dupWhere = buildOrderWhere({ ...filters, status: undefined, duplicatesOnly: true });
   const safePage = Math.max(1, Math.floor(page) || 1);
 
-  const [orders, total, grouped] = await Promise.all([
+  const [orders, total, grouped, duplicateCount] = await Promise.all([
     prisma.order.findMany({
       where,
       orderBy: { createdAt: "desc" },
@@ -901,12 +928,13 @@ export async function getOrdersPage(
     }),
     prisma.order.count({ where }),
     prisma.order.groupBy({ by: ["status"], where: whereNoStatus, _count: { _all: true } }),
+    prisma.order.count({ where: dupWhere }),
   ]);
 
   const statusCounts: Record<string, number> = {};
   for (const g of grouped) statusCounts[g.status] = g._count._all;
 
-  return { rows: orders.map(toOrderRow), total, statusCounts };
+  return { rows: orders.map(toOrderRow), total, statusCounts, duplicateCount };
 }
 
 export async function getOrderByOrderNumber(orderNumber: string): Promise<OrderDetailFull | null> {
@@ -1017,6 +1045,15 @@ export async function getOrderByOrderNumber(orderNumber: string): Promise<OrderD
     history.push({ event: "Order Cancelled", date: fmtDateTime(order.updatedAt), repName: order.salesRep.name });
   }
 
+  const duplicateOfNumber = order.duplicateOfId
+    ? (
+        await prisma.order.findUnique({
+          where: { id: order.duplicateOfId },
+          select: { orderNumber: true },
+        })
+      )?.orderNumber ?? null
+    : null;
+
   return {
     id: order.id,
     orderId: order.orderNumber,
@@ -1109,6 +1146,9 @@ export async function getOrderByOrderNumber(orderNumber: string): Promise<OrderD
       completedByName: f.completedBy.name,
       at: f.completedAt.toISOString(),
     })),
+    duplicateDisabled: order.duplicateDisabledAt !== null,
+    hasDuplicates: order.hasDuplicates,
+    duplicateOfNumber,
   };
 }
 

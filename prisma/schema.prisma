@@ -442,6 +442,18 @@ model Order {
   // lib/orders/order-feedback.ts.
   lastFeedback    String?
   lastFeedbackAt  DateTime?
+  // Duplicate-order flagging (modules/orders/services/duplicate-order.service.ts).
+  // When a new order is an exact twin (same customer phoneKey + same items/qty/
+  // price/total) of an EARLIER still-open order, the new copy is auto-disabled:
+  // `duplicateOfId` points to the kept original and `duplicateDisabledAt` is set.
+  // A disabled copy is fully visible but cannot be confirmed until a data
+  // team-lead / admin / super-admin re-enables it. The kept original carries
+  // `hasDuplicates = true` so reps get a non-blocking heads-up before confirming.
+  duplicateOfId       String?
+  duplicateDisabledAt DateTime?
+  hasDuplicates       Boolean   @default(false)
+  duplicateOf     Order?      @relation("OrderDuplicates", fields: [duplicateOfId], references: [id], onDelete: SetNull)
+  duplicates      Order[]     @relation("OrderDuplicates")
   feedbacks       OrderFeedback[]
   deliveries      Delivery[]
   invoices        Invoice[]
@@ -469,6 +481,7 @@ model Order {
   @@index([salesRepId, lastFeedback])
   @@index([autoAssignedToId, createdAt])
   @@index([date])
+  @@index([duplicateOfId])
   @@map("orders")
 }
 

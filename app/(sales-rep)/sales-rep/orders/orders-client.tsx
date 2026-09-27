@@ -27,6 +27,7 @@ import { formatCurrency } from '@/lib/utils';
 import { ChatUnreadBadge } from '@/components/chat/chat-unread-badge';
 import { ORDER_FEEDBACK_OPTIONS, NO_FEEDBACK_FILTER } from '@/lib/orders/order-feedback';
 import { FeedbackPill } from '@/components/orders/feedback-pill';
+import { DuplicateBadge } from '@/components/orders/duplicate-badge';
 
 /** Green "Rescheduled" pill — shown for active orders whose delivery was pushed. */
 function RescheduledPill() {
@@ -57,6 +58,10 @@ export type OrderListItem = {
   /** Latest call-feedback outcome (lib/orders/order-feedback.ts), if any. */
   lastFeedback: string | null;
   lastFeedbackAt: string | null; // ISO string
+  /** Disabled because it exactly duplicates an earlier still-open order. */
+  duplicateDisabled: boolean;
+  /** Kept original that has a duplicate copy in the system. */
+  hasDuplicates: boolean;
 };
 
 export type OrderCounts = {
@@ -362,6 +367,7 @@ export function OrdersClient({ orders, total, statusCounts, page: pageProp, user
                         )}
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0">
+                        <DuplicateBadge duplicateDisabled={order.duplicateDisabled} hasDuplicates={order.hasDuplicates} />
                         {showRescheduled(order) && <RescheduledPill />}
                         <span className={`${style.bg} ${style.text} text-[10px] font-bold px-2.5 py-1 rounded-full shrink-0`}>
                           {style.label}
@@ -437,6 +443,7 @@ export function OrdersClient({ orders, total, statusCounts, page: pageProp, user
                                 <RotateCcw size={10} /> Reorder
                               </span>
                             )}
+                            <DuplicateBadge duplicateDisabled={order.duplicateDisabled} hasDuplicates={order.hasDuplicates} />
                           </div>
                         </td>
                         <td className="px-4 sm:px-6 py-4 sm:py-5">

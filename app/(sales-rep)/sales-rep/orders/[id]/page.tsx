@@ -112,6 +112,9 @@ export default async function OrderDetailPage({ params }: Props) {
       createdAt: f.createdAt.toISOString(),
       authorName: f.author.name,
     })),
+    duplicateDisabled: rawOrder.duplicateDisabledAt !== null,
+    hasDuplicates: rawOrder.hasDuplicates,
+    duplicateOfNumber: rawOrder.duplicateOf?.orderNumber ?? null,
   };
 
   const products = rawProducts.map((p) => ({

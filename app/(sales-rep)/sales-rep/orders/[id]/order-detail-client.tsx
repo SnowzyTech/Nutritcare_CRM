@@ -3,7 +3,8 @@
 import React, { useRef, useState, useTransition } from "react";
 import { useUpsellPreview } from "@/lib/orders/use-upsell-preview";
 import { useRouter } from "next/navigation";
-import { X, Trash2, RotateCcw, Phone, CalendarClock, Pencil, Repeat } from "lucide-react";
+import { X, Trash2, RotateCcw, Phone, CalendarClock, Pencil, Repeat, AlertTriangle } from "lucide-react";
+import { DuplicateBadge } from "@/components/orders/duplicate-badge";
 import Image from "next/image";
 import { toast } from "sonner";
 import type { OrderStatus } from "@prisma/client";
@@ -101,6 +102,9 @@ export type SerializedOrder = {
     createdAt: string;
     authorName: string;
   }>;
+  duplicateDisabled: boolean;
+  hasDuplicates: boolean;
+  duplicateOfNumber: string | null;
 };
 
 export type ProductOption = {
@@ -546,8 +550,28 @@ export function OrderDetailClient({ order, products }: OrderDetailClientProps) {
               Reorder
             </span>
           )}
+          <DuplicateBadge duplicateDisabled={order.duplicateDisabled} hasDuplicates={order.hasDuplicates} />
         </div>
       </div>
+
+      {/* Duplicate notice: this copy is disabled — don't call/confirm it. */}
+      {order.duplicateDisabled && (
+        <div className="flex items-start gap-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          <AlertTriangle size={18} className="mt-0.5 shrink-0" />
+          <span>
+            This order was flagged as a duplicate
+            {order.duplicateOfNumber ? ` of ${order.duplicateOfNumber}` : ""} and disabled, so you
+            don&apos;t call the customer or confirm it twice. If it&apos;s genuinely a separate
+            order, ask a data team-lead to re-enable it.
+          </span>
+        </div>
+      )}
+      {order.hasDuplicates && (
+        <div className="flex items-start gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <AlertTriangle size={18} className="mt-0.5 shrink-0" />
+          <span>A duplicate copy of this order came in and was disabled. This is the active copy — confirm this one.</span>
+        </div>
+      )}
 
       {/* Steps */}
       <div className="bg-white p-4 sm:p-8 rounded-2xl border border-gray-100 flex flex-row items-start justify-between sm:justify-start gap-2 sm:gap-4 overflow-x-auto">

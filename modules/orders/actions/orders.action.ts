@@ -159,6 +159,12 @@ export async function confirmOrderAction(
   if (!order || order.status !== "PENDING") {
     return { error: "This order can no longer be confirmed." };
   }
+  if (order.duplicateDisabledAt) {
+    return {
+      error:
+        "This order is flagged as a duplicate and has been disabled. A data team-lead must re-enable it before it can be confirmed.",
+    };
+  }
 
   const selection = await findEligibleAgentForOrder(order.customer.state, order.items);
 

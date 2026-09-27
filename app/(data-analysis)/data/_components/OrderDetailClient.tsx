@@ -20,10 +20,12 @@ import {
   swapOrderItemProductByAnalyst,
   resolveLineRepriceForAnalyst,
   applyOrderDiscountByAnalyst,
+  reenableDuplicateOrderAction,
 } from '@/modules/data-analysis/actions/data-analysis.action';
 import { toast } from 'sonner';
 import { Calendar } from '@/components/ui/calendar';
 import { EditLineModal } from '@/components/orders/edit-line-modal';
+import { DuplicateBadge } from '@/components/orders/duplicate-badge';
 
 type AgentReassignOption = {
   id: string;
@@ -123,6 +125,19 @@ export function OrderDetailClient({ order, canReassign, agents, products = [] }:
     setIsDelivering(false);
   };
 
+  const [isReenabling, setIsReenabling] = useState(false);
+  const handleReenableDuplicate = async () => {
+    setIsReenabling(true);
+    const result = await reenableDuplicateOrderAction(order.id);
+    if (result.success) {
+      toast.success('Order re-enabled — it can now be confirmed.');
+      router.refresh();
+    } else {
+      toast.error(result.error || 'Failed to re-enable order');
+    }
+    setIsReenabling(false);
+  };
+
   const handleMarkFailed = async () => {
     const effectiveReason = customFailReason.trim() || failReason;
     if (!effectiveReason) return;
@@ -216,6 +231,7 @@ export function OrderDetailClient({ order, canReassign, agents, products = [] }:
           <span className={`px-4 py-1.5 rounded-lg text-xs font-bold shadow-sm ${BADGE_STYLES[order.status]}`}>
             {order.status} Order
           </span>
+          <DuplicateBadge duplicateDisabled={order.duplicateDisabled} hasDuplicates={order.hasDuplicates} />
         </div>
         <button
           onClick={() => setIsDeleteModalOpen(true)}
@@ -225,6 +241,35 @@ export function OrderDetailClient({ order, canReassign, agents, products = [] }:
           Delete Order
         </button>
       </div>
+
+      {/* Duplicate banner: this copy is disabled, a team-lead can re-enable it. */}
+      {order.duplicateDisabled && (
+        <div className="mb-6 flex flex-col gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-2 text-sm text-red-800">
+            <AlertTriangle size={18} className="mt-0.5 shrink-0" />
+            <span>
+              This order was auto-disabled as a duplicate
+              {order.duplicateOfNumber ? ` of ${order.duplicateOfNumber}` : ''}. It can&apos;t be
+              confirmed or called out to a customer until it is re-enabled.
+            </span>
+          </div>
+          {canReassign && (
+            <button
+              onClick={handleReenableDuplicate}
+              disabled={isReenabling}
+              className="shrink-0 rounded-xl bg-red-600 px-4 py-2 text-xs font-bold text-white hover:bg-red-700 disabled:opacity-60"
+            >
+              {isReenabling ? 'Re-enabling…' : 'Re-enable order'}
+            </button>
+          )}
+        </div>
+      )}
+      {order.hasDuplicates && (
+        <div className="mb-6 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <AlertTriangle size={18} className="mt-0.5 shrink-0" />
+          <span>A duplicate copy of this order exists and was disabled to avoid a double delivery/confirmation.</span>
+        </div>
+      )}
 
       {/* Steps */}
       <ProgressSteps status={order.status} />

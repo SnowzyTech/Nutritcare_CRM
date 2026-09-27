@@ -27,6 +27,8 @@ import {
   adminSwapOrderItemProductAction,
   adminResolveLineRepriceAction,
 } from "@/modules/orders/actions/admin-orders.action";
+import { reenableDuplicateOrderAction } from "@/modules/data-analysis/actions/data-analysis.action";
+import { DuplicateBadge } from "@/components/orders/duplicate-badge";
 import { useUpsellPreview } from "@/lib/orders/use-upsell-preview";
 
 export type SerializedOrder = {
@@ -81,6 +83,9 @@ export type SerializedOrder = {
     deliveredTime: string | null;
     status: string;
   }>;
+  duplicateDisabled: boolean;
+  hasDuplicates: boolean;
+  duplicateOfNumber: string | null;
 };
 
 export type ProductOption = {
@@ -387,7 +392,35 @@ export function AdminOrderDetailClient({
             Reorder
           </span>
         )}
+        <DuplicateBadge duplicateDisabled={order.duplicateDisabled} hasDuplicates={order.hasDuplicates} />
       </div>
+
+      {/* Duplicate banner: this copy is disabled; an admin can re-enable it. */}
+      {order.duplicateDisabled && (
+        <div className="mt-4 flex flex-col gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-2 text-sm text-red-800">
+            <AlertTriangle size={18} className="mt-0.5 shrink-0" />
+            <span>
+              This order was auto-disabled as a duplicate
+              {order.duplicateOfNumber ? ` of ${order.duplicateOfNumber}` : ""}. It can&apos;t be
+              confirmed or called out to a customer until it is re-enabled.
+            </span>
+          </div>
+          <button
+            onClick={() => handleAction(() => reenableDuplicateOrderAction(order.id), "Order re-enabled")}
+            disabled={isPending}
+            className="shrink-0 rounded-xl bg-red-600 px-4 py-2 text-xs font-bold text-white hover:bg-red-700 disabled:opacity-60"
+          >
+            Re-enable order
+          </button>
+        </div>
+      )}
+      {order.hasDuplicates && (
+        <div className="mt-4 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <AlertTriangle size={18} className="mt-0.5 shrink-0" />
+          <span>A duplicate copy of this order exists and was disabled to avoid a double delivery/confirmation.</span>
+        </div>
+      )}
 
       {/* Stepper */}
       <div className="flex items-center justify-between px-10 relative">

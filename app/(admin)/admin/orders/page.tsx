@@ -32,14 +32,18 @@ export default async function AllOrdersPage({
   const feedbackRaw = get("feedback") ?? "";
   const feedback =
     feedbackRaw === NO_FEEDBACK_FILTER || isOrderFeedbackOutcome(feedbackRaw) ? feedbackRaw : undefined;
+  const duplicatesOnly = get("duplicates") === "1";
   const filters: AdminOrderFilters = {
-    status: STATUSES.includes(statusRaw as OrderStatus) ? (statusRaw as OrderStatus) : undefined,
+    status: duplicatesOnly
+      ? undefined
+      : STATUSES.includes(statusRaw as OrderStatus) ? (statusRaw as OrderStatus) : undefined,
     search: (get("q") ?? "").trim(),
     productName: get("product") || undefined,
     state: get("state") || undefined,
     teamId: get("team") || undefined,
     date: get("date") || undefined,
     feedback,
+    duplicatesOnly,
   };
   const pageNum = Math.max(1, parseInt(get("page") ?? "1", 10) || 1);
 
@@ -57,6 +61,7 @@ export default async function AllOrdersPage({
       orders={orderPage.rows}
       total={orderPage.total}
       statusCounts={orderPage.statusCounts}
+      duplicateCount={orderPage.duplicateCount}
       page={pageNum}
       products={products}
       teams={teams}
@@ -68,6 +73,7 @@ export default async function AllOrdersPage({
         team: filters.teamId ?? "",
         date: filters.date ?? "",
         feedback: feedbackRaw,
+        duplicatesOnly,
       }}
     />
   );

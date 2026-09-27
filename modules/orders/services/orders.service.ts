@@ -150,6 +150,9 @@ export async function getOrderWithDetails(id: string) {
       discountedBy: {
         select: { id: true, name: true },
       },
+      duplicateOf: {
+        select: { orderNumber: true },
+      },
       deliveries: {
         orderBy: { createdAt: "desc" },
         take: 1,
@@ -187,6 +190,10 @@ export type AdminOrderRow = {
   team?: { id: string; name: string } | null;
   lastFeedback: string | null;
   lastFeedbackAt: string | null;
+  /** Disabled because it exactly duplicates an earlier still-open order. */
+  duplicateDisabled: boolean;
+  /** This order has a duplicate copy in the system (kept original). */
+  hasDuplicates: boolean;
 };
 
 const ADMIN_ORDER_SELECT = {
@@ -197,6 +204,8 @@ const ADMIN_ORDER_SELECT = {
   updatedAt: true,
   lastFeedback: true,
   lastFeedbackAt: true,
+  duplicateDisabledAt: true,
+  hasDuplicates: true,
   customer: { select: { name: true, email: true, state: true } },
   agent: { select: { companyName: true, state: true } },
   items: { select: { quantity: true, upsellQuantity: true, isUpsell: true, product: { select: { name: true } } } },
@@ -219,6 +228,8 @@ function toAdminOrderRow(o: AdminOrderRaw): AdminOrderRow {
     team: o.salesRep.team ? { id: o.salesRep.team.id, name: o.salesRep.team.name } : null,
     lastFeedback: o.lastFeedback,
     lastFeedbackAt: o.lastFeedbackAt?.toISOString() ?? null,
+    duplicateDisabled: o.duplicateDisabledAt !== null,
+    hasDuplicates: o.hasDuplicates,
   };
 }
 
@@ -237,6 +248,8 @@ export type AdminOrderFilters = {
    * Callers validate the value before passing it.
    */
   feedback?: string;
+  /** Only orders involved in a duplicate: the disabled copy OR its kept original. */
+  duplicatesOnly?: boolean;
 };
 
 function buildAdminOrderWhere(
@@ -264,6 +277,11 @@ function buildAdminOrderWhere(
     }
   }
   if (f.feedback) where.lastFeedback = f.feedback === NO_FEEDBACK_FILTER ? null : f.feedback;
+  // Duplicates view: the disabled copy OR its kept original. AND clause so it
+  // composes with the search OR above.
+  if (f.duplicatesOnly) {
+    where.AND = [{ OR: [{ duplicateDisabledAt: { not: null } }, { hasDuplicates: true }] }];
+  }
   return where;
 }
 
@@ -277,12 +295,13 @@ export async function getAdminOrdersPage(
   page: number,
   pageSize = 10,
   base: Prisma.OrderWhereInput = {},
-): Promise<{ rows: AdminOrderRow[]; total: number; statusCounts: Record<string, number> }> {
+): Promise<{ rows: AdminOrderRow[]; total: number; statusCounts: Record<string, number>; duplicateCount: number }> {
   const where = buildAdminOrderWhere(filters, base);
-  const whereNoStatus = buildAdminOrderWhere({ ...filters, status: undefined }, base);
+  const whereNoStatus = buildAdminOrderWhere({ ...filters, status: undefined, duplicatesOnly: false }, base);
+  const dupWhere = buildAdminOrderWhere({ ...filters, status: undefined, duplicatesOnly: true }, base);
   const safePage = Math.max(1, Math.floor(page) || 1);
 
-  const [orders, total, grouped] = await Promise.all([
+  const [orders, total, grouped, duplicateCount] = await Promise.all([
     prisma.order.findMany({
       where,
       orderBy: { createdAt: "desc" },
@@ -292,12 +311,13 @@ export async function getAdminOrdersPage(
     }),
     prisma.order.count({ where }),
     prisma.order.groupBy({ by: ["status"], where: whereNoStatus, _count: { _all: true } }),
+    prisma.order.count({ where: dupWhere }),
   ]);
 
   const statusCounts: Record<string, number> = {};
   for (const g of grouped) statusCounts[g.status] = g._count._all;
 
-  return { rows: orders.map(toAdminOrderRow), total, statusCounts };
+  return { rows: orders.map(toAdminOrderRow), total, statusCounts, duplicateCount };
 }
 
 // ── Server-side paged orders for a single sales rep (their own Orders screen) ────
@@ -318,6 +338,8 @@ export type SalesRepOrderRow = {
   deliveryFee: number;
   lastFeedback: string | null;
   lastFeedbackAt: string | null;
+  duplicateDisabled: boolean;
+  hasDuplicates: boolean;
 };
 
 const SALES_REP_ORDER_SELECT = {
@@ -331,6 +353,8 @@ const SALES_REP_ORDER_SELECT = {
   deliveryFee: true,
   lastFeedback: true,
   lastFeedbackAt: true,
+  duplicateDisabledAt: true,
+  hasDuplicates: true,
   customer: { select: { name: true, email: true } },
   agent: { select: { companyName: true, state: true } },
   items: { select: { quantity: true, upsellQuantity: true, isUpsell: true, product: { select: { name: true } } } },
@@ -353,6 +377,8 @@ function toSalesRepOrderRow(o: SalesRepOrderRaw): SalesRepOrderRow {
     deliveryFee: Number(o.deliveryFee),
     lastFeedback: o.lastFeedback,
     lastFeedbackAt: o.lastFeedbackAt?.toISOString() ?? null,
+    duplicateDisabled: o.duplicateDisabledAt !== null,
+    hasDuplicates: o.hasDuplicates,
   };
 }
 
@@ -409,6 +435,8 @@ export type TeamOrderRow = {
   deliveryFee: number;
   lastFeedback: string | null;
   lastFeedbackAt: string | null;
+  duplicateDisabled: boolean;
+  hasDuplicates: boolean;
 };
 
 const TEAM_ORDER_SELECT = {
@@ -420,6 +448,8 @@ const TEAM_ORDER_SELECT = {
   deliveryFee: true,
   lastFeedback: true,
   lastFeedbackAt: true,
+  duplicateDisabledAt: true,
+  hasDuplicates: true,
   customer: { select: { name: true, email: true } },
   agent: { select: { companyName: true, state: true } },
   salesRep: { select: { name: true, team: { select: { id: true, name: true } } } },
@@ -448,6 +478,8 @@ function toTeamOrderRow(o: TeamOrderRaw): TeamOrderRow {
     deliveryFee: Number(o.deliveryFee),
     lastFeedback: o.lastFeedback,
     lastFeedbackAt: o.lastFeedbackAt?.toISOString() ?? null,
+    duplicateDisabled: o.duplicateDisabledAt !== null,
+    hasDuplicates: o.hasDuplicates,
   };
 }
 
@@ -464,6 +496,8 @@ export type TeamOrderFilters = {
   /** Latest sales-rep call feedback (`Order.lastFeedback`): an outcome from
    *  lib/orders/order-feedback.ts, or NO_FEEDBACK_FILTER for "none recorded yet". */
   feedback?: string;
+  /** Only orders involved in a duplicate: the disabled copy OR its kept original. */
+  duplicatesOnly?: boolean;
 };
 
 function buildTeamOrderWhere(f: TeamOrderFilters, base: Prisma.OrderWhereInput): Prisma.OrderWhereInput {
@@ -488,6 +522,9 @@ function buildTeamOrderWhere(f: TeamOrderFilters, base: Prisma.OrderWhereInput):
       where.createdAt = { gte: new Date(y, m - 1, d, 0, 0, 0, 0), lt: new Date(y, m - 1, d + 1, 0, 0, 0, 0) };
     }
   }
+  if (f.duplicatesOnly) {
+    where.AND = [{ OR: [{ duplicateDisabledAt: { not: null } }, { hasDuplicates: true }] }];
+  }
   return where;
 }
 
@@ -496,15 +533,16 @@ export async function getTeamOrdersPage(
   filters: TeamOrderFilters,
   page: number,
   pageSize = 15,
-): Promise<{ rows: TeamOrderRow[]; total: number; statusCounts: Record<string, number> }> {
-  if (memberIds.length === 0) return { rows: [], total: 0, statusCounts: {} };
+): Promise<{ rows: TeamOrderRow[]; total: number; statusCounts: Record<string, number>; duplicateCount: number }> {
+  if (memberIds.length === 0) return { rows: [], total: 0, statusCounts: {}, duplicateCount: 0 };
 
   const base: Prisma.OrderWhereInput = { salesRepId: { in: memberIds } };
   const where = buildTeamOrderWhere(filters, base);
-  const whereNoStatus = buildTeamOrderWhere({ ...filters, status: undefined }, base);
+  const whereNoStatus = buildTeamOrderWhere({ ...filters, status: undefined, duplicatesOnly: false }, base);
+  const dupWhere = buildTeamOrderWhere({ ...filters, status: undefined, duplicatesOnly: true }, base);
   const safePage = Math.max(1, Math.floor(page) || 1);
 
-  const [orders, total, grouped] = await Promise.all([
+  const [orders, total, grouped, duplicateCount] = await Promise.all([
     prisma.order.findMany({
       where,
       orderBy: { createdAt: "desc" },
@@ -514,10 +552,11 @@ export async function getTeamOrdersPage(
     }),
     prisma.order.count({ where }),
     prisma.order.groupBy({ by: ["status"], where: whereNoStatus, _count: { _all: true } }),
+    prisma.order.count({ where: dupWhere }),
   ]);
 
   const statusCounts: Record<string, number> = {};
   for (const g of grouped) statusCounts[g.status] = g._count._all;
 
-  return { rows: orders.map(toTeamOrderRow), total, statusCounts };
+  return { rows: orders.map(toTeamOrderRow), total, statusCounts, duplicateCount };
 }

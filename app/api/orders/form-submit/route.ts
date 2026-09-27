@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db/prisma";
 import { nextOrderNumber } from "@/modules/orders/services/order-number.service";
 import { notifyRepNewOrder } from "@/modules/notifications/services/order-events.service";
 import { pickRepForNewOrder } from "@/modules/orders/services/rep-assignment.service";
+import { detectAndFlagDuplicate } from "@/modules/orders/services/duplicate-order.service";
 import { toInternationalPhone } from "@/lib/phone";
 
 /** Thrown inside the create transaction when no rep can take the order. */
@@ -244,6 +245,11 @@ export async function POST(req: NextRequest) {
 
       return newOrder;
     });
+
+    // Best-effort: flag & disable this order if it exactly duplicates an earlier
+    // still-open order for the same customer (a genuine repeat submission that
+    // slipped past the 2-minute guard above). Never blocks intake.
+    await detectAndFlagDuplicate(order.id);
 
     // Alert the assigned rep (bell + phone). Runs after the response is sent,
     // so the customer's confirmation is never slowed down by it.

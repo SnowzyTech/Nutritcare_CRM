@@ -22,6 +22,7 @@ import {
   manualOrderSchema,
 } from "@/modules/orders/services/manual-order.service";
 import { reassignAgentForOrder } from "@/modules/orders/services/reassign-agent.service";
+import { reenableDuplicateOrder } from "@/modules/orders/services/duplicate-order.service";
 import {
   notifyAgentReassigned,
   notifyRepDeliveryOutcome,
@@ -562,6 +563,46 @@ export async function reassignOrderAgentByAnalyst(
   revalidatePath("/data/order");
   revalidatePath(`/data/order/${result.order.orderNumber}`);
   revalidatePath("/data");
+  return { success: true };
+}
+
+/**
+ * Re-enable a disabled duplicate order so it can be processed normally.
+ *
+ * Authorised for the data-team lead (the role that reviews duplicates), plus
+ * ADMIN and SUPER_ADMIN oversight. Clears the duplicate markers on the order and
+ * — if no other disabled duplicates of the original remain — the original's
+ * `hasDuplicates` flag.
+ */
+export async function reenableDuplicateOrderAction(
+  orderId: string,
+): Promise<{ success: boolean; error?: string }> {
+  const session = await auth();
+  if (!session?.user?.id) return { success: false, error: "Unauthorized" };
+
+  const role = session.user.role;
+  const isDataTeamLead =
+    role === "DATA_ANALYST" && (await isUserTeamLead(session.user.id));
+  if (role !== "SUPER_ADMIN" && role !== "ADMIN" && !isDataTeamLead) {
+    return {
+      success: false,
+      error: "Only a data team-lead, admin or super-admin can re-enable a duplicate order.",
+    };
+  }
+  suppressCameraForRequest();
+
+  const result = await reenableDuplicateOrder(orderId, {
+    id: session.user.id,
+    name: session.user.name,
+    role: session.user.role,
+  });
+  if (!result.ok) return { success: false, error: result.error };
+
+  revalidatePath("/data/order");
+  revalidatePath(`/data/order/${orderId}`);
+  revalidatePath("/data");
+  revalidatePath("/admin/orders");
+  revalidatePath(`/admin/orders/${orderId}`);
   return { success: true };
 }
 

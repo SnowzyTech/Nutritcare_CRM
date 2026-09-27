@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db/prisma";
 import { nextOrderNumber } from "@/modules/orders/services/order-number.service";
 import { resolveUpsellPrice } from "@/modules/orders/services/tier-pricing.service";
+import { detectAndFlagDuplicate } from "@/modules/orders/services/duplicate-order.service";
 import { logActivity } from "@/modules/audit/services/audit-log.service";
 import { formatCurrency } from "@/lib/utils";
 import { z } from "zod";
@@ -282,6 +283,10 @@ export async function createManualOrder(
         },
       });
     });
+
+    // Best-effort: flag & disable this order if it exactly duplicates an earlier
+    // still-open order for the same customer. Never blocks order creation.
+    await detectAndFlagDuplicate(order.id);
 
     return {
       orderId: order.id,

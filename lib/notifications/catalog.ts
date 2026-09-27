@@ -112,6 +112,14 @@ export const NOTIFICATION_TYPES = {
     body: () => "The agent is short of stock for this order. The inventory team has been alerted.",
     link: repOrderLink,
   }),
+  "order.duplicate_flagged": defineType<OrderRef & { duplicateOfNumber: string }>({
+    priority: "high",
+    icon: "alert",
+    title: (v) => `Possible duplicate — ${v.orderNumber}`,
+    body: (v) =>
+      `This looks identical to ${v.duplicateOfNumber} and was disabled to avoid a double delivery. A data team-lead can re-enable it if it's a real order.`,
+    link: repOrderLink,
+  }),
 
   // ── Delivery agent ───────────────────────────────────────────────────────
   "delivery.assigned": defineType<OrderRef & { summary: string; state: string; date: string }>({
