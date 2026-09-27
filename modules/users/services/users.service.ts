@@ -72,7 +72,7 @@ function computeRepMetrics(orders: Array<{
   status: string;
   customerId: string;
   isReorder: boolean;
-  items: Array<{ productId: string; quantity: number; product: { name: string } }>;
+  items: Array<{ productId: string; quantity: number; isUpsell: boolean; upsellQuantity: number; product: { name: string } }>;
 }>) {
   const total = orders.length;
   const delivered = orders.filter(o => o.status === "DELIVERED").length;
@@ -93,11 +93,12 @@ function computeRepMetrics(orders: Array<{
   const cancellationRate = total > 0 ? Math.round((cancelled / total) * 100) : 0;
   const reorderRate = total > 0 ? Math.round((reorders / total) * 100) : 0;
 
-  const multiItemOrders = orders.filter(o => {
-    const uniqueProducts = new Set(o.items.map(i => i.productId));
-    return uniqueProducts.size > 1;
-  }).length;
-  const upsellRate = total > 0 ? Math.round((multiItemOrders / total) * 100) : 0;
+  // Upsell = orders with a RECORDED upsell (rep added units/products), read from
+  // the upsell fields — not merely orders with >1 distinct product.
+  const upsoldOrders = orders.filter(o =>
+    o.items.some(i => i.upsellQuantity > 0 || i.isUpsell)
+  ).length;
+  const upsellRate = total > 0 ? Math.round((upsoldOrders / total) * 100) : 0;
 
   // Weighted general performance + KPI, shared with the sales-rep portal.
   // No orders handled → no performance (avoid the low-cancellation baseline).
@@ -346,7 +347,7 @@ async function _getSalesRepAnalytics(salesRepId: string, period?: MonthPeriod | 
     where: { salesRepId, deletedAt: null },
     select: {
       status: true, customerId: true, createdAt: true, isReorder: true,
-      items: { select: { productId: true, quantity: true, product: { select: { name: true } } } },
+      items: { select: { productId: true, quantity: true, isUpsell: true, upsellQuantity: true, product: { select: { name: true } } } },
     },
   });
 
@@ -403,7 +404,7 @@ async function _getSalesRepOverview(period: DatePeriod) {
           customerId: true,
           createdAt: true,
           isReorder: true,
-          items: { select: { productId: true, quantity: true, product: { select: { name: true } } } },
+          items: { select: { productId: true, quantity: true, isUpsell: true, upsellQuantity: true, product: { select: { name: true } } } },
         },
       })
     : [];
@@ -687,7 +688,7 @@ async function repMetricsByRep(memberIds: string[]) {
     where: { salesRepId: { in: memberIds }, deletedAt: null },
     select: {
       salesRepId: true, status: true, customerId: true, isReorder: true,
-      items: { select: { productId: true, quantity: true, product: { select: { name: true } } } },
+      items: { select: { productId: true, quantity: true, isUpsell: true, upsellQuantity: true, product: { select: { name: true } } } },
     },
   });
 
@@ -782,7 +783,7 @@ type ReportOrder = {
   status: string;
   customerId: string;
   isReorder: boolean;
-  items: Array<{ productId: string; quantity: number; product: { name: string } }>;
+  items: Array<{ productId: string; quantity: number; isUpsell: boolean; upsellQuantity: number; product: { name: string } }>;
 };
 
 /** Builds a MonthMetrics-shaped object (for PDF reports) from a set of orders. */
@@ -848,7 +849,7 @@ async function _getTeamAnalytics(teamId: string, period?: MonthPeriod | DatePeri
     where: { salesRepId: { in: memberIds }, deletedAt: null },
     select: {
       status: true, customerId: true, createdAt: true, isReorder: true,
-      items: { select: { productId: true, quantity: true, product: { select: { name: true } } } },
+      items: { select: { productId: true, quantity: true, isUpsell: true, upsellQuantity: true, product: { select: { name: true } } } },
     },
   });
 
@@ -926,7 +927,7 @@ async function _getCompanyAnalytics(period?: MonthPeriod | DatePeriod) {
     where: { salesRepId: { in: memberIds }, deletedAt: null },
     select: {
       status: true, customerId: true, createdAt: true, isReorder: true,
-      items: { select: { productId: true, quantity: true, product: { select: { name: true } } } },
+      items: { select: { productId: true, quantity: true, isUpsell: true, upsellQuantity: true, product: { select: { name: true } } } },
     },
   });
 
@@ -976,7 +977,7 @@ export async function getTeamWeeklyReport(teamId: string): Promise<MonthMetrics>
     where: { salesRepId: { in: memberIds }, deletedAt: null, createdAt: { gte: weekStart } },
     select: {
       status: true, customerId: true, createdAt: true, isReorder: true,
-      items: { select: { productId: true, quantity: true, product: { select: { name: true } } } },
+      items: { select: { productId: true, quantity: true, isUpsell: true, upsellQuantity: true, product: { select: { name: true } } } },
     },
   });
 

@@ -1,5 +1,6 @@
 import { OrderDetailClient } from "../../../../_components/OrderDetailClient";
 import { getOrderByOrderNumber } from "@/modules/data-analysis/services/data-analysis.service";
+import { getActiveProducts } from "@/modules/orders/services/products.service";
 import { getAgentsForReassignment } from "@/modules/delivery/services/agents.service";
 import { isUserTeamLead } from "@/modules/users/services/users.service";
 import { auth } from "@/lib/auth/auth";
@@ -9,10 +10,11 @@ export default async function SalesRepOrderDetailPage({ params }: { params: Prom
   const { orderId } = await params;
 
   const session = await auth();
-  const [order, rawAgents, isTeamLead] = await Promise.all([
+  const [order, rawAgents, isTeamLead, rawProducts] = await Promise.all([
     getOrderByOrderNumber(orderId),
     getAgentsForReassignment(),
     session?.user?.id ? isUserTeamLead(session.user.id) : Promise.resolve(false),
+    getActiveProducts(),
   ]);
 
   if (!order) {
@@ -32,5 +34,12 @@ export default async function SalesRepOrderDetailPage({ params }: { params: Prom
     totalDeliveries: a._count.deliveries,
   }));
 
-  return <OrderDetailClient order={order} canReassign={canReassign} agents={agents} />;
+  return (
+    <OrderDetailClient
+      order={order}
+      canReassign={canReassign}
+      agents={agents}
+      products={rawProducts.map((p) => ({ id: p.id, name: p.name }))}
+    />
+  );
 }

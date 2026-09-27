@@ -262,11 +262,15 @@ export const MOCK_ORDERS = [
 ];
 
 export interface OrderDetailItem {
+  id?: string; // OrderItem id — present for real orders (enables editing)
+  productId?: string; // product id — present for real orders (enables editing)
   product: string;
   image?: string | null;
   // For a merged line: the ORIGINAL quantity (line qty minus upsold). For a
   // whole-upsell line: the full quantity.
   quantity: number;
+  // The FULL line quantity (base + upsold) — what an edit operates on.
+  lineQuantity?: number;
   upsellQuantity: number;
   upsellAmount: string; // formatted ₦ — managers see the upsold amount
   isUpsell: boolean; // whole-upsell line (a brand-new upsold product)
@@ -300,6 +304,9 @@ export interface OrderDetail {
     discount: string | null;
     discountPercent: string | null;
   };
+  // Numeric gross/net (real orders only) — drives the negotiated-price editor.
+  grossValue?: number;
+  netValue?: number;
   orderDate?: string;
   source: string;
   contactedVia: "phone" | "whatsapp" | "none";

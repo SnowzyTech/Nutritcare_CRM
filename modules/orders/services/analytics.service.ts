@@ -45,6 +45,8 @@ async function fetchOrders(salesRepId: string, from: Date, to?: Date) {
         select: {
           productId: true,
           quantity: true,
+          isUpsell: true,
+          upsellQuantity: true,
           product: { select: { name: true } },
         },
       },
@@ -75,12 +77,14 @@ function computeMetrics(orders: OrderRow[]): MonthMetrics {
     deliveryAttempted > 0 ? Math.round((delivered / deliveryAttempted) * 100) : 0;
   const reorderRate = total > 0 ? Math.round((reorders / total) * 100) : 0;
 
-  // Upsell = orders with >1 distinct product type (multi-item orders)
-  const multiItemOrders = orders.filter(
-    (o) => new Set(o.items.map((i) => i.productId)).size > 1
+  // Upsell = orders that carry a RECORDED upsell (rep added units/products),
+  // read from the upsell fields — NOT merely orders with >1 distinct product
+  // (which miscounts same-product upsells and multi-product/non-upsell orders).
+  const upsoldOrders = orders.filter((o) =>
+    o.items.some((i) => i.upsellQuantity > 0 || i.isUpsell)
   );
   const upsellRate =
-    total > 0 ? Math.round((multiItemOrders.length / total) * 100) : 0;
+    total > 0 ? Math.round((upsoldOrders.length / total) * 100) : 0;
 
   // No orders handled → no performance (avoid the low-cancellation baseline).
   const generalPerformance =

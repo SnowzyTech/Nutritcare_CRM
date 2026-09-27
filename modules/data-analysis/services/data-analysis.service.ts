@@ -58,7 +58,7 @@ function avatarUrl(name: string, url: string | null): string {
 // score as the sales-rep analytics page (lib/performance.ts) so the rep summary
 // cards agree with the full analytics view.
 function computePerformance(
-  orders: { status: OrderStatus; createdAt: Date; isReorder: boolean; items: { productId: string }[] }[],
+  orders: { status: OrderStatus; createdAt: Date; isReorder: boolean; items: { productId: string; isUpsell: boolean; upsellQuantity: number }[] }[],
 ): number {
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -69,8 +69,9 @@ function computePerformance(
   const failed = monthOrders.filter((o) => o.status === "FAILED").length;
   const cancelled = monthOrders.filter((o) => o.status === "CANCELLED").length;
   const reorders = monthOrders.filter((o) => o.isReorder).length;
+  // Upsell = orders with a RECORDED upsell, not merely >1 distinct product.
   const multiItem = monthOrders.filter(
-    (o) => new Set(o.items.map((i) => i.productId)).size > 1,
+    (o) => o.items.some((i) => i.upsellQuantity > 0 || i.isUpsell),
   ).length;
 
   const deliveryRate = kpiScore(delivered, total);
@@ -148,6 +149,18 @@ export type OrderDetailFull = {
     totalPrice: string;
   };
   upsoldProduct?: { name: string; quantity: number };
+  // Per-line breakdown (real order) — enables the team-lead edit controls.
+  items: {
+    id: string;
+    productId: string;
+    name: string;
+    quantity: number; // base qty (line qty minus upsold) for display
+    lineQuantity: number; // full line qty an edit operates on
+    isUpsell: boolean;
+    upsellQuantity: number;
+  }[];
+  grossValue: number;
+  netValue: number;
   deliveryFee?: string;
   estimatedDeliveryDate?: string;
   agent?: {
@@ -257,7 +270,7 @@ type OrderForMetrics = {
   status: OrderStatus;
   customerId: string;
   isReorder: boolean;
-  items: { productId: string; quantity: number; product: { name: string } }[];
+  items: { productId: string; quantity: number; isUpsell: boolean; upsellQuantity: number; product: { name: string } }[];
 };
 
 function computeMetrics(orders: OrderForMetrics[]) {
@@ -288,8 +301,9 @@ function computeMetrics(orders: OrderForMetrics[]) {
     .sort((a, b) => b[1] - a[1])
     .map(([name, qty]) => ({ name, qty }));
 
-  const multiItemOrders = orders.filter(
-    (o) => new Set(o.items.map((i) => i.productId)).size > 1
+  // Upsell = orders with a RECORDED upsell, not merely >1 distinct product.
+  const multiItemOrders = orders.filter((o) =>
+    o.items.some((i) => i.upsellQuantity > 0 || i.isUpsell)
   );
   const upsellRate = total > 0 ? Math.round((multiItemOrders.length / total) * 100) : 0;
 
@@ -442,6 +456,8 @@ async function fetchOrdersForMetrics(where: object): Promise<OrderForMetrics[]> 
         select: {
           productId: true,
           quantity: true,
+          isUpsell: true,
+          upsellQuantity: true,
           product: { select: { name: true } },
         },
       },
@@ -642,7 +658,7 @@ export async function getSalesRepsList(): Promise<SalesRepItem[]> {
           status: true,
           createdAt: true,
           isReorder: true,
-          items: { select: { productId: true } },
+          items: { select: { productId: true, isUpsell: true, upsellQuantity: true } },
         },
       },
     },
@@ -658,7 +674,7 @@ export async function getSalesRepsList(): Promise<SalesRepItem[]> {
     avatarUrl: avatarUrl(u.name, u.avatarUrl),
     teamName: u.team?.name ?? "No Team",
     pendingOrderCount: u.orders.filter((o) => o.status === "PENDING").length,
-    generalPerformance: computePerformance(u.orders as any),
+    generalPerformance: computePerformance(u.orders),
   }));
 }
 
@@ -976,6 +992,18 @@ export async function getOrderByOrderNumber(orderNumber: string): Promise<OrderD
     upsoldProduct: upsoldItem
       ? { name: upsoldItem.product.name, quantity: upsoldItem.quantity }
       : undefined,
+    items: order.items.map((it) => ({
+      id: it.id,
+      productId: it.productId,
+      name: it.product.name,
+      quantity:
+        !it.isUpsell && it.upsellQuantity > 0 ? it.quantity - it.upsellQuantity : it.quantity,
+      lineQuantity: it.quantity,
+      isUpsell: it.isUpsell,
+      upsellQuantity: it.upsellQuantity,
+    })),
+    grossValue: Number(order.totalAmount),
+    netValue: Number(order.netAmount),
     deliveryFee: Number(order.deliveryFee) > 0
       ? `₦${Number(order.deliveryFee).toLocaleString("en-NG")}`
       : undefined,
@@ -1027,7 +1055,7 @@ export async function getSalesRepProfile(userId: string): Promise<SalesRepProfil
           status: true,
           createdAt: true,
           isReorder: true,
-          items: { select: { productId: true } },
+          items: { select: { productId: true, isUpsell: true, upsellQuantity: true } },
         },
       },
     },
@@ -1061,7 +1089,7 @@ export async function getSalesRepProfile(userId: string): Promise<SalesRepProfil
     avatarUrl: avatarUrl(user.name, user.avatarUrl),
     teamName: user.team?.name ?? "No Team",
     orderCounts,
-    generalPerformance: computePerformance(orders as any),
+    generalPerformance: computePerformance(orders),
     kpiAchievement,
   };
 }

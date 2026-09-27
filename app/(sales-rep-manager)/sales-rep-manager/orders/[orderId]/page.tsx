@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { getOrderWithDetails } from "@/modules/orders/services/orders.service";
+import { getActiveProducts } from "@/modules/orders/services/products.service";
 import { getAgentsForReassignment } from "@/modules/delivery/services/agents.service";
 import { OrderDetailClient } from "../../[repId]/orders/[orderId]/order-detail-client";
 import { mapOrderToDetail } from "../../_lib/map-order-detail";
@@ -13,9 +14,10 @@ export default async function TeamOrderDetailPage({
   params: Promise<{ orderId: string }>;
 }) {
   const { orderId } = await params;
-  const [dbOrder, rawAgents] = await Promise.all([
+  const [dbOrder, rawAgents, rawProducts] = await Promise.all([
     getOrderWithDetails(orderId),
     getAgentsForReassignment(),
+    getActiveProducts(),
   ]);
 
   if (!dbOrder) notFound();
@@ -31,6 +33,7 @@ export default async function TeamOrderDetailPage({
       repName={repName}
       order={order}
       agents={mapAgentsForReassignment(rawAgents)}
+      products={rawProducts.map((p) => ({ id: p.id, name: p.name }))}
     />
   );
 }

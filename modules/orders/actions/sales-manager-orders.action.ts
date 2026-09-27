@@ -13,6 +13,37 @@ import { recordWhatsAppResult } from "@/modules/audit/services/whatsapp-audit.se
 import { suppressCameraForRequest } from "@/lib/audit/context";
 import { sendOrderDeliveredTemplate } from "@/lib/whatsapp/whatsapp";
 import { reassignAgentForOrder } from "@/modules/orders/services/reassign-agent.service";
+import { formatCurrency } from "@/lib/utils";
+import {
+  applyUpsellItems,
+  previewUpsellPrice,
+  upsellOrderSelect,
+} from "@/modules/orders/services/upsell-apply.service";
+import {
+  changeItemQuantity,
+  swapItemProduct,
+  previewLineReprice,
+  reviseOrderSelect,
+} from "@/modules/orders/services/revise-order.service";
+import { applyOrderNegotiatedPrice } from "@/modules/orders/services/apply-discount.service";
+
+type PreviewResult =
+  | {
+      lineTotal: number;
+      unitPrice: number;
+      source: "package" | "surplus";
+      requiresUnitPrice: boolean;
+      mergedQty: number;
+    }
+  | { error: string };
+
+/** Revalidate every place a company sales manager sees this order. */
+function revalidateManagerOrder(orderId: string, salesRepId: string) {
+  revalidatePath("/sales-manager/orders");
+  revalidatePath(`/sales-manager/orders/${orderId}`);
+  revalidatePath(`/sales-manager/${salesRepId}/orders/${orderId}`);
+  revalidatePath("/sales-manager");
+}
 
 /**
  * Company Sales Manager marks a confirmed order as delivered — a one-click
@@ -144,6 +175,232 @@ export async function reassignOrderAgentByManager(
   revalidatePath(`/sales-manager/orders/${orderId}`);
   revalidatePath("/sales-manager");
   return { success: true };
+}
+
+// ── Order editing (on behalf of the rep) ─────────────────────────────────────
+// All logged under the order's sales rep with the manager shown as actor, same
+// on-behalf-of convention as mark-delivered above. Money math is the shared
+// services; these only add auth + logging + revalidation.
+
+async function requireManager() {
+  const session = await auth();
+  if (!session?.user?.id) return { ok: false as const, error: "Unauthorized" };
+  if (session.user.role !== "SALES_REP_MANAGER") return { ok: false as const, error: "Forbidden" };
+  return { ok: true as const, session };
+}
+
+/** Add product(s) to an order — recorded as an upsell (rep add-on). */
+export async function addOrderItemsByManager(
+  orderId: string,
+  items: Array<{ productId: string; quantity: number; unitPrice?: number }>,
+): Promise<{ error?: string }> {
+  const gate = await requireManager();
+  if (!gate.ok) return { error: gate.error };
+  const { session } = gate;
+  suppressCameraForRequest();
+
+  const order = await prisma.order.findFirst({
+    where: { id: orderId, deletedAt: null },
+    select: { ...upsellOrderSelect, salesRepId: true },
+  });
+  if (!order) return { error: "Order not found." };
+
+  const result = await applyUpsellItems(order, items, session.user.id);
+  if ("error" in result) return { error: result.error };
+
+  await logActivity({
+    userId: order.salesRepId,
+    actorName: session.user.name,
+    actorRole: session.user.role,
+    action: "Updated",
+    entityType: "Order",
+    entityId: orderId,
+    description: `Added ${result.addedCount} product line${result.addedCount === 1 ? "" : "s"} to Order #${order.orderNumber}`,
+  });
+  for (const s of result.surplusPlans) {
+    await logActivity({
+      userId: order.salesRepId,
+      actorName: session.user.name,
+      actorRole: session.user.role,
+      action: "Updated",
+      entityType: "OrderItem",
+      entityId: orderId,
+      description: `Manual unit price ${formatCurrency(s.typedUnitPrice)} used for ${s.productName} (qty ${s.mergedQty}) on Order #${order.orderNumber}`,
+      details: { field: "unitPrice", amount: s.lineTotal, productId: s.productId, typedUnitPrice: s.typedUnitPrice },
+    });
+  }
+
+  revalidateManagerOrder(orderId, order.salesRepId);
+  return {};
+}
+
+/** Live price preview for the manager Add-Product popup (merge-aware). */
+export async function resolveUpsellPriceForManager(
+  orderId: string,
+  productId: string,
+  addedQty: number,
+  typedUnitPrice?: number,
+): Promise<PreviewResult> {
+  const gate = await requireManager();
+  if (!gate.ok) return { error: gate.error };
+
+  const order = await prisma.order.findFirst({
+    where: { id: orderId, deletedAt: null },
+    select: { formId: true, items: { where: { productId }, select: { quantity: true } } },
+  });
+  if (!order) return { error: "Order not found." };
+  return previewUpsellPrice(order.formId, order.items, productId, addedQty, typedUnitPrice ?? 0);
+}
+
+/** Change a line's quantity and re-price it — a customer revision (not upsell). */
+export async function changeOrderItemQuantityByManager(
+  orderId: string,
+  orderItemId: string,
+  newQuantity: number,
+  unitPrice?: number,
+): Promise<{ error?: string }> {
+  const gate = await requireManager();
+  if (!gate.ok) return { error: gate.error };
+  const { session } = gate;
+  suppressCameraForRequest();
+
+  const order = await prisma.order.findFirst({
+    where: { id: orderId, deletedAt: null },
+    select: { ...reviseOrderSelect, salesRepId: true },
+  });
+  if (!order) return { error: "Order not found." };
+
+  const result = await changeItemQuantity(order, orderItemId, newQuantity, unitPrice ?? 0);
+  if ("error" in result) return { error: result.error };
+
+  await logActivity({
+    userId: order.salesRepId,
+    actorName: session.user.name,
+    actorRole: session.user.role,
+    action: "Updated",
+    entityType: "Order",
+    entityId: orderId,
+    description: `Changed ${result.productName} quantity ${result.oldQuantity} → ${result.newQuantity} on Order #${order.orderNumber}`,
+    details: { field: "quantity", before: result.oldQuantity, after: result.newQuantity, amount: result.newLineTotal },
+  });
+  if (result.surplus) {
+    await logActivity({
+      userId: order.salesRepId,
+      actorName: session.user.name,
+      actorRole: session.user.role,
+      action: "Updated",
+      entityType: "OrderItem",
+      entityId: orderId,
+      description: `Manual unit price ${formatCurrency(result.surplus.typedUnitPrice)} used for ${result.surplus.productName} (qty ${result.surplus.quantity}) on Order #${order.orderNumber}`,
+      details: { field: "unitPrice", amount: result.surplus.lineTotal, productId: result.surplus.productId, typedUnitPrice: result.surplus.typedUnitPrice },
+    });
+  }
+
+  revalidateManagerOrder(orderId, order.salesRepId);
+  return {};
+}
+
+/** Replace a line's product with a different one — a customer revision (not upsell). */
+export async function swapOrderItemProductByManager(
+  orderId: string,
+  orderItemId: string,
+  newProductId: string,
+  newQuantity: number,
+  unitPrice?: number,
+): Promise<{ error?: string }> {
+  const gate = await requireManager();
+  if (!gate.ok) return { error: gate.error };
+  const { session } = gate;
+  suppressCameraForRequest();
+
+  const order = await prisma.order.findFirst({
+    where: { id: orderId, deletedAt: null },
+    select: { ...reviseOrderSelect, salesRepId: true },
+  });
+  if (!order) return { error: "Order not found." };
+
+  const result = await swapItemProduct(order, orderItemId, newProductId, newQuantity, unitPrice ?? 0, session.user.id);
+  if ("error" in result) return { error: result.error };
+
+  await logActivity({
+    userId: order.salesRepId,
+    actorName: session.user.name,
+    actorRole: session.user.role,
+    action: "Updated",
+    entityType: "Order",
+    entityId: orderId,
+    description: `Swapped ${result.oldProductName} → ${result.newProductName} (qty ${result.newQuantity}) on Order #${order.orderNumber}`,
+    details: { field: "product", before: result.oldProductName, after: result.newProductName, amount: result.newLineTotal },
+  });
+  if (result.surplus) {
+    await logActivity({
+      userId: order.salesRepId,
+      actorName: session.user.name,
+      actorRole: session.user.role,
+      action: "Updated",
+      entityType: "OrderItem",
+      entityId: orderId,
+      description: `Manual unit price ${formatCurrency(result.surplus.typedUnitPrice)} used for ${result.surplus.productName} (qty ${result.surplus.quantity}) on Order #${order.orderNumber}`,
+      details: { field: "unitPrice", amount: result.surplus.lineTotal, productId: result.surplus.productId, typedUnitPrice: result.surplus.typedUnitPrice },
+    });
+  }
+
+  revalidateManagerOrder(orderId, order.salesRepId);
+  return {};
+}
+
+/** Live price preview for the manager Edit-line popup (absolute quantity). */
+export async function resolveLineRepriceForManager(
+  orderId: string,
+  productId: string,
+  absoluteQty: number,
+  typedUnitPrice?: number,
+): Promise<PreviewResult> {
+  const gate = await requireManager();
+  if (!gate.ok) return { error: gate.error };
+
+  const order = await prisma.order.findFirst({
+    where: { id: orderId, deletedAt: null },
+    select: { formId: true },
+  });
+  if (!order) return { error: "Order not found." };
+  return previewLineReprice(order.formId, productId, absoluteQty, typedUnitPrice ?? 0);
+}
+
+/** Apply a negotiated (discounted) price — the price-change-at-delivery case. */
+export async function applyOrderDiscountByManager(
+  orderId: string,
+  negotiatedPrice: number,
+  reason?: string,
+): Promise<{ error?: string; discountAmount?: number; discountPercent?: number; netAmount?: number; totalAmount?: number }> {
+  const gate = await requireManager();
+  if (!gate.ok) return { error: gate.error };
+  const { session } = gate;
+  suppressCameraForRequest();
+
+  const result = await applyOrderNegotiatedPrice(orderId, negotiatedPrice, reason, session.user.id);
+  if ("error" in result) return { error: result.error };
+
+  if (result.hasDiscount) {
+    await logActivity({
+      userId: result.salesRepId,
+      actorName: session.user.name,
+      actorRole: session.user.role,
+      action: "Discount",
+      entityType: "Order",
+      entityId: orderId,
+      description: `Discount of ${formatCurrency(result.discountAmount)} (${result.discountPercent}%) applied to Order #${result.orderNumber}`,
+      details: { before: formatCurrency(result.gross), after: formatCurrency(result.negotiatedPrice), field: "price", amount: result.discountAmount },
+    });
+  }
+
+  revalidateManagerOrder(orderId, result.salesRepId);
+  return {
+    discountAmount: result.discountAmount,
+    discountPercent: result.discountPercent,
+    netAmount: result.negotiatedPrice,
+    totalAmount: result.gross,
+  };
 }
 
 /**
