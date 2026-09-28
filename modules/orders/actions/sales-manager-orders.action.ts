@@ -38,10 +38,13 @@ type PreviewResult =
   | { error: string };
 
 /** Revalidate every place a company sales manager sees this order. */
-function revalidateManagerOrder(orderId: string, salesRepId: string) {
+function revalidateManagerOrder(orderId: string, salesRepId: string | null) {
   revalidatePath("/sales-manager/orders");
   revalidatePath(`/sales-manager/orders/${orderId}`);
-  revalidatePath(`/sales-manager/${salesRepId}/orders/${orderId}`);
+  // Agent-sold orders have no rep, so no rep-scoped path to revalidate.
+  if (salesRepId) {
+    revalidatePath(`/sales-manager/${salesRepId}/orders/${orderId}`);
+  }
   revalidatePath("/sales-manager");
 }
 import {
@@ -103,7 +106,7 @@ export async function markOrderDeliveredByManager(
 
   // Log against the order's sales rep for their History page; show the manager as actor.
   await logActivity({
-    userId: order.salesRepId,
+    userId: order.salesRepId ?? session.user.id,
     actorName: session.user.name,
     actorRole: session.user.role,
     action: "Delivered",
@@ -167,7 +170,7 @@ export async function reassignOrderAgentByManager(
 
   // Log against the order's sales rep for their History page; show the manager as actor.
   await logActivity({
-    userId: result.order.salesRepId,
+    userId: result.order.salesRepId ?? session.user.id,
     actorName: session.user.name,
     actorRole: session.user.role,
     action: "Reassigned",
@@ -220,7 +223,7 @@ export async function addOrderItemsByManager(
   if ("error" in result) return { error: result.error };
 
   await logActivity({
-    userId: order.salesRepId,
+    userId: order.salesRepId ?? session.user.id,
     actorName: session.user.name,
     actorRole: session.user.role,
     action: "Updated",
@@ -230,7 +233,7 @@ export async function addOrderItemsByManager(
   });
   for (const s of result.surplusPlans) {
     await logActivity({
-      userId: order.salesRepId,
+      userId: order.salesRepId ?? session.user.id,
       actorName: session.user.name,
       actorRole: session.user.role,
       action: "Updated",
@@ -285,7 +288,7 @@ export async function changeOrderItemQuantityByManager(
   if ("error" in result) return { error: result.error };
 
   await logActivity({
-    userId: order.salesRepId,
+    userId: order.salesRepId ?? session.user.id,
     actorName: session.user.name,
     actorRole: session.user.role,
     action: "Updated",
@@ -296,7 +299,7 @@ export async function changeOrderItemQuantityByManager(
   });
   if (result.surplus) {
     await logActivity({
-      userId: order.salesRepId,
+      userId: order.salesRepId ?? session.user.id,
       actorName: session.user.name,
       actorRole: session.user.role,
       action: "Updated",
@@ -334,7 +337,7 @@ export async function swapOrderItemProductByManager(
   if ("error" in result) return { error: result.error };
 
   await logActivity({
-    userId: order.salesRepId,
+    userId: order.salesRepId ?? session.user.id,
     actorName: session.user.name,
     actorRole: session.user.role,
     action: "Updated",
@@ -345,7 +348,7 @@ export async function swapOrderItemProductByManager(
   });
   if (result.surplus) {
     await logActivity({
-      userId: order.salesRepId,
+      userId: order.salesRepId ?? session.user.id,
       actorName: session.user.name,
       actorRole: session.user.role,
       action: "Updated",
@@ -394,7 +397,7 @@ export async function applyOrderDiscountByManager(
 
   if (result.hasDiscount) {
     await logActivity({
-      userId: result.salesRepId,
+      userId: result.salesRepId ?? session.user.id,
       actorName: session.user.name,
       actorRole: session.user.role,
       action: "Discount",
@@ -453,7 +456,7 @@ export async function markOrderFailedByManager(
 
   // Log against the order's sales rep for their History page; show the manager as actor.
   await logActivity({
-    userId: order.salesRepId,
+    userId: order.salesRepId ?? session.user.id,
     actorName: session.user.name,
     actorRole: session.user.role,
     action: "Failed",

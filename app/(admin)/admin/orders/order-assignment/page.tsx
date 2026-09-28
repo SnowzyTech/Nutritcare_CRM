@@ -35,7 +35,7 @@ export default async function OrderAssignmentPage() {
       quantity: item.quantity,
       product: { name: item.product.name },
     })),
-    salesRep: { id: o.salesRep.id, name: o.salesRep.name },
+    salesRep: { id: o.salesRep?.id ?? "", name: o.salesRep?.name ?? "Agent sale" },
   }));
 
   const counts = {

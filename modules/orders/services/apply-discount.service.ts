@@ -13,7 +13,7 @@ export type ApplyDiscountResult =
   | {
       ok: true;
       orderNumber: string;
-      salesRepId: string;
+      salesRepId: string | null;
       gross: number;
       negotiatedPrice: number;
       discountAmount: number;

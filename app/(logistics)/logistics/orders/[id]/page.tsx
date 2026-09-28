@@ -57,8 +57,8 @@ export default async function LogisticsOrderDetailPage({ params }: Props) {
       product: { id: item.product.id, name: item.product.name },
     })),
     salesRep: {
-      id: rawOrder.salesRep.id,
-      name: rawOrder.salesRep.name,
+      id: rawOrder.salesRep?.id ?? "",
+      name: rawOrder.salesRep?.name ?? "Agent sale",
     },
     deliveries: rawOrder.deliveries.map((d) => ({
       scheduledTime: d.scheduledTime?.toISOString() ?? null,

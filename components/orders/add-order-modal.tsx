@@ -1,12 +1,12 @@
 'use client';
 
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { toast } from 'sonner';
 import { resolveManualOrderPriceAction } from '@/modules/orders/actions/orders.action';
 import type { ProductForms, ManualForm } from '@/modules/orders/services/form-packages.service';
 import { roleLabel } from '@/lib/chat/role-label';
 import { formatCurrency } from '@/lib/utils';
-import { Plus, X, ChevronDown, Trash2 } from 'lucide-react';
+import { Plus, X, ChevronDown, Trash2, Search } from 'lucide-react';
 
 /**
  * The manual "Add Order" modal, shared by every role allowed to key an order in
@@ -36,6 +36,10 @@ export type AddOrderLine = {
 export type AddOrderPayload = {
   /** Only set when a rep picker is rendered (analyst flow). */
   salesRepId?: string;
+  /** Agent-sale flow only: the delivery agent who sold the order. */
+  agentId?: string;
+  /** Agent-sale flow only: the date the agent sold/delivered it (YYYY-MM-DD). */
+  deliveredDate?: string;
   customerName: string;
   phone: string;
   whatsappNumber: string;
@@ -56,6 +60,15 @@ interface AddOrderModalProps {
   productForms: ProductForms[];
   /** Provide to require + render the "Sales Rep" picker (data-analyst flow). */
   salesReps?: Array<{ id: string; name: string }>;
+  /**
+   * Provide to switch the modal into AGENT-SALE mode (data flow): renders a
+   * required "Delivery Agent" picker + a "Delivery date" field instead of the rep
+   * picker, hides the Reorder toggle, and makes every line's price editable (the
+   * agent's negotiated door price). The order is created already delivered.
+   */
+  agents?: Array<{ id: string; name: string }>;
+  /** Heading + submit label (defaults to "Add Order"). */
+  title?: string;
   /** Server action that actually creates the order. */
   onSubmit: (payload: AddOrderPayload) => Promise<AddOrderResult>;
   /** Called after a successful create — for optimistic list updates / refresh. */
@@ -121,15 +134,106 @@ const SELECT_CLASS =
 const LABEL_CLASS =
   'text-[10px] font-bold text-gray-400 uppercase tracking-wider';
 
+/**
+ * Type-to-filter agent picker (mirrors the one in agent-stock-client): shows the
+ * selected name, opens a search box + filtered list so a long agent list doesn't
+ * have to be scrolled. Used for the agent-sale flow's "Delivery agent" field.
+ */
+function AgentSearchSelect({
+  agents,
+  value,
+  onChange,
+  placeholder = 'Select a delivery agent…',
+}: {
+  agents: Array<{ id: string; name: string }>;
+  value: string;
+  onChange: (id: string) => void;
+  placeholder?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const ref = useRef<HTMLDivElement>(null);
+  const selected = agents.find((a) => a.id === value);
+
+  useEffect(() => {
+    function onDocClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, []);
+
+  const q = query.trim().toLowerCase();
+  const filtered = q ? agents.filter((a) => a.name.toLowerCase().includes(q)) : agents;
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className={`${SELECT_CLASS} flex items-center justify-between text-left`}
+      >
+        <span className={selected ? 'text-gray-700 truncate' : 'text-gray-300'}>
+          {selected ? selected.name : placeholder}
+        </span>
+        <ChevronDown className="w-4 h-4 text-gray-400 shrink-0" />
+      </button>
+
+      {open && (
+        <div className="absolute z-30 mt-1 w-full bg-white border border-gray-100 rounded-xl shadow-lg overflow-hidden">
+          <div className="p-2 border-b border-gray-100">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300" />
+              <input
+                autoFocus
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search agent name…"
+                className="w-full pl-8 pr-3 h-9 text-xs border border-gray-100 rounded-lg focus:outline-none focus:ring-1 focus:ring-purple-200"
+              />
+            </div>
+          </div>
+          <div className="max-h-56 overflow-y-auto py-1">
+            {filtered.length === 0 ? (
+              <p className="px-3 py-3 text-xs text-gray-400 text-center">No agents found.</p>
+            ) : (
+              filtered.map((a) => (
+                <button
+                  key={a.id}
+                  type="button"
+                  onClick={() => {
+                    onChange(a.id);
+                    setOpen(false);
+                    setQuery('');
+                  }}
+                  className={`w-full text-left px-3 py-2 text-xs hover:bg-purple-50 ${
+                    a.id === value ? 'bg-purple-50 text-purple-700 font-semibold' : 'text-gray-700'
+                  }`}
+                >
+                  {a.name}
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function AddOrderModal({
   open,
   onClose,
   products,
   productForms,
   salesReps,
+  agents,
+  title,
   onSubmit,
   onCreated,
 }: AddOrderModalProps) {
+  // Agent-sale mode: no rep, born delivered, prices always editable.
+  const agentSale = !!agents;
   // Active forms available to price each product (product → its forms).
   const formsByProduct = useMemo(() => {
     const m = new Map<string, ManualForm[]>();
@@ -163,6 +267,10 @@ export function AddOrderModal({
   );
 
   const [salesRepId, setSalesRepId] = useState('');
+  const [agentId, setAgentId] = useState('');
+  // Agent-sold orders are entered after the fact — default to today, editable.
+  const todayStr = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const [deliveredDate, setDeliveredDate] = useState(todayStr);
   const [customerName, setCustomerName] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [whatsappNumber, setWhatsappNumber] = useState('');
@@ -180,6 +288,9 @@ export function AddOrderModal({
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+
+  // Line prices are editable on a reorder, and always in agent-sale mode.
+  const allowEdit = isReorder || agentSale;
 
   // Product Row helpers
   const addProductRow = () => setFormProducts((rows) => [...rows, makeRow()]);
@@ -215,6 +326,8 @@ export function AddOrderModal({
 
   const resetForm = () => {
     setSalesRepId('');
+    setAgentId('');
+    setDeliveredDate(todayStr);
     setCustomerName('');
     setPhoneNumber('');
     setWhatsappNumber('');
@@ -298,6 +411,14 @@ export function AddOrderModal({
       fail('Choose the sales rep this order belongs to.');
       return;
     }
+    if (agentSale && !agentId) {
+      fail('Choose the delivery agent who sold this order.');
+      return;
+    }
+    if (agentSale && !deliveredDate) {
+      fail('Enter the date this order was delivered.');
+      return;
+    }
 
     const parsedRows: Array<{ row: ProductRow; quantity: number }> = [];
     for (const r of formProducts) {
@@ -336,6 +457,7 @@ export function AddOrderModal({
 
     const payload: AddOrderPayload = {
       ...(salesReps ? { salesRepId } : {}),
+      ...(agentSale ? { agentId, deliveredDate } : {}),
       customerName,
       phone: phoneNumber,
       whatsappNumber,
@@ -349,7 +471,7 @@ export function AddOrderModal({
         formId: row.formId,
         quantity,
         unitPrice: parseFloat(row.unitPrice) > 0 ? parseFloat(row.unitPrice) : undefined,
-        ...(isReorder && row.customPrice !== null
+        ...(allowEdit && row.customPrice !== null
           ? { overrideLineTotal: parseCustomPrice(row) ?? undefined }
           : {}),
       })),
@@ -398,7 +520,7 @@ export function AddOrderModal({
 
         {/* Modal Title */}
         <h2 className="text-xl sm:text-2xl md:text-3xl font-extrabold text-gray-900 tracking-tight text-left mb-4 sm:mb-6 pr-10">
-          Add Order
+          {title ?? 'Add Order'}
         </h2>
 
         <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-6">
@@ -421,6 +543,28 @@ export function AddOrderModal({
                   ))}
                 </select>
                 <ChevronDown className="absolute right-3 sm:right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+              </div>
+            </div>
+          )}
+
+          {/* Agent-sale flow: the delivery agent who sold it + the delivery date.
+              The order is created already delivered against this agent. */}
+          {agentSale && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-[#FAF8FF] border border-purple-100/40 rounded-xl px-4 py-3">
+              <div className="space-y-1 sm:space-y-1.5 text-left">
+                <label className={LABEL_CLASS}>Delivery agent (sold + delivered it)</label>
+                <AgentSearchSelect agents={agents!} value={agentId} onChange={setAgentId} />
+              </div>
+              <div className="space-y-1 sm:space-y-1.5 text-left">
+                <label className={LABEL_CLASS}>Delivery date</label>
+                <input
+                  type="date"
+                  required
+                  max={todayStr}
+                  value={deliveredDate}
+                  onChange={(e) => setDeliveredDate(e.target.value)}
+                  className={FIELD_CLASS}
+                />
               </div>
             </div>
           )}
@@ -516,7 +660,8 @@ export function AddOrderModal({
 
           </div>
 
-          {/* Reorder toggle */}
+          {/* Reorder toggle — hidden for agent sales (prices are always editable there) */}
+          {!agentSale && (
           <div className="flex items-center justify-between bg-[#FAF8FF] border border-purple-100/40 rounded-xl sm:rounded-2xl px-4 sm:px-6 py-3 sm:py-4">
             <div className="text-left pr-2">
               <p className="text-xs sm:text-sm font-bold text-gray-800">Mark as Reorder</p>
@@ -540,6 +685,7 @@ export function AddOrderModal({
               />
             </button>
           </div>
+          )}
 
           {/* Products Sub-Form Section */}
           <div className="bg-[#FAF8FF] p-3 sm:p-4 md:p-6 rounded-xl sm:rounded-[24px] border border-purple-100/30 space-y-3 sm:space-y-5">
@@ -683,7 +829,7 @@ export function AddOrderModal({
                           Line total{isCustom ? ' (edited)' : ''}
                         </span>
                         <span className="flex items-center gap-3">
-                          {isReorder && !isCustom && (
+                          {allowEdit && !isCustom && (
                             <button
                               type="button"
                               onClick={() =>

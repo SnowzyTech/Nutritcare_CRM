@@ -582,7 +582,7 @@ export async function hardDeleteOrder(
             customerName: order.customer.name,
             customerEmail: order.customer.email ?? "",
             state: order.customer.state,
-            salesRep: order.salesRep.name,
+            salesRep: order.salesRep?.name ?? "Agent sale",
             product: order.items[0]?.product.name ?? "—",
             quantity: order.items[0]?.quantity ?? 0,
             status: STATUS_MAP[order.status] ?? "Pending",
@@ -768,10 +768,10 @@ function toOrderRow(o: OrderRowRaw): OrderRow {
     name: o.customer.name,
     agent: o.agent ? { id: o.agent.id, name: o.agent.companyName, state: o.agent.state ?? "" } : null,
     state: o.customer.state,
-    salesRep: o.salesRep.name,
-    salesRepId: o.salesRep.id,
-    teamId: o.salesRep.team?.id ?? null,
-    teamName: o.salesRep.team?.name ?? null,
+    salesRep: o.salesRep?.name ?? "Agent sale",
+    salesRepId: o.salesRep?.id ?? "",
+    teamId: o.salesRep?.team?.id ?? null,
+    teamName: o.salesRep?.team?.name ?? null,
     product: o.items[0]?.product.name ?? "—",
     itemCount: o._count.items,
     isReorder: o.isReorder,
@@ -990,8 +990,8 @@ export async function getOrderByOrderNumber(orderNumber: string): Promise<OrderD
 
   const firstDelivery = order.deliveries[0];
   const history: OrderDetailFull["history"] = [
-    { event: "Order Created", date: fmtDateTime(order.createdAt), repName: order.salesRep.name },
-    { event: "Sales Rep Assigned", date: fmtDateTime(order.createdAt), repName: order.salesRep.name },
+    { event: "Order Created", date: fmtDateTime(order.createdAt), repName: (order.salesRep?.name ?? "Agent sale") },
+    { event: "Sales Rep Assigned", date: fmtDateTime(order.createdAt), repName: (order.salesRep?.name ?? "Agent sale") },
   ];
   // A delivery is created at confirmation time, so its existence marks the order
   // as having been confirmed — show the confirmation-related events for
@@ -1000,13 +1000,13 @@ export async function getOrderByOrderNumber(orderNumber: string): Promise<OrderD
     history.push({
       event: "Order Confirmed",
       date: fmtDateTime(firstDelivery.createdAt),
-      repName: order.salesRep.name,
+      repName: (order.salesRep?.name ?? "Agent sale"),
     });
     if ((order.notes?.trim() ?? "") !== "") {
       history.push({
         event: "Prescription Sent",
         date: fmtDateTime(firstDelivery.createdAt),
-        repName: order.salesRep.name,
+        repName: (order.salesRep?.name ?? "Agent sale"),
       });
     }
     if (order.agent) {
@@ -1042,7 +1042,7 @@ export async function getOrderByOrderNumber(orderNumber: string): Promise<OrderD
     }
   }
   if (order.status === "CANCELLED") {
-    history.push({ event: "Order Cancelled", date: fmtDateTime(order.updatedAt), repName: order.salesRep.name });
+    history.push({ event: "Order Cancelled", date: fmtDateTime(order.updatedAt), repName: (order.salesRep?.name ?? "Agent sale") });
   }
 
   const duplicateOfNumber = order.duplicateOfId
@@ -1058,8 +1058,8 @@ export async function getOrderByOrderNumber(orderNumber: string): Promise<OrderD
     id: order.id,
     orderId: order.orderNumber,
     status: STATUS_MAP[order.status] ?? "Pending",
-    repName: order.salesRep.name,
-    repAvatarUrl: avatarUrl(order.salesRep.name, order.salesRep.avatarUrl),
+    repName: (order.salesRep?.name ?? "Agent sale"),
+    repAvatarUrl: avatarUrl((order.salesRep?.name ?? "Agent sale"), (order.salesRep?.avatarUrl ?? null)),
     customer: {
       fullName: order.customer.name,
       phoneNumber: order.customer.phone,

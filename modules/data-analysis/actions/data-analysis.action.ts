@@ -19,8 +19,10 @@ import { isUserTeamLead } from "@/modules/users/services/users.service";
 import {
   createManualOrder,
   logManualOrderCreated,
+  logAgentOrderCreated,
   manualOrderSchema,
 } from "@/modules/orders/services/manual-order.service";
+import { createAgentOrder } from "@/modules/orders/services/agent-order.service";
 import { reassignAgentForOrder } from "@/modules/orders/services/reassign-agent.service";
 import { reenableDuplicateOrder } from "@/modules/orders/services/duplicate-order.service";
 import {
@@ -173,7 +175,7 @@ export async function markOrderDeliveredByAnalyst(
 
   // Log against the order's sales rep for their History page; show the analyst as actor.
   await logActivity({
-    userId: order.salesRepId,
+    userId: order.salesRepId ?? session.user.id,
     actorName: session.user.name,
     actorRole: session.user.role,
     action: "Delivered",
@@ -235,10 +237,13 @@ async function requireAnalystLead() {
   return { ok: true as const, session };
 }
 
-function revalidateAnalystOrder(orderNumber: string, salesRepId: string) {
+function revalidateAnalystOrder(orderNumber: string, salesRepId: string | null) {
   revalidatePath("/data/order");
   revalidatePath(`/data/order/${orderNumber}`);
-  revalidatePath(`/data/sales-reps/${salesRepId}/order/${orderNumber}`);
+  // Agent-sold orders have no rep, so no rep-scoped path to revalidate.
+  if (salesRepId) {
+    revalidatePath(`/data/sales-reps/${salesRepId}/order/${orderNumber}`);
+  }
   revalidatePath("/data");
   revalidatePath("/data/history");
 }
@@ -263,7 +268,7 @@ export async function addOrderItemsByAnalyst(
   if ("error" in result) return { error: result.error };
 
   await logActivity({
-    userId: order.salesRepId,
+    userId: order.salesRepId ?? session.user.id,
     actorName: session.user.name,
     actorRole: session.user.role,
     action: "Updated",
@@ -273,7 +278,7 @@ export async function addOrderItemsByAnalyst(
   });
   for (const s of result.surplusPlans) {
     await logActivity({
-      userId: order.salesRepId,
+      userId: order.salesRepId ?? session.user.id,
       actorName: session.user.name,
       actorRole: session.user.role,
       action: "Updated",
@@ -328,7 +333,7 @@ export async function changeOrderItemQuantityByAnalyst(
   if ("error" in result) return { error: result.error };
 
   await logActivity({
-    userId: order.salesRepId,
+    userId: order.salesRepId ?? session.user.id,
     actorName: session.user.name,
     actorRole: session.user.role,
     action: "Updated",
@@ -339,7 +344,7 @@ export async function changeOrderItemQuantityByAnalyst(
   });
   if (result.surplus) {
     await logActivity({
-      userId: order.salesRepId,
+      userId: order.salesRepId ?? session.user.id,
       actorName: session.user.name,
       actorRole: session.user.role,
       action: "Updated",
@@ -377,7 +382,7 @@ export async function swapOrderItemProductByAnalyst(
   if ("error" in result) return { error: result.error };
 
   await logActivity({
-    userId: order.salesRepId,
+    userId: order.salesRepId ?? session.user.id,
     actorName: session.user.name,
     actorRole: session.user.role,
     action: "Updated",
@@ -388,7 +393,7 @@ export async function swapOrderItemProductByAnalyst(
   });
   if (result.surplus) {
     await logActivity({
-      userId: order.salesRepId,
+      userId: order.salesRepId ?? session.user.id,
       actorName: session.user.name,
       actorRole: session.user.role,
       action: "Updated",
@@ -437,7 +442,7 @@ export async function applyOrderDiscountByAnalyst(
 
   if (result.hasDiscount) {
     await logActivity({
-      userId: result.salesRepId,
+      userId: result.salesRepId ?? session.user.id,
       actorName: session.user.name,
       actorRole: session.user.role,
       action: "Discount",
@@ -499,7 +504,7 @@ export async function markOrderFailedByAnalyst(
 
   // Log against the order's sales rep for their History page; show the analyst as actor.
   await logActivity({
-    userId: order.salesRepId,
+    userId: order.salesRepId ?? session.user.id,
     actorName: session.user.name,
     actorRole: session.user.role,
     action: "Failed",
@@ -545,7 +550,7 @@ export async function reassignOrderAgentByAnalyst(
 
   // Log against the order's sales rep for their History page; show the analyst as actor.
   await logActivity({
-    userId: result.order.salesRepId,
+    userId: result.order.salesRepId ?? session.user.id,
     actorName: session.user.name,
     actorRole: session.user.role,
     action: "Reassigned",
@@ -677,5 +682,85 @@ export async function createOrderByAnalystAction(
   revalidatePath("/data");
   // The order lands on the rep's own list too.
   revalidatePath("/sales-rep/orders");
+  return { orderId: result.orderId, orderNumber: result.orderNumber };
+}
+
+/**
+ * An AGENT-SOLD order: a delivery agent sold directly to the customer at
+ * delivery, so there is NO sales rep and the order is already delivered. The
+ * analyst names the delivery AGENT (not a rep) and the date it was sold.
+ */
+const agentSaleOrderSchema = manualOrderSchema.extend({
+  agentId: z.string().min(1, "Choose the delivery agent who sold this order."),
+  deliveredDate: z.string().min(1, "Enter the date this order was delivered."),
+});
+
+export type CreateAgentSaleOrderInput = z.input<typeof agentSaleOrderSchema>;
+
+/**
+ * Data team-lead / super-admin keys in an order a DELIVERY AGENT sold directly to
+ * the customer at the point of delivery (no rep, already delivered).
+ *
+ * Reuses the shared pricing core (`priceOrderLines`) and the delivery machinery
+ * (`createAgentOrder`: agent stock debited with a zero floor + agent ledger
+ * entry), so stock/money behave exactly like a normal agent delivery — minus the
+ * confirmation/WhatsApp stages. Gated tighter than the on-behalf-of-rep flow
+ * because it moves stock and money (same bar as `markOrderDeliveredByAnalyst`).
+ */
+export async function createAgentSaleOrderAction(
+  input: CreateAgentSaleOrderInput,
+): Promise<{ orderId: string; orderNumber: string } | { error: string }> {
+  const session = await auth();
+  suppressCameraForRequest();
+
+  const role = session?.user?.role;
+  if (!session?.user?.id) return { error: "You are not authorized to create orders." };
+  const isTeamLead = role === "DATA_ANALYST" && (await isUserTeamLead(session.user.id));
+  if (role !== "SUPER_ADMIN" && !isTeamLead) {
+    return { error: "Only the Data Analyst team lead can add agent-sold orders." };
+  }
+
+  const parsed = agentSaleOrderSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid order details." };
+  }
+  const { agentId, deliveredDate, ...orderInput } = parsed.data;
+
+  // Back-dating is expected (the sale already happened); only reject an invalid or
+  // future date.
+  const deliveredAt = new Date(deliveredDate);
+  if (Number.isNaN(deliveredAt.getTime())) {
+    return { error: "That delivery date is not valid." };
+  }
+  if (deliveredAt.getTime() > Date.now()) {
+    return { error: "The delivery date cannot be in the future." };
+  }
+
+  const agent = await prisma.agent.findFirst({
+    where: { id: agentId, status: "ACTIVE", deletedAt: null },
+    select: { id: true, companyName: true },
+  });
+  if (!agent) return { error: "That delivery agent is no longer active. Pick another agent." };
+
+  const result = await createAgentOrder(orderInput, { agentId: agent.id, deliveredAt });
+  if ("error" in result) return { error: result.error };
+
+  // No rep to file under: the audit row lands on the actor (the data team-lead /
+  // super-admin) with the delivery agent named in the description.
+  await logAgentOrderCreated({
+    actorUserId: session.user.id,
+    actorRole: session.user.role,
+    orderId: result.orderId,
+    orderNumber: result.orderNumber,
+    customerName: orderInput.customerName,
+    agentName: agent.companyName,
+    totalAmount: result.totalAmount,
+    surplusLines: result.surplusLines,
+    priceOverrides: result.priceOverrides,
+  });
+
+  revalidatePath("/data/order");
+  revalidatePath("/data");
+  revalidatePath("/admin/orders");
   return { orderId: result.orderId, orderNumber: result.orderNumber };
 }

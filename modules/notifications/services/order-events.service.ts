@@ -91,6 +91,8 @@ export function notifyRepsOrdersAssigned(orderIds: string[], actor?: Actor): voi
     });
     const byRep = new Map<string, typeof orders>();
     for (const o of orders) {
+      // Agent-sold orders have no rep to notify — skip them.
+      if (!o.salesRepId) continue;
       const list = byRep.get(o.salesRepId) ?? [];
       list.push(o);
       byRep.set(o.salesRepId, list);

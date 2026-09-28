@@ -10,7 +10,7 @@ export type ReassignAgentResult =
       ok: true;
       order: {
         orderNumber: string;
-        salesRepId: string;
+        salesRepId: string | null;
         previousStatus: OrderStatus;
         /** The agent the order was taken from (null if it had none). */
         previousAgentId: string | null;

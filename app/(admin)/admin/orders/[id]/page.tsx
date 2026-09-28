@@ -88,8 +88,8 @@ export default async function AdminOrderDetailPage({ params }: Props) {
       },
     })),
     salesRep: {
-      id: rawOrder.salesRep.id,
-      name: rawOrder.salesRep.name,
+      id: rawOrder.salesRep?.id ?? "",
+      name: rawOrder.salesRep?.name ?? "Agent sale",
     },
     deliveries: rawOrder.deliveries.map((d) => ({
       createdAt: d.createdAt.toISOString(),
