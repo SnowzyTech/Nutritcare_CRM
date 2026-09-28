@@ -26,6 +26,7 @@ export const allNavItems: NavItem[] = [
     icon: "staff",
     children: [
       { label: "Sales Rep", href: "/admin/staff/sales-rep" },
+      { label: "Sales Manager", href: "/admin/staff/sales-manager" },
       { label: "Delivery Agent", href: "/admin/staff/delivery-agent" },
       { label: "Inventory Manager", href: "/admin/staff/inventory-manager" },
       { label: "Accountant", href: "/admin/staff/accountant" },
