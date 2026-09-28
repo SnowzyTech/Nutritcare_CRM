@@ -69,7 +69,7 @@ export async function getFeedbackForPeriod(
       product: r.product?.name ?? null,
       orderId: r.order.id,
       orderNumber: r.order.orderNumber,
-      rep: r.order.salesRep.name,
+      rep: r.order.salesRep?.name ?? "Agent sale",
       status: r.status,
       action: r.action,
       createdAt: r.createdAt.toISOString(),

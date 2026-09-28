@@ -411,7 +411,10 @@ model Order {
   id              String      @id @default(cuid())
   orderNumber     String      @unique
   customerId      String
-  salesRepId      String
+  // Nullable: agent-sold orders (a delivery agent sold directly to the customer
+  // at delivery) have NO sales rep. Every other order still has one. `salesRepId`
+  // stays the rep-analytics/commission key — a null here means "no rep to credit".
+  salesRepId      String?
   agentId          String?
   status           OrderStatus      @default(PENDING)
   remittanceStatus RemittanceStatus @default(NOT_REMITTED)
@@ -460,7 +463,7 @@ model Order {
   items           OrderItem[]
   agent           Agent?      @relation(fields: [agentId], references: [id])
   customer        Customer    @relation(fields: [customerId], references: [id])
-  salesRep        User        @relation("SalesRepOrders", fields: [salesRepId], references: [id])
+  salesRep        User?       @relation("SalesRepOrders", fields: [salesRepId], references: [id], onDelete: SetNull)
   discountedBy    User?       @relation("DiscountedOrders", fields: [discountedById], references: [id])
   form            Form?       @relation("FormOrders", fields: [formId], references: [id])
   autoAssignedTo  User?       @relation("AutoAssignedOrders", fields: [autoAssignedToId], references: [id], onDelete: SetNull)

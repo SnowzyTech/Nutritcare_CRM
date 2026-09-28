@@ -158,7 +158,7 @@ export async function adminConfirmOrderAction(orderId: string, deliveryDate?: st
   }
 
   await logActivity({
-    userId: order.salesRepId,
+    userId: order.salesRepId ?? session.user.id,
     action: "Order Confirmed",
     entityType: "Order",
     entityId: orderId,
@@ -191,7 +191,7 @@ export async function adminConfirmOrderAction(orderId: string, deliveryDate?: st
     })
       .then((result) => {
         recordWhatsAppResult({
-          userId: order.salesRepId,
+          userId: order.salesRepId ?? session.user.id,
           orderId,
           orderNumber: order.orderNumber,
           channel: "confirmation",
@@ -202,7 +202,7 @@ export async function adminConfirmOrderAction(orderId: string, deliveryDate?: st
       })
       .then((result) =>
         recordWhatsAppResult({
-          userId: order.salesRepId,
+          userId: order.salesRepId ?? session.user.id,
           orderId,
           orderNumber: order.orderNumber,
           channel: "delivery code",
@@ -225,7 +225,7 @@ export async function adminCancelOrderAction(orderId: string): Promise<ActionRes
   }
   await prisma.order.update({ where: { id: orderId }, data: { status: "CANCELLED" } });
   await logActivity({
-    userId: order.salesRepId,
+    userId: order.salesRepId ?? session.user.id,
     action: "Cancel",
     entityType: "Order",
     entityId: orderId,
@@ -245,7 +245,7 @@ export async function adminFailOrderAction(orderId: string): Promise<ActionResul
   if (!order || order.status !== "CONFIRMED") return { error: "Cannot fail this order" };
   await prisma.order.update({ where: { id: orderId }, data: { status: "FAILED" } });
   await logActivity({
-    userId: order.salesRepId,
+    userId: order.salesRepId ?? session.user.id,
     action: "Failed",
     entityType: "Order",
     entityId: orderId,
@@ -283,7 +283,7 @@ export async function adminReviveOrderAction(orderId: string): Promise<ActionRes
     ]);
   }
   await logActivity({
-    userId: order.salesRepId,
+    userId: order.salesRepId ?? session.user.id,
     action: "Revived",
     entityType: "Order",
     entityId: orderId,
@@ -321,7 +321,7 @@ export async function adminUndoDeliveryAction(
   if (!result.ok) return { error: result.error };
 
   await logActivity({
-    userId: result.salesRepId,
+    userId: result.salesRepId ?? session.user.id,
     actorName: session.user.name,
     actorRole: session.user.role,
     action: "Revived",
@@ -369,7 +369,7 @@ export async function adminDeliverOrderAction(
   }
 
   await logActivity({
-    userId: order.salesRepId,
+    userId: order.salesRepId ?? session.user.id,
     action: "Delivered",
     entityType: "Order",
     entityId: orderId,
@@ -431,7 +431,7 @@ export async function adminApplyOrderDiscountAction(
 
   if (hasDiscount) {
     await logActivity({
-      userId: order.salesRepId,
+      userId: order.salesRepId ?? session.user.id,
       action: "Discount",
       entityType: "Order",
       entityId: orderId,

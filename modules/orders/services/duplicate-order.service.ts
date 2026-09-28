@@ -128,16 +128,21 @@ export async function detectAndFlagDuplicate(
       });
     });
 
-    await logActivity({
-      userId: newOrder.salesRepId,
-      actorName: actor?.name ?? "System",
-      actorRole: actor?.role ?? "System",
-      action: "Updated",
-      entityType: "Order",
-      entityId: newOrder.id,
-      description: `Order #${newOrder.orderNumber} auto-flagged as a duplicate of #${original.orderNumber} and disabled`,
-      details: { duplicateOfId: original.id, duplicateOfNumber: original.orderNumber },
-    });
+    // Only rep/form orders reach duplicate detection (agent-sold orders skip it),
+    // so salesRepId is present here; fall back to the actor just in case.
+    const dupLogUserId = newOrder.salesRepId ?? actor?.id ?? null;
+    if (dupLogUserId) {
+      await logActivity({
+        userId: dupLogUserId,
+        actorName: actor?.name ?? "System",
+        actorRole: actor?.role ?? "System",
+        action: "Updated",
+        entityType: "Order",
+        entityId: newOrder.id,
+        description: `Order #${newOrder.orderNumber} auto-flagged as a duplicate of #${original.orderNumber} and disabled`,
+        details: { duplicateOfId: original.id, duplicateOfNumber: original.orderNumber },
+      });
+    }
 
     // Best-effort: tell the rep + data team-lead so a human can review.
     notifyOrderDuplicateFlagged(newOrder.id, original.id, actor ?? undefined);
@@ -192,16 +197,19 @@ export async function reenableDuplicateOrder(
     }
   });
 
-  await logActivity({
-    userId: order.salesRepId,
-    actorName: actor.name ?? null,
-    actorRole: actor.role ?? null,
-    action: "Updated",
-    entityType: "Order",
-    entityId: order.id,
-    description: `Duplicate order #${order.orderNumber} re-enabled${actor.name ? ` by ${actor.name}` : ""}`,
-    details: { reenabled: true, previousDuplicateOfId: originalId },
-  });
+  const reenableLogUserId = order.salesRepId ?? actor.id ?? null;
+  if (reenableLogUserId) {
+    await logActivity({
+      userId: reenableLogUserId,
+      actorName: actor.name ?? null,
+      actorRole: actor.role ?? null,
+      action: "Updated",
+      entityType: "Order",
+      entityId: order.id,
+      description: `Duplicate order #${order.orderNumber} re-enabled${actor.name ? ` by ${actor.name}` : ""}`,
+      details: { reenabled: true, previousDuplicateOfId: originalId },
+    });
+  }
 
   return { ok: true, orderNumber: order.orderNumber };
 }

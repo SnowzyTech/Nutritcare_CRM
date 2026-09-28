@@ -24,7 +24,7 @@ export type UndoDeliveryResult =
   | {
       ok: true;
       orderNumber: string;
-      salesRepId: string;
+      salesRepId: string | null;
       /** Ledger amount removed from the agent's balance; null when the order had no agent. */
       reversedAmount: number | null;
     }

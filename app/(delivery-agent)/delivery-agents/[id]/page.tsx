@@ -20,6 +20,8 @@ export default async function OrderDetailsPage({ params }: { params: Promise<{ i
   // Serialize Prisma Decimal fields to plain numbers for the client component
   const order = {
     ...raw,
+    // Agent-sold orders have no rep — show a neutral label for the agent's view.
+    salesRep: raw.salesRep ?? { name: "Agent sale", phone: null },
     deliveryFee: Number(raw.deliveryFee),
     netAmount: Number(raw.netAmount),
     failureReason: raw.deliveries[0]?.failureReason ?? null,

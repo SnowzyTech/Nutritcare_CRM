@@ -135,7 +135,7 @@ export async function markOrderDeliveredAction(orderId: string, deliveryCode: st
   // Log against the order's sales rep so it surfaces in their History page, but
   // show the delivery agent as the actor in the system-wide (General) history.
   await logActivity({
-    userId: order.salesRepId,
+    userId: order.salesRepId ?? session.user.id,
     actorName: session.user.name,
     actorRole: session.user.role,
     action: "Delivered",
@@ -195,7 +195,7 @@ export async function markOrderFailedAction(orderId: string, failureReason: stri
   // Log against the order's sales rep so it surfaces in their History page, but
   // show the delivery agent as the actor in the system-wide (General) history.
   await logActivity({
-    userId: order.salesRepId,
+    userId: order.salesRepId ?? session.user.id,
     actorName: session.user.name,
     actorRole: session.user.role,
     action: "Failed",

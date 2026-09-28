@@ -102,37 +102,47 @@ export type ManualOrderResult =
     }
   | { error: string };
 
+/** The priced lines + audit trail for one order, ready to write. */
+export type PricedOrderLines = {
+  orderItemsData: Array<{
+    productId: string;
+    quantity: number;
+    unitPrice: number;
+    lineTotal: number;
+    costPriceAtSale: number;
+  }>;
+  surplusLines: ManualOrderSurplusLine[];
+  priceOverrides: ManualOrderPriceOverride[];
+  totalAmount: number;
+  /** Name of the first-selected product — the order-number prefix source. */
+  mainProductName: string | undefined;
+};
+
+/** The customer fields every order-create flow collects. */
+export type OrderCustomerInput = {
+  customerName: string;
+  phone: string;
+  whatsappNumber?: string;
+  email?: string;
+  deliveryAddress: string;
+  state: string;
+  landmark?: string;
+};
+
 /**
- * Upserts the customer by phone, re-prices every line from its chosen form, and
- * creates the PENDING order attributed to `salesRepId`.
- *
- * Callers own auth, `suppressCameraForRequest()`, audit logging (via
- * `logManualOrderCreated`) and revalidation. Never throws — returns `{ error }`
- * so actions can hand the message straight back to the UI.
+ * Upserts the order's customer by phone (setting the normalised `phoneKey` that
+ * reports use to recognise a returning customer — docs/sales-reporting.md).
+ * Shared by every manual/agent order-create flow so customer handling never diverges.
  */
-export async function createManualOrder(
-  input: ManualOrderInput,
-  salesRepId: string,
-): Promise<ManualOrderResult> {
-  const {
-    customerName, phone, whatsappNumber, email, deliveryAddress,
-    state, landmark, isReorder, products,
-  } = input;
-
-  // An edited (agreed) price is a reorder concession only — normal orders are
-  // always priced from the form's packages.
-  if (!isReorder && products.some((p) => p.overrideLineTotal !== undefined)) {
-    return { error: "Prices can only be edited on reorders. Turn on “Mark as Reorder” or use the form price." };
-  }
-
+export async function upsertOrderCustomer(input: OrderCustomerInput): Promise<{ id: string }> {
+  const { customerName, phone, whatsappNumber, email, deliveryAddress, state, landmark } = input;
   const cleanPhone = phone.replace(/\s+/g, "");
-  // Normalised phone — how reports recognise a returning customer (docs/sales-reporting.md).
   const phoneKey = toInternationalPhone(cleanPhone) || null;
 
-  let customer = await prisma.customer.findFirst({ where: { phone: cleanPhone } });
-  if (customer) {
-    customer = await prisma.customer.update({
-      where: { id: customer.id },
+  const existing = await prisma.customer.findFirst({ where: { phone: cleanPhone } });
+  if (existing) {
+    return prisma.customer.update({
+      where: { id: existing.id },
       data: {
         name: customerName,
         phoneKey,
@@ -142,21 +152,44 @@ export async function createManualOrder(
         state,
         landmark: landmark || null,
       },
+      select: { id: true },
     });
-  } else {
-    customer = await prisma.customer.create({
-      data: {
-        name: customerName,
-        phone: cleanPhone,
-        phoneKey,
-        whatsappNumber: whatsappNumber || null,
-        email: email || null,
-        deliveryAddress,
-        state,
-        lga: "",
-        landmark: landmark || null,
-      },
-    });
+  }
+  return prisma.customer.create({
+    data: {
+      name: customerName,
+      phone: cleanPhone,
+      phoneKey,
+      whatsappNumber: whatsappNumber || null,
+      email: email || null,
+      deliveryAddress,
+      state,
+      lga: "",
+      landmark: landmark || null,
+    },
+    select: { id: true },
+  });
+}
+
+/**
+ * Re-prices every line server-side from its chosen FORM's package tiers via
+ * `resolveUpsellPrice` — never `sellingPrice x qty`. The shared money math for
+ * both `createManualOrder` (rep/analyst) and the agent-sale flow, so pricing
+ * never diverges. Returns `{ error }` (never throws) so actions can hand the
+ * message straight to the UI.
+ *
+ * `allowOverride` decides whether a per-line `overrideLineTotal` (an agreed price
+ * that replaces the form price outright) is accepted: `createManualOrder` passes
+ * `isReorder` (concession is reorders-only); the agent-sale flow passes `true`
+ * (an agent's negotiated door price is always editable). Overridden prices are
+ * still recorded in `priceOverrides` for the audit trail.
+ */
+export async function priceOrderLines(
+  products: ManualOrderInput["products"],
+  opts: { allowOverride: boolean },
+): Promise<PricedOrderLines | { error: string }> {
+  if (!opts.allowOverride && products.some((p) => p.overrideLineTotal !== undefined)) {
+    return { error: "Prices can only be edited on reorders. Turn on “Mark as Reorder” or use the form price." };
   }
 
   const dbProducts = await prisma.product.findMany({
@@ -177,13 +210,7 @@ export async function createManualOrder(
   });
   const formMap = new Map(forms.map((f) => [f.id, f]));
 
-  const orderItemsData: Array<{
-    productId: string;
-    quantity: number;
-    unitPrice: number;
-    lineTotal: number;
-    costPriceAtSale: number;
-  }> = [];
+  const orderItemsData: PricedOrderLines["orderItemsData"] = [];
   const surplusLines: ManualOrderSurplusLine[] = [];
   const priceOverrides: ManualOrderPriceOverride[] = [];
 
@@ -210,9 +237,8 @@ export async function createManualOrder(
       item.unitPrice ?? 0,
       item.formId,
     );
-    // Reorder with an agreed price: the rep's line total replaces the form price
-    // outright (the typed surplus unit price is then irrelevant). The form price
-    // is kept only for the audit trail.
+    // Agreed price replaces the form price outright (the typed surplus unit price
+    // is then irrelevant). The form price is kept only for the audit trail.
     if (item.overrideLineTotal !== undefined) {
       const lineTotal = round2(item.overrideLineTotal);
       if (lineTotal <= 0) {
@@ -263,6 +289,29 @@ export async function createManualOrder(
   }
 
   const totalAmount = orderItemsData.reduce((sum, i) => sum + i.lineTotal, 0);
+  return { orderItemsData, surplusLines, priceOverrides, totalAmount, mainProductName };
+}
+
+/**
+ * Upserts the customer by phone, re-prices every line from its chosen form, and
+ * creates the PENDING order attributed to `salesRepId`.
+ *
+ * Callers own auth, `suppressCameraForRequest()`, audit logging (via
+ * `logManualOrderCreated`) and revalidation. Never throws — returns `{ error }`
+ * so actions can hand the message straight back to the UI.
+ */
+export async function createManualOrder(
+  input: ManualOrderInput,
+  salesRepId: string,
+): Promise<ManualOrderResult> {
+  const { isReorder, products } = input;
+
+  const customer = await upsertOrderCustomer(input);
+
+  // Edited (agreed) prices are a reorder concession only for the manual flow.
+  const priced = await priceOrderLines(products, { allowOverride: isReorder ?? false });
+  if ("error" in priced) return priced;
+  const { orderItemsData, surplusLines, priceOverrides, totalAmount, mainProductName } = priced;
 
   try {
     const order = await prisma.$transaction(async (tx) => {
@@ -378,6 +427,79 @@ export async function logManualOrderCreated(params: {
       entityType: "OrderItem",
       entityId: orderId,
       description: `Reorder price edited for ${o.productName} (qty ${o.quantity}) on Order #${orderNumber}: ${formPrice} → ${formatCurrency(o.lineTotal)}`,
+      details: {
+        field: "price",
+        before: o.formLineTotal,
+        after: o.lineTotal,
+        amount: o.lineTotal,
+        productId: o.productId,
+        quantity: o.quantity,
+      },
+    });
+  }
+}
+
+/**
+ * Audit rows for an AGENT-SOLD order. Unlike a manual order there is NO sales rep
+ * to file under, so rows are filed under the ACTOR who keyed it (the data
+ * team-lead / super-admin), and the description names the delivery agent that
+ * sold it. Same surplus/override review rows as `logManualOrderCreated`.
+ */
+export async function logAgentOrderCreated(params: {
+  /** The signed-in creator — rows are filed under them (there is no rep). */
+  actorUserId: string;
+  actorRole?: string | null;
+  orderId: string;
+  orderNumber: string;
+  customerName: string;
+  agentName: string;
+  totalAmount: number;
+  surplusLines: ManualOrderSurplusLine[];
+  priceOverrides: ManualOrderPriceOverride[];
+}): Promise<void> {
+  const {
+    actorUserId, actorRole, orderId, orderNumber, customerName,
+    agentName, totalAmount, surplusLines, priceOverrides,
+  } = params;
+
+  await logActivity({
+    userId: actorUserId,
+    actorRole: actorRole ?? null,
+    action: "Created",
+    entityType: "Order",
+    entityId: orderId,
+    description: `Agent-sold Order #${orderNumber} created for ${customerName}, delivered by ${agentName}`,
+    details: { amount: totalAmount },
+  });
+
+  for (const s of surplusLines) {
+    await logActivity({
+      userId: actorUserId,
+      actorRole: actorRole ?? null,
+      action: "Created",
+      entityType: "OrderItem",
+      entityId: orderId,
+      description: `Manual unit price ${formatCurrency(
+        s.unitPrice,
+      )} used for ${s.productName} (qty ${s.quantity}) on Order #${orderNumber}`,
+      details: {
+        field: "unitPrice",
+        amount: s.lineTotal,
+        productId: s.productId,
+        typedUnitPrice: s.unitPrice,
+      },
+    });
+  }
+
+  for (const o of priceOverrides) {
+    const formPrice = o.formLineTotal === null ? "no form package price" : formatCurrency(o.formLineTotal);
+    await logActivity({
+      userId: actorUserId,
+      actorRole: actorRole ?? null,
+      action: "Updated",
+      entityType: "OrderItem",
+      entityId: orderId,
+      description: `Agent-sale price set for ${o.productName} (qty ${o.quantity}) on Order #${orderNumber}: ${formPrice} → ${formatCurrency(o.lineTotal)}`,
       details: {
         field: "price",
         before: o.formLineTotal,

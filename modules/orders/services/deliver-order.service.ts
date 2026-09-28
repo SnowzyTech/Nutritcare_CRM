@@ -29,7 +29,7 @@ import { recordDeliveryFeeEntry } from "@/modules/finance/services/agent-settlem
 export type DeliveryShortfall = { productName: string; needed: number; have: number };
 
 export type DeliverOrderResult =
-  | { ok: true; orderNumber: string; salesRepId: string; agentId: string | null }
+  | { ok: true; orderNumber: string; salesRepId: string | null; agentId: string | null }
   | { ok: false; reason: "not_found" }
   | { ok: false; reason: "not_confirmed" }
   | {

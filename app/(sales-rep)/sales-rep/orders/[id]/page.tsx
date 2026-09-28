@@ -94,8 +94,8 @@ export default async function OrderDetailPage({ params }: Props) {
       },
     })),
     salesRep: {
-      id: rawOrder.salesRep.id,
-      name: rawOrder.salesRep.name,
+      id: rawOrder.salesRep?.id ?? "",
+      name: rawOrder.salesRep?.name ?? "Agent sale",
     },
     deliveries: rawOrder.deliveries.map((d) => ({
       scheduledTime: d.scheduledTime?.toISOString() ?? null,

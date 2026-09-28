@@ -107,7 +107,7 @@ export async function getOrderTagSummary(
     customerPhone: order.customer.phone,
     deliveryAddress: order.customer.deliveryAddress,
     state: order.customer.state,
-    salesRep: order.salesRep.name,
+    salesRep: order.salesRep?.name ?? "Agent sale",
     agent: order.agent?.companyName ?? null,
     netAmount: order.netAmount.toString(),
     date: order.date,

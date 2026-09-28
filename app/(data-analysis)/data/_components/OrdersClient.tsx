@@ -23,6 +23,7 @@ import { Calendar } from '@/components/ui/calendar';
 import {
   deleteOrderPermanently,
   createOrderByAnalystAction,
+  createAgentSaleOrderAction,
 } from '@/modules/data-analysis/actions/data-analysis.action';
 import { AddOrderModal } from '@/components/orders/add-order-modal';
 import type { AddOrderProduct, AddOrderPayload } from '@/components/orders/add-order-modal';
@@ -133,6 +134,9 @@ export function OrdersClient({ initialOrders = [], total = 0, statusCounts = {},
 
   // Manual "Add Order" modal — the analyst keys in an order on a rep's behalf.
   const [isAddOrderOpen, setIsAddOrderOpen] = useState(false);
+  // "Add Agent-Sold Order" modal — an order a delivery agent sold at the door
+  // (no rep, born delivered). Team-lead / super-admin only (enforced server-side).
+  const [isAddAgentOrderOpen, setIsAddAgentOrderOpen] = useState(false);
 
   // Multi-select delete state
   const [selectedOrders, setSelectedOrders] = useState<Set<string>>(new Set());
@@ -338,6 +342,16 @@ export function OrdersClient({ initialOrders = [], total = 0, statusCounts = {},
       <div className="flex items-center justify-between mb-8">
         <h1 className="text-2xl font-bold text-gray-700">{firstName ? `Welcome Back, ${firstName}` : "Welcome Back"}</h1>
         <div className="flex items-center gap-3">
+          {/* Add Agent-Sold Order — an order a delivery agent sold at the door
+              (no rep, born delivered). Team-lead / super-admin only (server-gated). */}
+          <button
+            onClick={() => setIsAddAgentOrderOpen(true)}
+            title="Add an order a delivery agent sold at delivery"
+            className="h-12 px-4 bg-white border border-purple-200 rounded-full flex items-center gap-2 text-[#A020F0] font-bold text-xs cursor-pointer shadow-sm hover:bg-purple-50 active:scale-95 transition-all"
+          >
+            <Plus size={18} className="stroke-[2.5]" />
+            Agent Sale
+          </button>
           {/* Add Order — opens the same manual order form the sales reps use. */}
           <button
             onClick={() => setIsAddOrderOpen(true)}
@@ -1285,6 +1299,28 @@ export function OrdersClient({ initialOrders = [], total = 0, statusCounts = {},
             return { error: 'Choose the sales rep this order belongs to.' };
           }
           return createOrderByAnalystAction({ ...payload, salesRepId: payload.salesRepId });
+        }}
+        onCreated={() => router.refresh()}
+      />
+
+      {/* Agent-sold order — no rep, born delivered against the chosen agent.
+          Debits agent stock + records the agent ledger entry server-side. */}
+      <AddOrderModal
+        open={isAddAgentOrderOpen}
+        onClose={() => setIsAddAgentOrderOpen(false)}
+        title="Add Agent-Sold Order"
+        products={catalogProducts}
+        productForms={productForms}
+        agents={deliveryAgents.map((a) => ({ id: a.id, name: a.name }))}
+        onSubmit={async (payload: AddOrderPayload) => {
+          if (!payload.agentId || !payload.deliveredDate) {
+            return { error: 'Choose the delivery agent and the delivery date.' };
+          }
+          return createAgentSaleOrderAction({
+            ...payload,
+            agentId: payload.agentId,
+            deliveredDate: payload.deliveredDate,
+          });
         }}
         onCreated={() => router.refresh()}
       />
