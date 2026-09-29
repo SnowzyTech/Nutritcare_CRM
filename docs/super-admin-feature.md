@@ -26,6 +26,16 @@ Both tiers share `/admin/login` and land on `/admin`.
   `revokedAdminPages` fresh from the DB, redirects to `/admin` if revoked. Called from each
   revocable section's `layout.tsx` (`staff`, `orders`, `inventory`, `forms`, `history`) and
   the chat layout. Fresh-on-render, so revocations take effect on the next navigation.
+- **Action-level enforcement** — layout guards only block navigation, so privileged
+  mutation actions re-check revocation themselves (a revoked admin could otherwise call the
+  action directly, bypassing the hidden page). `checkAdmin()` in
+  `modules/orders/actions/admin-orders.action.ts` enforces the `"orders"` page, the
+  stock adjustment/RAPS approve-reject actions in `modules/inventory/actions/stock.action.ts`
+  enforce `"inventory"`, and `requireAdmin(pageKey)` in `modules/users/actions/users.action.ts`
+  enforces `"staff"` for staff mutations (delete/suspend/activate/reset-password/approve/reject/
+  team-lead/team/warehouse) and `"access-control"` for the accounting-permission grant. Each
+  reads `revokedAdminPages` fresh from the DB and calls `canAccessAdminPage(...)` before writing.
+  Non-admin roles and `SUPER_ADMIN` are unaffected.
 - Persistence: `User.revokedAdminPages String[]` (default `[]`). Empty = full access.
 
 ## Super Admin management UI

@@ -75,6 +75,65 @@ export function packagesFromForm(
 }
 
 /**
+ * Resolve the exact package a PUBLIC order-form customer selected, from the
+ * saved form config — the authoritative quantity & price.
+ *
+ * The public order-form POST body is fully attacker-controllable (no auth), so
+ * the server must NEVER take the customer's posted price/quantity for the money
+ * math. We identify the chosen package among the product's saved variations —
+ * first by its name, then by the posted quantity, then (single-package forms)
+ * the sole variation — and read the STORED figures. Returns null when it can't
+ * be resolved from the form, so the caller can fall back to the product's own
+ * `sellingPrice`. See docs/upsell-package-pricing.md.
+ */
+export function resolvePublicFormPackage(
+  data: unknown,
+  productId: string,
+  selection: { packageName?: string; quantity?: number },
+): { quantity: number; price: number } | null {
+  const d = (data ?? {}) as FormData;
+  if (!Array.isArray(d.priceVariations)) return null;
+
+  const forProduct = (d.priceVariations as (PriceVariation & { name?: unknown })[])
+    .filter((v) => {
+      if (!v) return false;
+      // New forms tag each variation with its productId; older forms carry no
+      // per-variation productId and rely on the form's single selectedProduct.
+      return v.productId != null
+        ? v.productId === productId
+        : d.selectedProduct === productId;
+    })
+    .map((v) => ({
+      name: typeof v.name === "string" ? v.name : "",
+      quantity: Number(v.quantity),
+      price: Number(v.price),
+    }))
+    .filter(
+      (v) =>
+        Number.isFinite(v.quantity) &&
+        v.quantity > 0 &&
+        Number.isFinite(v.price) &&
+        v.price > 0,
+    );
+
+  if (forProduct.length === 0) return null;
+
+  const name = selection.packageName?.trim();
+  const qty =
+    selection.quantity != null && Number.isFinite(selection.quantity)
+      ? Math.floor(Number(selection.quantity))
+      : undefined;
+
+  const chosen =
+    (name ? forProduct.find((v) => v.name === name) : undefined) ??
+    (qty ? forProduct.find((v) => v.quantity === qty) : undefined) ??
+    (forProduct.length === 1 ? forProduct[0] : undefined);
+
+  if (!chosen) return null;
+  return { quantity: chosen.quantity, price: round2(chosen.price) };
+}
+
+/**
  * Resolve the package set for a product: the order's own active form first,
  * else the product's active forms (newest `updatedAt` wins). "Active" =
  * disabledAt null AND deletedAt null.

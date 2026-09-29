@@ -7,7 +7,7 @@
 
 Products are **not** priced per-unit. Each product is sold through an order **form** (built by admin / media-buyer) where quantity **packages** are defined with their own price — e.g. qty 2 = ₦5,000, qty 4 = ₦8,000, qty 6 = ₦11,000 (not `unit × qty`). These tiers live per-form in `Form.data.priceVariations`.
 
-- Orders arriving from a public form are **priced correctly** today: `app/api/orders/form-submit/route.ts` stores `lineTotal = packagePrice`, `unitPrice = packagePrice / packageQty`, and records `Order.formId`.
+- Orders arriving from a public form are **priced correctly** today: `app/api/orders/form-submit/route.ts` stores `lineTotal = packagePrice`, `unitPrice = packagePrice / packageQty`, and records `Order.formId`. The endpoint is public/unauthenticated, so the price/quantity are **re-resolved server-side from the saved `Form.data.priceVariations`** (via `resolvePublicFormPackage`) — the posted `packagePrice`/`packageQty`/`orderBumpPrice`/`orderBumpQty` are never trusted for the money math (falls back to `Product.sellingPrice` at qty 1 when the package can't be resolved).
 - But when a sales rep **upsells** (the "Add Product" popup on the order detail page), `addOrderItemsAction` ignores packages and does **`Product.sellingPrice × quantity`** — wrong price for qty 2/4/6.
 
 Goal: the upsell must use the **exact package price for that quantity**, sourced from the relevant **active** form — the same price the form would charge. When the (merged) quantity has **no** exact package, the price = **nearest lower package price + (surplus units × a unit price the sales-rep types in)** (see the pricing rule below). Same-product upsells **merge** into the existing line and re-price at the combined quantity.

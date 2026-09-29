@@ -1,6 +1,7 @@
 "use server";
 
 import { auth } from "@/lib/auth/auth";
+import { isAdmin } from "@/lib/auth/role-routes";
 import { prisma } from "@/lib/db/prisma";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
@@ -19,7 +20,12 @@ export async function dispatchOrderAction(
   sourceType: "order" | "stockOut" | "stockTransfer" = "order"
 ): Promise<{ success: true } | { success: false; error: string }> {
   const session = await auth();
-  if (!session?.user?.id) return { success: false, error: "Unauthorized" };
+  if (
+    !session?.user?.id ||
+    (session.user.role !== "LOGISTICS_MANAGER" && !isAdmin(session.user.role))
+  ) {
+    return { success: false, error: "Unauthorized" };
+  }
   suppressCameraForRequest();
 
   const parsed = dispatchSchema.safeParse({

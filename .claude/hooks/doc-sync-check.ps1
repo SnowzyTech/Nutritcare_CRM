@@ -1,4 +1,4 @@
-# doc-sync-check.ps1
+e# doc-sync-check.ps1
 # Stop-hook: soft, once-per-turn reminder to keep documentation in sync with code.
 # If code files changed in the working tree but no .md files did, nudge Claude once
 # to review/update CLAUDE.md + docs/*.md. Never blocks more than once per turn

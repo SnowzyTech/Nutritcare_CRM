@@ -4,6 +4,7 @@ import { nextOrderNumber } from "@/modules/orders/services/order-number.service"
 import { notifyRepNewOrder } from "@/modules/notifications/services/order-events.service";
 import { pickRepForNewOrder } from "@/modules/orders/services/rep-assignment.service";
 import { detectAndFlagDuplicate } from "@/modules/orders/services/duplicate-order.service";
+import { resolvePublicFormPackage } from "@/modules/orders/services/tier-pricing.service";
 import { toInternationalPhone } from "@/lib/phone";
 
 /** Thrown inside the create transaction when no rep can take the order. */
@@ -36,11 +37,12 @@ export async function POST(req: NextRequest) {
       lga,
       productId,
       packageName,
-      packagePrice,
       packageQty,
       orderBumpProductId,
-      orderBumpPrice,
-      orderBumpQty,
+      // packagePrice / orderBumpPrice / orderBumpQty are intentionally NOT read
+      // from the request: this endpoint is public and unauthenticated, so the
+      // customer's posted money is untrusted. Prices/quantities are resolved
+      // server-side from the saved form config below.
     } = body as {
       formId?: string;
       customerName: string;
@@ -79,11 +81,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // ── Reject orders from disabled (or deleted) forms ──────────────────────
+    // ── Reject orders from disabled (or deleted) forms; keep the form's saved
+    // config for authoritative server-side pricing (below). ─────────────────
+    let formData: unknown = null;
     if (formId) {
       const formState = await prisma.form.findUnique({
         where: { id: formId },
-        select: { disabledAt: true, deletedAt: true },
+        select: { disabledAt: true, deletedAt: true, data: true },
       });
       if (formState && (formState.disabledAt || formState.deletedAt)) {
         return NextResponse.json(
@@ -91,6 +95,7 @@ export async function POST(req: NextRequest) {
           { status: 403, headers: CORS_HEADERS }
         );
       }
+      formData = formState?.data ?? null;
     }
 
     const cleanPhone = (customerPhone ?? "").replace(/\s+/g, "");
@@ -166,14 +171,21 @@ export async function POST(req: NextRequest) {
     }
 
     // ── 5. Build order items ────────────────────────────────────────────────
-    // Use the package's full price as the unit price; quantity is the package units.
-    // lineTotal = packagePrice (the customer pays the full package price regardless of units)
-    const mainQty = Math.max(1, packageQty ?? 1);
-    const mainUnitPrice =
-      packagePrice > 0
-        ? Math.round((packagePrice / mainQty) * 100) / 100
-        : Number(productMap.get(productId)!.sellingPrice);
-    const mainLineTotal = mainUnitPrice * mainQty;
+    // Prices/quantities are resolved server-side from the saved form config —
+    // never from the (untrusted) request body. The selected package is matched
+    // in the form's saved variations and its STORED price/quantity are used;
+    // when it can't be resolved (no form / legacy config) we fall back to the
+    // product's own sellingPrice at qty 1. lineTotal = the full package price
+    // (the customer pays it regardless of the unit count).
+    const round2 = (n: number) => Math.round(n * 100) / 100;
+    const mainProduct = productMap.get(productId)!;
+    const mainPkg = resolvePublicFormPackage(formData, productId, {
+      packageName,
+      quantity: packageQty,
+    });
+    const mainQty = mainPkg?.quantity ?? 1;
+    const mainLineTotal = round2(mainPkg ? mainPkg.price : Number(mainProduct.sellingPrice));
+    const mainUnitPrice = round2(mainLineTotal / mainQty);
 
     const orderItemsData: {
       productId: string;
@@ -187,23 +199,30 @@ export async function POST(req: NextRequest) {
         quantity: mainQty,
         unitPrice: mainUnitPrice,
         lineTotal: mainLineTotal,
-        costPriceAtSale: Number(productMap.get(productId)!.costPrice),
+        costPriceAtSale: Number(mainProduct.costPrice),
       },
     ];
 
-    // Optional order-bump item
-    if (orderBumpProductId && productMap.has(orderBumpProductId)) {
-      const bumpQty = Math.max(1, orderBumpQty ?? 1);
-      const bumpUnitPrice =
-        orderBumpPrice && orderBumpPrice > 0
-          ? Math.round((orderBumpPrice / bumpQty) * 100) / 100
-          : Number(productMap.get(orderBumpProductId)!.sellingPrice);
+    // Optional order-bump item. Only honoured when it matches the form's
+    // configured bump product, and always priced server-side at the product's
+    // sellingPrice × 1 (the posted bump price/qty are ignored — untrusted).
+    const configuredBumpProduct =
+      formData && typeof formData === "object"
+        ? (formData as { orderBumpProduct?: unknown }).orderBumpProduct
+        : undefined;
+    if (
+      orderBumpProductId &&
+      productMap.has(orderBumpProductId) &&
+      (!formId || configuredBumpProduct === orderBumpProductId)
+    ) {
+      const bumpProduct = productMap.get(orderBumpProductId)!;
+      const bumpPrice = round2(Number(bumpProduct.sellingPrice));
       orderItemsData.push({
         productId: orderBumpProductId,
-        quantity: bumpQty,
-        unitPrice: bumpUnitPrice,
-        lineTotal: bumpUnitPrice * bumpQty,
-        costPriceAtSale: Number(productMap.get(orderBumpProductId)!.costPrice),
+        quantity: 1,
+        unitPrice: bumpPrice,
+        lineTotal: bumpPrice,
+        costPriceAtSale: Number(bumpProduct.costPrice),
       });
     }
 
