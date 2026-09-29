@@ -1,6 +1,6 @@
 # Scope — Server-side pagination for the Orders lists
 
-**Status:** Scoped 2026-09-17. **Phase 1 (data-analyst Orders) IMPLEMENTED** — server-side filter + pagination live in code; builds clean; awaits manual QA + deploy. Other surfaces pending.
+**Status:** Scoped 2026-09-17. **Most order surfaces now have server-side pagination engines** in code: `getOrdersPage` (data-analyst), `getAdminOrdersPage` / `getSalesRepOrdersPage` / `getTeamOrdersPage` (`orders.service.ts`), `getLogisticsOrdersPage`, `getAgentOrdersPage`. **Deployed to prod 2026-09-29** (verify each surface in the live app). (The original plan below tracked only the data-analyst Phase 1 — the admin, sales-rep, and team-lead surfaces have since been built too.)
 **Companion to:** `docs/db-compute-review.md` + `docs/scale-considerations.md` ("Paginate any unbounded list").
 
 > **Progress (2026-09-17) — Phase 1 done for `data/order`:**

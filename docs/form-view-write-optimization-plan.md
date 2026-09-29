@@ -1,13 +1,13 @@
 # Plan — Fix #1: The Form-View Write (the 24/7 compute drain)
 
-**Status:** Phase 0 + Phase 1 IMPLEMENTED & migrated to prod (2026-09-17). Code awaits deploy. Phase 2 deferred.
+**Status:** Phase 0 + Phase 1 IMPLEMENTED, migrated to prod (2026-09-17) & **code deployed to prod 2026-09-29**. Phase 2 deferred.
 **Companion to:** `docs/db-compute-review.md` (finding #1).
 **Do this AFTER upgrading to Neon Launch** — the upgrade removes the free-tier ceiling; this keeps the paid engine pinned at the cheap 0.25 CU as you grow.
 
 > **Progress (2026-09-17):**
 > - **Phase 0** shipped, then **superseded by Phase 1** (the beacon body was replaced entirely by the daily upsert).
 > - **Phase 1 done:** `form_view_daily` created in **prod** via `scripts/add-form-view-daily.ts --apply` (raw SQL, no `db push`); backfilled 9,334 legacy `form_views` → 220 daily rows (totals matched exactly). Beacon now upserts the daily tally; `getAllForms` + both media-buyer analytics services repointed; `FormViewDaily` added to audit `IGNORED_MODELS`. Verified with `scripts/verify-form-view-daily.ts` (per-form daily tally == legacy `Form.hits`). Type-checks clean.
-> - **Remaining:** deploy the code. Table exists in prod first (safe ordering), so deploy whenever. Old `form_views` is kept (read-only, no longer written) as a safety net; prune later. Minor cosmetic gap: views landing between the backfill and the code deploy are recorded in `form_views` (old code) but not `form_view_daily` — negligible if you deploy promptly.
+> - **Deployed 2026-09-29** (table already existed in prod — safe ordering). Old `form_views` is kept (read-only, no longer written) as a safety net; prune later.
 
 ---
 
