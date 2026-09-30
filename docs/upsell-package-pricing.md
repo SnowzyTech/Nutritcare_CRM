@@ -1,13 +1,13 @@
 # Upsell Package Pricing (Add-Product on an existing order)
 
-> Status: **PLANNED — not yet implemented.** All stakeholder decisions are in (final round 2026-07-28); spec below is final and ready to implement on approval.
+> Status: **IMPLEMENTED (shipped).** Upsell package pricing is live via `modules/orders/services/tier-pricing.service.ts` (`resolveUpsellPrice`) + `upsell-apply.service.ts` (`applyUpsellItems`), and manual new-order creation is package-priced too (`manual-order.service.ts`). The spec/decision log below is kept as design history. *(Originally scoped 2026-07-28 as PLANNED; see the note on line ~200 — v1 was upsell-only, but manual new-order pricing has since been added.)*
 > Owner decision log is at the bottom.
 
 ## Problem / Context
 
 Products are **not** priced per-unit. Each product is sold through an order **form** (built by admin / media-buyer) where quantity **packages** are defined with their own price — e.g. qty 2 = ₦5,000, qty 4 = ₦8,000, qty 6 = ₦11,000 (not `unit × qty`). These tiers live per-form in `Form.data.priceVariations`.
 
-- Orders arriving from a public form are **priced correctly** today: `app/api/orders/form-submit/route.ts` stores `lineTotal = packagePrice`, `unitPrice = packagePrice / packageQty`, and records `Order.formId`.
+- Orders arriving from a public form are **priced correctly** today: `app/api/orders/form-submit/route.ts` stores `lineTotal = packagePrice`, `unitPrice = packagePrice / packageQty`, and records `Order.formId`. The endpoint is public/unauthenticated, so the price/quantity are **re-resolved server-side from the saved `Form.data.priceVariations`** (via `resolvePublicFormPackage`) — the posted `packagePrice`/`packageQty`/`orderBumpPrice`/`orderBumpQty` are never trusted for the money math (falls back to `Product.sellingPrice` at qty 1 when the package can't be resolved).
 - But when a sales rep **upsells** (the "Add Product" popup on the order detail page), `addOrderItemsAction` ignores packages and does **`Product.sellingPrice × quantity`** — wrong price for qty 2/4/6.
 
 Goal: the upsell must use the **exact package price for that quantity**, sourced from the relevant **active** form — the same price the form would charge. When the (merged) quantity has **no** exact package, the price = **nearest lower package price + (surplus units × a unit price the sales-rep types in)** (see the pricing rule below). Same-product upsells **merge** into the existing line and re-price at the combined quantity.
@@ -197,4 +197,4 @@ Decision: **defer.** Ship newest-wins (no loophole). Revisit only if reps upsell
 - **Upsell revenue tracking = Option 2** (single merged line kept): new `OrderItem.upsellAmount` + `upsellQuantity`, default 0, filled on merge/create; reporting = `SUM(upsellAmount)` / `SUM(upsellQuantity)`. Colleague builds reporting last on these fields and migrates the legacy multi-item heuristic then. Merged form line keeps `isUpsell=false` (origin preserved; upsell tracked via the amount field, not the flag). ✅
 - **Guardrails:** min > 0 + audit log only (option a). Cost floor / deviation band / manager approval deferred (cost price removed from Inventory). ✅
 - Package source: order's form first → product's active forms (newest `updatedAt` wins; "highest price" rejected); read **active** forms only; **filter on `data.selectedProduct === productId`** to avoid combo/gift contamination. ✅
-- Scope v1: upsell (`addOrderItemsAction`) only; not manual new-order creation. Cost-price ownership is a separate future item. ✅
+- Scope v1: upsell (`addOrderItemsAction`) only. ✅ **Update (shipped):** manual new-order creation is now package-priced too — `manual-order.service.ts` prices Product→Form→Quantity via `resolveUpsellPrice` (see `[[manual-order-form-package-pricing]]`). Cost-price ownership is a separate future item. ✅

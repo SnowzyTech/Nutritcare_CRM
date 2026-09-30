@@ -1,8 +1,8 @@
 # Agent Stock Correction (maker–checker) — Implementation Plan
 
-> **Status: IMPLEMENTED on the TEST DB.** Code complete; new tables created on the test
-> database (`ep-calm-frog`). Still to do: end-to-end manual test, then production rollout
-> (deploy code + run the table-creation step against prod — see "Production rollout" below).
+> **Status: DEPLOYED TO PRODUCTION (2026-09-29).** Code complete; the `agent_stock_adjustments`
+> + `agent_stock_adjustment_items` tables exist on both test and prod, and the code is deployed.
+> Recommended: verify the maker–checker flow end-to-end in the live app.
 
 ## Production rollout (when ready to go live)
 

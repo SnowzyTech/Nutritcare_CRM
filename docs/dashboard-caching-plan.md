@@ -3,7 +3,7 @@
 **Status:** Scoped 2026-09-17. **Phase A COMPLETE** — all listed dashboards cached (20 functions / 6 services). Phase B (SQL aggregation) pending.
 **Companion to:** `docs/db-compute-review.md` (finding #3) + `docs/scale-considerations.md`.
 
-> **Progress (2026-09-17):** Phase A caching implemented across **20 functions / 6 services** (all `unstable_cache`, 120s TTL, keys include every arg/period, all returns verified Decimal- & Date-free). Type-checks clean; in the working tree, awaits deploy.
+> **Progress:** Phase A caching implemented across **20 functions / 6 services** (all `unstable_cache`, 120s TTL, keys include every arg/period, all returns verified Decimal- & Date-free). Type-checks clean; **deployed to prod 2026-09-29.**
 > - `orders/…/admin-dashboard.service.ts` → `getAdminDashboardData` ✅
 > - `finance/…/dashboard.service.ts` → `getFinancialSummary`, `getSalesTrends`, `getSalesByProduct`, `getSalesByState`, `getInventorySnapshot`, `getAgentSettlementSummary` ✅
 > - `orders/…/analytics.service.ts` → `getSalesRepWeeklyAnalytics`, `getSalesRepAnalytics` ✅

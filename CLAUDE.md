@@ -9,15 +9,19 @@
 ```bash
 npm run dev                 # Start dev server (PWA/service worker is OFF in dev by design)
 npm run build               # prisma generate && next build
+npm run build:embed         # Build the standalone form-embed bundle
 npm run start               # Production server (needed to exercise the PWA + service worker)
 npm run lint                # ESLint
 
-npm run db:seed             # Seed core data (tsx prisma/seed.ts)
-npm run db:seed:coa         # Seed chart of accounts (expense categories/names)
-npm run db:seed:chat        # Seed chat conversations/messages
-npm run db:seed:superadmin  # Upsert a SUPER_ADMIN from env
-npm run db:seed:admin       # Upsert a limited ADMIN from env
-npm run db:migrate-admins   # One-off admin migration script
+npm run db:seed                 # Seed core data (tsx prisma/seed.ts)
+npm run db:seed:coa             # Seed chart of accounts (expense categories/names)
+npm run db:seed:accounting-demo # Seed demo accounting/finance data
+npm run db:seed:chat            # Seed chat conversations/messages
+npm run db:seed:superadmin      # Upsert a SUPER_ADMIN from env
+npm run db:seed:admin           # Upsert a limited ADMIN from env
+npm run db:migrate-admins       # One-off admin migration script
+npm run db:cleanup-test-data    # Wipe pre-go-live test orders + recalc stock (scripts/cleanup-test-data.ts)
+npm run db:cleanup-demo-finance # Remove seeded demo finance data
 
 npx prisma studio           # DB browser
 npx prisma db push          # Push schema changes to DB
@@ -119,7 +123,7 @@ Split for Edge compatibility:
 - `lib/auth/auth.ts` — Full server-side NextAuth: Credentials provider, Prisma lookup, bcryptjs (12 rounds).
 - `lib/auth/role-routes.ts` — `ROLE_HOME` map + `getRoleHome()`, `isSuperAdmin()`, `isAdmin()`, `isCompanySalesManager()`.
 - `proxy.ts` — Edge middleware (**Next.js 16 renamed `middleware.ts` → `proxy.ts`**): `NextAuth(authConfig).auth` with a matcher that excludes `_next`, static assets, and the PWA entry points (`sw.js`, `manifest.webmanifest`, `icons/`).
-- Per-admin page revocation: `lib/auth/admin-pages.ts` holds the `ADMIN_PAGES` registry (page key → label → route prefixes; drives sidebar + guards + toggle UI via `canAccessAdminPage()`); `lib/auth/guard-admin-page.ts` `requireAdminPageAccess(pageKey)` re-checks `User.revokedAdminPages[]` fresh from the DB in each revocable section layout (`staff`, `orders`, `inventory`, `forms`, `history`, chat). Super-admin manages toggles at `/admin/staff/admins`. Privileged accounts are **not** self-registered (signup excludes admin roles) — provision via the seed scripts.
+- Per-admin page revocation: `lib/auth/admin-pages.ts` holds the `ADMIN_PAGES` registry (page key → label → route prefixes; drives sidebar + guards + toggle UI via `canAccessAdminPage()`); `lib/auth/guard-admin-page.ts` `requireAdminPageAccess(pageKey)` re-checks `User.revokedAdminPages[]` fresh from the DB in each revocable section layout (`staff`, `orders`, `inventory`, `forms`, `history`, chat). Layout guards only stop *navigation*, so revocation is also enforced inside the **privileged action guards** that mutate the corresponding data — `checkAdmin()` in `modules/orders/actions/admin-orders.action.ts` (`"orders"`), the inventory adjustment/RAPS approve-reject actions in `modules/inventory/actions/stock.action.ts` (`"inventory"`), and `requireAdmin(pageKey)` in `modules/users/actions/users.action.ts` (`"staff"` for staff mutations, `"access-control"` for accounting-permission grants) all `canAccessAdminPage(...)` fresh from the DB before writing, or a revoked admin could bypass the hidden page via a direct action call. Super-admin manages toggles at `/admin/staff/admins`. Privileged accounts are **not** self-registered (signup excludes admin roles) — provision via the seed scripts.
 - Per-accountant feature grants: `lib/auth/accounting-permissions.ts` + `lib/auth/accounting-access.ts`, backed by `User.accountingPermissions[]`.
 
 Session shape (`types/next-auth.d.ts`): `{ id, name, email, role: UserRole, warehouseId }`.
@@ -155,7 +159,7 @@ Public order intake: `app/order-form/[id]/` + `POST /api/orders/form-submit` rec
 
 Prisma + Neon serverless adapter (WebSocket pool). `lib/db/prisma.ts` detects `neon.tech` in `DATABASE_URL` and switches to the Neon adapter (pool tuned: `idleTimeout 30s`, `connectTimeout 10s`, `max 10`), otherwise standard Postgres.
 
-**~58 models, 28 enums.** All models use `cuid()` PKs, `createdAt`/`updatedAt`, most have `deletedAt` (soft deletes). Money is `Decimal(10,2)` (Nigerian Naira ₦). Tables map to `snake_case` via `@@map`.
+**~70 models, 28 enums.** All models use `cuid()` PKs, `createdAt`/`updatedAt`, most have `deletedAt` (soft deletes). Money is `Decimal(10,2)` (Nigerian Naira ₦). Tables map to `snake_case` via `@@map`.
 
 > **Schema-drift gotcha:** the live DB has a drifted `StockMovement.supplierInvoiceUrls` column; `prisma db push` can report data-loss and refuse. Add new columns via targeted raw SQL — **never** `db push --accept-data-loss` (it would drop the drifted column).
 
@@ -165,7 +169,7 @@ Prisma + Neon serverless adapter (WebSocket pool). `lib/db/prisma.ts` detects `n
 
 - **Identity/org:** `User` (role, `teamId`, `isTeamLead`, `warehouseId`, `agentId`, `revokedAdminPages[]`, `accountingPermissions[]`, `accountActivationStatus`), `Team` (`Department`), `Customer`.
 - **Catalog:** `Product`, `ProductCategory`, `ProductPackage`, `ProductOffer`, `ProductCombo`, `ProductGift`, `Supplier`, `OrderCounter` (per-prefix running order-number sequence, e.g. `NEURO-001`).
-- **Sales:** `Order` (`OrderStatus`, `RemittanceStatus`, `ContactMethod`, upsell/discount fields, `formId`), `OrderItem` (`isUpsell`, `upsellAmount`, `upsellQuantity`, `costPriceAtSale`), `Form` + `FormView` (media-buyer capture forms; `data` JSON).
+- **Sales:** `Order` (`OrderStatus`, `RemittanceStatus`, `ContactMethod`, upsell/discount fields, `formId`), `OrderItem` (`isUpsell`, `upsellAmount`, `upsellQuantity`, `costPriceAtSale`), `Form` + `FormView` + `FormViewDaily` (media-buyer capture forms; `data` JSON — `FormViewDaily`/`form_view_daily` is a one-row-per-form-per-day view tally that replaced per-impression `FormView` writes).
 - **Inventory/warehouse:** `StockMovement` (`StockMovementType` INCOMING/OUTGOING/RETURN, `StockMovementStatus`, `RapsApprovalStatus`), `StockMovementItem`, `StockTransfer` (polymorphic `sourceType/targetType` = `StockTransferNodeType`), `StockAdjustment(+Item)`, `StockLevel`, `Warehouse`, `WarehouseLocation` (`OccupancyStatus`), `ShelfProductStock`, `GoodsReceiving` (`QCStatus`, `ShelvingStatus`), `PickPack`/`PickPacker`, `DamageReport`, `PurchaseOrder(+Item)`.
 - **Delivery:** `Delivery` (`DeliveryStatus`), `Agent` (external distributor; `AgentStatus`, `statesCovered` JSON), `Driver` (internal truck driver — separate from Agent and User), `Vehicle` (`VehicleType`), `DeliveryZone`, `Route`.
 - **Finance/accounting:** `Invoice` (`InvoiceStatus`, `InvoiceType`) + `InvoiceItem`, `Expense` (+`ExpenseLineItem`), `ExpenseCategory` + `ExpenseName` (chart of accounts), `PaymentAccount` (opening balance roll-forward), `JournalEntry` + `JournalEntryRow`, `FixedAsset` (depreciation), `SalaryRecord` (`company` = Nucle / Nutriticare), `AgentSettlement`, `AgentLedgerEntry` (`AgentLedgerRefType`), `SettlementAdjustment` (`AdjustmentType`), `RemittanceBank` (MONIEPOINT/ZENITH).
@@ -181,15 +185,16 @@ Prisma + Neon serverless adapter (WebSocket pool). `lib/db/prisma.ts` detects `n
 
 ### Pricing & Upsell (`docs/upsell-package-pricing.md`, `docs/upsell-display-rollout.md`)
 
-- **Products are priced by per-form quantity packages, not `unitPrice × qty`.** A product's price tiers (qty 2 = ₦5,000, qty 4 = ₦8,000, …) live per-form in `Form.data.priceVariations`; `Order.formId` records which form an order came from. Public form intake (`app/api/orders/form-submit/route.ts`) stores `lineTotal = packagePrice`.
-- **Manual order creation** (no public form) goes through `modules/orders/services/manual-order.service.ts` (`createManualOrder` + `logManualOrderCreated`), used by BOTH the rep's own `createOrderAction` and the data analyst's `createOrderByAnalystAction` — the money math must never be duplicated. The shared UI is `components/orders/add-order-modal.tsx`; pass `salesReps` to it to render the required rep picker. `createOrderAction` credits the caller and is gated to `SALES_REP`/`SUPER_ADMIN`; every other role must name the rep, because `Order.salesRepId` drives all rep analytics/commission. An analyst-keyed order is audited under the **rep's** `userId` with the analyst in `actorName`/`actorRole` (same on-behalf-of convention as mark-delivered).
+- **Products are priced by per-form quantity packages, not `unitPrice × qty`.** A product's price tiers (qty 2 = ₦5,000, qty 4 = ₦8,000, …) live per-form in `Form.data.priceVariations`; `Order.formId` records which form an order came from. Public form intake (`app/api/orders/form-submit/route.ts`) stores `lineTotal = packagePrice` — but because that endpoint is public/unauthenticated it **re-resolves the package price/qty server-side from the saved `Form.data.priceVariations`** (`resolvePublicFormPackage` in `tier-pricing.service.ts`) and never trusts the posted price/quantity.
+- **Manual order creation** (no public form) goes through `modules/orders/services/manual-order.service.ts` (`createManualOrder` + `logManualOrderCreated`), used by BOTH the rep's own `createOrderAction` and the data analyst's `createOrderByAnalystAction` — the money math must never be duplicated. The shared UI is `components/orders/add-order-modal.tsx`; pass `salesReps` to it to render the required rep picker. `createOrderAction` credits the caller and is gated to `SALES_REP`/`SUPER_ADMIN`; every other role that creates a rep order must name the rep, because `Order.salesRepId` drives all rep analytics/commission. An analyst-keyed order is audited under the **rep's** `userId` with the analyst in `actorName`/`actorRole` (same on-behalf-of convention as mark-delivered).
+- **Agent-sold orders** (`Order.salesRepId` is **nullable** — `String?`). A data team-lead can record an order a **delivery agent** sold at delivery: it has **no sales rep**, is born `DELIVERED`, and debits agent stock + the agent ledger (reuses the deliver machinery via the "Agent Sale" flow on the data Orders page). So **never assume `salesRepId` is non-null** in rep analytics/commission queries — agent-sold orders must be excluded or handled explicitly.
 - **Upsell (Add-Product on an existing order)** re-prices via `modules/orders/services/tier-pricing.service.ts` (`resolveUpsellPrice`) and the shared write service `upsell-apply.service.ts` (`applyUpsellItems`, used by BOTH the rep `addOrderItemsAction` and admin `adminAddOrderItemsAction` — the money math must never be duplicated). Same-product upsells **merge into one `OrderItem`**; surplus units beyond the nearest package use a rep-typed unit price (min > ₦0, audit-logged).
 - **Upsell revenue = `SUM(OrderItem.upsellAmount)`; upsell units = `SUM(upsellQuantity)`** — report off these fields, not the legacy "multi-item order = upsell" heuristic still living in the analytics services (`analytics.service.ts`, `users.service.ts`, `data-analysis.service.ts`, `lib/performance.ts`).
 - **`OrderItem.lineTotal` / `Order.netAmount` are authoritative** — every display reads stored values; nothing recomputes `sellingPrice × qty`. Fulfillment roles (logistics, delivery-agent) never see the upsell **amount**, only a `+N` badge (`lib/orders/upsell.ts` `upsellExtraCount`).
 
 ### API Routes (`app/api/`)
 
-`auth/[...nextauth]` · `orders/form-submit` (public order intake) · `forms/[id]` + `forms/[id]/view` (fetch + view tracking) · `teams` · `warehouses` · `chat/socket-token` · `notifications/push-subscription` (service-worker re-subscribe) · `upload/{avatar,chat,expense,supplier-invoice}`.
+`auth/[...nextauth]` · `orders/form-submit` (public order intake) · `orders/form-submit-failure` (logs failed public form submissions — iframe/in-app-browser reliability) · `forms/[id]` + `forms/[id]/view` (fetch + view tracking) · `teams` · `warehouses` · `chat/socket-token` · `notifications/push-subscription` (service-worker re-subscribe) · `upload/{avatar,chat,expense,supplier-invoice}`.
 
 ### Utilities
 
@@ -216,9 +221,13 @@ Prisma + Neon serverless adapter (WebSocket pool). `lib/db/prisma.ts` detects `n
 
 ### Scale & Performance (`docs/scale-considerations.md`)
 
-The company expects high order volume. Already scale-ready: Neon pooled Postgres, indexed FKs on hot paths, the layered architecture. **Migrate before high volume:**
+The company expects high order volume. Already scale-ready: Neon pooled Postgres, indexed FKs on hot paths, the layered architecture. **Already done (extend the pattern, don't reinvent):**
+- **Dashboard caching** — hot dashboard reads are wrapped in `unstable_cache` (~120s TTL) across service files in `admin`, `finance`, `data-analysis`, `orders`, `users`, `delivery` (logistics), and `admin/forms`. Reuse this pattern for new expensive dashboard aggregates; remember it means those reads can be up to ~2 min stale. See `docs/dashboard-caching-plan.md`.
+- **Server-side orders pagination** — query-based filter+paginate engines (URL-driven, per-status date filter) now cover most order surfaces: `getOrdersPage` (data-analyst, `data-analysis.service.ts`), `getAdminOrdersPage` / `getSalesRepOrdersPage` / `getTeamOrdersPage` (`orders.service.ts`), `getLogisticsOrdersPage` (`logistics-orders.service.ts`), `getAgentOrdersPage` (`delivery-agent-portal.service.ts`). Reuse these rather than adding unbounded `findMany`s to a new order list. See `docs/orders-pagination-plan.md`.
+
+**Migrate before high volume:**
 - **Aggregate in the database, not in app memory.** Several analytics services still `findMany(...).reduce(...)` in JS (`modules/orders/services/analytics.service.ts`, `modules/users/services/users.service.ts`, `modules/data-analysis/services/data-analysis.service.ts`, `lib/performance.ts`). Build all new reporting query-based (`groupBy`/`count`/`aggregate`/raw SQL) from day one.
-- **Paginate** any unbounded list (orders, customers, audit log). **Add indexes** for new filter/sort columns.
+- **Paginate** any unbounded list (orders, customers, audit log) — extend `getOrdersPage` rather than adding unbounded `findMany`s. **Add indexes** for new filter/sort columns.
 
 ### Allowed Remote Images (`next.config.ts`)
 
@@ -261,5 +270,13 @@ The company expects high order volume. Already scale-ready: Neon pooled Postgres
 - `scale-considerations.md` — what to make query-based before high volume.
 - `sales-reporting.md` — sales reports built on `CRM_Sales_Reporting_Template_.pdf`: metric definitions (cohort-based), Lagos periods, targets, snapshots, data checks, traceability.
 - `notifications.md` — the notification pipeline, event catalog, channels (in-app / realtime / push / SMS) and how to add an event.
+
+**Planning / one-off operational docs** (context for a specific change or investigation — read only when working that area; may describe partially-done rollouts):
+- `db-compute-review.md` — Neon compute-burn diagnosis (burn is query frequency, not data size) and the fixes that came out of it.
+- `dashboard-caching-plan.md` — the `unstable_cache` dashboard-caching rollout (see Scale & Performance above).
+- `orders-pagination-plan.md` — the `getOrdersPage` server-side pagination rollout (data-analyst Orders done; others pending).
+- `form-view-write-optimization-plan.md` — the per-impression `FormView` → daily-tally `FormViewDaily` change.
+- `agent-stock-correction-plan.md` — proposed guarded/audited tool to correct agent stock counts (`StockAdjustment` is warehouse-only).
+- `agent-ledger-backfill-august-orders.md` — one-off backfill notes for the August orders import.
 
 *(The early one-off build prompts `schema-prompt.md`, `schema-updates.md`, `batch-2-auth-fixes.md`, and `inventory-forms-updates.md` were deleted — fully superseded by the code.)*

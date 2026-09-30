@@ -21,7 +21,7 @@ import {
 import type { Department } from "@prisma/client";
 import { isAdmin } from "@/lib/auth/role-routes";
 import { ACCOUNTING_PERMISSION_KEYS } from "@/lib/auth/accounting-permissions";
-import { canAccessAdminPage } from "@/lib/auth/admin-pages";
+import { canAccessAdminPage, type AdminPageKey } from "@/lib/auth/admin-pages";
 import { logActivity } from "@/modules/audit/services/audit-log.service";
 import { suppressCameraForRequest } from "@/lib/audit/context";
 import { prisma } from "@/lib/db/prisma";
@@ -29,11 +29,30 @@ import { prisma } from "@/lib/db/prisma";
 type ActionResult = { success: true } | { error: string };
 type ResetPasswordResult = { success: true; tempPassword: string } | { error: string };
 
-/** Ensures the caller is an admin and returns their user id (the actor). */
-async function requireAdmin(): Promise<{ id: string; name?: string | null; role?: string }> {
+/**
+ * Ensures the caller is an admin and returns their user id (the actor).
+ *
+ * `pageKey` additionally enforces per-admin page revocation: layout guards only
+ * stop navigation, so a limited ADMIN whose page was revoked could otherwise
+ * reach these staff mutations via a direct action call. The revoked list is read
+ * fresh from the DB (no stale-token window), mirroring `requireAdminPageAccess`.
+ * SUPER_ADMIN and non-admins are unaffected (see `canAccessAdminPage`).
+ */
+async function requireAdmin(
+  pageKey?: AdminPageKey
+): Promise<{ id: string; name?: string | null; role?: string }> {
   const session = await auth();
   if (!session?.user?.id || !isAdmin(session.user.role)) {
     throw new Error("Unauthorized");
+  }
+  if (pageKey && session.user.role !== "SUPER_ADMIN") {
+    const me = await prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { revokedAdminPages: true },
+    });
+    if (!canAccessAdminPage(session.user.role, me?.revokedAdminPages ?? [], pageKey)) {
+      throw new Error("Your access to this section has been revoked");
+    }
   }
   return { id: session.user.id, name: session.user.name, role: session.user.role };
 }
@@ -72,7 +91,7 @@ export async function updateProfileAction(input: {
 
 export async function deleteUserAction(userId: string): Promise<ActionResult> {
   try {
-    const actor = await requireAdmin();
+    const actor = await requireAdmin("staff");
     suppressCameraForRequest();
     const name = await staffName(userId);
     await deleteUser(userId);
@@ -90,7 +109,7 @@ export async function deleteUserAction(userId: string): Promise<ActionResult> {
 
 export async function suspendUserAction(userId: string): Promise<ActionResult> {
   try {
-    const actor = await requireAdmin();
+    const actor = await requireAdmin("staff");
     suppressCameraForRequest();
     const name = await staffName(userId);
     await suspendUser(userId);
@@ -108,7 +127,7 @@ export async function suspendUserAction(userId: string): Promise<ActionResult> {
 
 export async function activateUserAction(userId: string): Promise<ActionResult> {
   try {
-    const actor = await requireAdmin();
+    const actor = await requireAdmin("staff");
     suppressCameraForRequest();
     const name = await staffName(userId);
     await activateUser(userId);
@@ -126,7 +145,7 @@ export async function activateUserAction(userId: string): Promise<ActionResult> 
 
 export async function resetUserPasswordAction(userId: string): Promise<ResetPasswordResult> {
   try {
-    const actor = await requireAdmin();
+    const actor = await requireAdmin("staff");
     suppressCameraForRequest();
     const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
     let tempPassword = "Temp";
@@ -149,7 +168,7 @@ export async function resetUserPasswordAction(userId: string): Promise<ResetPass
 
 export async function toggleTeamLeadAction(userId: string, makeTeamLead: boolean): Promise<ActionResult> {
   try {
-    const actor = await requireAdmin();
+    const actor = await requireAdmin("staff");
     suppressCameraForRequest();
     const name = await staffName(userId);
     await toggleTeamLead(userId, makeTeamLead);
@@ -183,20 +202,11 @@ export async function updateAccountingPermissionsAction(input: {
   permissions: string[];
 }): Promise<ActionResult> {
   try {
-    const actor = await requireAdmin();
-    suppressCameraForRequest();
-
     // A super-admin can revoke a limited admin's authority to manage accounting
-    // access (the "access-control" page key). Super-admins always pass.
-    if (actor.role !== "SUPER_ADMIN") {
-      const me = await prisma.user.findUnique({
-        where: { id: actor.id },
-        select: { revokedAdminPages: true },
-      });
-      if (!canAccessAdminPage(actor.role, me?.revokedAdminPages ?? [], "access-control")) {
-        return { error: "You don't have permission to manage accounting access." };
-      }
-    }
+    // access (the "access-control" page key); the guard enforces it (super-admins
+    // always pass).
+    const actor = await requireAdmin("access-control");
+    suppressCameraForRequest();
 
     // Keep only valid keys (drops anything unknown; also de-dupes).
     const valid = Array.from(
@@ -226,7 +236,7 @@ export async function updateAccountingPermissionsAction(input: {
 
 export async function changeTeamAction(userId: string, teamId: string | null): Promise<ActionResult> {
   try {
-    const actor = await requireAdmin();
+    const actor = await requireAdmin("staff");
     suppressCameraForRequest();
     const name = await staffName(userId);
     await changeUserTeam(userId, teamId);
@@ -245,7 +255,7 @@ export async function changeTeamAction(userId: string, teamId: string | null): P
 
 export async function approveAccountAction(userId: string): Promise<ActionResult> {
   try {
-    const actor = await requireAdmin();
+    const actor = await requireAdmin("staff");
     suppressCameraForRequest();
     const name = await staffName(userId);
     await approveAccount(userId);
@@ -263,7 +273,7 @@ export async function approveAccountAction(userId: string): Promise<ActionResult
 
 export async function rejectAccountAction(userId: string): Promise<ActionResult> {
   try {
-    const actor = await requireAdmin();
+    const actor = await requireAdmin("staff");
     suppressCameraForRequest();
     const name = await staffName(userId);
     await rejectAccount(userId);
@@ -281,7 +291,7 @@ export async function rejectAccountAction(userId: string): Promise<ActionResult>
 
 export async function assignWarehouseAction(userId: string, warehouseId: string | null): Promise<ActionResult> {
   try {
-    const actor = await requireAdmin();
+    const actor = await requireAdmin("staff");
     suppressCameraForRequest();
     const name = await staffName(userId);
     await assignWarehouseToUser(userId, warehouseId);
@@ -300,7 +310,7 @@ export async function assignWarehouseAction(userId: string, warehouseId: string 
 
 export async function createTeamAction(name: string, department: Department): Promise<ActionResult> {
   try {
-    const actor = await requireAdmin();
+    const actor = await requireAdmin("staff");
     suppressCameraForRequest();
     if (!name.trim()) return { error: "Team name is required" };
     const created = await createTeam(name, department);
@@ -319,7 +329,7 @@ export async function createTeamAction(name: string, department: Department): Pr
 
 export async function deleteTeamAction(id: string): Promise<ActionResult> {
   try {
-    const actor = await requireAdmin();
+    const actor = await requireAdmin("staff");
     suppressCameraForRequest();
     await deleteTeam(id);
     await logActivity({

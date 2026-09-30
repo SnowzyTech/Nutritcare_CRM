@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { isAdmin } from "@/lib/auth/role-routes";
+import { canAccessAdminPage } from "@/lib/auth/admin-pages";
 import { logActivity } from "@/modules/audit/services/audit-log.service";
 import { suppressCameraForRequest } from "@/lib/audit/context";
 import {
@@ -56,6 +57,22 @@ async function requireAuth() {
   if (!dbUser) throw new Error("Session expired — please sign out and sign in again");
 
   return session.user;
+}
+
+/**
+ * Per-admin page revocation must gate inventory *actions*, not just page
+ * navigation: a SUPER_ADMIN can revoke a limited ADMIN's Inventory access, and
+ * that has to actually block the stock-changing adjustment approve/reject
+ * actions — hiding the page isn't enough. Read the revoked list fresh from the
+ * DB (no stale-token window), mirroring `requireAdminPageAccess`. SUPER_ADMIN
+ * and any non-admin caller are unaffected (see `canAccessAdminPage`).
+ */
+async function hasInventoryPageAccess(user: { id: string; role: string }): Promise<boolean> {
+  const dbUser = await prisma.user.findUnique({
+    where: { id: user.id },
+    select: { revokedAdminPages: true },
+  });
+  return canAccessAdminPage(user.role, dbUser?.revokedAdminPages ?? [], "inventory");
 }
 
 // ── Create Incoming Movement ──────────────────────────────────────────────────
@@ -564,6 +581,8 @@ export async function approveAdjustmentAction(
   }
   suppressCameraForRequest();
   if (!isAdmin(user.role)) return { error: "Only admins can approve adjustments" };
+  if (!(await hasInventoryPageAccess(user)))
+    return { error: "Your inventory access has been revoked" };
 
   const adj = await prisma.stockAdjustment.findUnique({
     where: { id },
@@ -576,10 +595,19 @@ export async function approveAdjustmentAction(
 
   try {
     await prisma.$transaction(async (tx) => {
-      await tx.stockAdjustment.update({
-        where: { id },
+      // Atomically CLAIM the pending adjustment: only flip a row still in
+      // PENDING_APPROVAL. Two concurrent approvals (e.g. a double-click) both
+      // pass the check above, but only the first update matches here — the
+      // second sees the row already RECORDED, matches 0 rows, and rolls back
+      // before recordAdjustment runs. Without this the delta would apply twice
+      // (recordAdjustment adds `quantityAfter - quantityBefore`), corrupting stock.
+      const claimed = await tx.stockAdjustment.updateMany({
+        where: { id, status: "PENDING_APPROVAL" },
         data: { status: "RECORDED" },
       });
+      if (claimed.count === 0) {
+        throw new Error("Adjustment is no longer pending approval");
+      }
       await recordAdjustment(tx, adj.warehouseId, adj.items);
       const shelfItems = adj.items.filter(
         (i): i is typeof i & { locationId: string } => i.locationId != null
@@ -607,6 +635,11 @@ export async function approveAdjustmentAction(
       description: `Approved stock adjustment ${adj.referenceNumber}`,
     });
   } catch (e) {
+    // A lost race (another approval already recorded it) is an expected outcome,
+    // not a server error — surface it plainly and don't log it as a failure.
+    if (e instanceof Error && e.message === "Adjustment is no longer pending approval") {
+      return { error: e.message };
+    }
     console.error("approveAdjustmentAction error:", e);
     return { error: "Failed to approve adjustment" };
   }
@@ -632,6 +665,8 @@ export async function rejectAdjustmentAction(
   }
   suppressCameraForRequest();
   if (!isAdmin(user.role)) return { error: "Only admins can reject adjustments" };
+  if (!(await hasInventoryPageAccess(user)))
+    return { error: "Your inventory access has been revoked" };
 
   const adj = await prisma.stockAdjustment.findUnique({
     where: { id },
@@ -640,10 +675,13 @@ export async function rejectAdjustmentAction(
   if (!adj) return { error: "Adjustment not found" };
   if (adj.status !== "PENDING_APPROVAL") return { error: "Adjustment is not pending approval" };
 
-  await prisma.stockAdjustment.update({
-    where: { id },
+  // Conditional transition (mirrors approve): only reject a row still pending, so
+  // a concurrent approve/reject can't both act on the same adjustment.
+  const claimed = await prisma.stockAdjustment.updateMany({
+    where: { id, status: "PENDING_APPROVAL" },
     data: { status: "REJECTED", notes: reason.trim() || null },
   });
+  if (claimed.count === 0) return { error: "Adjustment is no longer pending approval" };
 
   // Notify the inventory manager
   await notify({
@@ -849,6 +887,8 @@ export async function approveRapsAction(id: string): Promise<{ error?: string }>
   if (user.role !== "INVENTORY_MANAGER" && user.role !== "ADMIN") {
     return { error: "Only inventory managers can approve RAPS" };
   }
+  if (!(await hasInventoryPageAccess(user)))
+    return { error: "Your inventory access has been revoked" };
 
   const movement = await prisma.stockMovement.findUnique({ where: { id } });
   if (!movement || movement.type !== "INCOMING") return { error: "Movement not found" };
@@ -888,6 +928,8 @@ export async function rejectRapsAction(id: string, reason: string): Promise<{ er
   if (user.role !== "INVENTORY_MANAGER" && user.role !== "ADMIN") {
     return { error: "Only inventory managers can reject RAPS" };
   }
+  if (!(await hasInventoryPageAccess(user)))
+    return { error: "Your inventory access has been revoked" };
 
   const movement = await prisma.stockMovement.findUnique({ where: { id } });
   if (!movement || movement.type !== "INCOMING") return { error: "Movement not found" };

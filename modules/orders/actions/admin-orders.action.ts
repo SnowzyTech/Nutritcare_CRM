@@ -24,6 +24,7 @@ import {
 } from "@/lib/whatsapp/whatsapp";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { isAdmin } from "@/lib/auth/role-routes";
+import { canAccessAdminPage } from "@/lib/auth/admin-pages";
 import { suppressCameraForRequest } from "@/lib/audit/context";
 import { describeReassignment } from "@/modules/orders/services/reassign-description.service";
 import {
@@ -58,6 +59,18 @@ async function checkAdmin() {
   const session = await auth();
   if (!session?.user?.id || !isAdmin(session.user.role)) {
     throw new Error("Unauthorized");
+  }
+  // Per-admin page revocation gates the *actions*, not just page navigation: a
+  // SUPER_ADMIN can revoke a limited ADMIN's Orders access, and that has to
+  // block these order mutations too — hiding the page isn't enough. Read the
+  // revoked list fresh from the DB (no stale-token window), mirroring
+  // `requireAdminPageAccess`. SUPER_ADMIN is unaffected (see canAccessAdminPage).
+  const dbUser = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { revokedAdminPages: true },
+  });
+  if (!canAccessAdminPage(session.user.role, dbUser?.revokedAdminPages ?? [], "orders")) {
+    throw new Error("Your orders access has been revoked");
   }
   return session;
 }
